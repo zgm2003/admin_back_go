@@ -90,11 +90,11 @@ func TestAdminOnlyRetiredTransportPackagesAreAbsent(t *testing.T) {
 		"internal/module/payment/transport/canvas",
 		"internal/module/payment/wallet/transport/canvas",
 		"internal/module/ai/asset/transport/canvas",
-		"internal/module/ai/audio/transport/canvas",
+		"internal/module/ai/audio",
 		"internal/module/ai/chat/transport/canvas",
 		"internal/module/ai/image/transport/canvas",
 		"internal/module/ai/prompt/transport/canvas",
-		"internal/module/ai/video/transport/canvas",
+		"internal/module/ai/video",
 		"internal/module/ai/internal/canvasrequest",
 	} {
 		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(relative))); err == nil {

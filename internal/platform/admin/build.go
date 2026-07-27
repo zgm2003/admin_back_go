@@ -21,7 +21,6 @@ import (
 	"admin_back_go/internal/infra/taskqueue"
 	"admin_back_go/internal/middleware"
 	aiagent "admin_back_go/internal/module/ai/agent"
-	aiaudio "admin_back_go/internal/module/ai/audio"
 	aichat "admin_back_go/internal/module/ai/chat"
 	aiconversation "admin_back_go/internal/module/ai/conversation"
 	aiimage "admin_back_go/internal/module/ai/image"
@@ -32,7 +31,6 @@ import (
 	airun "admin_back_go/internal/module/ai/run"
 	aitext "admin_back_go/internal/module/ai/text"
 	aitool "admin_back_go/internal/module/ai/tool"
-	aivideo "admin_back_go/internal/module/ai/video"
 	"admin_back_go/internal/module/auth"
 	authplatform "admin_back_go/internal/module/auth_platform"
 	"admin_back_go/internal/module/crontask"
@@ -76,8 +74,6 @@ type ProviderSet struct {
 	AIConnectionTester aiprovider.ProviderTester
 	AIChatFactory      aichat.EngineFactory
 	AIImageFactory     aiimage.ImageEngineFactory
-	AIVideoFactory     aivideo.EngineFactory
-	AIAudioFactory     aiaudio.EngineFactory
 
 	ObjectReader     storagecos.ObjectReader
 	ObjectWriter     storagecos.ObjectWriter

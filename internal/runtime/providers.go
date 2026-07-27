@@ -17,12 +17,10 @@ import (
 	"admin_back_go/internal/infra/secretkey"
 	infrasms "admin_back_go/internal/infra/sms/tencentcloudsms"
 	storagecos "admin_back_go/internal/infra/storage/cos"
-	aiaudio "admin_back_go/internal/module/ai/audio"
 	aichat "admin_back_go/internal/module/ai/chat"
 	aiimage "admin_back_go/internal/module/ai/image"
 	aiprovider "admin_back_go/internal/module/ai/provider"
 	aitool "admin_back_go/internal/module/ai/tool"
-	aivideo "admin_back_go/internal/module/ai/video"
 	"admin_back_go/internal/module/mail"
 	"admin_back_go/internal/module/sms"
 	"admin_back_go/internal/telemetry"
@@ -39,8 +37,6 @@ type Providers struct {
 	AIChatFactory      aichat.EngineFactory
 	AIImageFactory     aiimage.ImageEngineFactory
 	AIToolFactory      aitool.EngineFactory
-	AIVideoFactory     aivideo.EngineFactory
-	AIAudioFactory     aiaudio.EngineFactory
 
 	ObjectReader     storagecos.ObjectReader
 	ObjectWriter     storagecos.ObjectWriter
@@ -73,8 +69,6 @@ func BuildProviders(cfg config.Config, keys *secretkey.KeyRing, recorders ...tel
 		AIChatFactory:       aiChatEngineFactory{streamIdleTimeout: positiveProviderDuration(cfg.AI.ChatStreamIdleTimeout, config.DefaultAIChatStreamIdleTimeout), recorder: recorder},
 		AIImageFactory:      aiImageEngineFactory{recorder: recorder},
 		AIToolFactory:       aiToolEngineFactory{recorder: recorder},
-		AIVideoFactory:      aiVideoEngineFactory{recorder: recorder},
-		AIAudioFactory:      aiAudioEngineFactory{recorder: recorder},
 		ObjectReader:        storagecos.NewObjectReader(storagecos.ObjectReaderConfig{Enabled: true}),
 		ObjectWriter:        storagecos.NewObjectWriter(storagecos.ObjectWriterConfig{Enabled: true}),
 		CredentialSigner:    storagecos.NewSigner(storagecos.Config{Enabled: true}),
@@ -185,30 +179,6 @@ func (factory aiToolEngineFactory) NewEngine(_ context.Context, input aitool.Eng
 	}
 	engine := openaicompat.New(openaicompat.Config{BaseURL: input.BaseURL, APIKey: input.APIKey, Timeout: 30 * time.Second})
 	return infraai.InstrumentEngine(string(input.EngineType), "tool", engine, factory.recorder), nil
-}
-
-type aiVideoEngineFactory struct {
-	recorder telemetry.Recorder
-}
-
-func (factory aiVideoEngineFactory) NewVideoEngine(_ context.Context, input aivideo.EngineConfig) (infraai.VideoEngine, error) {
-	if input.EngineType != infraai.EngineTypeOpenAI {
-		return nil, infraai.ErrInvalidConfig
-	}
-	engine := openaicompat.New(openaicompat.Config{BaseURL: input.BaseURL, APIKey: input.APIKey, Timeout: 10 * time.Minute})
-	return infraai.InstrumentVideoEngine(string(input.EngineType), engine, factory.recorder), nil
-}
-
-type aiAudioEngineFactory struct {
-	recorder telemetry.Recorder
-}
-
-func (factory aiAudioEngineFactory) NewAudioEngine(_ context.Context, input aiaudio.EngineConfig) (infraai.AudioEngine, error) {
-	if input.EngineType != infraai.EngineTypeOpenAI {
-		return nil, infraai.ErrInvalidConfig
-	}
-	engine := openaicompat.New(openaicompat.Config{BaseURL: input.BaseURL, APIKey: input.APIKey, Timeout: 2 * time.Minute})
-	return infraai.InstrumentAudioEngine(string(input.EngineType), engine, factory.recorder), nil
 }
 
 func positiveProviderDuration(value time.Duration, fallback time.Duration) time.Duration {

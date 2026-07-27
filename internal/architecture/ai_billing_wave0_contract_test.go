@@ -93,18 +93,10 @@ func TestAIBillingWave0ExpandGuardsBeforePersistentDDL(t *testing.T) {
 	}
 }
 
-func TestAIBillingWave0AudioUsesCanonicalReplayableIdentity(t *testing.T) {
+func TestAIBillingWave0HistoricalAudioUsesCanonicalReplayableIdentity(t *testing.T) {
 	root := backendRoot(t)
-	schema := readAIBillingWave0File(t, root, "database", "schema", "admin.hcl")
 	expand := readAIBillingWave0File(t, root, "database", "migrations", "202607250101_ai_billing_expand.sql")
 	contract := readAIBillingWave0File(t, root, "database", "migrations", "202607250103_ai_billing_contract.sql")
-	audioTable := hclTableBlock(t, schema, "ai_audio_tasks")
-
-	for _, required := range []string{`column "request_identity_status"`, `default = "replayable"`, `column "request_identity_marker"`, `check "chk_ai_audio_tasks_request_identity"`, `check "chk_ai_audio_tasks_platform"`} {
-		if !strings.Contains(audioTable, required) {
-			t.Errorf("canonical ai_audio_tasks missing %q", required)
-		}
-	}
 	for _, required := range []string{"`request_identity_status` VARCHAR(24) NOT NULL DEFAULT 'replayable'", "`request_identity_marker` VARCHAR(64) NOT NULL DEFAULT ''", "CONSTRAINT `chk_ai_audio_tasks_request_identity`", "CONSTRAINT `chk_ai_audio_tasks_platform`"} {
 		if !strings.Contains(expand, required) {
 			t.Errorf("audio expand DDL missing %q", required)
@@ -114,6 +106,52 @@ func TestAIBillingWave0AudioUsesCanonicalReplayableIdentity(t *testing.T) {
 		if !strings.Contains(contract, required) {
 			t.Errorf("audio contract guard missing %q", required)
 		}
+	}
+}
+
+func TestAIAudioVideoRetirementDropsOnlyCurrentTaskTables(t *testing.T) {
+	root := backendRoot(t)
+	schema := readAIBillingWave0File(t, root, "database", "schema", "admin.hcl")
+	migration := readAIBillingWave0File(t, root, "database", "migrations", "202607270101_ai_audio_video_retirement.sql")
+
+	for _, retiredTable := range []string{`table "ai_audio_tasks"`, `table "ai_video_tasks"`} {
+		if strings.Contains(schema, retiredTable) {
+			t.Errorf("canonical schema retained %s", retiredTable)
+		}
+	}
+	for _, required := range []string{
+		"@ai_audio_video_retirement_verified",
+		"CREATE TEMPORARY TABLE `_ai_audio_video_retirement_guard`",
+		"CHECK (`violations` = 0)",
+		"JSON_TABLE",
+		"'video_generate'",
+		"'audio_generate'",
+		"`status` = 2",
+		"`is_del` = 1",
+		"information_schema`.`KEY_COLUMN_USAGE",
+		"information_schema`.`VIEW_TABLE_USAGE",
+		"information_schema`.`TRIGGERS",
+		"information_schema`.`EVENTS",
+		"information_schema`.`ROUTINES",
+		"DROP TABLE `ai_video_tasks`, `ai_audio_tasks`",
+	} {
+		if !strings.Contains(migration, required) {
+			t.Errorf("retirement migration missing %q", required)
+		}
+	}
+	guardBoundary := strings.LastIndex(migration, "INSERT INTO `_ai_audio_video_retirement_guard`")
+	dropBoundary := strings.Index(migration, "DROP TABLE `ai_video_tasks`, `ai_audio_tasks`")
+	if guardBoundary < 0 || dropBoundary < 0 || guardBoundary > dropBoundary {
+		t.Fatal("retirement migration must finish all guards before destructive DDL")
+	}
+	for _, preserved := range []string{"ai_runs", "ai_provider_attempts", "ai_usage_charges", "ai_usage_charge_items", "wallet_holds", "wallet_transactions", "ai_assets"} {
+		if strings.Contains(migration, "DROP TABLE `"+preserved+"`") || strings.Contains(migration, "DELETE FROM `"+preserved+"`") {
+			t.Errorf("retirement migration mutates preserved historical table %s", preserved)
+		}
+	}
+	chargeItems := hclTableBlock(t, schema, "ai_usage_charge_items")
+	if !strings.Contains(chargeItems, "_utf8mb4'media'") {
+		t.Fatal("canonical usage categories lost generic media billing")
 	}
 }
 

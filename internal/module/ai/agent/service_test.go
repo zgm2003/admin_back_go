@@ -209,14 +209,14 @@ func TestCreateAcceptsCanonicalGenerationScenes(t *testing.T) {
 		ProviderID: 1,
 		Name:       "图片智能体",
 		ModelID:    "gpt-image-2",
-		Scenes:     []string{"text_generate", "image_generate", "video_generate", "audio_generate"},
+		Scenes:     []string{"text_generate", "image_generate"},
 		Status:     enum.CommonYes,
 	})
 
 	if appErr != nil {
 		t.Fatalf("expected canonical generation scenes to be accepted, got %#v", appErr)
 	}
-	if repo.created == nil || repo.created.ScenesJSON != `["text_generate","image_generate","video_generate","audio_generate"]` {
+	if repo.created == nil || repo.created.ScenesJSON != `["text_generate","image_generate"]` {
 		t.Fatalf("canonical generation scenes were not persisted: %#v", repo.created)
 	}
 }
@@ -232,8 +232,6 @@ func TestSceneOptionsIncludeAgentAndGenerationScenesOnly(t *testing.T) {
 		"agent_generate": "工具生成",
 		"text_generate":  "文本生成",
 		"image_generate": "图片生成",
-		"video_generate": "视频生成",
-		"audio_generate": "音频生成",
 	}
 	if len(options) != len(expected) {
 		t.Fatalf("unexpected scene option count: %#v", options)
@@ -266,22 +264,26 @@ func TestCreateRejectsModelOutsideProviderSnapshot(t *testing.T) {
 }
 
 func TestCreateRejectsInvalidScene(t *testing.T) {
-	repo := &fakeAIAgentRepository{
-		activeProviders:  map[uint64]Provider{1: {ID: 1, Name: "OpenAI", EngineType: "openai", Status: enum.CommonYes, IsDel: enum.CommonNo}},
-		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", Status: enum.CommonYes}}},
-	}
-	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+	for _, invalidScene := range []string{"rag", "video_generate", "audio_generate"} {
+		t.Run(invalidScene, func(t *testing.T) {
+			repo := &fakeAIAgentRepository{
+				activeProviders:  map[uint64]Provider{1: {ID: 1, Name: "OpenAI", EngineType: "openai", Status: enum.CommonYes, IsDel: enum.CommonNo}},
+				modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", Status: enum.CommonYes}}},
+			}
+			service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
-	_, appErr := service.Create(context.Background(), CreateInput{
-		ProviderID: 1,
-		Name:       "客服助手",
-		ModelID:    "gpt-4.1-mini",
-		Scenes:     []string{"chat", "rag"},
-		Status:     enum.CommonYes,
-	})
+			_, appErr := service.Create(context.Background(), CreateInput{
+				ProviderID: 1,
+				Name:       "客服助手",
+				ModelID:    "gpt-4.1-mini",
+				Scenes:     []string{"chat", invalidScene},
+				Status:     enum.CommonYes,
+			})
 
-	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.Message != "无效的智能体场景" {
-		t.Fatalf("expected invalid scene error, got %#v", appErr)
+			if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.Message != "无效的智能体场景" {
+				t.Fatalf("expected invalid scene error, got %#v", appErr)
+			}
+		})
 	}
 }
 

@@ -26,20 +26,6 @@ func InstrumentImageEngine(provider string, delegate ImageEngine, recorder telem
 	return &instrumentedImageEngine{provider: provider, delegate: delegate, recorder: providerRecorder(recorder)}
 }
 
-func InstrumentVideoEngine(provider string, delegate VideoEngine, recorder telemetry.Recorder) VideoEngine {
-	if delegate == nil {
-		return nil
-	}
-	return &instrumentedVideoEngine{provider: provider, delegate: delegate, recorder: providerRecorder(recorder)}
-}
-
-func InstrumentAudioEngine(provider string, delegate AudioEngine, recorder telemetry.Recorder) AudioEngine {
-	if delegate == nil {
-		return nil
-	}
-	return &instrumentedAudioEngine{provider: provider, delegate: delegate, recorder: providerRecorder(recorder)}
-}
-
 type instrumentedEngine struct {
 	provider string
 	modality string
@@ -139,46 +125,6 @@ func (engine *instrumentedImageEngine) GenerateImages(ctx context.Context, input
 	return result, err
 }
 
-type instrumentedVideoEngine struct {
-	provider string
-	delegate VideoEngine
-	recorder telemetry.Recorder
-}
-
-func (engine *instrumentedVideoEngine) CreateVideo(ctx context.Context, input VideoInput) (result *VideoTask, err error) {
-	startedAt := time.Now()
-	result, err = engine.delegate.CreateVideo(ctx, input)
-	recordProviderCompletion(engine.recorder, engine.provider, "video", startedAt, err, nil)
-	return result, err
-}
-
-func (engine *instrumentedVideoEngine) GetVideo(ctx context.Context, taskID string) (result *VideoTask, err error) {
-	startedAt := time.Now()
-	result, err = engine.delegate.GetVideo(ctx, taskID)
-	recordProviderCompletion(engine.recorder, engine.provider, "video", startedAt, err, nil)
-	return result, err
-}
-
-func (engine *instrumentedVideoEngine) DownloadVideo(ctx context.Context, taskID string) (body []byte, contentType string, err error) {
-	startedAt := time.Now()
-	body, contentType, err = engine.delegate.DownloadVideo(ctx, taskID)
-	recordProviderCompletion(engine.recorder, engine.provider, "video", startedAt, err, nil)
-	return body, contentType, err
-}
-
-type instrumentedAudioEngine struct {
-	provider string
-	delegate AudioEngine
-	recorder telemetry.Recorder
-}
-
-func (engine *instrumentedAudioEngine) GenerateAudio(ctx context.Context, input AudioInput) (result *AudioResult, err error) {
-	startedAt := time.Now()
-	result, err = engine.delegate.GenerateAudio(ctx, input)
-	recordProviderCompletion(engine.recorder, engine.provider, "audio", startedAt, err, nil)
-	return result, err
-}
-
 type providerTokens struct {
 	prompt     int
 	completion int
@@ -221,6 +167,4 @@ var (
 	_ PreparedChatEngine = (*instrumentedPreparedEngine)(nil)
 	_ CapabilityProvider = (*instrumentedPreparedEngine)(nil)
 	_ ImageEngine        = (*instrumentedImageEngine)(nil)
-	_ VideoEngine        = (*instrumentedVideoEngine)(nil)
-	_ AudioEngine        = (*instrumentedAudioEngine)(nil)
 )

@@ -213,47 +213,6 @@ type ChatResult struct {
 	LatencyMs            int
 }
 
-type VideoInput struct {
-	Model           string
-	Prompt          string
-	DurationSeconds int
-	Size            string
-	ResolutionName  string
-	GenerateAudio   *bool
-	Watermark       *bool
-}
-
-type VideoTask struct {
-	ID           string
-	Status       string
-	ErrorMessage string
-	RawResponse  map[string]any
-}
-
-type VideoEngine interface {
-	CreateVideo(ctx context.Context, input VideoInput) (*VideoTask, error)
-	GetVideo(ctx context.Context, taskID string) (*VideoTask, error)
-	DownloadVideo(ctx context.Context, taskID string) ([]byte, string, error)
-}
-
-type AudioInput struct {
-	Model          string
-	Prompt         string
-	Voice          string
-	ResponseFormat string
-	Speed          *float64
-	Instructions   string
-}
-
-type AudioResult struct {
-	Body        []byte
-	ContentType string
-}
-
-type AudioEngine interface {
-	GenerateAudio(ctx context.Context, input AudioInput) (*AudioResult, error)
-}
-
 type Event struct {
 	Type      string
 	DeltaText string

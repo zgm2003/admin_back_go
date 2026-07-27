@@ -64,22 +64,6 @@ func TestInstrumentedProviderModalitiesRecordOnlyBoundedMetadata(t *testing.T) {
 			_, err := InstrumentImageEngine("openai", fakeTelemetryImageEngine{}, recorder).GenerateImages(context.Background(), ImageInput{Prompt: "private"})
 			return err
 		}},
-		{name: "video create", modality: "video", call: func(recorder *telemetry.MemoryRecorder) error {
-			_, err := InstrumentVideoEngine("openai", fakeTelemetryVideoEngine{}, recorder).CreateVideo(context.Background(), VideoInput{Prompt: "private"})
-			return err
-		}},
-		{name: "video get", modality: "video", call: func(recorder *telemetry.MemoryRecorder) error {
-			_, err := InstrumentVideoEngine("openai", fakeTelemetryVideoEngine{}, recorder).GetVideo(context.Background(), "private-task-id")
-			return err
-		}},
-		{name: "video download", modality: "video", call: func(recorder *telemetry.MemoryRecorder) error {
-			_, _, err := InstrumentVideoEngine("openai", fakeTelemetryVideoEngine{}, recorder).DownloadVideo(context.Background(), "private-task-id")
-			return err
-		}},
-		{name: "audio", modality: "audio", call: func(recorder *telemetry.MemoryRecorder) error {
-			_, err := InstrumentAudioEngine("openai", fakeTelemetryAudioEngine{}, recorder).GenerateAudio(context.Background(), AudioInput{Prompt: "private"})
-			return err
-		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -172,24 +156,4 @@ type fakeTelemetryImageEngine struct{}
 
 func (fakeTelemetryImageEngine) GenerateImages(context.Context, ImageInput) (*ImageResult, error) {
 	return &ImageResult{PromptTokens: 2, CompletionTokens: 3, TotalTokens: 5}, nil
-}
-
-type fakeTelemetryVideoEngine struct{}
-
-func (fakeTelemetryVideoEngine) CreateVideo(context.Context, VideoInput) (*VideoTask, error) {
-	return &VideoTask{ID: "private-upstream-id"}, nil
-}
-
-func (fakeTelemetryVideoEngine) GetVideo(context.Context, string) (*VideoTask, error) {
-	return &VideoTask{ID: "private-upstream-id"}, nil
-}
-
-func (fakeTelemetryVideoEngine) DownloadVideo(context.Context, string) ([]byte, string, error) {
-	return []byte("private-video"), "video/mp4", nil
-}
-
-type fakeTelemetryAudioEngine struct{}
-
-func (fakeTelemetryAudioEngine) GenerateAudio(context.Context, AudioInput) (*AudioResult, error) {
-	return &AudioResult{Body: []byte("private-audio"), ContentType: "audio/mpeg"}, nil
 }

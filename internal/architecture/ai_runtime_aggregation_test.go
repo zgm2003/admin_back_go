@@ -58,7 +58,7 @@ func TestAIConversationRuntimeDoesNotReferenceOldActivePaths(t *testing.T) {
 	}
 }
 
-func TestBackendArchitectureDocumentsCanvasAudioRuntime(t *testing.T) {
+func TestBackendArchitectureDocumentsRetainedAIRuntime(t *testing.T) {
 	root := backendRoot(t)
 	body, err := os.ReadFile(filepath.Join(root, "docs", "architecture.md"))
 	if err != nil {
@@ -66,17 +66,24 @@ func TestBackendArchitectureDocumentsCanvasAudioRuntime(t *testing.T) {
 	}
 	text := string(body)
 	for _, want := range []string{
-		"ai/audio",
-		"canvas_audio_generate",
-		"POST /api/canvas/v1/ai/audios",
-		"raw audio/*",
+		"chat, agent_generate, text_generate, and image_generate",
+		"AI audio and video generation are retired",
 		"ai_runs",
 	} {
 		if !strings.Contains(text, want) {
-			t.Fatalf("backend architecture must document Canvas audio runtime fact %q", want)
+			t.Fatalf("backend architecture must document retained AI runtime fact %q", want)
 		}
 	}
-	if strings.Contains(text, "MVP scenes currently allow chat and agent_generate") {
-		t.Fatalf("backend architecture still documents stale AI agent scene limit")
+	for _, retired := range []string{
+		"internal/module/ai/audio",
+		"internal/module/ai/video",
+		"canvas_audio_generate",
+		"canvas_video_generate",
+		"POST /api/canvas/v1/ai/audios",
+		"POST /api/canvas/v1/ai/videos",
+	} {
+		if strings.Contains(text, retired) {
+			t.Fatalf("backend architecture still documents retired AI runtime fact %q", retired)
+		}
 	}
 }

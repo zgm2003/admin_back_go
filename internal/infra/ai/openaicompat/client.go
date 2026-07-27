@@ -10,7 +10,6 @@ import (
 	"hash"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -223,167 +222,6 @@ func (c *Client) streamPreparedChat(ctx context.Context, input infraai.PreparedC
 	result.ProviderRequestID = providerRequestID
 	result.DispatchState = infraai.DispatchStateDispatched
 	return result, nil
-}
-
-func (c *Client) CreateVideo(ctx context.Context, input infraai.VideoInput) (*infraai.VideoTask, error) {
-	if c == nil {
-		return nil, fmt.Errorf("%w: OpenAI client is nil", infraai.ErrInvalidConfig)
-	}
-	model := strings.TrimSpace(input.Model)
-	if model == "" {
-		return nil, fmt.Errorf("%w: missing video model", infraai.ErrInvalidConfig)
-	}
-	prompt := strings.TrimSpace(input.Prompt)
-	if prompt == "" {
-		return nil, fmt.Errorf("%w: missing video prompt", infraai.ErrInvalidConfig)
-	}
-	body := map[string]any{"model": model, "prompt": prompt}
-	if input.DurationSeconds > 0 {
-		body["seconds"] = input.DurationSeconds
-	}
-	if size := strings.TrimSpace(input.Size); size != "" {
-		body["size"] = size
-	}
-	if resolution := strings.TrimSpace(input.ResolutionName); resolution != "" {
-		body["resolution_name"] = resolution
-	}
-	if input.GenerateAudio != nil {
-		body["generate_audio"] = *input.GenerateAudio
-	}
-	if input.Watermark != nil {
-		body["watermark"] = *input.Watermark
-	}
-	req, err := c.newRequest(ctx, http.MethodPost, "/videos", body)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", infraai.ErrUpstreamFailed, err)
-	}
-	defer resp.Body.Close()
-	if err := c.requireSuccess(resp); err != nil {
-		return nil, err
-	}
-	var payload map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return nil, fmt.Errorf("decode OpenAI video create response: %w", err)
-	}
-	task := videoTaskFromPayload(payload)
-	if strings.TrimSpace(task.ID) == "" {
-		return nil, fmt.Errorf("%w: video create response missing task id", infraai.ErrUpstreamFailed)
-	}
-	return task, nil
-}
-
-func (c *Client) GetVideo(ctx context.Context, taskID string) (*infraai.VideoTask, error) {
-	if c == nil {
-		return nil, fmt.Errorf("%w: OpenAI client is nil", infraai.ErrInvalidConfig)
-	}
-	taskID = strings.TrimSpace(taskID)
-	if taskID == "" {
-		return nil, fmt.Errorf("%w: missing video task id", infraai.ErrInvalidConfig)
-	}
-	req, err := c.newRequest(ctx, http.MethodGet, "/videos/"+url.PathEscape(taskID), nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", infraai.ErrUpstreamFailed, err)
-	}
-	defer resp.Body.Close()
-	if err := c.requireSuccess(resp); err != nil {
-		return nil, err
-	}
-	var payload map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return nil, fmt.Errorf("decode OpenAI video status response: %w", err)
-	}
-	task := videoTaskFromPayload(payload)
-	if task.ID == "" {
-		task.ID = taskID
-	}
-	return task, nil
-}
-
-func (c *Client) DownloadVideo(ctx context.Context, taskID string) ([]byte, string, error) {
-	if c == nil {
-		return nil, "", fmt.Errorf("%w: OpenAI client is nil", infraai.ErrInvalidConfig)
-	}
-	taskID = strings.TrimSpace(taskID)
-	if taskID == "" {
-		return nil, "", fmt.Errorf("%w: missing video task id", infraai.ErrInvalidConfig)
-	}
-	req, err := c.newRequest(ctx, http.MethodGet, "/videos/"+url.PathEscape(taskID)+"/content", nil)
-	if err != nil {
-		return nil, "", err
-	}
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, "", fmt.Errorf("%w: %v", infraai.ErrUpstreamFailed, err)
-	}
-	defer resp.Body.Close()
-	if err := c.requireSuccess(resp); err != nil {
-		return nil, "", err
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, "", fmt.Errorf("read OpenAI video content: %w", err)
-	}
-	contentType := strings.TrimSpace(resp.Header.Get("Content-Type"))
-	if contentType == "" {
-		contentType = "application/octet-stream"
-	}
-	return body, contentType, nil
-}
-
-func (c *Client) GenerateAudio(ctx context.Context, input infraai.AudioInput) (*infraai.AudioResult, error) {
-	if c == nil {
-		return nil, fmt.Errorf("%w: OpenAI client is nil", infraai.ErrInvalidConfig)
-	}
-	model := strings.TrimSpace(input.Model)
-	if model == "" {
-		return nil, fmt.Errorf("%w: missing audio model", infraai.ErrInvalidConfig)
-	}
-	prompt := strings.TrimSpace(input.Prompt)
-	if prompt == "" {
-		return nil, fmt.Errorf("%w: missing audio prompt", infraai.ErrInvalidConfig)
-	}
-	body := map[string]any{"model": model, "input": prompt}
-	if voice := strings.TrimSpace(input.Voice); voice != "" {
-		body["voice"] = voice
-	}
-	if format := strings.TrimSpace(input.ResponseFormat); format != "" {
-		body["response_format"] = format
-	}
-	if input.Speed != nil {
-		body["speed"] = *input.Speed
-	}
-	if instructions := strings.TrimSpace(input.Instructions); instructions != "" {
-		body["instructions"] = instructions
-	}
-	req, err := c.newRequest(ctx, http.MethodPost, "/audio/speech", body)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", infraai.ErrUpstreamFailed, err)
-	}
-	defer resp.Body.Close()
-	if err := c.requireSuccess(resp); err != nil {
-		return nil, err
-	}
-	audio, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read OpenAI audio speech response: %w", err)
-	}
-	contentType := strings.TrimSpace(resp.Header.Get("Content-Type"))
-	if contentType == "" {
-		contentType = "application/octet-stream"
-	}
-	return &infraai.AudioResult{Body: audio, ContentType: contentType}, nil
 }
 
 func (c *Client) newRequest(ctx context.Context, method string, endpoint string, body any) (*http.Request, error) {
@@ -601,23 +439,6 @@ type chatCompletionRequest struct {
 	Tools         []chatTool         `json:"tools,omitempty"`
 	Temperature   *float64           `json:"temperature,omitempty"`
 	MaxTokens     *int               `json:"max_tokens,omitempty"`
-}
-
-func videoTaskFromPayload(payload map[string]any) *infraai.VideoTask {
-	if payload == nil {
-		return &infraai.VideoTask{}
-	}
-	task := &infraai.VideoTask{ID: stringFromAny(payload["id"]), Status: stringFromAny(payload["status"]), RawResponse: payload}
-	if task.Status == "" {
-		task.Status = stringFromAny(payload["state"])
-	}
-	if errorValue, ok := payload["error"].(map[string]any); ok {
-		task.ErrorMessage = stringFromAny(errorValue["message"])
-	}
-	if task.ErrorMessage == "" {
-		task.ErrorMessage = stringFromAny(payload["error_message"])
-	}
-	return task
 }
 
 type chatStreamOptions struct {
@@ -919,11 +740,7 @@ func upstreamHTTPErrorMessage(body []byte, apiKey string) string {
 	if detail == "" {
 		return sanitizeBody(body, apiKey)
 	}
-	message := sanitizeBody([]byte(detail), apiKey)
-	if hint := friendlyUpstreamErrorHint(message); hint != "" {
-		return hint + "：" + message
-	}
-	return message
+	return sanitizeBody([]byte(detail), apiKey)
 }
 
 func extractUpstreamErrorDetail(body []byte) string {
@@ -943,17 +760,6 @@ func extractUpstreamErrorDetail(body []byte) string {
 		if message := stringFromAny(payload[key]); strings.TrimSpace(message) != "" {
 			return message
 		}
-	}
-	return ""
-}
-
-func friendlyUpstreamErrorHint(message string) string {
-	lower := strings.ToLower(message)
-	if strings.Contains(lower, "reference") && strings.Contains(lower, "video") && (strings.Contains(lower, "privacy") || strings.Contains(lower, "private")) {
-		return "参考视频可能包含真人、隐私或受限内容，请更换参考视频或改用参考图"
-	}
-	if strings.Contains(message, "参考视频") && (strings.Contains(message, "隐私") || strings.Contains(message, "真人")) {
-		return "参考视频可能包含真人、隐私或受限内容，请更换参考视频或改用参考图"
 	}
 	return ""
 }

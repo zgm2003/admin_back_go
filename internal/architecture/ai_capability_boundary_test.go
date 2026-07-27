@@ -8,10 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	aiaudio "admin_back_go/internal/module/ai/audio"
 	aichat "admin_back_go/internal/module/ai/chat"
 	aiimage "admin_back_go/internal/module/ai/image"
-	aivideo "admin_back_go/internal/module/ai/video"
 )
 
 func TestRetainedAICapabilitiesAreTransportNeutral(t *testing.T) {
@@ -29,7 +27,7 @@ func TestRetainedAICapabilitiesAreTransportNeutral(t *testing.T) {
 	}
 
 	var offenders []string
-	for _, module := range []string{"agent", "audio", "chat", "image", "text", "video"} {
+	for _, module := range []string{"agent", "chat", "image", "text"} {
 		base := filepath.Join(root, "internal", "module", "ai", module)
 		err := filepath.WalkDir(base, func(path string, entry os.DirEntry, walkErr error) error {
 			if walkErr != nil {
@@ -68,12 +66,9 @@ func TestRetainedAICapabilitiesAreTransportNeutral(t *testing.T) {
 
 func TestRetainedAICapabilityInputsRequirePlatformProvenance(t *testing.T) {
 	for name, input := range map[string]any{
-		"text":            aichat.TextCompletionInput{},
-		"image":           aiimage.CreateInput{},
-		"image_worker":    aiimage.GenerateInput{},
-		"audio":           aiaudio.GenerateInput{},
-		"video":           aivideo.CreateInput{},
-		"reference_media": aivideo.ReferenceMediaUploadInput{},
+		"text":         aichat.TextCompletionInput{},
+		"image":        aiimage.CreateInput{},
+		"image_worker": aiimage.GenerateInput{},
 	} {
 		field, ok := reflect.TypeOf(input).FieldByName("Platform")
 		if !ok || field.Type.Kind() != reflect.String {
@@ -81,11 +76,18 @@ func TestRetainedAICapabilityInputsRequirePlatformProvenance(t *testing.T) {
 		}
 	}
 
-	field, ok := reflect.TypeOf(aivideo.VideoTask{}).FieldByName("Platform")
-	if !ok || field.Type.Kind() != reflect.String {
-		t.Fatal("video task must persist explicit string Platform provenance")
-	}
-	if got := (aivideo.VideoTask{}).TableName(); got != "ai_video_tasks" {
-		t.Fatalf("video task table = %q, want ai_video_tasks", got)
+}
+
+func TestAIAudioVideoGenerationModulesAreAbsent(t *testing.T) {
+	root := backendRoot(t)
+	for _, relative := range []string{
+		"internal/module/ai/audio",
+		"internal/module/ai/video",
+		"internal/shared/i18n/locales/en-US/aiaudio.yaml",
+		"internal/shared/i18n/locales/en-US/aivideo.yaml",
+		"internal/shared/i18n/locales/zh-CN/aiaudio.yaml",
+		"internal/shared/i18n/locales/zh-CN/aivideo.yaml",
+	} {
+		mustNotExist(t, root, relative)
 	}
 }

@@ -6,14 +6,10 @@ func TestGenerationScenesAreCanonicalAndDistinct(t *testing.T) {
 	want := map[string]string{
 		"text":  "text_generate",
 		"image": "image_generate",
-		"video": "video_generate",
-		"audio": "audio_generate",
 	}
 	got := map[string]string{
 		"text":  SceneTextGenerate,
 		"image": SceneImageGenerate,
-		"video": SceneVideoGenerate,
-		"audio": SceneAudioGenerate,
 	}
 
 	seen := make(map[string]string, len(got))
