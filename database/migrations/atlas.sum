@@ -1,4 +1,4 @@
-h1:lwaQ4mqee43QCr35mthRVpzn/UifjZB1SRjUC8yVDbY=
+h1:GAlzuh0N3vRxlS6TbuOIUk+7drgo37mqHYcBM/A68T0=
 202607150001_baseline.sql h1:elg7qkyR6lLW3sqj22zwsIPT5lz+rWrGmoOMH8qg45c=
 202607150101_ai_reply_durability.sql h1:C9rD6IYDKzwJmBFlSWWDQJwNqYBgcqqg+qq0hGCK8C0=
 202607150102_realtime_retention.sql h1:waqtQw3UdFKVuFeGZsttQi8rz4M/r5KaO/mK/q3ahRc=
@@ -16,3 +16,4 @@ h1:lwaQ4mqee43QCr35mthRVpzn/UifjZB1SRjUC8yVDbY=
 202607250105_ai_provider_attempt_dispatch_state.sql h1:QFJ+NZjC4K4pvH/UY7458vvbNp0XK1rUl9JC1A4p1mQ=
 202607260101_ai_image_task_leases.sql h1:a4BrC7Exo2EDmj6dq87DQV8FN7u6gowk9ZOVz7KsveU=
 202607270101_ai_audio_video_retirement.sql h1:cnRUjPNGQbYvxmOU023tSI0n3CKYwE7xeYG/A/kVpjs=
+202607270102_ai_consumer_interactions.sql h1:EhLmRRaFDusj97rFhYCq/6K8zMSbg9Y0Qh2XKqQoOJU=

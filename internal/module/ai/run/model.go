@@ -30,6 +30,7 @@ type Run struct {
 	ErrorMessage          string     `gorm:"column:error_message"`
 	StartedAt             *time.Time `gorm:"column:started_at"`
 	FinishedAt            *time.Time `gorm:"column:finished_at"`
+	LikedAt               *time.Time `gorm:"column:liked_at"`
 	CreatedAt             time.Time  `gorm:"column:created_at"`
 	UpdatedAt             time.Time  `gorm:"column:updated_at"`
 }

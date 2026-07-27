@@ -2,6 +2,8 @@ package aiconversation
 
 import (
 	"context"
+	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -9,7 +11,28 @@ import (
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	"gorm.io/gorm/schema"
 )
+
+func TestConversationModelMapsLastReadMessageID(t *testing.T) {
+	parsed, err := schema.Parse(&Conversation{}, &sync.Map{}, schema.NamingStrategy{})
+	if err != nil {
+		t.Fatalf("parse Conversation schema: %v", err)
+	}
+	field := parsed.LookUpField("LastReadMessageID")
+	if field == nil {
+		t.Fatal("Conversation must persist LastReadMessageID")
+	}
+	if field.DBName != "last_read_message_id" {
+		t.Fatalf("LastReadMessageID column mismatch: %q", field.DBName)
+	}
+	if field.FieldType != reflect.TypeOf(int64(0)) {
+		t.Fatalf("LastReadMessageID type mismatch: %v", field.FieldType)
+	}
+	if parsed.LookUpField("UnreadCount") != nil {
+		t.Fatal("derived UnreadCount must not be part of the Conversation persistence model")
+	}
+}
 
 func TestRepositoryListFiltersByLastMessageTimeAndIDTuple(t *testing.T) {
 	sqlDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))

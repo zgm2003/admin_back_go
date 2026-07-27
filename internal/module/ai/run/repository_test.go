@@ -2,10 +2,12 @@ package airun
 
 import (
 	"context"
+	"reflect"
 	"regexp"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"gorm.io/driver/mysql"
@@ -13,6 +15,23 @@ import (
 	"gorm.io/gorm/logger"
 	"gorm.io/gorm/schema"
 )
+
+func TestRunModelMapsLikedAt(t *testing.T) {
+	parsed, err := schema.Parse(&Run{}, &sync.Map{}, schema.NamingStrategy{})
+	if err != nil {
+		t.Fatalf("parse Run schema: %v", err)
+	}
+	field := parsed.LookUpField("LikedAt")
+	if field == nil {
+		t.Fatal("Run must persist LikedAt")
+	}
+	if field.DBName != "liked_at" {
+		t.Fatalf("LikedAt column mismatch: %q", field.DBName)
+	}
+	if field.FieldType != reflect.TypeOf((*time.Time)(nil)) {
+		t.Fatalf("LikedAt type mismatch: %v", field.FieldType)
+	}
+}
 
 func TestRunDetailRowMarksMessageSummariesIgnoredByGorm(t *testing.T) {
 	_, err := schema.Parse(&RunDetailRow{}, &sync.Map{}, schema.NamingStrategy{})

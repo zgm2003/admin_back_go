@@ -424,6 +424,13 @@ table "ai_conversations" {
     type    = datetime
     comment = "上次对话时间"
   }
+  column "last_read_message_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+    default  = 0
+    comment  = "当前用户已读消息游标"
+  }
   column "is_del" {
     null     = false
     type     = tinyint
@@ -1301,6 +1308,9 @@ table "ai_messages" {
   index "idx_ai_messages_conversation_del_id" {
     columns = [column.conversation_id, column.is_del, column.id]
   }
+  index "idx_ai_messages_conversation_del_role_id" {
+    columns = [column.conversation_id, column.is_del, column.role, column.id]
+  }
   index "uk_ai_messages_reply_command" {
     unique  = true
     columns = [column.reply_command_id]
@@ -2029,6 +2039,10 @@ table "ai_runs" {
     null    = true
     type    = datetime
     comment = "进入终态时间"
+  }
+  column "liked_at" {
+    null = true
+    type = datetime(6)
   }
   column "created_at" {
     null    = false
