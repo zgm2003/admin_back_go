@@ -15,12 +15,28 @@ func TestUpperBoundLinesChoosesMostExpensiveCompatibleTier(t *testing.T) {
 	price := ModelPrice{ModelID: "m", Rates: []Rate{
 		{Category: InputTokens, Unit: "token", TierKey: "short_context", PriceUnits: 2, UnitScale: 1},
 		{Category: InputTokens, Unit: "token", TierKey: "long_context", PriceUnits: 5, UnitScale: 1},
-		{Category: CacheWrite, Unit: "token", TierKey: "5m", PriceUnits: 6, UnitScale: 1},
-		{Category: CacheWrite, Unit: "token", TierKey: "1h", PriceUnits: 10, UnitScale: 1},
+		{Category: CacheWrite, Unit: "token", TierKey: "5m", PriceUnits: 3, UnitScale: 1},
+		{Category: CacheWrite, Unit: "token", TierKey: "1h", PriceUnits: 4, UnitScale: 1},
 	}}
 	got, err := UpperBoundLines(price, []QuoteLine{tierLine("input", "a", billing.UsageCategoryInputText, "", 1), tierLine("write", "a", billing.UsageCategoryCacheWrite, "5m", 1)})
 	if err != nil || got[0].Item.TierKey != "long_context" || got[1].Item.TierKey != "5m" {
 		t.Fatalf("upper bound = %#v, %v", got, err)
+	}
+}
+
+func TestUpperBoundLinesPricesAggregateInputAtMostExpensiveInputFamilyRate(t *testing.T) {
+	price := ModelPrice{ModelID: "claude", Rates: []Rate{
+		{Category: InputTokens, Unit: "token", PriceUnits: 3, UnitScale: 1},
+		{Category: CacheRead, Unit: "token", PriceUnits: 1, UnitScale: 1},
+		{Category: CacheWrite, Unit: "token", TierKey: "5m", PriceUnits: 4, UnitScale: 1},
+		{Category: CacheWrite, Unit: "token", TierKey: "1h", PriceUnits: 6, UnitScale: 1},
+	}}
+	got, err := UpperBoundLines(price, []QuoteLine{tierLine("input", "a", billing.UsageCategoryInputText, "", 10)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[0].Item.Category != billing.UsageCategoryCacheWrite || got[0].Item.TierKey != "1h" {
+		t.Fatalf("aggregate input upper bound = %#v", got[0].Item)
 	}
 }
 

@@ -19,6 +19,8 @@ import (
 	"admin_back_go/internal/infra/taskqueue"
 	"admin_back_go/internal/module/ai/aigateway"
 	"admin_back_go/internal/module/ai/capability"
+	"admin_back_go/internal/module/ai/modelpricing"
+	"admin_back_go/internal/module/ai/pricing"
 	"admin_back_go/internal/module/ai/requestidentity"
 	airun "admin_back_go/internal/module/ai/run"
 	"admin_back_go/internal/shared/apperror"
@@ -479,22 +481,31 @@ func TestGPTImage2OutputTokenUpperBoundBindsFinalSizeQualityAndCount(t *testing.
 }
 
 func TestImagePricingSnapshotUsesRequestBoundAndRejectsSmallerAgentCap(t *testing.T) {
+	resolverCalls := 0
+	service := NewService(Dependencies{PricingResolver: modelpricing.ResolverFunc(func(_ context.Context, modelID string) (pricing.ModelPrice, error) {
+		resolverCalls++
+		return pricing.ModelPrice{
+			Version: "catalog-v3", CatalogVersion: "catalog-v3", CatalogVendor: "openai", ModelID: modelID,
+			MaxOutputTokens: 200000, PriceSource: "official", SourceURL: "https://openai.com/pricing", RetrievedAt: "2026-07-27",
+			Rates: []pricing.Rate{{Category: pricing.MediaUnits, Unit: "image", PriceUnits: 1, UnitScale: 1}},
+		}, nil
+	})})
 	agent := AgentRuntime{
 		ModelID: RequiredModelID, EngineType: string(infraai.EngineTypeOpenAI),
 		BillingMultiplierPPM: 1_000_000, MaxOutputTokens: 105360,
 	}
 	request := CreateInput{Size: "1024x1024", Quality: "high", N: 15}
-	raw, effective, appErr := imagePricingSnapshot(agent, request)
-	if appErr != nil || effective != 105360 {
+	raw, effective, appErr := service.imagePricingSnapshot(context.Background(), agent, request)
+	if appErr != nil || effective != 105360 || resolverCalls != 1 {
 		t.Fatalf("effective=%d error=%#v", effective, appErr)
 	}
 	snapshot, err := aigateway.ParsePricingSnapshot(raw)
-	if err != nil || int64(snapshot.EffectiveMaxOutputTokens) != effective {
+	if err != nil || int64(snapshot.EffectiveMaxOutputTokens) != effective || snapshot.SchemaVersion != aigateway.CurrentPricingSnapshotSchemaVersion {
 		t.Fatalf("snapshot=%#v err=%v", snapshot, err)
 	}
 
 	agent.MaxOutputTokens = uint(effective - 1)
-	if _, _, appErr = imagePricingSnapshot(agent, request); appErr == nil || appErr.HTTPStatus != 409 {
+	if _, _, appErr = service.imagePricingSnapshot(context.Background(), agent, request); appErr == nil || appErr.HTTPStatus != 409 {
 		t.Fatalf("smaller agent cap error=%#v, want HTTP 409", appErr)
 	}
 }

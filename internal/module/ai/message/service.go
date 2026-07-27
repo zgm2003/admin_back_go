@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"admin_back_go/internal/module/ai/aigateway"
+	"admin_back_go/internal/module/ai/modelpricing"
 	"admin_back_go/internal/module/ai/pricing"
 	"admin_back_go/internal/module/ai/replycommand"
 	"admin_back_go/internal/module/ai/requestidentity"
@@ -30,6 +31,7 @@ type Service struct {
 	history         HistoryRepository
 	replyWaker      ReplyWaker
 	cancelPublisher CancelPublisher
+	pricingResolver modelpricing.Resolver
 }
 
 type Option func(*Service)
@@ -44,6 +46,10 @@ func WithCancelPublisher(publisher CancelPublisher) Option {
 
 func WithHistoryRepository(repository HistoryRepository) Option {
 	return func(s *Service) { s.history = repository }
+}
+
+func WithPricingResolver(resolver modelpricing.Resolver) Option {
+	return func(s *Service) { s.pricingResolver = resolver }
 }
 
 func NewService(repository Repository, options ...Option) *Service {
@@ -111,9 +117,9 @@ func (s *Service) Send(ctx context.Context, userID int64, input SendInput) (*Sen
 	if agent == nil || agent.Status != enum.CommonYes || agent.ProviderID <= 0 || strings.TrimSpace(agent.ModelID) == "" || strings.TrimSpace(agent.EngineType) == "" || agent.BillingMultiplierPPM <= 0 || agent.MaxOutputTokens <= 0 || !agentSupportsChat(agent.ScenesJSON) {
 		return nil, apperror.BadRequest("该智能体不支持对话场景")
 	}
-	pricingSnapshotJSON, effectiveMaxOutputTokens, err := pricingSnapshotForSend(*agent, runtimeParams)
+	pricingSnapshotJSON, effectiveMaxOutputTokens, err := s.pricingSnapshotForSend(ctx, *agent, runtimeParams)
 	if err != nil {
-		return nil, apperror.BadRequest("该智能体缺少可用的官方模型价格")
+		return nil, apperror.Wrap("ai.billing.price_unavailable", apperror.CategoryConflict, 409, apperror.Permanent, "", nil, "该智能体缺少可用的模型价格", err)
 	}
 	fingerprint, err := buildSendFingerprint(userID, input.ConversationID, content, attachments, runtimeParams, *agent)
 	if err != nil {
@@ -157,8 +163,18 @@ func (s *Service) Send(ctx context.Context, userID int64, input SendInput) (*Sen
 	}, nil
 }
 
-func pricingSnapshotForSend(agent AgentRuntime, runtimeParams map[string]float64) (string, int64, error) {
-	model, err := pricing.Default.Resolve(strings.TrimSpace(agent.ModelID))
+func (s *Service) pricingSnapshotForSend(ctx context.Context, agent AgentRuntime, runtimeParams map[string]float64) (string, int64, error) {
+	if s == nil {
+		return "", 0, modelpricing.ErrRepositoryNotConfigured
+	}
+	return resolvePricingSnapshotForSend(ctx, s.pricingResolver, agent, runtimeParams)
+}
+
+func resolvePricingSnapshotForSend(ctx context.Context, resolver modelpricing.Resolver, agent AgentRuntime, runtimeParams map[string]float64) (string, int64, error) {
+	if resolver == nil {
+		return "", 0, modelpricing.ErrRepositoryNotConfigured
+	}
+	model, err := resolver.Resolve(ctx, strings.TrimSpace(agent.ModelID))
 	if err != nil {
 		return "", 0, err
 	}
@@ -169,25 +185,14 @@ func pricingSnapshotForSend(agent AgentRuntime, runtimeParams map[string]float64
 	if effective <= 0 || effective > agent.MaxOutputTokens || effective > model.MaxOutputTokens || effective > int64(^uint(0)>>1) {
 		return "", 0, pricing.ErrUnsafeTokenUpperBound
 	}
-	snapshot := aigateway.PricingSnapshot{
-		Version:                  model.Version,
-		Billable:                 true,
-		CatalogVendor:            model.CatalogVendor,
-		TransportEngine:          strings.TrimSpace(agent.EngineType),
-		RequestedModelID:         strings.TrimSpace(agent.ModelID),
-		CanonicalModelID:         model.ModelID,
-		CatalogMaxOutputTokens:   model.MaxOutputTokens,
-		EffectiveMaxOutputTokens: int(effective),
-		MultiplierPPM:            agent.BillingMultiplierPPM,
-		SourceURL:                model.SourceURL,
-		RetrievedAt:              model.RetrievedAt,
-		Rates:                    append([]pricing.Rate(nil), model.Rates...),
-	}
-	raw, err := json.Marshal(snapshot)
+	raw, err := aigateway.EncodePricingSnapshot(model, aigateway.PricingSnapshotInput{
+		TransportEngine: strings.TrimSpace(agent.EngineType), RequestedModelID: strings.TrimSpace(agent.ModelID),
+		EffectiveMaxOutputTokens: int(effective), MultiplierPPM: agent.BillingMultiplierPPM,
+	})
 	if err != nil {
 		return "", 0, err
 	}
-	return string(raw), effective, nil
+	return raw, effective, nil
 }
 
 func sendInputSnapshot(content string, attachments []Attachment, runtimeParams map[string]float64) (string, error) {

@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"admin_back_go/internal/module/ai/aigateway"
+	"admin_back_go/internal/module/ai/modelpricing"
+	"admin_back_go/internal/module/ai/pricing"
 	"admin_back_go/internal/module/ai/replycommand"
 	"admin_back_go/internal/shared/enum"
 
@@ -17,6 +19,31 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
+
+func TestMessagePricingSnapshotUsesInjectedResolver(t *testing.T) {
+	resolverCalls := 0
+	service := NewService(&fakeRepository{}, WithPricingResolver(modelpricing.ResolverFunc(func(_ context.Context, modelID string) (pricing.ModelPrice, error) {
+		resolverCalls++
+		return pricing.ModelPrice{
+			Version: "catalog-v3", CatalogVersion: "catalog-v3", CatalogVendor: "openai", ModelID: modelID,
+			MaxOutputTokens: 4096, PriceSource: "official", SourceURL: "https://openai.com/pricing", RetrievedAt: "2026-07-27",
+			Rates: []pricing.Rate{
+				{Category: pricing.InputTokens, Unit: "token", PriceUnits: 1, UnitScale: 1_000_000},
+				{Category: pricing.OutputTokens, Unit: "token", PriceUnits: 2, UnitScale: 1_000_000},
+			},
+		}, nil
+	})))
+	raw, effective, err := service.pricingSnapshotForSend(context.Background(), AgentRuntime{
+		ModelID: "injected-message-model", EngineType: "openai", BillingMultiplierPPM: 1_100_000, MaxOutputTokens: 2048,
+	}, map[string]float64{"max_tokens": 1024})
+	if err != nil || effective != 1024 || resolverCalls != 1 {
+		t.Fatalf("snapshot result = %q, %d, %v; calls=%d", raw, effective, err, resolverCalls)
+	}
+	snapshot, parseErr := aigateway.ParsePricingSnapshot(raw)
+	if parseErr != nil || snapshot.SchemaVersion != aigateway.CurrentPricingSnapshotSchemaVersion || snapshot.RequestedModelID != "injected-message-model" || snapshot.PriceSource != "official" {
+		t.Fatalf("snapshot = %#v, %v", snapshot, parseErr)
+	}
+}
 
 type fakeRepository struct {
 	conversation         *Conversation

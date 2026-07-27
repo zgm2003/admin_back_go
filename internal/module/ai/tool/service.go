@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/module/ai/aigateway"
+	"admin_back_go/internal/module/ai/modelpricing"
 	"admin_back_go/internal/module/ai/pricing"
 	"admin_back_go/internal/module/ai/requestidentity"
 	aitext "admin_back_go/internal/module/ai/text"
@@ -28,6 +29,7 @@ type Service struct {
 	repository Repository
 	executors  map[string]Executor
 	draftTasks DraftTaskService
+	pricing    modelpricing.Resolver
 	now        func() time.Time
 }
 
@@ -37,6 +39,10 @@ func WithDraftTaskService(tasks DraftTaskService) Option {
 	return func(s *Service) {
 		s.draftTasks = tasks
 	}
+}
+
+func WithPricingResolver(resolver modelpricing.Resolver) Option {
+	return func(s *Service) { s.pricing = resolver }
 }
 
 func NewService(repository Repository, executors map[string]Executor, opts ...Option) *Service {
@@ -149,7 +155,7 @@ func (s *Service) GenerateDraft(ctx context.Context, input GenerateDraftInput) (
 	if agent.AgentID == 0 || agent.ProviderID == 0 || strings.TrimSpace(agent.ModelID) == "" || strings.TrimSpace(agent.EngineType) == "" || agent.BillingMultiplierPPM <= 0 || agent.MaxOutputTokens <= 0 {
 		return nil, toolGenerationError(aitext.ErrorCodeConfiguration, apperror.CategoryValidation, 400, "AI生成智能体计费配置无效", nil)
 	}
-	pricingSnapshotJSON, effectiveMaxOutputTokens, appErr := toolDraftPricingSnapshot(*agent)
+	pricingSnapshotJSON, effectiveMaxOutputTokens, appErr := s.toolDraftPricingSnapshot(ctx, *agent)
 	if appErr != nil {
 		return nil, appErr
 	}
@@ -749,26 +755,25 @@ func generateUsageFromTask(result *aitext.Result) *GenerateUsage {
 	return &GenerateUsage{PromptTokens: result.PromptTokens, CompletionTokens: result.CompletionTokens, TotalTokens: result.TotalTokens}
 }
 
-func toolDraftPricingSnapshot(agent GenerateAgentConfig) (string, int64, *apperror.Error) {
-	model, err := pricing.Default.Resolve(strings.TrimSpace(agent.ModelID))
+func (s *Service) toolDraftPricingSnapshot(ctx context.Context, agent GenerateAgentConfig) (string, int64, *apperror.Error) {
+	if s == nil || s.pricing == nil {
+		return "", 0, toolGenerationError(aitext.ErrorCodePriceUnavailable, apperror.CategoryInternal, 500, "AI模型价格服务未配置", modelpricing.ErrRepositoryNotConfigured)
+	}
+	model, err := s.pricing.Resolve(ctx, strings.TrimSpace(agent.ModelID))
 	if err != nil {
-		return "", 0, toolGenerationError(aitext.ErrorCodePriceUnavailable, apperror.CategoryConflict, 409, "该智能体缺少可用的官方模型价格", err)
+		return "", 0, toolGenerationError(aitext.ErrorCodePriceUnavailable, apperror.CategoryConflict, 409, "该智能体缺少可用的模型价格", err)
 	}
 	if agent.MaxOutputTokens <= 0 || agent.MaxOutputTokens > model.MaxOutputTokens || agent.MaxOutputTokens > int64(^uint(0)>>1) {
 		return "", 0, toolGenerationError(aitext.ErrorCodeUnsafeUpperBound, apperror.CategoryConflict, 409, "AI生成输出上限不安全", pricing.ErrUnsafeTokenUpperBound)
 	}
-	snapshot := aigateway.PricingSnapshot{
-		Version: model.Version, Billable: true, CatalogVendor: model.CatalogVendor,
+	raw, err := aigateway.EncodePricingSnapshot(model, aigateway.PricingSnapshotInput{
 		TransportEngine: strings.TrimSpace(agent.EngineType), RequestedModelID: strings.TrimSpace(agent.ModelID),
-		CanonicalModelID: model.ModelID, CatalogMaxOutputTokens: model.MaxOutputTokens,
 		EffectiveMaxOutputTokens: int(agent.MaxOutputTokens), MultiplierPPM: agent.BillingMultiplierPPM,
-		SourceURL: model.SourceURL, RetrievedAt: model.RetrievedAt, Rates: append([]pricing.Rate(nil), model.Rates...),
-	}
-	raw, err := json.Marshal(snapshot)
+	})
 	if err != nil {
 		return "", 0, toolGenerationError(aitext.ErrorCodePriceUnavailable, apperror.CategoryInternal, 500, "生成AI模型价格快照失败", err)
 	}
-	return string(raw), agent.MaxOutputTokens, nil
+	return raw, agent.MaxOutputTokens, nil
 }
 
 func toolGenerationError(code string, category apperror.Category, status int, message string, cause error) *apperror.Error {

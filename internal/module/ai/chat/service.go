@@ -19,6 +19,7 @@ import (
 	"admin_back_go/internal/infra/secretbox"
 	"admin_back_go/internal/module/ai/aigateway"
 	"admin_back_go/internal/module/ai/capability"
+	"admin_back_go/internal/module/ai/modelpricing"
 	"admin_back_go/internal/module/ai/pricing"
 	"admin_back_go/internal/module/ai/requestidentity"
 	airun "admin_back_go/internal/module/ai/run"
@@ -51,6 +52,7 @@ type Dependencies struct {
 	KnowledgeRuntime    KnowledgeRuntime
 	RunRecorder         RunRecorder
 	TextGeneration      TextGeneration
+	PricingResolver     modelpricing.Resolver
 	RunStaleTimeout     time.Duration
 	Now                 func() time.Time
 	Logger              *slog.Logger
@@ -68,6 +70,7 @@ type Service struct {
 	knowledgeRuntime    KnowledgeRuntime
 	runRecorder         RunRecorder
 	textGeneration      TextGeneration
+	pricingResolver     modelpricing.Resolver
 	runStaleTimeout     time.Duration
 	now                 func() time.Time
 	logger              *slog.Logger
@@ -86,7 +89,7 @@ func NewService(deps Dependencies) *Service {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Service{repository: deps.Repository, assistantPublisher: deps.AssistantPublisher, attemptRecorder: deps.AttemptRecorder, paidAttemptExecutor: deps.PaidAttemptExecutor, publisher: deps.Publisher, engineFactory: deps.EngineFactory, secretbox: deps.Secretbox, toolRuntime: deps.ToolRuntime, knowledgeRuntime: deps.KnowledgeRuntime, runRecorder: deps.RunRecorder, textGeneration: deps.TextGeneration, runStaleTimeout: runStaleTimeout, now: now, logger: logger}
+	return &Service{repository: deps.Repository, assistantPublisher: deps.AssistantPublisher, attemptRecorder: deps.AttemptRecorder, paidAttemptExecutor: deps.PaidAttemptExecutor, publisher: deps.Publisher, engineFactory: deps.EngineFactory, secretbox: deps.Secretbox, toolRuntime: deps.ToolRuntime, knowledgeRuntime: deps.KnowledgeRuntime, runRecorder: deps.RunRecorder, textGeneration: deps.TextGeneration, pricingResolver: deps.PricingResolver, runStaleTimeout: runStaleTimeout, now: now, logger: logger}
 }
 
 func (s *Service) ExecuteConversationReply(ctx context.Context, input ConversationReplyInput) (*ConversationReplyResult, error) {
@@ -425,7 +428,7 @@ func (s *Service) CompleteText(ctx context.Context, input TextCompletionInput) (
 	if agent.AgentStatus != enum.CommonYes || agent.EngineStatus != enum.CommonYes || !agentSupportsTextGeneration(agent.ScenesJSON) {
 		return nil, apperror.BadRequestKey("aitext.agent_unavailable", nil, "该智能体不支持文本生成")
 	}
-	pricingSnapshotJSON, effectiveMaxOutputTokens, appErr := textCompletionPricingSnapshot(*agent)
+	pricingSnapshotJSON, effectiveMaxOutputTokens, appErr := s.textCompletionPricingSnapshot(ctx, *agent)
 	if appErr != nil {
 		return nil, appErr
 	}
@@ -465,10 +468,13 @@ func textCompletionResult(result *aitext.Result) (*TextCompletionResponse, *appe
 	return &TextCompletionResponse{ID: fmt.Sprintf("text-completion-%d", result.TaskID), Object: "chat.completion", Content: strings.TrimSpace(result.Answer)}, nil
 }
 
-func textCompletionPricingSnapshot(agent AgentEngineConfig) (string, int64, *apperror.Error) {
-	model, err := pricing.Default.Resolve(strings.TrimSpace(agent.ModelID))
+func (s *Service) textCompletionPricingSnapshot(ctx context.Context, agent AgentEngineConfig) (string, int64, *apperror.Error) {
+	if s == nil || s.pricingResolver == nil {
+		return "", 0, apperror.Wrap(aitext.ErrorCodePriceUnavailable, apperror.CategoryInternal, 500, apperror.Permanent, "", nil, "AI模型价格服务未配置", modelpricing.ErrRepositoryNotConfigured)
+	}
+	model, err := s.pricingResolver.Resolve(ctx, strings.TrimSpace(agent.ModelID))
 	if err != nil {
-		return "", 0, apperror.Wrap(aitext.ErrorCodePriceUnavailable, apperror.CategoryConflict, 409, apperror.Permanent, "", nil, "该智能体缺少可用的官方模型价格", err)
+		return "", 0, apperror.Wrap(aitext.ErrorCodePriceUnavailable, apperror.CategoryConflict, 409, apperror.Permanent, "", nil, "该智能体缺少可用的模型价格", err)
 	}
 	if agent.BillingMultiplierPPM <= 0 || strings.TrimSpace(agent.EngineType) == "" {
 		return "", 0, apperror.New(aitext.ErrorCodeConfiguration, apperror.CategoryValidation, 400, apperror.Permanent, "", nil, "AI文本计费配置无效")
@@ -477,18 +483,14 @@ func textCompletionPricingSnapshot(agent AgentEngineConfig) (string, int64, *app
 		return "", 0, apperror.Wrap(aitext.ErrorCodeUnsafeUpperBound, apperror.CategoryConflict, 409, apperror.Permanent, "", nil, "AI文本输出上限不安全", pricing.ErrUnsafeTokenUpperBound)
 	}
 	effective := int64(agent.MaxOutputTokens)
-	snapshot := aigateway.PricingSnapshot{
-		Version: model.Version, Billable: true, CatalogVendor: model.CatalogVendor,
+	raw, err := aigateway.EncodePricingSnapshot(model, aigateway.PricingSnapshotInput{
 		TransportEngine: strings.TrimSpace(agent.EngineType), RequestedModelID: strings.TrimSpace(agent.ModelID),
-		CanonicalModelID: model.ModelID, CatalogMaxOutputTokens: model.MaxOutputTokens,
 		EffectiveMaxOutputTokens: int(effective), MultiplierPPM: agent.BillingMultiplierPPM,
-		SourceURL: model.SourceURL, RetrievedAt: model.RetrievedAt, Rates: append([]pricing.Rate(nil), model.Rates...),
-	}
-	raw, err := json.Marshal(snapshot)
+	})
 	if err != nil {
 		return "", 0, apperror.Wrap(aitext.ErrorCodePriceUnavailable, apperror.CategoryInternal, 500, apperror.Permanent, "", nil, "生成AI模型价格快照失败", err)
 	}
-	return string(raw), effective, nil
+	return raw, effective, nil
 }
 
 func finalizedConversationReply(input ConversationReplyInput, result *PaidChatAttemptResult) *ConversationReplyResult {

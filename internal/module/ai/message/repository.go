@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/infra/database"
+	"admin_back_go/internal/module/ai/modelpricing"
 	"admin_back_go/internal/module/ai/replycommand"
 	"admin_back_go/internal/shared/enum"
 
@@ -18,14 +19,27 @@ type GormRepository struct {
 	db      *gorm.DB
 	replies replycommand.Repository
 	history replycommand.HistoryTransactionParticipant
+	pricing modelpricing.Resolver
 	now     func() time.Time
 }
 
-func NewGormRepository(client *database.Client, replies replycommand.Repository, history replycommand.HistoryTransactionParticipant) *GormRepository {
+type RepositoryOption func(*GormRepository)
+
+func WithRepositoryPricingResolver(resolver modelpricing.Resolver) RepositoryOption {
+	return func(repository *GormRepository) { repository.pricing = resolver }
+}
+
+func NewGormRepository(client *database.Client, replies replycommand.Repository, history replycommand.HistoryTransactionParticipant, options ...RepositoryOption) *GormRepository {
 	if client == nil || client.Gorm == nil {
 		return nil
 	}
-	return &GormRepository{db: client.Gorm, replies: replies, history: history, now: time.Now}
+	repository := &GormRepository{db: client.Gorm, replies: replies, history: history, now: time.Now}
+	for _, option := range options {
+		if option != nil {
+			option(repository)
+		}
+	}
+	return repository
 }
 
 func (r *GormRepository) CreateReply(ctx context.Context, input replycommand.CreateReplyInput) (replycommand.CreateReplyResult, error) {

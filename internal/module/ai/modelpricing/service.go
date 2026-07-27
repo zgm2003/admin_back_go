@@ -38,6 +38,15 @@ type Resolver interface {
 	Resolve(context.Context, string) (pricing.ModelPrice, error)
 }
 
+type ResolverFunc func(context.Context, string) (pricing.ModelPrice, error)
+
+func (resolve ResolverFunc) Resolve(ctx context.Context, modelID string) (pricing.ModelPrice, error) {
+	if resolve == nil {
+		return pricing.ModelPrice{}, ErrRepositoryNotConfigured
+	}
+	return resolve(ctx, modelID)
+}
+
 type RatePriceInput struct {
 	Category  pricing.Category
 	Unit      string

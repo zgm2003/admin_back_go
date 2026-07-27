@@ -28,17 +28,23 @@ type EngineOption struct {
 }
 
 type ModelOption struct {
-	Label             string           `json:"label"`
-	Value             string           `json:"value"`
-	ProviderID        uint64           `json:"provider_id"`
-	ModelID           string           `json:"model_id"`
-	DisplayName       string           `json:"display_name"`
-	BillingMultiplier string           `json:"billing_multiplier"`
-	MaxOutputTokens   int              `json:"max_output_tokens"`
-	CatalogVersion    string           `json:"catalog_version,omitempty"`
-	CatalogVendor     string           `json:"catalog_vendor,omitempty"`
-	CatalogModelID    string           `json:"catalog_model_id,omitempty"`
-	CatalogRates      []CatalogRateDTO `json:"catalog_rates,omitempty"`
+	Label                      string           `json:"label"`
+	Value                      string           `json:"value"`
+	ProviderID                 uint64           `json:"provider_id"`
+	ModelID                    string           `json:"model_id"`
+	DisplayName                string           `json:"display_name"`
+	BillingMultiplier          string           `json:"billing_multiplier"`
+	MaxOutputTokens            int              `json:"max_output_tokens"`
+	PricingVersion             string           `json:"pricing_version,omitempty"`
+	CatalogVersion             string           `json:"catalog_version,omitempty"`
+	CatalogVendor              string           `json:"catalog_vendor,omitempty"`
+	CatalogModelID             string           `json:"catalog_model_id,omitempty"`
+	PriceSource                string           `json:"price_source,omitempty"`
+	OverrideVersion            uint64           `json:"override_version"`
+	PriceSourceURL             string           `json:"price_source_url,omitempty"`
+	PriceVerifiedAt            string           `json:"price_verified_at,omitempty"`
+	ContextTierThresholdTokens int64            `json:"context_tier_threshold_tokens"`
+	CatalogRates               []CatalogRateDTO `json:"catalog_rates,omitempty"`
 }
 
 type ListQuery struct {
@@ -67,27 +73,33 @@ type DetailResponse struct {
 }
 
 type AgentDTO struct {
-	ID                uint64           `json:"id"`
-	ProviderID        uint64           `json:"provider_id"`
-	ProviderName      string           `json:"provider_name"`
-	EngineType        string           `json:"engine_type"`
-	Name              string           `json:"name"`
-	ModelID           string           `json:"model_id"`
-	ModelDisplayName  string           `json:"model_display_name"`
-	Scenes            []string         `json:"scenes"`
-	SceneNames        []string         `json:"scene_names"`
-	SystemPrompt      string           `json:"system_prompt"`
-	Avatar            string           `json:"avatar"`
-	Status            int              `json:"status"`
-	StatusName        string           `json:"status_name"`
-	CreatedAt         string           `json:"created_at"`
-	UpdatedAt         string           `json:"updated_at"`
-	BillingMultiplier string           `json:"billing_multiplier"`
-	MaxOutputTokens   int              `json:"max_output_tokens"`
-	CatalogVersion    string           `json:"catalog_version,omitempty"`
-	CatalogVendor     string           `json:"catalog_vendor,omitempty"`
-	CatalogModelID    string           `json:"catalog_model_id,omitempty"`
-	CatalogRates      []CatalogRateDTO `json:"catalog_rates,omitempty"`
+	ID                         uint64           `json:"id"`
+	ProviderID                 uint64           `json:"provider_id"`
+	ProviderName               string           `json:"provider_name"`
+	EngineType                 string           `json:"engine_type"`
+	Name                       string           `json:"name"`
+	ModelID                    string           `json:"model_id"`
+	ModelDisplayName           string           `json:"model_display_name"`
+	Scenes                     []string         `json:"scenes"`
+	SceneNames                 []string         `json:"scene_names"`
+	SystemPrompt               string           `json:"system_prompt"`
+	Avatar                     string           `json:"avatar"`
+	Status                     int              `json:"status"`
+	StatusName                 string           `json:"status_name"`
+	CreatedAt                  string           `json:"created_at"`
+	UpdatedAt                  string           `json:"updated_at"`
+	BillingMultiplier          string           `json:"billing_multiplier"`
+	MaxOutputTokens            int              `json:"max_output_tokens"`
+	PricingVersion             string           `json:"pricing_version,omitempty"`
+	CatalogVersion             string           `json:"catalog_version,omitempty"`
+	CatalogVendor              string           `json:"catalog_vendor,omitempty"`
+	CatalogModelID             string           `json:"catalog_model_id,omitempty"`
+	PriceSource                string           `json:"price_source,omitempty"`
+	OverrideVersion            uint64           `json:"override_version"`
+	PriceSourceURL             string           `json:"price_source_url,omitempty"`
+	PriceVerifiedAt            string           `json:"price_verified_at,omitempty"`
+	ContextTierThresholdTokens int64            `json:"context_tier_threshold_tokens"`
+	CatalogRates               []CatalogRateDTO `json:"catalog_rates,omitempty"`
 }
 
 type CatalogRateDTO struct {

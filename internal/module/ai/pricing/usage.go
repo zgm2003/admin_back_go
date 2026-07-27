@@ -53,6 +53,23 @@ func categoryForUsage(category billing.UsageCategory) (Category, bool) {
 	}
 }
 
+func usageCategoryForPricing(category Category) billing.UsageCategory {
+	switch category {
+	case InputTokens:
+		return billing.UsageCategoryInputText
+	case OutputTokens:
+		return billing.UsageCategoryOutputText
+	case CacheRead:
+		return billing.UsageCategoryCacheRead
+	case CacheWrite:
+		return billing.UsageCategoryCacheWrite
+	case MediaUnits:
+		return billing.UsageCategoryMedia
+	default:
+		return ""
+	}
+}
+
 func allocate(lines []exactLine, total int64) []QuoteLineResult {
 	result := make([]QuoteLineResult, len(lines))
 	var floors int64

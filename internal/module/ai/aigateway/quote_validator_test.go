@@ -102,6 +102,61 @@ func TestPersistedQuoteValidatorRejectsQuoteForDifferentPreparedRequest(t *testi
 	}
 }
 
+func TestPricingSnapshotSchemaPreservesLegacyAndRequiresCurrentPriceMetadata(t *testing.T) {
+	legacy := validPricingSnapshot()
+	parsedLegacy, err := ParsePricingSnapshot(mustPricingSnapshotJSON(t, legacy))
+	if err != nil || parsedLegacy.SchemaVersion != 0 || parsedLegacy.Version != legacy.Version {
+		t.Fatalf("legacy snapshot = %#v, %v", parsedLegacy, err)
+	}
+	legacy.ContextTierThresholdTokens = -1
+	if _, err := ParsePricingSnapshot(mustPricingSnapshotJSON(t, legacy)); err == nil {
+		t.Fatal("legacy snapshot accepted a negative context tier threshold")
+	}
+
+	current, err := NewPricingSnapshot(pricing.ModelPrice{
+		Version: "catalog-v3:override:4", CatalogVersion: "catalog-v3", OverrideVersion: 4,
+		CatalogVendor: "openai", ModelID: "gpt-test", MaxOutputTokens: 100,
+		ContextTierThresholdTokens: 50, PriceSource: "override", SourceURL: "https://openai.com/pricing", RetrievedAt: "2026-07-27",
+		Rates: []pricing.Rate{
+			{Category: pricing.InputTokens, Unit: "token", TierKey: "short_context", PriceUnits: 2, UnitScale: 1},
+			{Category: pricing.InputTokens, Unit: "token", TierKey: "long_context", PriceUnits: 4, UnitScale: 1},
+			{Category: pricing.OutputTokens, Unit: "token", TierKey: "short_context", PriceUnits: 3, UnitScale: 1},
+			{Category: pricing.OutputTokens, Unit: "token", TierKey: "long_context", PriceUnits: 6, UnitScale: 1},
+		},
+	}, PricingSnapshotInput{
+		TransportEngine: "openai", RequestedModelID: "gpt-test", EffectiveMaxOutputTokens: 10, MultiplierPPM: 1_000_000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := mustPricingSnapshotJSON(t, current)
+	parsed, err := ParsePricingSnapshot(raw)
+	if err != nil || parsed.SchemaVersion != CurrentPricingSnapshotSchemaVersion || parsed.PriceSource != "override" || parsed.CatalogVersion != "catalog-v3" || parsed.OverrideVersion != 4 || parsed.ContextTierThresholdTokens != 50 {
+		t.Fatalf("current snapshot = %#v, %v", parsed, err)
+	}
+
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &fields); err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"price_source", "catalog_version", "override_version", "context_tier_threshold_tokens"} {
+		t.Run("missing "+required, func(t *testing.T) {
+			candidate := make(map[string]json.RawMessage, len(fields))
+			for key, value := range fields {
+				candidate[key] = value
+			}
+			delete(candidate, required)
+			encoded, marshalErr := json.Marshal(candidate)
+			if marshalErr != nil {
+				t.Fatal(marshalErr)
+			}
+			if _, parseErr := ParsePricingSnapshot(string(encoded)); parseErr == nil {
+				t.Fatalf("snapshot missing %s was accepted", required)
+			}
+		})
+	}
+}
+
 func validPricingSnapshot() PricingSnapshot {
 	return PricingSnapshot{
 		Version:                  "pricing-v1",

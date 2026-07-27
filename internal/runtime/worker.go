@@ -17,6 +17,7 @@ import (
 	"admin_back_go/internal/jobs"
 	aichat "admin_back_go/internal/module/ai/chat"
 	aiimage "admin_back_go/internal/module/ai/image"
+	"admin_back_go/internal/module/ai/modelpricing"
 	"admin_back_go/internal/module/ai/replycommand"
 	airun "admin_back_go/internal/module/ai/run"
 	aitext "admin_back_go/internal/module/ai/text"
@@ -280,6 +281,7 @@ func registerWorkerHandlers(
 	)
 	aiRunRepository := airun.NewGormRepository(resources.DB)
 	aiRunRecorder := airun.NewRecorder(aiRunRepository, nil)
+	aiModelPricingResolver := modelpricing.NewService(modelpricing.NewGormRepository(resources.DB))
 	aiTextTasks := aitext.NewGormStore(resources.DB)
 	replyRepository := replycommand.NewGormRepository(
 		resources.DB,
@@ -305,6 +307,7 @@ func registerWorkerHandlers(
 		EngineFactory:       providers.AIChatFactory,
 		RunRecorder:         aiRunRecorder,
 		TextGeneration:      aiTextService,
+		PricingResolver:     aiModelPricingResolver,
 		RunStaleTimeout:     positiveProviderDuration(cfg.AI.RunStaleTimeout, config.DefaultAIRunStaleTimeout),
 		Logger:              logger,
 	})
@@ -322,14 +325,15 @@ func registerWorkerHandlers(
 	}
 	imageWaker := aiimage.NewWakeupEnqueuer(queueClient)
 	aiImageService := aiimage.NewService(aiimage.Dependencies{
-		Repository:    imageRepository,
-		Enqueuer:      queueClient,
-		Secretbox:     providers.Secretbox,
-		EngineFactory: providers.AIImageFactory,
-		ObjectReader:  providers.ObjectReader,
-		ObjectWriter:  providers.ObjectWriter,
-		RunRecorder:   aiRunRecorder,
-		Executor:      paidImageExecutor,
+		Repository:      imageRepository,
+		Enqueuer:        queueClient,
+		Secretbox:       providers.Secretbox,
+		EngineFactory:   providers.AIImageFactory,
+		ObjectReader:    providers.ObjectReader,
+		ObjectWriter:    providers.ObjectWriter,
+		RunRecorder:     aiRunRecorder,
+		Executor:        paidImageExecutor,
+		PricingResolver: aiModelPricingResolver,
 	})
 	paymentService := paymentmodule.NewService(paymentmodule.Dependencies{
 		Repository:   paymentmodule.NewGormRepository(resources.DB, walletRepository),

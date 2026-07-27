@@ -7,11 +7,39 @@ import (
 	"strings"
 	"testing"
 
+	"admin_back_go/internal/module/ai/aigateway"
+	"admin_back_go/internal/module/ai/modelpricing"
+	"admin_back_go/internal/module/ai/pricing"
 	"admin_back_go/internal/module/ai/requestidentity"
 	aitext "admin_back_go/internal/module/ai/text"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
 )
+
+func TestToolDraftPricingSnapshotUsesInjectedResolver(t *testing.T) {
+	resolverCalls := 0
+	service := NewService(nil, nil, WithPricingResolver(modelpricing.ResolverFunc(func(_ context.Context, modelID string) (pricing.ModelPrice, error) {
+		resolverCalls++
+		return pricing.ModelPrice{
+			Version: "catalog-v3", CatalogVersion: "catalog-v3", CatalogVendor: "openai", ModelID: modelID,
+			MaxOutputTokens: 2048, PriceSource: "official", SourceURL: "https://openai.com/pricing", RetrievedAt: "2026-07-27",
+			Rates: []pricing.Rate{
+				{Category: pricing.InputTokens, Unit: "token", PriceUnits: 1, UnitScale: 1_000_000},
+				{Category: pricing.OutputTokens, Unit: "token", PriceUnits: 2, UnitScale: 1_000_000},
+			},
+		}, nil
+	})))
+	raw, effective, appErr := service.toolDraftPricingSnapshot(context.Background(), GenerateAgentConfig{
+		ModelID: "injected-tool-model", EngineType: "openai", BillingMultiplierPPM: 1_000_000, MaxOutputTokens: 1024,
+	})
+	if appErr != nil || effective != 1024 || resolverCalls != 1 {
+		t.Fatalf("snapshot result = %q, %d, %#v; calls=%d", raw, effective, appErr, resolverCalls)
+	}
+	snapshot, err := aigateway.ParsePricingSnapshot(raw)
+	if err != nil || snapshot.SchemaVersion != aigateway.CurrentPricingSnapshotSchemaVersion || snapshot.RequestedModelID != "injected-tool-model" {
+		t.Fatalf("snapshot = %#v, %v", snapshot, err)
+	}
+}
 
 type fakeRepository struct {
 	rows             []Tool
@@ -454,7 +482,20 @@ func TestGenerateDraftUsesDistinctStablePriceAndUpperBoundCodes(t *testing.T) {
 			tc.mutate(&agent)
 			repo.generateAgent = &agent
 			tasks := &fakeDraftTaskService{}
-			_, appErr := NewService(repo, DefaultExecutors(repo), WithDraftTaskService(tasks)).GenerateDraft(context.Background(), GenerateDraftInput{RequestID: "request-1", AgentID: 5, UserID: 7, Requirement: "生成工具"})
+			resolver := modelpricing.ResolverFunc(func(_ context.Context, modelID string) (pricing.ModelPrice, error) {
+				if modelID == "private-unpriced-model" {
+					return pricing.ModelPrice{}, pricing.ErrPriceUnavailable
+				}
+				return pricing.ModelPrice{
+					Version: "catalog-v3", CatalogVersion: "catalog-v3", CatalogVendor: "openai", ModelID: modelID,
+					MaxOutputTokens: 2048, PriceSource: "official", SourceURL: "https://openai.com/pricing", RetrievedAt: "2026-07-27",
+					Rates: []pricing.Rate{
+						{Category: pricing.InputTokens, Unit: "token", PriceUnits: 1, UnitScale: 1_000_000},
+						{Category: pricing.OutputTokens, Unit: "token", PriceUnits: 2, UnitScale: 1_000_000},
+					},
+				}, nil
+			})
+			_, appErr := NewService(repo, DefaultExecutors(repo), WithDraftTaskService(tasks), WithPricingResolver(resolver)).GenerateDraft(context.Background(), GenerateDraftInput{RequestID: "request-1", AgentID: 5, UserID: 7, Requirement: "生成工具"})
 			if appErr == nil || appErr.Code != tc.code {
 				t.Fatalf("error = %#v, want %s", appErr, tc.code)
 			}

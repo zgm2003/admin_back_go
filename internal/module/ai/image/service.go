@@ -29,6 +29,7 @@ import (
 	"admin_back_go/internal/infra/taskqueue"
 	"admin_back_go/internal/module/ai/aigateway"
 	"admin_back_go/internal/module/ai/capability"
+	"admin_back_go/internal/module/ai/modelpricing"
 	"admin_back_go/internal/module/ai/pricing"
 	"admin_back_go/internal/module/ai/requestidentity"
 	airun "admin_back_go/internal/module/ai/run"
@@ -87,6 +88,7 @@ type Service struct {
 	objectReader  storagecos.ObjectReader
 	objectWriter  storagecos.ObjectWriter
 	executor      TaskExecutor
+	pricing       modelpricing.Resolver
 	now           func() time.Time
 	random        func([]byte) (int, error)
 	leaseOwner    string
@@ -94,18 +96,19 @@ type Service struct {
 }
 
 type Dependencies struct {
-	Repository    Repository
-	Enqueuer      taskqueue.Enqueuer
-	Secretbox     secretbox.Box
-	EngineFactory ImageEngineFactory
-	ObjectReader  storagecos.ObjectReader
-	ObjectWriter  storagecos.ObjectWriter
-	RunRecorder   airun.Recorder
-	Executor      TaskExecutor
-	Now           func() time.Time
-	Random        func([]byte) (int, error)
-	LeaseOwner    string
-	LeaseTTL      time.Duration
+	Repository      Repository
+	Enqueuer        taskqueue.Enqueuer
+	Secretbox       secretbox.Box
+	EngineFactory   ImageEngineFactory
+	ObjectReader    storagecos.ObjectReader
+	ObjectWriter    storagecos.ObjectWriter
+	RunRecorder     airun.Recorder
+	Executor        TaskExecutor
+	PricingResolver modelpricing.Resolver
+	Now             func() time.Time
+	Random          func([]byte) (int, error)
+	LeaseOwner      string
+	LeaseTTL        time.Duration
 }
 
 type TaskExecutor interface {
@@ -144,7 +147,7 @@ func NewService(deps Dependencies) *Service {
 	if strings.TrimSpace(deps.LeaseOwner) == "" {
 		deps.LeaseOwner = newImageLeaseOwner(deps.Random)
 	}
-	return &Service{repository: deps.Repository, enqueuer: deps.Enqueuer, secretbox: deps.Secretbox, engineFactory: deps.EngineFactory, objectReader: deps.ObjectReader, objectWriter: deps.ObjectWriter, executor: deps.Executor, now: deps.Now, random: deps.Random, leaseOwner: strings.TrimSpace(deps.LeaseOwner), leaseTTL: deps.LeaseTTL}
+	return &Service{repository: deps.Repository, enqueuer: deps.Enqueuer, secretbox: deps.Secretbox, engineFactory: deps.EngineFactory, objectReader: deps.ObjectReader, objectWriter: deps.ObjectWriter, executor: deps.Executor, pricing: deps.PricingResolver, now: deps.Now, random: deps.Random, leaseOwner: strings.TrimSpace(deps.LeaseOwner), leaseTTL: deps.LeaseTTL}
 }
 
 var ErrTaskLeaseLost = errors.New("AI image task lease lost")
@@ -275,7 +278,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*CreateTaskRes
 	if appErr != nil {
 		return nil, appErr
 	}
-	pricingSnapshotJSON, effectiveOutputTokens, appErr := imagePricingSnapshot(*agent, normalized)
+	pricingSnapshotJSON, effectiveOutputTokens, appErr := s.imagePricingSnapshot(ctx, *agent, normalized)
 	if appErr != nil {
 		return nil, appErr
 	}
@@ -357,10 +360,13 @@ func (s *Service) enqueueAcceptedImageTask(ctx context.Context, task ImageTask) 
 	return &CreateTaskResponse{Task: taskDTO(task)}, nil
 }
 
-func imagePricingSnapshot(agent AgentRuntime, input CreateInput) (string, int64, *apperror.Error) {
-	model, err := pricing.Default.Resolve(strings.TrimSpace(agent.ModelID))
+func (s *Service) imagePricingSnapshot(ctx context.Context, agent AgentRuntime, input CreateInput) (string, int64, *apperror.Error) {
+	if s == nil || s.pricing == nil {
+		return "", 0, apperror.Wrap("ai.billing.price_unavailable", apperror.CategoryInternal, http.StatusInternalServerError, apperror.Permanent, "", nil, "AI模型价格服务未配置", modelpricing.ErrRepositoryNotConfigured)
+	}
+	model, err := s.pricing.Resolve(ctx, strings.TrimSpace(agent.ModelID))
 	if err != nil {
-		return "", 0, apperror.Wrap("ai.billing.price_unavailable", apperror.CategoryConflict, http.StatusConflict, apperror.Permanent, "", nil, "该图片智能体缺少可用的官方模型价格", err)
+		return "", 0, apperror.Wrap("ai.billing.price_unavailable", apperror.CategoryConflict, http.StatusConflict, apperror.Permanent, "", nil, "该图片智能体缺少可用的模型价格", err)
 	}
 	effective, err := gptImage2OutputTokenUpperBound(input.Size, input.Quality, input.N)
 	if err != nil || effective > model.MaxOutputTokens || agent.BillingMultiplierPPM <= 0 || agent.MaxOutputTokens == 0 ||
@@ -368,17 +374,14 @@ func imagePricingSnapshot(agent AgentRuntime, input CreateInput) (string, int64,
 		effective > int64(agent.MaxOutputTokens) {
 		return "", 0, apperror.Wrap("ai.billing.unsafe_upper_bound", apperror.CategoryConflict, http.StatusConflict, apperror.Permanent, "", nil, "图片生成输出上限不安全", pricing.ErrUnsafeTokenUpperBound)
 	}
-	snapshot := aigateway.PricingSnapshot{
-		Version: model.Version, Billable: true, CatalogVendor: model.CatalogVendor, TransportEngine: strings.TrimSpace(agent.EngineType),
-		RequestedModelID: strings.TrimSpace(agent.ModelID), CanonicalModelID: model.ModelID, CatalogMaxOutputTokens: model.MaxOutputTokens,
-		EffectiveMaxOutputTokens: int(effective), MultiplierPPM: agent.BillingMultiplierPPM, SourceURL: model.SourceURL,
-		RetrievedAt: model.RetrievedAt, Rates: append([]pricing.Rate(nil), model.Rates...),
-	}
-	raw, err := json.Marshal(snapshot)
+	raw, err := aigateway.EncodePricingSnapshot(model, aigateway.PricingSnapshotInput{
+		TransportEngine: strings.TrimSpace(agent.EngineType), RequestedModelID: strings.TrimSpace(agent.ModelID),
+		EffectiveMaxOutputTokens: int(effective), MultiplierPPM: agent.BillingMultiplierPPM,
+	})
 	if err != nil {
 		return "", 0, apperror.Wrap("ai.billing.price_unavailable", apperror.CategoryInternal, http.StatusInternalServerError, apperror.Permanent, "", nil, "生成图片价格快照失败", err)
 	}
-	return string(raw), effective, nil
+	return raw, effective, nil
 }
 
 // Formula and size constraints mirror OpenAI's audited gpt-image-2 calculator.

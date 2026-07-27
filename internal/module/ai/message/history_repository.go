@@ -100,7 +100,7 @@ func (r *GormRepository) acceptHistoryReply(ctx context.Context, operation strin
 		if err := validateVisibleHistorySource(operation, lockedSource); err != nil {
 			return err
 		}
-		createInput, err := buildHistoryCreateInput(operation, userID, conversationID, replacementContent, requestID, lockedSource, lockedRuntime)
+		createInput, err := r.buildHistoryCreateInput(ctx, operation, userID, conversationID, replacementContent, requestID, lockedSource, lockedRuntime)
 		if err != nil {
 			return err
 		}
@@ -331,12 +331,12 @@ func historyMessageByID(ctx context.Context, db *gorm.DB, conversationID, messag
 	return message, nil
 }
 
-func buildHistoryCreateInput(operation string, userID, conversationID int64, replacementContent, requestID string, source historySourceSnapshot, runtime AgentRuntime) (replycommand.HistoryCreateInput, error) {
+func (r *GormRepository) buildHistoryCreateInput(ctx context.Context, operation string, userID, conversationID int64, replacementContent, requestID string, source historySourceSnapshot, runtime AgentRuntime) (replycommand.HistoryCreateInput, error) {
 	facts, err := buildHistoryRequestFacts(operation, userID, conversationID, replacementContent, source, runtime)
 	if err != nil {
 		return replycommand.HistoryCreateInput{}, err
 	}
-	pricingJSON, effectiveMaxTokens, err := pricingSnapshotForSend(runtime, facts.runtimeParams)
+	pricingJSON, effectiveMaxTokens, err := resolvePricingSnapshotForSend(ctx, r.pricing, runtime, facts.runtimeParams)
 	if err != nil {
 		return replycommand.HistoryCreateInput{}, ErrHistoryAgentUnavailable
 	}

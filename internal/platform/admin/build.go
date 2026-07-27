@@ -26,6 +26,7 @@ import (
 	aiimage "admin_back_go/internal/module/ai/image"
 	aiknowledge "admin_back_go/internal/module/ai/knowledge"
 	aimessage "admin_back_go/internal/module/ai/message"
+	"admin_back_go/internal/module/ai/modelpricing"
 	aiprovider "admin_back_go/internal/module/ai/provider"
 	"admin_back_go/internal/module/ai/replycommand"
 	airun "admin_back_go/internal/module/ai/run"
@@ -176,7 +177,8 @@ func Build(input BuildInput) (*BuildResult, error) {
 		providers.AIConnectionTester,
 		aiproviderinfra.NewOpenAIDriver(nil, aiproviderinfra.WithTelemetry(recorder)),
 	)
-	aiAgentService := aiagent.NewService(aiagent.NewGormRepository(resources.DB), providers.Secretbox, providers.AIConnectionTester)
+	aiModelPricingResolver := modelpricing.NewService(modelpricing.NewGormRepository(resources.DB))
+	aiAgentService := aiagent.NewService(aiagent.NewGormRepository(resources.DB), providers.Secretbox, providers.AIConnectionTester, aiagent.WithPricingResolver(aiModelPricingResolver))
 	aiRunRepository := airun.NewGormRepository(resources.DB)
 	aiRunRecorder := airun.NewRecorder(aiRunRepository, nil)
 	aiTextTasks := aitext.NewGormStore(resources.DB)
@@ -189,6 +191,7 @@ func Build(input BuildInput) (*BuildResult, error) {
 		aiToolRepository,
 		aitool.DefaultExecutors(aiToolRepository),
 		aitool.WithDraftTaskService(aiTextService),
+		aitool.WithPricingResolver(aiModelPricingResolver),
 	)
 	aiKnowledgeService := aiknowledge.NewService(aiknowledge.NewGormRepository(resources.DB))
 	aiConversationService := aiconversation.NewService(aiconversation.NewGormRepository(resources.DB))
@@ -267,6 +270,7 @@ func Build(input BuildInput) (*BuildResult, error) {
 		KnowledgeRuntime: knowledgeRuntimeAdapter{service: aiKnowledgeService},
 		RunRecorder:      aiRunRecorder,
 		TextGeneration:   aiTextService,
+		PricingResolver:  aiModelPricingResolver,
 		RunStaleTimeout:  cfg.AI.RunStaleTimeout,
 		Logger:           logger,
 	})
@@ -279,9 +283,11 @@ func Build(input BuildInput) (*BuildResult, error) {
 			resources.DB,
 			aiReplyRepository,
 			replycommand.NewHistoryParticipant(aiReplyRepository),
+			aimessage.WithRepositoryPricingResolver(aiModelPricingResolver),
 		),
 		aimessage.WithReplyWaker(replycommand.NewWakeupEnqueuer(input.Queue)),
 		aimessage.WithCancelPublisher(replycommand.NewRedisCancelPublisher(resources.Redis)),
+		aimessage.WithPricingResolver(aiModelPricingResolver),
 	)
 	notificationTaskService := notificationtask.NewService(
 		notificationtask.NewGormRepository(resources.DB, notificationtask.WithDurableEventSink(realtimeEventSink)),

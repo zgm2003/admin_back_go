@@ -564,9 +564,11 @@ func pricingModelFromSnapshot(snapshot aigateway.PricingSnapshot) pricing.ModelP
 		aliases = []string{snapshot.RequestedModelID}
 	}
 	return pricing.ModelPrice{
-		Version: snapshot.Version, CatalogVendor: snapshot.CatalogVendor, ModelID: snapshot.CanonicalModelID,
-		Aliases: aliases, MaxOutputTokens: snapshot.CatalogMaxOutputTokens, SourceURL: snapshot.SourceURL,
-		RetrievedAt: snapshot.RetrievedAt, Rates: append([]pricing.Rate(nil), snapshot.Rates...),
+		Version: snapshot.Version, CatalogVersion: snapshot.CatalogVersion, OverrideVersion: snapshot.OverrideVersion,
+		CatalogVendor: snapshot.CatalogVendor, ModelID: snapshot.CanonicalModelID, Aliases: aliases,
+		MaxOutputTokens: snapshot.CatalogMaxOutputTokens, ContextTierThresholdTokens: snapshot.ContextTierThresholdTokens,
+		PriceSource: snapshot.PriceSource, SourceURL: snapshot.SourceURL, RetrievedAt: snapshot.RetrievedAt,
+		Rates: append([]pricing.Rate(nil), snapshot.Rates...),
 	}
 }
 
@@ -575,7 +577,12 @@ func quotePricingSnapshot(snapshot aigateway.PricingSnapshot, items []billing.Us
 	for index, item := range items {
 		lines[index] = pricing.QuoteLine{Key: keyPrefix + "-" + strconv.Itoa(index), Item: item}
 	}
-	return pricing.Quote(pricingModelFromSnapshot(snapshot), lines, snapshot.MultiplierPPM)
+	model := pricingModelFromSnapshot(snapshot)
+	selected, err := pricing.UpperBoundLines(model, lines)
+	if err != nil {
+		return pricing.QuoteResult{}, err
+	}
+	return pricing.Quote(model, selected, snapshot.MultiplierPPM)
 }
 
 type gormGatewayRunStore struct{ db *gorm.DB }
@@ -671,7 +678,12 @@ func (gormGatewayPriorUsagePricer) PricePriorSucceededUsage(ctx context.Context,
 			})
 		}
 	}
-	quote, err := pricing.Quote(pricingModelFromSnapshot(snapshot), lines, snapshot.MultiplierPPM)
+	model := pricingModelFromSnapshot(snapshot)
+	selected, err := pricing.SettlementLines(model, lines)
+	if err != nil {
+		return 0, errors.Join(aigateway.ErrUsageIncomplete, err)
+	}
+	quote, err := pricing.Quote(model, selected, snapshot.MultiplierPPM)
 	if err != nil {
 		return 0, errors.Join(aigateway.ErrUsageIncomplete, err)
 	}
@@ -709,7 +721,12 @@ func (persistedSettlementPricer) PriceSettlement(ctx context.Context, input aiga
 			identities[key] = itemIdentity{attemptID: attempt.ID, item: item}
 		}
 	}
-	quote, err := pricing.Quote(pricingModelFromSnapshot(snapshot), lines, snapshot.MultiplierPPM)
+	model := pricingModelFromSnapshot(snapshot)
+	selected, err := pricing.SettlementLines(model, lines)
+	if err != nil {
+		return aigateway.SettlementQuote{}, errors.Join(aigateway.ErrUsageIncomplete, err)
+	}
+	quote, err := pricing.Quote(model, selected, snapshot.MultiplierPPM)
 	if err != nil {
 		return aigateway.SettlementQuote{}, errors.Join(aigateway.ErrUsageIncomplete, err)
 	}
@@ -720,7 +737,7 @@ func (persistedSettlementPricer) PriceSettlement(ctx context.Context, input aiga
 			return aigateway.SettlementQuote{}, errors.New("settlement allocation lost its usage identity")
 		}
 		items = append(items, billing.UsageChargeItem{
-			AttemptID: identity.attemptID, Category: identity.item.Category, TierKey: identity.item.TierKey,
+			AttemptID: identity.attemptID, Category: identity.item.Category, TierKey: line.Rate.TierKey,
 			Quantity: identity.item.Quantity, Unit: identity.item.Unit, UnitPriceUnits: line.Rate.PriceUnits,
 			UnitScale: line.Rate.UnitScale, AmountUnits: line.AmountUnits,
 		})

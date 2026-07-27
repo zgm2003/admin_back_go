@@ -12,12 +12,48 @@ import (
 	infraai "admin_back_go/internal/infra/ai"
 	infrarealtime "admin_back_go/internal/infra/realtime"
 	"admin_back_go/internal/infra/secretbox"
+	"admin_back_go/internal/module/ai/aigateway"
+	"admin_back_go/internal/module/ai/modelpricing"
+	"admin_back_go/internal/module/ai/pricing"
 	"admin_back_go/internal/module/ai/requestidentity"
 	airun "admin_back_go/internal/module/ai/run"
 	aitext "admin_back_go/internal/module/ai/text"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
 )
+
+func TestTextCompletionPricingSnapshotUsesInjectedResolver(t *testing.T) {
+	resolverCalls := 0
+	service := NewService(Dependencies{PricingResolver: modelpricing.ResolverFunc(func(_ context.Context, modelID string) (pricing.ModelPrice, error) {
+		resolverCalls++
+		if modelID != "injected-chat-model" {
+			t.Fatalf("resolver model = %q", modelID)
+		}
+		return testCurrentModelPrice(modelID, 2048), nil
+	})})
+	raw, effective, appErr := service.textCompletionPricingSnapshot(context.Background(), AgentEngineConfig{
+		ModelID: "injected-chat-model", EngineType: "openai", BillingMultiplierPPM: 1_250_000, MaxOutputTokens: 1024,
+	})
+	if appErr != nil || effective != 1024 || resolverCalls != 1 {
+		t.Fatalf("snapshot result = %q, %d, %#v; calls=%d", raw, effective, appErr, resolverCalls)
+	}
+	snapshot, err := aigateway.ParsePricingSnapshot(raw)
+	if err != nil || snapshot.SchemaVersion != aigateway.CurrentPricingSnapshotSchemaVersion || snapshot.PriceSource != "override" || snapshot.OverrideVersion != 3 || snapshot.MultiplierPPM != 1_250_000 {
+		t.Fatalf("snapshot = %#v, %v", snapshot, err)
+	}
+}
+
+func testCurrentModelPrice(modelID string, maxOutput int64) pricing.ModelPrice {
+	return pricing.ModelPrice{
+		Version: "catalog-v3:override:3", CatalogVersion: "catalog-v3", OverrideVersion: 3,
+		CatalogVendor: "openai", ModelFamily: "gpt", ModelID: modelID, PricingProfile: "standard_global",
+		MaxOutputTokens: maxOutput, PriceSource: "override", SourceURL: "https://openai.com/pricing", RetrievedAt: "2026-07-27",
+		Rates: []pricing.Rate{
+			{Category: pricing.InputTokens, Unit: "token", PriceUnits: 1, UnitScale: 1_000_000},
+			{Category: pricing.OutputTokens, Unit: "token", PriceUnits: 2, UnitScale: 1_000_000},
+		},
+	}
+}
 
 type fakeRepository struct {
 	conversation *Conversation

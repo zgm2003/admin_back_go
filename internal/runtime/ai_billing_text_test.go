@@ -32,6 +32,69 @@ type fakeTextGateway struct {
 	dispatchResult aigateway.DispatchResult
 }
 
+func TestPricingSnapshotHoldUsesMostExpensiveFrozenTier(t *testing.T) {
+	model := pricing.ModelPrice{
+		Version: "catalog-v3", CatalogVersion: "catalog-v3", CatalogVendor: "openai", ModelID: "gpt-tiered",
+		MaxOutputTokens: 100, ContextTierThresholdTokens: 50, PriceSource: "official",
+		SourceURL: "https://openai.com/pricing", RetrievedAt: "2026-07-27",
+		Rates: []pricing.Rate{
+			{Category: pricing.InputTokens, Unit: "token", TierKey: "short_context", PriceUnits: 1, UnitScale: 1},
+			{Category: pricing.InputTokens, Unit: "token", TierKey: "long_context", PriceUnits: 2, UnitScale: 1},
+			{Category: pricing.OutputTokens, Unit: "token", TierKey: "short_context", PriceUnits: 3, UnitScale: 1},
+			{Category: pricing.OutputTokens, Unit: "token", TierKey: "long_context", PriceUnits: 6, UnitScale: 1},
+		},
+	}
+	raw, err := aigateway.EncodePricingSnapshot(model, aigateway.PricingSnapshotInput{
+		TransportEngine: "openai", RequestedModelID: model.ModelID, EffectiveMaxOutputTokens: 10, MultiplierPPM: 1_000_000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := aigateway.ParsePricingSnapshot(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	quote, err := quotePricingSnapshot(snapshot, []billing.UsageItem{
+		{Category: billing.UsageCategoryInputText, Unit: "token", Quantity: 10},
+		{Category: billing.UsageCategoryOutputText, Unit: "token", Quantity: 10},
+	}, "hold")
+	if err != nil || quote.AmountUnits != 80 {
+		t.Fatalf("upper-bound quote = %#v, %v", quote, err)
+	}
+}
+
+func TestPricingSnapshotHoldCoversClaudeCacheWriteUpperBound(t *testing.T) {
+	model := pricing.ModelPrice{
+		Version: "catalog-v3", CatalogVersion: "catalog-v3", CatalogVendor: "anthropic", ModelID: "claude-tiered",
+		MaxOutputTokens: 100, PriceSource: "official",
+		SourceURL: "https://anthropic.com/pricing", RetrievedAt: "2026-07-27",
+		Rates: []pricing.Rate{
+			{Category: pricing.InputTokens, Unit: "token", PriceUnits: 3, UnitScale: 1},
+			{Category: pricing.CacheRead, Unit: "token", PriceUnits: 1, UnitScale: 1},
+			{Category: pricing.CacheWrite, Unit: "token", TierKey: "5m", PriceUnits: 4, UnitScale: 1},
+			{Category: pricing.CacheWrite, Unit: "token", TierKey: "1h", PriceUnits: 6, UnitScale: 1},
+			{Category: pricing.OutputTokens, Unit: "token", PriceUnits: 8, UnitScale: 1},
+		},
+	}
+	raw, err := aigateway.EncodePricingSnapshot(model, aigateway.PricingSnapshotInput{
+		TransportEngine: "anthropic", RequestedModelID: model.ModelID, EffectiveMaxOutputTokens: 10, MultiplierPPM: 1_000_000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := aigateway.ParsePricingSnapshot(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	quote, err := quotePricingSnapshot(snapshot, []billing.UsageItem{
+		{Category: billing.UsageCategoryInputText, Unit: "token", Quantity: 10},
+		{Category: billing.UsageCategoryOutputText, Unit: "token", Quantity: 10},
+	}, "hold")
+	if err != nil || quote.AmountUnits != 140 {
+		t.Fatalf("cache-safe upper-bound quote = %#v, %v", quote, err)
+	}
+}
+
 type recordingTextChatFactory struct {
 	calls  int
 	input  aichat.EngineConfig

@@ -13,6 +13,7 @@ import (
 	"admin_back_go/internal/module/ai/aigateway"
 	"admin_back_go/internal/module/ai/billing"
 	aichat "admin_back_go/internal/module/ai/chat"
+	"admin_back_go/internal/module/ai/pricing"
 	"admin_back_go/internal/module/ai/replycommand"
 	airun "admin_back_go/internal/module/ai/run"
 	walletmodule "admin_back_go/internal/module/payment/wallet"
@@ -23,6 +24,56 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
+
+func TestPersistedSettlementPricingSelectsFrozenTierPerAttempt(t *testing.T) {
+	model := pricing.ModelPrice{
+		Version: "catalog-v3", CatalogVersion: "catalog-v3", CatalogVendor: "openai", ModelID: "gpt-tiered",
+		MaxOutputTokens: 1000, ContextTierThresholdTokens: 50, PriceSource: "official",
+		SourceURL: "https://openai.com/pricing", RetrievedAt: "2026-07-27",
+		Rates: []pricing.Rate{
+			{Category: pricing.InputTokens, Unit: "token", TierKey: "short_context", PriceUnits: 1, UnitScale: 1},
+			{Category: pricing.InputTokens, Unit: "token", TierKey: "long_context", PriceUnits: 2, UnitScale: 1},
+			{Category: pricing.OutputTokens, Unit: "token", TierKey: "short_context", PriceUnits: 3, UnitScale: 1},
+			{Category: pricing.OutputTokens, Unit: "token", TierKey: "long_context", PriceUnits: 6, UnitScale: 1},
+		},
+	}
+	raw, err := aigateway.EncodePricingSnapshot(model, aigateway.PricingSnapshotInput{
+		TransportEngine: "openai", RequestedModelID: model.ModelID, EffectiveMaxOutputTokens: 100, MultiplierPPM: 1_000_000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	usage := func(inputTokens int64) infraai.UsageSnapshot {
+		t.Helper()
+		snapshot, usageErr := infraai.NewUsageSnapshot(infraai.UsageStatusReported, []byte(`{"usage":"complete"}`), []infraai.UsageItem{
+			{Category: infraai.UsageCategoryInput, Unit: "token", Quantity: inputTokens},
+			{Category: infraai.UsageCategoryOutput, Unit: "token", Quantity: 1},
+		})
+		if usageErr != nil {
+			t.Fatal(usageErr)
+		}
+		return snapshot
+	}
+	quoted, err := (persistedSettlementPricer{}).PriceSettlement(context.Background(), aigateway.SettlementPricingInput{
+		Run: aigateway.RunSnapshot{PricingSnapshotJSON: raw},
+		Attempts: []aigateway.BillableAttempt{
+			{ID: 11, AttemptNo: 1, Usage: usage(50)},
+			{ID: 12, AttemptNo: 2, Usage: usage(51)},
+		},
+	})
+	if err != nil || quoted.ActualUnits != 161 || len(quoted.Items) != 4 {
+		t.Fatalf("settlement = %#v, %v", quoted, err)
+	}
+	for _, item := range quoted.Items {
+		wantTier := "short_context"
+		if item.AttemptID == 12 {
+			wantTier = "long_context"
+		}
+		if item.TierKey != wantTier {
+			t.Fatalf("attempt %d tier = %q, want %q", item.AttemptID, item.TierKey, wantTier)
+		}
+	}
+}
 
 func TestDeriveChatFinalizationTriggerUsesOnlyPersistedFacts(t *testing.T) {
 	tests := []struct {

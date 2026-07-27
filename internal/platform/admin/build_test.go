@@ -109,6 +109,25 @@ func TestBuildAIMessageRepositoryUsesDurableRealtimeSink(t *testing.T) {
 	}
 }
 
+func TestBuildWiresOneAuthoritativeAIModelPricingResolver(t *testing.T) {
+	compact := compactAdminBuild(t)
+	for _, want := range []string{
+		"aiModelPricingResolver := modelpricing.NewService(modelpricing.NewGormRepository(resources.DB))",
+		"aiagent.WithPricingResolver(aiModelPricingResolver)",
+		"aitool.WithPricingResolver(aiModelPricingResolver)",
+		"PricingResolver: aiModelPricingResolver",
+		"aimessage.WithRepositoryPricingResolver(aiModelPricingResolver)",
+		"aimessage.WithPricingResolver(aiModelPricingResolver)",
+	} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("Admin AI pricing composition missing %q", want)
+		}
+	}
+	if strings.Count(compact, "modelpricing.NewService(modelpricing.NewGormRepository(resources.DB))") != 1 {
+		t.Fatal("Admin Build must instantiate exactly one authoritative model pricing resolver")
+	}
+}
+
 func TestBuildWiresAuthVerificationChannelCapabilities(t *testing.T) {
 	body, err := os.ReadFile("build.go")
 	if err != nil {

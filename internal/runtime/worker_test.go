@@ -266,6 +266,25 @@ func TestWorkerReplyRepositoryUsesDurableRealtimeSink(t *testing.T) {
 	}
 }
 
+func TestWorkerWiresOneAuthoritativeAIModelPricingResolver(t *testing.T) {
+	body, err := os.ReadFile("worker.go")
+	if err != nil {
+		t.Fatalf("read worker composition: %v", err)
+	}
+	compact := strings.Join(strings.Fields(string(body)), " ")
+	for _, want := range []string{
+		"aiModelPricingResolver := modelpricing.NewService(modelpricing.NewGormRepository(resources.DB))",
+		"PricingResolver: aiModelPricingResolver",
+	} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("worker AI pricing composition missing %q", want)
+		}
+	}
+	if strings.Count(compact, "modelpricing.NewService(modelpricing.NewGormRepository(resources.DB))") != 1 {
+		t.Fatal("worker must instantiate exactly one authoritative model pricing resolver")
+	}
+}
+
 func TestWorkerBuildsPaymentWithItsSharedWalletParticipant(t *testing.T) {
 	body, err := os.ReadFile("worker.go")
 	if err != nil {

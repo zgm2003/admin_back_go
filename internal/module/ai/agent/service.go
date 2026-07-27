@@ -3,6 +3,7 @@ package aiagent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
@@ -13,6 +14,7 @@ import (
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/infra/secretbox"
 	"admin_back_go/internal/module/ai/capability"
+	"admin_back_go/internal/module/ai/modelpricing"
 	"admin_back_go/internal/module/ai/pricing"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/dict"
@@ -34,13 +36,26 @@ var sceneLabels = map[string]string{
 }
 
 type Service struct {
-	repository Repository
-	secretbox  secretbox.Box
-	tester     ConnectionTester
+	repository      Repository
+	secretbox       secretbox.Box
+	tester          ConnectionTester
+	pricingResolver modelpricing.Resolver
 }
 
-func NewService(repository Repository, box secretbox.Box, tester ConnectionTester) *Service {
-	return &Service{repository: repository, secretbox: box, tester: tester}
+type Option func(*Service)
+
+func WithPricingResolver(resolver modelpricing.Resolver) Option {
+	return func(service *Service) { service.pricingResolver = resolver }
+}
+
+func NewService(repository Repository, box secretbox.Box, tester ConnectionTester, options ...Option) *Service {
+	service := &Service{repository: repository, secretbox: box, tester: tester}
+	for _, option := range options {
+		if option != nil {
+			option(service)
+		}
+	}
+	return service
 }
 
 func (s *Service) PageInit(ctx context.Context) (*InitResponse, *apperror.Error) {
@@ -69,9 +84,10 @@ func (s *Service) PageInit(ctx context.Context) (*InitResponse, *apperror.Error)
 				label = model.ModelID
 			}
 			option := ModelOption{Label: label, Value: model.ModelID, ProviderID: row.ID, ModelID: model.ModelID, DisplayName: model.DisplayName, BillingMultiplier: "1", MaxOutputTokens: 4096}
-			if catalogModel, resolveErr := pricing.Default.Resolve(model.ModelID); resolveErr == nil {
-				option.CatalogVersion, option.CatalogVendor, option.CatalogModelID = catalogModel.Version, catalogModel.CatalogVendor, catalogModel.ModelID
-				option.CatalogRates = catalogRates(catalogModel)
+			if catalogModel, resolveErr := s.resolveModelPrice(ctx, model.ModelID); resolveErr == nil {
+				applyModelPriceToOption(&option, catalogModel)
+			} else if !errors.Is(resolveErr, pricing.ErrPriceUnavailable) {
+				return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询当前模型价格失败", resolveErr)
 			}
 			modelOptions = append(modelOptions, option)
 		}
@@ -94,7 +110,11 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 	}
 	list := make([]AgentDTO, 0, len(rows))
 	for _, row := range rows {
-		list = append(list, agentDTO(row))
+		dto, priceErr := s.agentDTO(ctx, row)
+		if priceErr != nil {
+			return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询当前模型价格失败", priceErr)
+		}
+		list = append(list, dto)
 	}
 	return &ListResponse{List: list, Page: Page{PageSize: query.PageSize, CurrentPage: query.CurrentPage, TotalPage: totalPage(total, query.PageSize), Total: total}}, nil
 }
@@ -139,7 +159,11 @@ func (s *Service) Detail(ctx context.Context, id uint64) (*DetailResponse, *appe
 	if row == nil {
 		return nil, apperror.NotFound("AI智能体不存在")
 	}
-	return &DetailResponse{AgentDTO: agentDTO(*row)}, nil
+	dto, priceErr := s.agentDTO(ctx, *row)
+	if priceErr != nil {
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询当前模型价格失败", priceErr)
+	}
+	return &DetailResponse{AgentDTO: dto}, nil
 }
 
 func (s *Service) Create(ctx context.Context, input CreateInput) (uint64, *apperror.Error) {
@@ -159,7 +183,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (uint64, *apper
 		return 0, appErr
 	}
 	row.ModelDisplayName = model.DisplayName
-	if appErr := validateCatalogOutput(row.ModelID, row.MaxOutputTokens); appErr != nil {
+	if appErr := s.validateCatalogOutput(ctx, row.ModelID, row.MaxOutputTokens); appErr != nil {
 		return 0, appErr
 	}
 	id, err := repo.Create(ctx, row)
@@ -202,7 +226,7 @@ func (s *Service) Update(ctx context.Context, id uint64, input UpdateInput) *app
 		return appErr
 	}
 	fields.modelDisplayName = model.DisplayName
-	if appErr := validateCatalogOutput(fields.modelID, fields.maxOutputTokens); appErr != nil {
+	if appErr := s.validateCatalogOutput(ctx, fields.modelID, fields.maxOutputTokens); appErr != nil {
 		return appErr
 	}
 	updateFields := updateFieldsMap(fields)
@@ -484,16 +508,34 @@ func normalizeMutationFields(input CreateInput) (normalizedFields, *apperror.Err
 	return normalizedFields{providerID: input.ProviderID, name: name, modelID: modelID, scenesJSON: scenesJSON, systemPrompt: systemPrompt, avatar: avatar, status: status, billingMultiplierPPM: multiplier, maxOutputTokens: maxOutput}, nil
 }
 
-func agentDTO(row AgentWithProvider) AgentDTO {
+func (s *Service) agentDTO(ctx context.Context, row AgentWithProvider) (AgentDTO, error) {
 	scenes := decodeScenes(row.ScenesJSON)
 	multiplier := defaultMultiplier(row.BillingMultiplierPPM)
 	maxOutput := defaultMaxOutput(row.MaxOutputTokens)
 	dto := AgentDTO{ID: row.ID, ProviderID: row.ProviderID, ProviderName: row.ProviderName, EngineType: row.EngineType, Name: row.Name, ModelID: row.ModelID, ModelDisplayName: row.ModelDisplayName, Scenes: scenes, SceneNames: sceneNames(scenes), SystemPrompt: row.SystemPrompt, Avatar: row.Avatar, Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt), BillingMultiplier: formatMultiplier(multiplier), MaxOutputTokens: int(maxOutput)}
-	if model, err := pricing.Default.Resolve(row.ModelID); err == nil {
-		dto.CatalogVersion, dto.CatalogVendor, dto.CatalogModelID = model.Version, model.CatalogVendor, model.ModelID
-		dto.CatalogRates = catalogRates(model)
+	model, err := s.resolveModelPrice(ctx, row.ModelID)
+	if err == nil {
+		applyModelPriceToAgent(&dto, model)
+	} else if !errors.Is(err, pricing.ErrPriceUnavailable) {
+		return AgentDTO{}, err
 	}
-	return dto
+	return dto, nil
+}
+
+func applyModelPriceToOption(option *ModelOption, model pricing.ModelPrice) {
+	option.PricingVersion, option.CatalogVersion = model.Version, model.CatalogVersion
+	option.CatalogVendor, option.CatalogModelID = model.CatalogVendor, model.ModelID
+	option.PriceSource, option.OverrideVersion = model.PriceSource, model.OverrideVersion
+	option.PriceSourceURL, option.PriceVerifiedAt = model.SourceURL, model.RetrievedAt
+	option.ContextTierThresholdTokens, option.CatalogRates = model.ContextTierThresholdTokens, catalogRates(model)
+}
+
+func applyModelPriceToAgent(dto *AgentDTO, model pricing.ModelPrice) {
+	dto.PricingVersion, dto.CatalogVersion = model.Version, model.CatalogVersion
+	dto.CatalogVendor, dto.CatalogModelID = model.CatalogVendor, model.ModelID
+	dto.PriceSource, dto.OverrideVersion = model.PriceSource, model.OverrideVersion
+	dto.PriceSourceURL, dto.PriceVerifiedAt = model.SourceURL, model.RetrievedAt
+	dto.ContextTierThresholdTokens, dto.CatalogRates = model.ContextTierThresholdTokens, catalogRates(model)
 }
 
 func catalogRates(model pricing.ModelPrice) []CatalogRateDTO {
@@ -507,15 +549,22 @@ func catalogRates(model pricing.ModelPrice) []CatalogRateDTO {
 	return rates
 }
 
-func validateCatalogOutput(modelID string, maxOutput int64) *apperror.Error {
-	model, err := pricing.Default.Resolve(modelID)
+func (s *Service) validateCatalogOutput(ctx context.Context, modelID string, maxOutput int64) *apperror.Error {
+	model, err := s.resolveModelPrice(ctx, modelID)
 	if err != nil {
-		return nil
+		return apperror.Wrap("ai.billing.price_unavailable", apperror.CategoryConflict, 409, apperror.Permanent, "", nil, "该智能体缺少可用的模型价格", err)
 	}
 	if model.MaxOutputTokens > 0 && maxOutput > model.MaxOutputTokens {
 		return apperror.BadRequest("max_output_tokens超过官方模型上限")
 	}
 	return nil
+}
+
+func (s *Service) resolveModelPrice(ctx context.Context, modelID string) (pricing.ModelPrice, error) {
+	if s == nil || s.pricingResolver == nil {
+		return pricing.ModelPrice{}, modelpricing.ErrRepositoryNotConfigured
+	}
+	return s.pricingResolver.Resolve(ctx, strings.TrimSpace(modelID))
 }
 
 func defaultMultiplier(value int64) int64 {

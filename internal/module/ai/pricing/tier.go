@@ -57,6 +57,19 @@ func selectTiers(price ModelPrice, lines []QuoteLine, upperBound bool) ([]QuoteL
 		}
 
 		if upperBound {
+			// A tierless input line is the aggregate prompt upper bound. Final usage
+			// may partition those tokens into ordinary input, cache read and cache
+			// write, so reserve the most expensive mutually exclusive destination.
+			if category == InputTokens && item.TierKey == "" {
+				inputCandidates := append([]Rate(nil), candidates...)
+				inputCandidates = append(inputCandidates, ratesFor(price, CacheRead, item.Unit)...)
+				inputCandidates = append(inputCandidates, ratesFor(price, CacheWrite, item.Unit)...)
+				selected := mostExpensive(inputCandidates)
+				item.Category = usageCategoryForPricing(selected.Category)
+				item.TierKey = selected.TierKey
+				result[i].Item = item
+				continue
+			}
 			if hasTier(candidates, "short_context") && hasTier(candidates, "long_context") {
 				item.TierKey = mostExpensive(candidates).TierKey
 			} else if item.TierKey != "" {

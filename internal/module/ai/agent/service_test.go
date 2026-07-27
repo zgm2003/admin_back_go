@@ -10,6 +10,8 @@ import (
 
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/infra/secretbox"
+	"admin_back_go/internal/module/ai/modelpricing"
+	"admin_back_go/internal/module/ai/pricing"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
 )
@@ -120,8 +122,23 @@ func (f *fakeAIAgentTester) TestConnection(ctx context.Context, input infraai.Te
 	return &infraai.TestConnectionResult{OK: true, Status: "200 OK", Message: "ok"}, nil
 }
 
+func newTestAgentService(repository Repository, box secretbox.Box, tester ConnectionTester) *Service {
+	resolver := modelpricing.ResolverFunc(func(_ context.Context, modelID string) (pricing.ModelPrice, error) {
+		return pricing.ModelPrice{
+			Version: "test-catalog", CatalogVersion: "test-catalog", CatalogVendor: "test", ModelID: modelID,
+			MaxOutputTokens: pricing.MaxSafeOutputTokens, PriceSource: "official",
+			SourceURL: "https://openai.com/pricing", RetrievedAt: "2026-07-27",
+			Rates: []pricing.Rate{
+				{Category: pricing.InputTokens, Unit: "token", PriceUnits: 1, UnitScale: 1},
+				{Category: pricing.OutputTokens, Unit: "token", PriceUnits: 1, UnitScale: 1},
+			},
+		}, nil
+	})
+	return NewService(repository, box, tester, WithPricingResolver(resolver))
+}
+
 func TestCreateRejectsMissingActiveProvider(t *testing.T) {
-	service := NewService(&fakeAIAgentRepository{}, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+	service := newTestAgentService(&fakeAIAgentRepository{}, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
 	_, appErr := service.Create(context.Background(), CreateInput{
 		ProviderID: 99,
@@ -143,7 +160,7 @@ func TestCreateRequiresProviderModelAndDefaultScene(t *testing.T) {
 			{ProviderID: 1, ModelID: "gpt-4.1-mini", DisplayName: "GPT-4.1 mini", Status: enum.CommonYes},
 		}},
 	}
-	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+	service := newTestAgentService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
 	_, appErr := service.Create(context.Background(), CreateInput{
 		ProviderID:   1,
@@ -178,7 +195,7 @@ func TestCreateAcceptsAgentGenerateScene(t *testing.T) {
 			{ProviderID: 1, ModelID: "gpt-4.1-mini", DisplayName: "GPT-4.1 mini", Status: enum.CommonYes},
 		}},
 	}
-	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+	service := newTestAgentService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
 	_, appErr := service.Create(context.Background(), CreateInput{
 		ProviderID: 1,
@@ -203,7 +220,7 @@ func TestCreateAcceptsCanonicalGenerationScenes(t *testing.T) {
 			{ProviderID: 1, ModelID: "gpt-image-2", DisplayName: "GPT Image 2", Status: enum.CommonYes},
 		}},
 	}
-	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+	service := newTestAgentService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
 	_, appErr := service.Create(context.Background(), CreateInput{
 		ProviderID: 1,
@@ -248,7 +265,7 @@ func TestCreateRejectsModelOutsideProviderSnapshot(t *testing.T) {
 		activeProviders:  map[uint64]Provider{1: {ID: 1, Name: "OpenAI", EngineType: "openai", Status: enum.CommonYes, IsDel: enum.CommonNo}},
 		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", Status: enum.CommonYes}}},
 	}
-	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+	service := newTestAgentService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
 	_, appErr := service.Create(context.Background(), CreateInput{
 		ProviderID: 1,
@@ -270,7 +287,7 @@ func TestCreateRejectsInvalidScene(t *testing.T) {
 				activeProviders:  map[uint64]Provider{1: {ID: 1, Name: "OpenAI", EngineType: "openai", Status: enum.CommonYes, IsDel: enum.CommonNo}},
 				modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", Status: enum.CommonYes}}},
 			}
-			service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+			service := newTestAgentService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
 			_, appErr := service.Create(context.Background(), CreateInput{
 				ProviderID: 1,
@@ -289,7 +306,7 @@ func TestCreateRejectsInvalidScene(t *testing.T) {
 
 func TestListAcceptsCanonicalImageGenerateSceneFilter(t *testing.T) {
 	repo := &fakeAIAgentRepository{}
-	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+	service := newTestAgentService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
 	_, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20, Scene: "image_generate"})
 
@@ -324,7 +341,7 @@ func TestListDTOExcludesSecretsAndOverdesignedFields(t *testing.T) {
 		}},
 		total: 1,
 	}
-	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+	service := newTestAgentService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
 	got, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20})
 	if appErr != nil {
@@ -354,7 +371,7 @@ func TestOptionsExcludeDisabledAgents(t *testing.T) {
 		{ID: 2, Name: "禁用智能体", Status: enum.CommonNo, IsDel: enum.CommonNo},
 		{ID: 3, Name: "删除智能体", Status: enum.CommonYes, IsDel: enum.CommonYes},
 	}}
-	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+	service := newTestAgentService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
 	got, appErr := service.Options(context.Background(), OptionQuery{UserID: 9})
 	if appErr != nil {
@@ -370,7 +387,7 @@ func TestOptionsExcludeDisabledAgents(t *testing.T) {
 
 func TestOptionsAcceptsCanonicalImageGenerateSceneFilter(t *testing.T) {
 	repo := &fakeAIAgentRepository{visibleAgents: []Agent{{ID: 7, Name: "图片智能体", Status: enum.CommonYes, IsDel: enum.CommonNo}}}
-	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+	service := newTestAgentService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
 	result, appErr := service.Options(context.Background(), OptionQuery{UserID: 9, Scene: "image_generate"})
 	if appErr != nil {
@@ -382,7 +399,7 @@ func TestOptionsAcceptsCanonicalImageGenerateSceneFilter(t *testing.T) {
 }
 
 func TestOptionsRejectsInvalidSceneFilter(t *testing.T) {
-	service := NewService(&fakeAIAgentRepository{}, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+	service := newTestAgentService(&fakeAIAgentRepository{}, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
 	_, appErr := service.Options(context.Background(), OptionQuery{UserID: 9, Scene: "rag"})
 	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.Message != "无效的智能体场景" {
@@ -396,7 +413,7 @@ func TestUpdateOnlyPersistsMVPFields(t *testing.T) {
 		activeProviders:  map[uint64]Provider{1: {ID: 1, Name: "OpenAI", EngineType: "openai", Status: enum.CommonYes, IsDel: enum.CommonNo}},
 		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", Status: enum.CommonYes}}},
 	}
-	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+	service := newTestAgentService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
 	appErr := service.Update(context.Background(), 5, UpdateInput{ProviderID: 1, Name: "客服助手", ModelID: "gpt-4.1-mini", Scenes: []string{"chat"}, Status: enum.CommonYes})
 	if appErr != nil {
@@ -425,7 +442,7 @@ func TestTestDecryptsProviderKeyAndUsesActiveProvider(t *testing.T) {
 		activeProviders: map[uint64]Provider{1: {ID: 1, Name: "OpenAI", EngineType: "openai", BaseURL: "https://api.openai.test/v1", APIKeyEnc: cipher, Status: enum.CommonYes, IsDel: enum.CommonNo}},
 	}
 	tester := &fakeAIAgentTester{}
-	service := NewService(repo, box, tester)
+	service := newTestAgentService(repo, box, tester)
 
 	result, appErr := service.Test(context.Background(), 5)
 	if appErr != nil {
@@ -449,7 +466,7 @@ func TestTestReturnsUpstreamError(t *testing.T) {
 		rowByID:         map[uint64]AgentWithProvider{5: {Agent: Agent{ID: 5, ProviderID: 1, Status: enum.CommonYes, IsDel: enum.CommonNo}}},
 		activeProviders: map[uint64]Provider{1: {ID: 1, Name: "OpenAI", EngineType: "openai", BaseURL: "https://api.openai.test/v1", APIKeyEnc: cipher, Status: enum.CommonYes, IsDel: enum.CommonNo}},
 	}
-	service := NewService(repo, box, &fakeAIAgentTester{err: errors.New("upstream failed")})
+	service := newTestAgentService(repo, box, &fakeAIAgentTester{err: errors.New("upstream failed")})
 
 	_, appErr := service.Test(context.Background(), 5)
 	if appErr == nil || appErr.LegacyCode != apperror.CodeInternal || appErr.Message != "测试AI智能体失败" {
@@ -462,7 +479,7 @@ func TestCreateValidatesBillingMultiplierAndOutputCap(t *testing.T) {
 		activeProviders:  map[uint64]Provider{1: {ID: 1, Status: enum.CommonYes, IsDel: enum.CommonNo}},
 		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", Status: enum.CommonYes}}},
 	}
-	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+	service := newTestAgentService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 	for _, value := range []string{"0", "-1", "1.1234567"} {
 		_, appErr := service.Create(context.Background(), CreateInput{ProviderID: 1, Name: "a", ModelID: "gpt-4.1-mini", BillingMultiplier: value, MaxOutputTokens: 1, Status: enum.CommonYes})
 		if appErr == nil {
@@ -481,7 +498,7 @@ func TestUpdatePreservesBillingConfigurationWhenProviderChanges(t *testing.T) {
 		activeProviders:  map[uint64]Provider{1: {ID: 1, Status: enum.CommonYes, IsDel: enum.CommonNo}},
 		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", Status: enum.CommonYes}}},
 	}
-	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+	service := newTestAgentService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 	if appErr := service.Update(context.Background(), 5, UpdateInput{ProviderID: 1, Name: "a", ModelID: "gpt-4.1-mini", Status: enum.CommonYes}); appErr != nil {
 		t.Fatalf("update failed: %v", appErr)
 	}
@@ -493,14 +510,27 @@ func TestUpdatePreservesBillingConfigurationWhenProviderChanges(t *testing.T) {
 func TestPageInitModelOptionsExposeBillingDefaults(t *testing.T) {
 	repo := &fakeAIAgentRepository{
 		connections:      []Provider{{ID: 1, Name: "OpenAI", EngineType: "openai", Status: enum.CommonYes, IsDel: enum.CommonNo}},
-		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", Status: enum.CommonYes}}},
+		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "injected-price-model", Status: enum.CommonYes}}},
 	}
-	result, appErr := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil).PageInit(context.Background())
+	resolverCalls := 0
+	resolver := modelpricing.ResolverFunc(func(_ context.Context, modelID string) (pricing.ModelPrice, error) {
+		resolverCalls++
+		if modelID != "injected-price-model" {
+			t.Fatalf("resolver model = %q", modelID)
+		}
+		return pricing.ModelPrice{
+			Version: "catalog-v3:override:2", CatalogVersion: "catalog-v3", OverrideVersion: 2,
+			CatalogVendor: "openai", ModelFamily: "gpt", ModelID: modelID, PricingProfile: "standard_global",
+			MaxOutputTokens: 8192, PriceSource: "override", SourceURL: "https://openai.com/pricing", RetrievedAt: "2026-07-27",
+			Rates: []pricing.Rate{{Category: pricing.InputTokens, Unit: "token", PriceUnits: 125_000_000, UnitScale: 1_000_000}},
+		}, nil
+	})
+	result, appErr := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil, WithPricingResolver(resolver)).PageInit(context.Background())
 	if appErr != nil || result == nil || len(result.Dict.ModelOptions) != 1 {
 		t.Fatalf("page init failed: %#v %v", result, appErr)
 	}
 	option := result.Dict.ModelOptions[0]
-	if option.BillingMultiplier != "1" || option.MaxOutputTokens != 4096 {
+	if resolverCalls != 1 || option.BillingMultiplier != "1" || option.MaxOutputTokens != 4096 || option.PricingVersion != "catalog-v3:override:2" || option.CatalogVersion != "catalog-v3" || option.PriceSource != "override" || option.OverrideVersion != 2 || len(option.CatalogRates) != 1 || option.CatalogRates[0].Price != "1.25" {
 		t.Fatalf("missing billing defaults: %#v", option)
 	}
 }
@@ -510,7 +540,7 @@ func TestCreateRejectsUnsafeOutputUpperBound(t *testing.T) {
 		activeProviders:  map[uint64]Provider{1: {ID: 1, Status: enum.CommonYes, IsDel: enum.CommonNo}},
 		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "custom-model", Status: enum.CommonYes}}},
 	}
-	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+	service := newTestAgentService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 	_, appErr := service.Create(context.Background(), CreateInput{ProviderID: 1, Name: "a", ModelID: "custom-model", MaxOutputTokens: 1 << 31, Status: enum.CommonYes})
 	if appErr == nil {
 		t.Fatal("unsafe output upper bound should be rejected")
