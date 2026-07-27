@@ -156,6 +156,30 @@ OPAQUE_VALUE=left=middle=right
     throw 'dependency stamp must contain a hash, not package-lock contents'
   }
 
+  $nodeModulesPath = Join-Path $temporaryRoot 'node_modules'
+  [IO.Directory]::CreateDirectory($nodeModulesPath) | Out-Null
+  if (Test-AdminDevFrontendDependencyTree -NodeModulesPath $nodeModulesPath) {
+    throw 'an incomplete node_modules tree must be a cache miss'
+  }
+  foreach ($relativePath in @(
+    'vite\bin\vite.js',
+    '@babel\parser\lib\index.js',
+    '@element-plus\icons-vue\package.json',
+    '.bin\vite.cmd',
+    '.bin\vue-tsc.cmd'
+  )) {
+    $sentinelPath = Join-Path $nodeModulesPath $relativePath
+    [IO.Directory]::CreateDirectory((Split-Path $sentinelPath -Parent)) | Out-Null
+    [IO.File]::WriteAllText($sentinelPath, '', [Text.UTF8Encoding]::new($false))
+  }
+  if (-not (Test-AdminDevFrontendDependencyTree -NodeModulesPath $nodeModulesPath)) {
+    throw 'a complete frontend dependency sentinel set must be reusable'
+  }
+  [IO.File]::Delete((Join-Path $nodeModulesPath '@babel\parser\lib\index.js'))
+  if (Test-AdminDevFrontendDependencyTree -NodeModulesPath $nodeModulesPath) {
+    throw 'a missing transitive runtime dependency must invalidate the dependency cache'
+  }
+
   $airPaths = Get-AdminDevAirPaths -RepositoryRoot $temporaryRoot
   $expectedAirRoot = Join-Path $temporaryRoot '.tmp\tools\air\v1.66.0'
   if ([string]$airPaths.Root -cne $expectedAirRoot -or

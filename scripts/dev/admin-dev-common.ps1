@@ -455,6 +455,23 @@ function Test-AdminDevDependencyStamp {
     [string]$stamp.npm_version -ceq '11.16.0'
 }
 
+function Test-AdminDevFrontendDependencyTree {
+  param([Parameter(Mandatory = $true)][string]$NodeModulesPath)
+
+  foreach ($relativePath in @(
+    'vite\bin\vite.js',
+    '@babel\parser\lib\index.js',
+    '@element-plus\icons-vue\package.json',
+    '.bin\vite.cmd',
+    '.bin\vue-tsc.cmd'
+  )) {
+    if (-not (Test-Path -LiteralPath (Join-Path $NodeModulesPath $relativePath) -PathType Leaf)) {
+      return $false
+    }
+  }
+  return $true
+}
+
 function Write-AdminDevDependencyStamp {
   param(
     [Parameter(Mandatory = $true)][string]$LockfilePath,
@@ -496,6 +513,7 @@ function Initialize-AdminDevFrontendDependencies {
   $lockfile = Join-Path $FrontendRoot 'package-lock.json'
   $nodeModules = Join-Path $FrontendRoot 'node_modules'
   if ((Test-Path -LiteralPath $nodeModules -PathType Container) -and
+      (Test-AdminDevFrontendDependencyTree -NodeModulesPath $nodeModules) -and
       (Test-AdminDevDependencyStamp -LockfilePath $lockfile -StampPath $StampPath)) {
     return $false
   }
