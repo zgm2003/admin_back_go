@@ -275,6 +275,50 @@ func TestWorkflowSchemasCloseBusinessFieldsAndDeclareNullability(t *testing.T) {
 	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIRunDetail", "id", "user_message", "assistant_message", "events", "knowledge_retrievals", "tool_calls")
 	assertNullableProperty(t, document.Components.Schemas["AIRunDetail"], "user_message")
 	assertNullableProperty(t, document.Components.Schemas["AIRunDetail"], "assistant_message")
+	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIRunDetail", "billing_status", "billing_reason", "held_amount", "actual_amount", "pricing", "usage_items", "provider_attempts")
+	assertNullableProperty(t, document.Components.Schemas["AIRunDetail"], "pricing")
+	for _, name := range []string{"AIRunPricing", "AIRunPricingRate", "AIRunUsageItem", "AIRunProviderAttempt"} {
+		assertClosedSchemaWithRequired(t, document.Components.Schemas, name)
+	}
+	for name, fields := range map[string][]string{
+		"AIRunPricing":         {"billing_multiplier", "catalog_vendor", "max_output_tokens", "model_id", "rates", "resolved_alias", "transport_engine", "version"},
+		"AIRunPricingRate":     {"category", "price", "tier_key", "unit", "unit_scale"},
+		"AIRunUsageItem":       {"amount", "attempt_no", "billable", "category", "quantity", "tier_key", "unit", "unit_price", "unit_scale"},
+		"AIRunProviderAttempt": {"attempt_no", "provider_request_id", "state", "usage_status"},
+	} {
+		properties := document.Components.Schemas[name]["properties"].(map[string]any)
+		if got := sortedMapKeys(properties); !reflect.DeepEqual(got, fields) {
+			t.Fatalf("%s properties=%v want=%v", name, got, fields)
+		}
+		if got := anyStrings(document.Components.Schemas[name]["required"]); !reflect.DeepEqual(got, fields) {
+			t.Fatalf("%s required=%v want=%v", name, got, fields)
+		}
+	}
+	assertSchemaPropertyStringEnum(t, document.Components.Schemas, "AIRunDetail", "billing_status", []string{"pending", "held", "settled", "released", "unbilled"})
+	assertSchemaPropertyStringEnum(t, document.Components.Schemas, "AIRunDetail", "billing_reason", []string{"pending", "held", "settled_complete_usage", "released_before_dispatch", "released_insufficient_balance", "released_provider_failed", "released_outcome_unknown", "unbilled_usage_incomplete", "unbilled_over_hold", "legacy_unpriced"})
+	assertSchemaPropertyStringEnum(t, document.Components.Schemas, "AIRunProviderAttempt", "state", []string{"prepared", "dispatched", "succeeded", "failed", "canceled", "outcome_unknown"})
+	assertSchemaPropertyStringEnum(t, document.Components.Schemas, "AIRunProviderAttempt", "usage_status", []string{"complete", "unavailable"})
+	assertSchemaPropertyStringEnum(t, document.Components.Schemas, "AIRunUsageItem", "category", []string{"input", "output", "cache_read", "cache_write", "media"})
+	for _, field := range []string{"held_amount", "actual_amount"} {
+		property := document.Components.Schemas["AIRunDetail"]["properties"].(map[string]any)[field].(map[string]any)
+		if property["type"] != "string" || property["pattern"] != `^(0|[1-9][0-9]*)(\.[0-9]{0,7}[1-9])?$` {
+			t.Fatalf("AIRunDetail.%s is not canonical RMB: %#v", field, property)
+		}
+	}
+	for _, check := range []struct{ schemaName, field string }{
+		{schemaName: "AIRunPricingRate", field: "price"},
+		{schemaName: "AIRunUsageItem", field: "unit_price"},
+		{schemaName: "AIRunUsageItem", field: "amount"},
+	} {
+		property := document.Components.Schemas[check.schemaName]["properties"].(map[string]any)[check.field].(map[string]any)
+		if property["pattern"] != `^(0|[1-9][0-9]*)(\.[0-9]{0,7}[1-9])?$` {
+			t.Fatalf("%s.%s is not canonical RMB: %#v", check.schemaName, check.field, property)
+		}
+	}
+	cancelStatus := document.Components.Schemas["AIMessageCancelResult"]["properties"].(map[string]any)["status"].(map[string]any)
+	if cancelStatus["const"] != "stopping" {
+		t.Fatalf("cancel status=%#v", cancelStatus["const"])
+	}
 
 	messageItem := document.Components.Schemas["AIMessageItem"]
 	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIMessageItem", "id", "role", "content_type", "content", "created_at", "updated_at")

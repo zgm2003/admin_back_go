@@ -1,10 +1,16 @@
 package airun
 
 import (
+	"context"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
+	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 	"gorm.io/gorm/schema"
 )
 
@@ -46,6 +52,40 @@ func TestRepositorySQLUsesAppAndEventSchema(t *testing.T) {
 	}
 	if !strings.Contains(groupedSQL, "r.agent_id as agent_id") || !strings.Contains(groupedSQL, "agent_name") {
 		t.Fatalf("grouped agent stats must expose agent_id/agent_name, sql=%s", groupedSQL)
+	}
+}
+
+func TestBillingDetailUsesThreeBoundedQueries(t *testing.T) {
+	sqlDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sqlDB.Close()
+	db, err := gorm.Open(mysql.New(mysql.Config{Conn: sqlDB, SkipInitializeWithVersion: true}), &gorm.Config{DisableAutomaticPing: true, Logger: logger.Default.LogMode(logger.Silent)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := &GormRepository{db: db}
+
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, held_units, actual_units, status FROM `ai_usage_charges` WHERE run_id = ? LIMIT ?")).WithArgs(int64(44), 1).WillReturnRows(
+		sqlmock.NewRows([]string{"id", "held_units", "actual_units", "status"}).AddRow(9, 900, 250, "settled"),
+	)
+	mock.ExpectQuery("SELECT .* FROM ai_usage_charge_items i JOIN ai_usage_charges c ON c.id = i.charge_id JOIN ai_provider_attempts a ON a.id = i.attempt_id WHERE c.run_id = \\? ORDER BY a.attempt_no ASC, i.id ASC").WithArgs(int64(44)).WillReturnRows(
+		sqlmock.NewRows([]string{"attempt_id", "attempt_no", "attempt_state", "category", "tier_key", "quantity", "unit", "unit_price_units", "unit_scale", "amount_units"}).AddRow(101, 1, "succeeded", "input", "", 2, "token", 100, 1, 250),
+	)
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, attempt_no, state, provider_request_id, usage_status, usage_json FROM `ai_provider_attempts` WHERE run_id = ? ORDER BY attempt_no ASC")).WithArgs(int64(44)).WillReturnRows(
+		sqlmock.NewRows([]string{"id", "attempt_no", "state", "provider_request_id", "usage_status", "usage_json"}).AddRow(101, 1, "succeeded", "provider-1", "complete", `{"status":"complete","items":[]}`),
+	)
+
+	charge, items, attempts, err := repo.BillingDetail(context.Background(), 44)
+	if err != nil {
+		t.Fatalf("BillingDetail returned error: %v", err)
+	}
+	if charge == nil || charge.HeldUnits != 900 || len(items) != 1 || items[0].AttemptNo != 1 || len(attempts) != 1 || attempts[0].ProviderRequestID != "provider-1" {
+		t.Fatalf("unexpected billing facts: charge=%#v items=%#v attempts=%#v", charge, items, attempts)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("billing detail must use exactly the three expected set queries: %v", err)
 	}
 }
 

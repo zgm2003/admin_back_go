@@ -5,12 +5,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
+	infraai "admin_back_go/internal/infra/ai"
+	"admin_back_go/internal/module/ai/aigateway"
+	"admin_back_go/internal/module/ai/billing"
+	"admin_back_go/internal/module/ai/pricing"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/dict"
 	"admin_back_go/internal/shared/enum"
+	sharedmoney "admin_back_go/internal/shared/money"
 )
 
 const timeLayout = "2006-01-02 15:04:05"
@@ -88,6 +95,14 @@ func (s *Service) Detail(ctx context.Context, id int64) (*DetailResponse, *apper
 	if row == nil {
 		return nil, apperror.NotFound("AI运行记录不存在")
 	}
+	charge, usageRows, attemptRows, err := repo.BillingDetail(ctx, id)
+	if err != nil {
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI运行计费详情失败", err)
+	}
+	billingView, err := buildBillingDetail(*row, charge, usageRows, attemptRows)
+	if err != nil {
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "AI运行计费详情无效", err)
+	}
 	events, err := repo.Events(ctx, id)
 	if err != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI运行事件失败", err)
@@ -100,7 +115,7 @@ func (s *Service) Detail(ctx context.Context, id int64) (*DetailResponse, *apper
 	if appErr != nil {
 		return nil, appErr
 	}
-	result := detailItem(*row, events, knowledgeRetrievals, toolCalls)
+	result := detailItem(*row, events, knowledgeRetrievals, toolCalls, billingView)
 	return &result, nil
 }
 
@@ -285,7 +300,195 @@ func listItem(row ListRow) ListItem {
 	}
 }
 
-func detailItem(row RunDetailRow, events []EventRow, knowledgeRetrievals []KnowledgeRetrievalItem, toolCalls []ToolCallRow) DetailResponse {
+type billingDetailView struct {
+	status   string
+	reason   string
+	held     string
+	actual   string
+	pricing  *PricingDetail
+	usage    []UsageItemDetail
+	attempts []ProviderAttemptDetail
+}
+
+func buildBillingDetail(row RunDetailRow, charge *ChargeRow, usageRows []UsageChargeItemRow, attemptRows []ProviderAttemptRow) (billingDetailView, error) {
+	legacy := row.BillingStatus == string(billing.BillingStatusUnbilled) && row.BillingReason == string(billing.BillingReasonLegacyUnpriced)
+	legacy = legacy || (charge == nil && strings.TrimSpace(row.BillingStatus) == "" && strings.TrimSpace(row.BillingReason) == "")
+	if legacy {
+		return billingDetailView{
+			status: string(billing.BillingStatusUnbilled), reason: string(billing.BillingReasonLegacyUnpriced),
+			held: "0", actual: "0", usage: []UsageItemDetail{}, attempts: []ProviderAttemptDetail{},
+		}, nil
+	}
+
+	snapshot, err := aigateway.ParsePricingSnapshot(row.PricingSnapshotJSON)
+	if err != nil {
+		return billingDetailView{}, fmt.Errorf("parse paid pricing snapshot: %w", err)
+	}
+	pricingDetail, err := pricingDetailFromSnapshot(snapshot)
+	if err != nil {
+		return billingDetailView{}, err
+	}
+	var heldUnits, actualUnits int64
+	if charge != nil {
+		heldUnits, actualUnits = charge.HeldUnits, charge.ActualUnits
+	}
+	held, err := sharedmoney.FormatRMBUnits(heldUnits)
+	if err != nil {
+		return billingDetailView{}, fmt.Errorf("format held amount: %w", err)
+	}
+	actual, err := sharedmoney.FormatRMBUnits(actualUnits)
+	if err != nil {
+		return billingDetailView{}, fmt.Errorf("format actual amount: %w", err)
+	}
+
+	usage := make([]UsageItemDetail, 0, len(usageRows))
+	seenItems := make(map[string]struct{}, len(usageRows))
+	var billableSum int64
+	for _, item := range usageRows {
+		if item.AttemptID <= 0 || item.AttemptNo == 0 || item.UnitPriceUnits < 0 || item.UnitScale <= 0 || item.AmountUnits < 0 {
+			return billingDetailView{}, fmt.Errorf("persisted usage item has invalid identity or money fields")
+		}
+		if err := (billing.UsageItem{Category: billing.UsageCategory(item.Category), TierKey: item.TierKey, Quantity: item.Quantity, Unit: item.Unit}).Validate(); err != nil {
+			return billingDetailView{}, fmt.Errorf("persisted usage item is invalid: %w", err)
+		}
+		unitPrice, formatErr := sharedmoney.FormatRMBUnits(item.UnitPriceUnits)
+		if formatErr != nil {
+			return billingDetailView{}, fmt.Errorf("format usage unit price: %w", formatErr)
+		}
+		amount, formatErr := sharedmoney.FormatRMBUnits(item.AmountUnits)
+		if formatErr != nil {
+			return billingDetailView{}, fmt.Errorf("format usage amount: %w", formatErr)
+		}
+		billable := item.AttemptState != string(billing.AttemptStateFailed)
+		if billable {
+			if item.AmountUnits > math.MaxInt64-billableSum {
+				return billingDetailView{}, fmt.Errorf("billable usage amount overflow")
+			}
+			billableSum += item.AmountUnits
+		}
+		seenItems[usageItemKey(item.AttemptID, item.Category, item.TierKey, item.Unit)] = struct{}{}
+		usage = append(usage, UsageItemDetail{
+			AttemptNo: item.AttemptNo, Category: item.Category, TierKey: item.TierKey,
+			Quantity: item.Quantity, Unit: item.Unit, UnitPrice: unitPrice,
+			UnitScale: item.UnitScale, Amount: amount, Billable: billable,
+		})
+	}
+	if row.BillingStatus == string(billing.BillingStatusSettled) && billableSum != actualUnits {
+		return billingDetailView{}, fmt.Errorf("settled usage item sum %d does not equal actual units %d", billableSum, actualUnits)
+	}
+
+	attempts := make([]ProviderAttemptDetail, 0, len(attemptRows))
+	auditLines := make([]pricing.QuoteLine, 0)
+	auditItems := make(map[string]UsageItemDetail)
+	for _, attempt := range attemptRows {
+		attempts = append(attempts, ProviderAttemptDetail{
+			AttemptNo: attempt.AttemptNo, State: attempt.State,
+			ProviderRequestID: optionalNonBlank(attempt.ProviderRequestID), UsageStatus: attempt.UsageStatus,
+		})
+		if attempt.State != string(billing.AttemptStateFailed) || attempt.UsageStatus != string(billing.UsageStatusComplete) {
+			continue
+		}
+		var snapshotUsage infraai.UsageSnapshot
+		if err := json.Unmarshal([]byte(attempt.UsageJSON), &snapshotUsage); err != nil || !snapshotUsage.Complete() {
+			return billingDetailView{}, fmt.Errorf("failed attempt %d has invalid complete usage", attempt.AttemptNo)
+		}
+		for index, raw := range snapshotUsage.Items {
+			key := usageItemKey(attempt.ID, raw.Category, raw.TierKey, raw.Unit)
+			if _, exists := seenItems[key]; exists {
+				continue
+			}
+			lineKey := strconv.FormatUint(uint64(attempt.AttemptNo), 10) + ":" + strconv.Itoa(index)
+			auditLines = append(auditLines, pricing.QuoteLine{
+				Key: lineKey, AttemptID: strconv.FormatInt(attempt.ID, 10),
+				Item: billing.UsageItem{Category: billing.UsageCategory(raw.Category), TierKey: raw.TierKey, Quantity: raw.Quantity, Unit: raw.Unit},
+			})
+			auditItems[lineKey] = UsageItemDetail{AttemptNo: attempt.AttemptNo, Category: raw.Category, TierKey: raw.TierKey, Quantity: raw.Quantity, Unit: raw.Unit, Billable: false}
+		}
+	}
+	if len(auditLines) > 0 {
+		quoted, quoteErr := pricing.Quote(pricing.ModelPrice{
+			Version: snapshot.Version, CatalogVendor: snapshot.CatalogVendor, ModelID: snapshot.CanonicalModelID,
+			MaxOutputTokens: snapshot.CatalogMaxOutputTokens, SourceURL: snapshot.SourceURL,
+			RetrievedAt: snapshot.RetrievedAt, Rates: snapshot.Rates,
+		}, auditLines, snapshot.MultiplierPPM)
+		if quoteErr != nil {
+			return billingDetailView{}, fmt.Errorf("price failed attempt audit usage: %w", quoteErr)
+		}
+		for _, line := range quoted.Lines {
+			item := auditItems[line.Key]
+			item.UnitPrice, err = sharedmoney.FormatRMBUnits(line.Rate.PriceUnits)
+			if err != nil {
+				return billingDetailView{}, fmt.Errorf("format failed attempt unit price: %w", err)
+			}
+			item.UnitScale = line.Rate.UnitScale
+			item.Amount, err = sharedmoney.FormatRMBUnits(line.AmountUnits)
+			if err != nil {
+				return billingDetailView{}, fmt.Errorf("format failed attempt amount: %w", err)
+			}
+			usage = append(usage, item)
+		}
+	}
+	sort.SliceStable(usage, func(i, j int) bool {
+		if usage[i].AttemptNo != usage[j].AttemptNo {
+			return usage[i].AttemptNo < usage[j].AttemptNo
+		}
+		if usage[i].Category != usage[j].Category {
+			return usage[i].Category < usage[j].Category
+		}
+		if usage[i].TierKey != usage[j].TierKey {
+			return usage[i].TierKey < usage[j].TierKey
+		}
+		return usage[i].Unit < usage[j].Unit
+	})
+	return billingDetailView{
+		status: row.BillingStatus, reason: row.BillingReason, held: held, actual: actual,
+		pricing: pricingDetail, usage: usage, attempts: attempts,
+	}, nil
+}
+
+func pricingDetailFromSnapshot(snapshot aigateway.PricingSnapshot) (*PricingDetail, error) {
+	rates := make([]PricingRateDetail, 0, len(snapshot.Rates))
+	for _, rate := range snapshot.Rates {
+		price, err := sharedmoney.FormatRMBUnits(rate.PriceUnits)
+		if err != nil {
+			return nil, fmt.Errorf("format pricing rate: %w", err)
+		}
+		rates = append(rates, PricingRateDetail{Category: string(rate.Category), TierKey: rate.TierKey, Unit: rate.Unit, Price: price, UnitScale: rate.UnitScale})
+	}
+	resolvedAlias := ""
+	if snapshot.RequestedModelID != snapshot.CanonicalModelID {
+		resolvedAlias = snapshot.RequestedModelID
+	}
+	return &PricingDetail{
+		Version: snapshot.Version, CatalogVendor: snapshot.CatalogVendor, TransportEngine: snapshot.TransportEngine,
+		ModelID: snapshot.CanonicalModelID, ResolvedAlias: resolvedAlias,
+		BillingMultiplier: formatMultiplierPPM(snapshot.MultiplierPPM), MaxOutputTokens: snapshot.EffectiveMaxOutputTokens,
+		Rates: rates,
+	}, nil
+}
+
+func formatMultiplierPPM(ppm int64) string {
+	whole := ppm / 1_000_000
+	fraction := ppm % 1_000_000
+	if fraction == 0 {
+		return strconv.FormatInt(whole, 10)
+	}
+	return strconv.FormatInt(whole, 10) + "." + strings.TrimRight(fmt.Sprintf("%06d", fraction), "0")
+}
+
+func usageItemKey(attemptID int64, category, tierKey, unit string) string {
+	return strconv.FormatInt(attemptID, 10) + "\x00" + strings.TrimSpace(category) + "\x00" + strings.TrimSpace(tierKey) + "\x00" + strings.TrimSpace(unit)
+}
+
+func optionalNonBlank(value string) *string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	return &value
+}
+
+func detailItem(row RunDetailRow, events []EventRow, knowledgeRetrievals []KnowledgeRetrievalItem, toolCalls []ToolCallRow, billingView billingDetailView) DetailResponse {
 	items := make([]EventItem, 0, len(events))
 	for _, event := range events {
 		items = append(items, eventItem(event, row.StartedAt))
@@ -304,6 +507,9 @@ func detailItem(row RunDetailRow, events []EventRow, knowledgeRetrievals []Knowl
 		ModelID: row.ModelID, ModelDisplayName: row.ModelDisplayName,
 		PromptTokens: row.PromptTokens, CompletionTokens: row.CompletionTokens, TotalTokens: row.TotalTokens,
 		DurationMS: row.DurationMS, DurationText: durationString(row.DurationMS), ErrorMessage: row.ErrorMessage,
+		BillingStatus: billingView.status, BillingReason: billingView.reason,
+		HeldAmount: billingView.held, ActualAmount: billingView.actual,
+		Pricing: billingView.pricing, UsageItems: billingView.usage, ProviderAttempts: billingView.attempts,
 		UserMessage: row.UserMessage, AssistantMessage: row.AssistantMessage, Events: items, KnowledgeRetrievals: knowledgeRetrievals, ToolCalls: callItems,
 		StartedAt: formatOptionalTime(row.StartedAt), FinishedAt: formatOptionalTime(row.FinishedAt),
 		CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt),

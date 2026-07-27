@@ -188,7 +188,7 @@ not a keyed object.
 | `DELETE /api/admin/v1/ai-conversations/{id}` | path `id`; no body | `{}` |
 | `GET /api/admin/v1/ai-conversations/{id}/messages` | path `id`; optional positive `before_id`, `limit 1..100` (default `20`) | `AIMessageListResult` |
 | `POST /api/admin/v1/ai-conversations/{id}/messages` | path `id`; required `AIMessageSendRequest`; HTTP `202` | `AIMessageSendResult` |
-| `POST /api/admin/v1/ai-conversations/{id}/messages/cancel` | path `id`; required `{ request_id: non-empty string <= 128 }` | `{ conversation_id: positive integer, request_id: string, status: "canceled" }` |
+| `POST /api/admin/v1/ai-conversations/{id}/messages/cancel` | path `id`; required `{ request_id: non-empty string <= 128 }` | `{ conversation_id: positive integer, request_id: string, status: "stopping" }` |
 
 `before_time` uses `YYYY-MM-DD HH:mm:ss`. Supplying only one conversation cursor
 field is a validation error; the client must preserve both values returned by
@@ -319,12 +319,49 @@ AIRunStatsByUserItem = { username: string } + AIRunStatsMetric
 ```text
 AIRunDetail contains every AIRunListItem field except it additionally has:
   username: string,
+  billing_status: "pending" | "held" | "settled" | "released" | "unbilled",
+  billing_reason: "pending" | "held" | "settled_complete_usage" |
+    "released_before_dispatch" | "released_insufficient_balance" |
+    "released_provider_failed" | "released_outcome_unknown" |
+    "unbilled_usage_incomplete" | "unbilled_over_hold" | "legacy_unpriced",
+  held_amount: RMBAmount, actual_amount: RMBAmount,
+  pricing: AIRunPricing | null,
+  usage_items: AIRunUsageItem[], provider_attempts: AIRunProviderAttempt[],
   user_message: AIRunMessageSummary | null,
   assistant_message: AIRunMessageSummary | null,
   events: AIRunEvent[],
   knowledge_retrievals: AIRunKnowledgeRetrieval[],
   tool_calls: AIRunToolCall[],
   started_at: string, finished_at: string, updated_at: string
+
+RMBAmount is the canonical non-negative decimal string emitted from integer
+RMB units (for example `0`, `2.5`, or `0.00000001`; no exponent, sign,
+leading zero, or trailing fractional zero).
+AIRunPricing = {
+  version: non-empty string, catalog_vendor: non-empty string,
+  transport_engine: non-empty string, model_id: non-empty string,
+  resolved_alias: string, billing_multiplier: positive decimal string,
+  max_output_tokens: positive integer, rates: AIRunPricingRate[] (non-empty)
+}
+AIRunPricingRate = {
+  category: "input" | "output" | "cache_read" | "cache_write" | "media",
+  tier_key: string, unit: non-empty string, price: RMBAmount,
+  unit_scale: positive integer
+}
+AIRunUsageItem = {
+  attempt_no: positive integer,
+  category: "input" | "output" | "cache_read" | "cache_write" | "media",
+  tier_key: string, quantity: integer >= 0, unit: non-empty string,
+  unit_price: RMBAmount, unit_scale: positive integer,
+  amount: RMBAmount, billable: boolean
+}
+AIRunProviderAttempt = {
+  attempt_no: positive integer,
+  state: "prepared" | "dispatched" | "succeeded" | "failed" | "canceled" |
+    "outcome_unknown",
+  provider_request_id: non-empty string | null,
+  usage_status: "complete" | "unavailable"
+}
 
 AIRunMessageSummary = {
   id: positive integer, role: 1 | 2 | 3, content_type: string,
@@ -369,5 +406,29 @@ JSON is normalized by the backend to `{}`. This is not permission for a client
 to read a different business field as a fallback.
 
 All detail collections are always arrays and use `[]` when no records exist.
-The two message fields and the documented duration/conversation/call fields are
-the only nullable detail values; empty time strings remain strings.
+The two message fields, `pricing`, and the documented duration/conversation/call
+fields are the only nullable detail values; empty time strings remain strings.
+Legacy unpriced runs publish `billing_reason="legacy_unpriced"`, zero amounts,
+`pricing=null`, and empty billing evidence arrays. Paid pricing comes only from
+the immutable Run snapshot. Failed-attempt usage is audit-only with
+`billable=false`; settled billable item amounts are validated against
+`actual_amount` before the response is returned.
+
+## AI realtime failure payload
+
+`ai.response.failed.v1` is a closed payload with all six fields required:
+
+```text
+{
+  conversation_id: positive integer,
+  request_id: non-empty string <= 128,
+  msg: non-empty string <= 1024,
+  error_code: non-empty string <= 128,
+  wallet_path: string | null,
+  recharge_path: string | null
+}
+```
+
+For `error_code="ai.billing.insufficient_balance"`, the paths are exactly
+`/profile/wallet` and `/payment/recharge`. For every other error code, both
+fields are explicitly `null`.

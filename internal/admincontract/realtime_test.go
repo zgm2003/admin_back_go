@@ -92,6 +92,52 @@ func TestRealtimeSchemasPreserveNonBlankPayloadConstraints(t *testing.T) {
 	}
 }
 
+func TestAIResponseFailedContractRequiresMachineCodeAndExplicitConditionalPaths(t *testing.T) {
+	bundle := mustBuildBundle(t)
+	artifact := bundle.Artifacts["realtime/events.schema.json"]
+	for _, field := range []string{"conversation_id", "request_id", "msg", "error_code", "wallet_path", "recharge_path"} {
+		_ = realtimePayloadProperty(t, artifact, modulerealtime.TypeAIResponseFailedV1, field)
+	}
+	errorCode := realtimePayloadProperty(t, artifact, modulerealtime.TypeAIResponseFailedV1, "error_code")
+	if errorCode["minLength"] != float64(1) || errorCode["pattern"] == "" {
+		t.Fatalf("error_code must reject blank strings: %#v", errorCode)
+	}
+
+	payload := realtimePayloadSchema(t, artifact, modulerealtime.TypeAIResponseFailedV1)
+	allOf, ok := payload["allOf"].([]any)
+	if !ok || len(allOf) != 1 {
+		t.Fatalf("failed payload conditional schema=%#v", payload["allOf"])
+	}
+	conditional := allOf[0].(map[string]any)
+	thenProperties := conditional["then"].(map[string]any)["properties"].(map[string]any)
+	if thenProperties["wallet_path"].(map[string]any)["const"] != "/profile/wallet" || thenProperties["recharge_path"].(map[string]any)["const"] != "/payment/recharge" {
+		t.Fatalf("billing paths are not canonical: %#v", thenProperties)
+	}
+	elseProperties := conditional["else"].(map[string]any)["properties"].(map[string]any)
+	if elseProperties["wallet_path"].(map[string]any)["type"] != "null" || elseProperties["recharge_path"].(map[string]any)["type"] != "null" {
+		t.Fatalf("non-billing paths must be explicit null: %#v", elseProperties)
+	}
+}
+
+func realtimePayloadSchema(t *testing.T, artifact []byte, eventType string) map[string]any {
+	t.Helper()
+	var document struct {
+		OneOf []map[string]any `json:"oneOf"`
+	}
+	if err := json.Unmarshal(artifact, &document); err != nil {
+		t.Fatalf("decode realtime event document: %v", err)
+	}
+	for _, variant := range document.OneOf {
+		properties, _ := variant["properties"].(map[string]any)
+		typeSchema, _ := properties["type"].(map[string]any)
+		if typeSchema["const"] == eventType {
+			return properties["data"].(map[string]any)
+		}
+	}
+	t.Fatalf("event %s has no contract variant", eventType)
+	return nil
+}
+
 func realtimePayloadProperty(t *testing.T, artifact []byte, eventType string, field string) map[string]any {
 	t.Helper()
 	var document struct {

@@ -95,7 +95,7 @@ func aiWorkflowSchemas() map[string]any {
 		"AIMessageCancelResult": closedObjectAllProperties(map[string]any{
 			"conversation_id": positiveIntegerSchema(),
 			"request_id":      stringSchema(),
-			"status":          map[string]any{"type": "string", "const": "canceled"},
+			"status":          map[string]any{"type": "string", "const": "stopping"},
 		}),
 		"AIMessageCancelSuccessEnvelope": successEnvelopeWithData(schemaReference("AIMessageCancelResult")),
 
@@ -120,6 +120,10 @@ func aiWorkflowSchemas() map[string]any {
 		"AIRunToolCall":              aiRunToolCallSchema(),
 		"AIRunKnowledgeHit":          aiRunKnowledgeHitSchema(),
 		"AIRunKnowledgeRetrieval":    aiRunKnowledgeRetrievalSchema(),
+		"AIRunPricingRate":           aiRunPricingRateSchema(),
+		"AIRunPricing":               aiRunPricingSchema(),
+		"AIRunUsageItem":             aiRunUsageItemSchema(),
+		"AIRunProviderAttempt":       aiRunProviderAttemptSchema(),
 		"AIRunDetail":                aiRunDetailSchema(),
 		"AIRunDetailSuccessEnvelope": successEnvelopeWithData(schemaReference("AIRunDetail")),
 		"AIRunStatsSummary":          aiRunStatsSummarySchema(),
@@ -283,10 +287,70 @@ func aiRunDetailSchema() map[string]any {
 	properties["events"] = arraySchema(schemaReference("AIRunEvent"))
 	properties["knowledge_retrievals"] = arraySchema(schemaReference("AIRunKnowledgeRetrieval"))
 	properties["tool_calls"] = arraySchema(schemaReference("AIRunToolCall"))
+	properties["billing_status"] = stringEnumSchema("pending", "held", "settled", "released", "unbilled")
+	properties["billing_reason"] = stringEnumSchema(
+		"pending", "held", "settled_complete_usage", "released_before_dispatch", "released_insufficient_balance",
+		"released_provider_failed", "released_outcome_unknown", "unbilled_usage_incomplete", "unbilled_over_hold", "legacy_unpriced",
+	)
+	properties["held_amount"] = canonicalRMBAmountSchema()
+	properties["actual_amount"] = canonicalRMBAmountSchema()
+	properties["pricing"] = nullableSchema(schemaReference("AIRunPricing"))
+	properties["usage_items"] = arraySchema(schemaReference("AIRunUsageItem"))
+	properties["provider_attempts"] = arraySchema(schemaReference("AIRunProviderAttempt"))
 	properties["started_at"] = stringSchema()
 	properties["finished_at"] = stringSchema()
 	properties["updated_at"] = stringSchema()
 	return closedObjectAllProperties(properties)
+}
+
+func aiRunPricingRateSchema() map[string]any {
+	return closedObjectAllProperties(map[string]any{
+		"category":   stringEnumSchema("input", "output", "cache_read", "cache_write", "media"),
+		"tier_key":   stringSchema(),
+		"unit":       nonEmptyStringSchema(),
+		"price":      canonicalRMBAmountSchema(),
+		"unit_scale": positiveIntegerSchema(),
+	})
+}
+
+func aiRunPricingSchema() map[string]any {
+	return closedObjectAllProperties(map[string]any{
+		"version":            nonEmptyStringSchema(),
+		"catalog_vendor":     nonEmptyStringSchema(),
+		"transport_engine":   nonEmptyStringSchema(),
+		"model_id":           nonEmptyStringSchema(),
+		"resolved_alias":     stringSchema(),
+		"billing_multiplier": map[string]any{"type": "string", "pattern": `^(0\.[0-9]{0,5}[1-9]|[1-9][0-9]*(\.[0-9]{0,5}[1-9])?)$`},
+		"max_output_tokens":  positiveIntegerSchema(),
+		"rates":              nonEmptyArraySchema(schemaReference("AIRunPricingRate")),
+	})
+}
+
+func aiRunUsageItemSchema() map[string]any {
+	return closedObjectAllProperties(map[string]any{
+		"attempt_no": positiveIntegerSchema(),
+		"category":   stringEnumSchema("input", "output", "cache_read", "cache_write", "media"),
+		"tier_key":   stringSchema(),
+		"quantity":   nonNegativeIntegerSchema(),
+		"unit":       nonEmptyStringSchema(),
+		"unit_price": canonicalRMBAmountSchema(),
+		"unit_scale": positiveIntegerSchema(),
+		"amount":     canonicalRMBAmountSchema(),
+		"billable":   booleanSchema(),
+	})
+}
+
+func aiRunProviderAttemptSchema() map[string]any {
+	return closedObjectAllProperties(map[string]any{
+		"attempt_no":          positiveIntegerSchema(),
+		"state":               stringEnumSchema("prepared", "dispatched", "succeeded", "failed", "canceled", "outcome_unknown"),
+		"provider_request_id": nullableSchema(nonEmptyStringSchema()),
+		"usage_status":        stringEnumSchema("complete", "unavailable"),
+	})
+}
+
+func canonicalRMBAmountSchema() map[string]any {
+	return map[string]any{"type": "string", "pattern": `^(0|[1-9][0-9]*)(\.[0-9]{0,7}[1-9])?$`}
 }
 
 func aiRunStatsSummarySchema() map[string]any {

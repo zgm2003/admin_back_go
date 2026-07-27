@@ -242,14 +242,30 @@ func realtimeEventSchemas() []realtimeEventSchema {
 		},
 		{
 			Type: modulerealtime.TypeAIResponseFailedV1,
-			Payload: closedObject(
-				[]string{"conversation_id", "request_id", "msg"},
+			Payload: schemaWith(closedObject(
+				[]string{"conversation_id", "request_id", "msg", "error_code", "wallet_path", "recharge_path"},
 				map[string]any{
 					"conversation_id": positiveID(),
 					"request_id":      nonBlankStringProperty(realtimeRequestIDMaxLength),
 					"msg":             nonBlankStringProperty(1024),
+					"error_code":      nonBlankStringProperty(128),
+					"wallet_path":     nullableSchema(nonBlankStringProperty(2048)),
+					"recharge_path":   nullableSchema(nonBlankStringProperty(2048)),
 				},
-			),
+			), "allOf", []any{map[string]any{
+				"if": map[string]any{
+					"properties": map[string]any{"error_code": map[string]any{"const": "ai.billing.insufficient_balance"}},
+					"required":   []string{"error_code"},
+				},
+				"then": map[string]any{"properties": map[string]any{
+					"wallet_path":   map[string]any{"type": "string", "const": "/profile/wallet"},
+					"recharge_path": map[string]any{"type": "string", "const": "/payment/recharge"},
+				}},
+				"else": map[string]any{"properties": map[string]any{
+					"wallet_path":   map[string]any{"type": "null"},
+					"recharge_path": map[string]any{"type": "null"},
+				}},
+			}}),
 		},
 		{
 			Type: modulerealtime.TypeAIResponseCanceledV1,

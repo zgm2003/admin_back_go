@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"admin_back_go/internal/module/ai/billing"
 	"admin_back_go/internal/shared/enum"
 )
 
@@ -17,6 +18,10 @@ type fakeRepository struct {
 	rows        []ListRow
 	total       int64
 	run         *RunDetailRow
+	charge      *ChargeRow
+	usageItems  []UsageChargeItemRow
+	attempts    []ProviderAttemptRow
+	billingRuns []int64
 	events      []EventRow
 	toolCalls   []ToolCallRow
 	retrievals  []KnowledgeRetrievalRow
@@ -43,6 +48,10 @@ func (f *fakeRepository) List(ctx context.Context, query ListQuery) ([]ListRow, 
 }
 func (f *fakeRepository) Detail(ctx context.Context, id int64) (*RunDetailRow, error) {
 	return f.run, nil
+}
+func (f *fakeRepository) BillingDetail(ctx context.Context, runID int64) (*ChargeRow, []UsageChargeItemRow, []ProviderAttemptRow, error) {
+	f.billingRuns = append(f.billingRuns, runID)
+	return f.charge, f.usageItems, f.attempts, nil
 }
 func (f *fakeRepository) Events(ctx context.Context, runID int64) ([]EventRow, error) {
 	return f.events, nil
@@ -142,6 +151,112 @@ func TestDetailReturnsMessagesAndPersistedEvents(t *testing.T) {
 	if len(res.ToolCalls) != 1 || res.ToolCalls[0].ToolCode != "admin_user_count" || string(res.ToolCalls[0].ArgumentsJSON) != `{"scope":"all"}` || string(res.ToolCalls[0].ResultJSON) != `{"total_users":1015}` || res.ToolCalls[0].DurationMS == nil || *res.ToolCalls[0].DurationMS != 12 {
 		t.Fatalf("unexpected tool calls: %#v", res.ToolCalls)
 	}
+}
+
+func TestDetailPublishesPaidBillingEvidenceFromRunSnapshot(t *testing.T) {
+	now := time.Date(2026, 7, 27, 9, 0, 0, 0, time.UTC)
+	repo := &fakeRepository{
+		run: &RunDetailRow{
+			ID: 44, RequestID: "paid-run", UserID: 7, Status: enum.AIRunStatusFailed,
+			BillingStatus: string(billing.BillingStatusSettled), BillingReason: string(billing.BillingReasonSettledCompleteUsage),
+			PricingSnapshotJSON: paidPricingSnapshotJSON(), CreatedAt: now, UpdatedAt: now,
+		},
+		charge: &ChargeRow{ID: 9, HeldUnits: 900000000, ActualUnits: 250000000, Status: string(billing.ChargeStatusSettled)},
+		usageItems: []UsageChargeItemRow{
+			{AttemptID: 101, AttemptNo: 1, AttemptState: string(billing.AttemptStateSucceeded), Category: "input", Quantity: 2, Unit: "token", UnitPriceUnits: 100000000, UnitScale: 1, AmountUnits: 250000000},
+		},
+		attempts: []ProviderAttemptRow{
+			{ID: 101, AttemptNo: 1, State: string(billing.AttemptStateSucceeded), ProviderRequestID: "provider-ok", UsageStatus: string(billing.UsageStatusComplete), UsageJSON: `{"status":"complete","items":[{"category":"input","unit":"token","quantity":2}]}`},
+			{ID: 102, AttemptNo: 2, State: string(billing.AttemptStateFailed), ProviderRequestID: "provider-failed", UsageStatus: string(billing.UsageStatusComplete), UsageJSON: `{"status":"complete","items":[{"category":"output","unit":"token","quantity":1}]}`},
+		},
+	}
+
+	res, appErr := NewService(repo).Detail(context.Background(), 44)
+	if appErr != nil {
+		t.Fatalf("Detail returned error: %v", appErr)
+	}
+	if len(repo.billingRuns) != 1 || repo.billingRuns[0] != 44 {
+		t.Fatalf("billing evidence query calls=%v", repo.billingRuns)
+	}
+	if res.BillingStatus != "settled" || res.BillingReason != "settled_complete_usage" || res.HeldAmount != "9" || res.ActualAmount != "2.5" {
+		t.Fatalf("unexpected billing summary: %#v", res)
+	}
+	if res.Pricing == nil || res.Pricing.Version != "catalog-v1" || res.Pricing.CatalogVendor != "vendor-a" || res.Pricing.TransportEngine != "openai" || res.Pricing.ModelID != "canonical-model" || res.Pricing.ResolvedAlias != "requested-alias" || res.Pricing.BillingMultiplier != "1.25" || res.Pricing.MaxOutputTokens != 4096 {
+		t.Fatalf("unexpected pricing snapshot: %#v", res.Pricing)
+	}
+	if len(res.Pricing.Rates) != 2 || res.Pricing.Rates[0].Price != "1" || res.Pricing.Rates[1].Price != "2" {
+		t.Fatalf("unexpected pricing rates: %#v", res.Pricing.Rates)
+	}
+	if len(res.ProviderAttempts) != 2 || res.ProviderAttempts[0].ProviderRequestID == nil || *res.ProviderAttempts[0].ProviderRequestID != "provider-ok" {
+		t.Fatalf("unexpected provider attempts: %#v", res.ProviderAttempts)
+	}
+	if len(res.UsageItems) != 2 || !res.UsageItems[0].Billable || res.UsageItems[0].Amount != "2.5" || res.UsageItems[1].Billable || res.UsageItems[1].AttemptNo != 2 || res.UsageItems[1].Amount != "2.5" {
+		t.Fatalf("unexpected usage items: %#v", res.UsageItems)
+	}
+	encoded, err := json.Marshal(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"prepared_request", "quote_json", "provider_engine", "api_key"} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Fatalf("detail leaked %q: %s", forbidden, encoded)
+		}
+	}
+}
+
+func TestDetailMapsLegacyRunWithoutChargeWithoutParsingMarker(t *testing.T) {
+	repo := &fakeRepository{run: &RunDetailRow{
+		ID: 45, BillingStatus: string(billing.BillingStatusUnbilled), BillingReason: string(billing.BillingReasonLegacyUnpriced),
+		PricingSnapshotJSON: `{"version":"legacy_unpriced_v1","billable":false}`,
+	}}
+	res, appErr := NewService(repo).Detail(context.Background(), 45)
+	if appErr != nil {
+		t.Fatalf("legacy detail returned error: %v", appErr)
+	}
+	if res.BillingStatus != "unbilled" || res.BillingReason != "legacy_unpriced" || res.Pricing != nil || res.HeldAmount != "0" || res.ActualAmount != "0" || len(res.UsageItems) != 0 || len(res.ProviderAttempts) != 0 {
+		t.Fatalf("legacy billing detail=%#v", res)
+	}
+}
+
+func TestDetailPreservesCurrentPaidRunWithoutCharge(t *testing.T) {
+	repo := &fakeRepository{
+		run: &RunDetailRow{
+			ID: 48, BillingStatus: string(billing.BillingStatusPending), BillingReason: string(billing.BillingReasonPending),
+			PricingSnapshotJSON: paidPricingSnapshotJSON(),
+		},
+		attempts: []ProviderAttemptRow{{ID: 201, AttemptNo: 1, State: string(billing.AttemptStatePrepared), UsageStatus: string(billing.UsageStatusUnavailable)}},
+	}
+	res, appErr := NewService(repo).Detail(context.Background(), 48)
+	if appErr != nil {
+		t.Fatalf("current paid detail returned error: %v", appErr)
+	}
+	if res.BillingStatus != "pending" || res.BillingReason != "pending" || res.HeldAmount != "0" || res.ActualAmount != "0" || res.Pricing == nil || len(res.ProviderAttempts) != 1 || len(res.UsageItems) != 0 {
+		t.Fatalf("current paid billing detail=%#v", res)
+	}
+}
+
+func TestDetailRejectsInvalidPaidSnapshotAndMismatchedSettlement(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		run    RunDetailRow
+		charge ChargeRow
+		items  []UsageChargeItemRow
+	}{
+		{name: "invalid snapshot", run: RunDetailRow{ID: 46, BillingStatus: "settled", BillingReason: "settled_complete_usage", PricingSnapshotJSON: `{"version":"attempt-quote"}`}, charge: ChargeRow{ID: 10, ActualUnits: 1, Status: "settled"}},
+		{name: "item sum", run: RunDetailRow{ID: 47, BillingStatus: "settled", BillingReason: "settled_complete_usage", PricingSnapshotJSON: paidPricingSnapshotJSON()}, charge: ChargeRow{ID: 11, ActualUnits: 2, Status: "settled"}, items: []UsageChargeItemRow{{AttemptNo: 1, AttemptState: "succeeded", Category: "input", Quantity: 1, Unit: "token", UnitScale: 1, AmountUnits: 1}}},
+		{name: "invalid item", run: RunDetailRow{ID: 49, BillingStatus: "settled", BillingReason: "settled_complete_usage", PricingSnapshotJSON: paidPricingSnapshotJSON()}, charge: ChargeRow{ID: 12, ActualUnits: 0, Status: "settled"}, items: []UsageChargeItemRow{{AttemptNo: 1, AttemptState: "succeeded", Category: "input", Quantity: 1, Unit: "token", UnitScale: 0, AmountUnits: 0}}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repo := &fakeRepository{run: &test.run, charge: &test.charge, usageItems: test.items}
+			if _, appErr := NewService(repo).Detail(context.Background(), test.run.ID); appErr == nil || appErr.HTTPStatus != 500 {
+				t.Fatalf("expected explicit internal error, got %#v", appErr)
+			}
+		})
+	}
+}
+
+func paidPricingSnapshotJSON() string {
+	return `{"version":"catalog-v1","billable":true,"catalog_vendor":"vendor-a","transport_engine":"openai","requested_model_id":"requested-alias","canonical_model_id":"canonical-model","catalog_max_output_tokens":8192,"effective_max_output_tokens":4096,"multiplier_ppm":1250000,"source_url":"https://example.test/pricing","retrieved_at":"2026-07-27","rates":[{"category":"input","unit":"token","tier_key":"","price_units":100000000,"unit_scale":1},{"category":"output","unit":"token","tier_key":"","price_units":200000000,"unit_scale":1}]}`
 }
 
 func TestDetailAllowsImageRunWithoutMessages(t *testing.T) {

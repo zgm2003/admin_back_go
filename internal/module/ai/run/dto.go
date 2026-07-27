@@ -162,6 +162,13 @@ type DetailResponse struct {
 	DurationMS          *uint                    `json:"duration_ms"`
 	DurationText        string                   `json:"duration_text"`
 	ErrorMessage        string                   `json:"error_message"`
+	BillingStatus       string                   `json:"billing_status"`
+	BillingReason       string                   `json:"billing_reason"`
+	HeldAmount          string                   `json:"held_amount"`
+	ActualAmount        string                   `json:"actual_amount"`
+	Pricing             *PricingDetail           `json:"pricing"`
+	UsageItems          []UsageItemDetail        `json:"usage_items"`
+	ProviderAttempts    []ProviderAttemptDetail  `json:"provider_attempts"`
 	UserMessage         *MessageSummary          `json:"user_message"`
 	AssistantMessage    *MessageSummary          `json:"assistant_message"`
 	Events              []EventItem              `json:"events"`
@@ -171,6 +178,44 @@ type DetailResponse struct {
 	FinishedAt          string                   `json:"finished_at"`
 	CreatedAt           string                   `json:"created_at"`
 	UpdatedAt           string                   `json:"updated_at"`
+}
+
+type PricingDetail struct {
+	Version           string              `json:"version"`
+	CatalogVendor     string              `json:"catalog_vendor"`
+	TransportEngine   string              `json:"transport_engine"`
+	ModelID           string              `json:"model_id"`
+	ResolvedAlias     string              `json:"resolved_alias"`
+	BillingMultiplier string              `json:"billing_multiplier"`
+	MaxOutputTokens   int                 `json:"max_output_tokens"`
+	Rates             []PricingRateDetail `json:"rates"`
+}
+
+type PricingRateDetail struct {
+	Category  string `json:"category"`
+	TierKey   string `json:"tier_key"`
+	Unit      string `json:"unit"`
+	Price     string `json:"price"`
+	UnitScale int64  `json:"unit_scale"`
+}
+
+type UsageItemDetail struct {
+	AttemptNo uint   `json:"attempt_no"`
+	Category  string `json:"category"`
+	TierKey   string `json:"tier_key"`
+	Quantity  int64  `json:"quantity"`
+	Unit      string `json:"unit"`
+	UnitPrice string `json:"unit_price"`
+	UnitScale int64  `json:"unit_scale"`
+	Amount    string `json:"amount"`
+	Billable  bool   `json:"billable"`
+}
+
+type ProviderAttemptDetail struct {
+	AttemptNo         uint    `json:"attempt_no"`
+	State             string  `json:"state"`
+	ProviderRequestID *string `json:"provider_request_id"`
+	UsageStatus       string  `json:"usage_status"`
 }
 
 type StatsFilter struct {
@@ -268,32 +313,64 @@ type ListRow struct {
 }
 
 type RunDetailRow struct {
+	ID                  int64
+	RequestID           string
+	UserID              int64
+	Username            string
+	AgentID             int64
+	AgentName           string
+	ProviderID          int64
+	ProviderName        string
+	Platform            string
+	InputSnapshot       string
+	ConversationID      *int64
+	ConversationTitle   string
+	Status              string
+	ModelID             string
+	ModelDisplayName    string
+	PromptTokens        uint
+	CompletionTokens    uint
+	TotalTokens         uint
+	DurationMS          *uint
+	ErrorMessage        string
+	PricingSnapshotJSON string
+	BillingStatus       string
+	BillingReason       string
+	UserMessage         *MessageSummary `gorm:"-"`
+	AssistantMessage    *MessageSummary `gorm:"-"`
+	StartedAt           *time.Time
+	FinishedAt          *time.Time
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+}
+
+type ChargeRow struct {
+	ID          int64
+	HeldUnits   int64
+	ActualUnits int64
+	Status      string
+}
+
+type UsageChargeItemRow struct {
+	AttemptID      int64
+	AttemptNo      uint
+	AttemptState   string
+	Category       string
+	TierKey        string
+	Quantity       int64
+	Unit           string
+	UnitPriceUnits int64
+	UnitScale      int64
+	AmountUnits    int64
+}
+
+type ProviderAttemptRow struct {
 	ID                int64
-	RequestID         string
-	UserID            int64
-	Username          string
-	AgentID           int64
-	AgentName         string
-	ProviderID        int64
-	ProviderName      string
-	Platform          string
-	InputSnapshot     string
-	ConversationID    *int64
-	ConversationTitle string
-	Status            string
-	ModelID           string
-	ModelDisplayName  string
-	PromptTokens      uint
-	CompletionTokens  uint
-	TotalTokens       uint
-	DurationMS        *uint
-	ErrorMessage      string
-	UserMessage       *MessageSummary `gorm:"-"`
-	AssistantMessage  *MessageSummary `gorm:"-"`
-	StartedAt         *time.Time
-	FinishedAt        *time.Time
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	AttemptNo         uint
+	State             string
+	ProviderRequestID string
+	UsageStatus       string
+	UsageJSON         string
 }
 
 type EventRow struct {
@@ -396,6 +473,7 @@ type Repository interface {
 	ProviderOptions(ctx context.Context) ([]OptionRow, error)
 	List(ctx context.Context, query ListQuery) ([]ListRow, int64, error)
 	Detail(ctx context.Context, id int64) (*RunDetailRow, error)
+	BillingDetail(ctx context.Context, runID int64) (*ChargeRow, []UsageChargeItemRow, []ProviderAttemptRow, error)
 	Events(ctx context.Context, runID int64) ([]EventRow, error)
 	ToolCalls(ctx context.Context, runID int64) ([]ToolCallRow, error)
 	KnowledgeRetrievals(ctx context.Context, runID int64) ([]KnowledgeRetrievalRow, error)

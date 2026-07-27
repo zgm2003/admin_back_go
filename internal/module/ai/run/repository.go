@@ -79,6 +79,7 @@ func (r *GormRepository) Detail(ctx context.Context, id int64) (*RunDetailRow, e
 			r.conversation_id, COALESCE(c.title, '') as conversation_title,
 			r.status, r.model_id, r.model_display_name,
 			r.prompt_tokens, r.completion_tokens, r.total_tokens, r.duration_ms, r.error_message,
+			r.pricing_snapshot_json, r.billing_status, r.billing_reason,
 			r.started_at, r.finished_at, r.created_at, r.updated_at`).
 		Where("r.id = ?", id).
 		Scan(&row).Error
@@ -91,6 +92,47 @@ func (r *GormRepository) Detail(ctx context.Context, id int64) (*RunDetailRow, e
 	row.UserMessage = r.messageSummary(ctx, id, "user_message_id")
 	row.AssistantMessage = r.messageSummary(ctx, id, "assistant_message_id")
 	return &row, nil
+}
+
+func (r *GormRepository) BillingDetail(ctx context.Context, runID int64) (*ChargeRow, []UsageChargeItemRow, []ProviderAttemptRow, error) {
+	if r == nil || r.db == nil {
+		return nil, nil, nil, ErrRepositoryNotConfigured
+	}
+	var charge ChargeRow
+	if err := r.db.WithContext(ctx).Table("ai_usage_charges").
+		Select("id, held_units, actual_units, status").
+		Where("run_id = ?", runID).
+		Limit(1).
+		Scan(&charge).Error; err != nil {
+		return nil, nil, nil, err
+	}
+	var chargePtr *ChargeRow
+	if charge.ID != 0 {
+		chargePtr = &charge
+	}
+
+	items := make([]UsageChargeItemRow, 0)
+	if err := r.db.WithContext(ctx).Table("ai_usage_charge_items i").
+		Select(`i.attempt_id, a.attempt_no, a.state AS attempt_state,
+			i.category, i.tier_key, i.quantity, i.unit,
+			i.unit_price_units, i.unit_scale, i.amount_units`).
+		Joins("JOIN ai_usage_charges c ON c.id = i.charge_id").
+		Joins("JOIN ai_provider_attempts a ON a.id = i.attempt_id").
+		Where("c.run_id = ?", runID).
+		Order("a.attempt_no ASC, i.id ASC").
+		Scan(&items).Error; err != nil {
+		return nil, nil, nil, err
+	}
+
+	attempts := make([]ProviderAttemptRow, 0)
+	if err := r.db.WithContext(ctx).Table("ai_provider_attempts").
+		Select("id, attempt_no, state, provider_request_id, usage_status, usage_json").
+		Where("run_id = ?", runID).
+		Order("attempt_no ASC").
+		Scan(&attempts).Error; err != nil {
+		return nil, nil, nil, err
+	}
+	return chargePtr, items, attempts, nil
 }
 
 func (r *GormRepository) Events(ctx context.Context, runID int64) ([]EventRow, error) {

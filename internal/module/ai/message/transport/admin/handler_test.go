@@ -70,7 +70,7 @@ func (acceptedMessageService) Send(_ context.Context, _ int64, input aimessage.S
 }
 
 func (acceptedMessageService) Cancel(context.Context, int64, aimessage.CancelInput) (*aimessage.CancelResponse, *apperror.Error) {
-	return &aimessage.CancelResponse{}, nil
+	return &aimessage.CancelResponse{ConversationID: 3, RequestID: "request-1", Status: "stopping"}, nil
 }
 
 func TestSendReturnsAcceptedDurableCommand(t *testing.T) {
@@ -94,5 +94,32 @@ func TestSendReturnsAcceptedDurableCommand(t *testing.T) {
 		if !strings.Contains(recorder.Body.String(), field) {
 			t.Fatalf("missing %s in %s", field, recorder.Body.String())
 		}
+	}
+}
+
+func TestCancelReturnsStoppingIntentInsteadOfTerminalState(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	handler := NewHandler(acceptedMessageService{})
+	router.POST("/api/admin/v1/ai-conversations/:id/messages/cancel", func(c *gin.Context) {
+		c.Set(middleware.ContextAuthIdentity, &middleware.AuthIdentity{UserID: 7, Platform: "admin"})
+		handler.Cancel(c)
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-conversations/3/messages/cancel", strings.NewReader(`{"request_id":"request-1"}`))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	for _, field := range []string{`"conversation_id":3`, `"request_id":"request-1"`, `"status":"stopping"`} {
+		if !strings.Contains(recorder.Body.String(), field) {
+			t.Fatalf("missing %s in %s", field, recorder.Body.String())
+		}
+	}
+	if strings.Contains(recorder.Body.String(), `"status":"canceled"`) {
+		t.Fatalf("cancel intent response reported terminal state: %s", recorder.Body.String())
 	}
 }
