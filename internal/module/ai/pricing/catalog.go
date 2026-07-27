@@ -38,6 +38,7 @@ type Rate struct {
 type ModelPrice struct {
 	Version                    string   `json:"version"`
 	CatalogVersion             string   `json:"catalog_version,omitempty"`
+	OverrideVersion            uint64   `json:"override_version,omitempty"`
 	CatalogVendor              string   `json:"catalog_vendor"`
 	ModelFamily                string   `json:"model_family,omitempty"`
 	ModelID                    string   `json:"model_id"`

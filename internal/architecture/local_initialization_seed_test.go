@@ -67,8 +67,8 @@ func TestLocalPermissionSeed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse local permission seed: %v", err)
 	}
-	if len(rows) != 135 {
-		t.Fatalf("permission seed row count=%d want 135", len(rows))
+	if len(rows) != 138 {
+		t.Fatalf("permission seed row count=%d want 138", len(rows))
 	}
 
 	ids := make(map[int64]struct{}, len(rows))
@@ -106,8 +106,22 @@ func TestLocalPermissionSeed(t *testing.T) {
 			t.Fatalf("permission %d references missing parent %d", row.id, row.parentID)
 		}
 	}
-	if len(codes) != 105 {
-		t.Fatalf("permission seed code count=%d want 105", len(codes))
+	if len(codes) != 108 {
+		t.Fatalf("permission seed code count=%d want 108", len(codes))
+	}
+
+	modelPricing := map[int64]permissionSeedRow{
+		921: {id: 921, name: "模型定价", path: "/ai/model-pricing", icon: "", parentID: 5, component: "ai/model-pricing", platform: "admin", typeID: 2, sort: 7, code: "ai_model_pricing_list", i18nKey: "menu.ai_model_pricing", showMenu: 1, status: 1, isDel: 2},
+		922: {id: 922, name: "编辑模型定价", path: "", icon: "", parentID: 921, component: "", platform: "admin", typeID: 3, sort: 1, code: "ai_model_pricing_edit", i18nKey: "", showMenu: 2, status: 1, isDel: 2},
+	}
+	for id, want := range modelPricing {
+		got, ok := rowsByID[id]
+		if !ok {
+			t.Fatalf("AI model pricing permission %d is missing", id)
+		}
+		if got != want {
+			t.Fatalf("AI model pricing permission %d=%+v want %+v", id, got, want)
+		}
 	}
 
 	walletRedeemCodes := map[int64]permissionSeedRow{

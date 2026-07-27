@@ -1397,6 +1397,135 @@ table "ai_prompts" {
     columns = [column.slug]
   }
 }
+table "ai_model_price_overrides" {
+  schema  = schema.admin
+  comment = "Current canonical AI model price overrides"
+  column "id" {
+    null           = false
+    type           = bigint
+    unsigned       = true
+    auto_increment = true
+  }
+  column "catalog_vendor" {
+    null    = false
+    type    = varchar(32)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "model_id" {
+    null    = false
+    type    = varchar(191)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "version" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "source_url" {
+    null = false
+    type = varchar(2048)
+  }
+  column "verified_at" {
+    null = false
+    type = date
+  }
+  column "updated_by" {
+    null     = false
+    type     = int
+    unsigned = true
+  }
+  column "created_at" {
+    null    = false
+    type    = datetime(6)
+    default = sql("CURRENT_TIMESTAMP(6)")
+  }
+  column "updated_at" {
+    null      = false
+    type      = datetime(6)
+    default   = sql("CURRENT_TIMESTAMP(6)")
+    on_update = sql("CURRENT_TIMESTAMP(6)")
+  }
+  primary_key {
+    columns = [column.id]
+  }
+  index "uk_ai_model_price_overrides_identity" {
+    unique  = true
+    columns = [column.catalog_vendor, column.model_id]
+  }
+  check "chk_ai_model_price_overrides_version" {
+    expr = "(`version` > 0)"
+  }
+}
+table "ai_model_price_override_rates" {
+  schema  = schema.admin
+  comment = "Complete rate set for an AI model price override"
+  column "id" {
+    null           = false
+    type           = bigint
+    unsigned       = true
+    auto_increment = true
+  }
+  column "override_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "category" {
+    null    = false
+    type    = varchar(32)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "unit" {
+    null    = false
+    type    = varchar(32)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "tier_key" {
+    null    = false
+    type    = varchar(64)
+    charset = "ascii"
+    collate = "ascii_bin"
+    default = ""
+  }
+  column "price_units" {
+    null = false
+    type = bigint
+  }
+  column "unit_scale" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  primary_key {
+    columns = [column.id]
+  }
+  foreign_key "fk_ai_model_price_override_rates_override" {
+    columns     = [column.override_id]
+    ref_columns = [table.ai_model_price_overrides.column.id]
+    on_update   = RESTRICT
+    on_delete   = CASCADE
+  }
+  index "uk_ai_model_price_override_rates_key" {
+    unique  = true
+    columns = [column.override_id, column.category, column.unit, column.tier_key]
+  }
+  check "chk_ai_model_price_override_rates_category" {
+    expr = "(`category` in (_ascii'input',_ascii'output',_ascii'cache_read',_ascii'cache_write'))"
+  }
+  check "chk_ai_model_price_override_rates_unit" {
+    expr = "(`unit` = _ascii'token')"
+  }
+  check "chk_ai_model_price_override_rates_price" {
+    expr = "(`price_units` >= 0)"
+  }
+  check "chk_ai_model_price_override_rates_scale" {
+    expr = "(`unit_scale` > 0)"
+  }
+}
 table "ai_provider_attempts" {
   schema = schema.admin
   column "id" {

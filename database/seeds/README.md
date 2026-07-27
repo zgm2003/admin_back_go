@@ -3,7 +3,7 @@
 ## Admin permissions
 
 `admin_permissions.sql` is the canonical local seed for the current Admin menu
-and permission tree. It contains 135 active Admin rows with stable IDs so all
+and permission tree. It contains 138 active Admin rows with stable IDs so all
 parent-child relationships remain deterministic.
 
 Apply it only to an empty `permissions` table. The seed intentionally fails
@@ -17,4 +17,4 @@ Get-Content database/seeds/admin_permissions.sql -Raw |
   docker exec -i admin-state-mysql-1 sh -lc 'mysql --default-character-set=utf8mb4 -uroot -p"$(cat /run/secrets/mysql_root_password)" admin'
 ```
 
-This seed does not create or modify users or roles, and it does not assign permissions to any role, including `system_mail_logView` (permission 515, the mail-log and verification-code diagnostic read) or `payment_redeem_code_list` (permission 912). First-administrator creation and authorization belong to a future project-initialization flow.
+This seed does not create or modify users or roles, and it does not assign permissions to any role, including `system_mail_logView` (permission 515, the mail-log and verification-code diagnostic read), `payment_redeem_code_list` (permission 912), or `ai_model_pricing_list` / `ai_model_pricing_edit` (permissions 921/922). First-administrator creation and authorization belong to a future project-initialization flow.
