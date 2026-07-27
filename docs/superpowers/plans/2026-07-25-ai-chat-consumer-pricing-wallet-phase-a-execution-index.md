@@ -21,7 +21,7 @@
 
 - [x] Plan 06：文本、工具草稿与图片任务级 Gateway 结算已完成定向验证。
 - [x] Plan 07：runtime、权限、Admin Contract Bundle 与前端计费展示已完成并合并。
-- [ ] Plan 08：完整退役 AI audio/video；只生成破坏性 migration，不自动执行。
+- [x] Plan 08：AI audio/video 已完整退役；破坏性 migration 已生成但未自动执行。
 
 | Wave | Plan | Ownership | Depends on |
 | --- | --- | --- | --- |

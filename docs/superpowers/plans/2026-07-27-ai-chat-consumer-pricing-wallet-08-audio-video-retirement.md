@@ -42,15 +42,15 @@
 - Delete: `internal/shared/i18n/locales/en-US/aiaudio.yaml`
 - Delete: `internal/shared/i18n/locales/en-US/aivideo.yaml`
 
-- [ ] **Step 1: 删除两个能力包**
+- [x] **Step 1: 删除两个能力包**
 
 删除列出的 9 个 Go 文件及空目录。不得移动到 `legacy`、不得保留空壳 Service，也不得留下新的 feature flag。
 
-- [ ] **Step 2: 清除 composition root**
+- [x] **Step 2: 清除 composition root**
 
 从 Admin `BuildInputs`/Graph 和 runtime `Providers`/API 装配中删除 `AIVideoFactory`、`AIAudioFactory`、`aiVideoEngineFactory`、`aiAudioEngineFactory` 及其 imports/构造。保留 chat、tool、text、image 的单例装配，不改 Gateway、钱包或密钥派生。
 
-- [ ] **Step 3: 删除专属运行时测试和错误文案**
+- [x] **Step 3: 删除专属运行时测试和错误文案**
 
 删除 `TestAIAudioEngineFactorySupportsOpenAI` 及只服务于两个退役模块的 fixtures；删除四个 `aiaudio.yaml`/`aivideo.yaml` catalog。此处只改代码，不运行测试。
 
@@ -67,15 +67,15 @@
 - Modify: `internal/module/ai/agent/service.go`
 - Modify: `internal/module/ai/agent/service_test.go`
 
-- [ ] **Step 1: 删除明确的 infra 契约**
+- [x] **Step 1: 删除明确的 infra 契约**
 
 删除 `VideoInput`、`VideoTask`、`VideoEngine`、`AudioInput`、`AudioResult`、`AudioEngine`，以及 `InstrumentVideoEngine`、`InstrumentAudioEngine` 和对应 wrapper/tests。不要删除共享 HTTP、telemetry、用量归一化或 `media` category。
 
-- [ ] **Step 2: 删除 OpenAI-compatible 生成方法**
+- [x] **Step 2: 删除 OpenAI-compatible 生成方法**
 
 删除 `CreateVideo`、`GetVideo`、`DownloadVideo`、`GenerateAudio`、`videoTaskFromPayload` 和它们的测试。删除 `friendlyUpstreamErrorHint` 中仅针对 reference-video privacy 的提示及测试；保留通用上游错误提取、脱敏和 chat/image adapter。
 
-- [ ] **Step 3: Agent 只接受四种场景**
+- [x] **Step 3: Agent 只接受四种场景**
 
 删除 `SceneVideoGenerate`、`SceneAudioGenerate`。`sceneLabels`、`sceneOptions()`、`isScene`、创建/编辑校验和 init 字典只允许以下值，顺序固定：
 
@@ -98,15 +98,15 @@ image_generate
 - Generate: `E:\admin\admin_front_ts\src\i18n\locales\generated.ts`
 - Modify: `E:\admin\admin_front_ts\tests\shared\ai\ai-agent-api.test.ts`
 
-- [ ] **Step 1: 收紧前端类型和解析器**
+- [x] **Step 1: 收紧前端类型和解析器**
 
 把 `AiAgentScene`、`isAgentScene` 和 Agent 页面 fallback options 同步为后端四种场景。init 返回退役值时按契约错误处理，不显示、不提交，也不兼容映射成 chat。
 
-- [ ] **Step 2: 删除退役文案并生成 locale keys**
+- [x] **Step 2: 删除退役文案并生成 locale keys**
 
 删除 `aiAgents.scene.videoGenerate`、`aiAgents.scene.audioGenerate` 的中英文源文案；最后通过 `npm run locale:generate` 生成 `generated.ts`，不得手改生成文件。
 
-- [ ] **Step 3: 更新唯一相关契约 fixture**
+- [x] **Step 3: 更新唯一相关契约 fixture**
 
 `ai-agent-api.test.ts` 的 `scene_arr` 只保留四种场景，并断言解析结果中不存在退役值。以下目录完全不改：
 
@@ -131,7 +131,7 @@ src/views/Main/component/display/components/Editor.vue
 - Modify: `internal/architecture/admin_only_test.go`
 - Modify: `docs/architecture.md`
 
-- [ ] **Step 1: 先写失败关闭的 migration guard**
+- [x] **Step 1: 先写失败关闭的 migration guard**
 
 迁移开头要求维护人员在同一连接显式执行：
 
@@ -149,7 +149,7 @@ SET @ai_audio_video_retirement_verified = 1;
 
 本迁移的人工执行顺序固定为：先部署已删除 writer/route/factory 的新 API 与 Worker、停止全部旧进程并确认没有活动任务，再在维护连接中设置确认变量并执行 migration。migration 执行后不支持回滚到仍查询两张 task table 的旧二进制，只能向前修复。本计划自身不执行这些部署或数据库动作。
 
-- [ ] **Step 2: 原子迁移 Agent 场景**
+- [x] **Step 2: 原子迁移 Agent 场景**
 
 使用 MySQL 8 `JSON_TABLE` 按原顺序重建数组，规则固定：
 
@@ -158,7 +158,7 @@ SET @ai_audio_video_retirement_verified = 1;
 - `NULL` 或原本为空数组但不含退役值的行不由本迁移改写。
 - 更新后验证所有 `is_del = 2` 的 Agent 均不再包含退役值；本次命中的每一行都必须得到非 NULL 的合法 JSON array，不得写 `NULL` 或空字符串。原本不含退役值的历史 `NULL`/空数组不纳入该断言。
 
-- [ ] **Step 3: 删除任务表但保留账务事实**
+- [x] **Step 3: 删除任务表但保留账务事实**
 
 所有 guard 和 Agent 更新成功后，以一个 DDL statement 执行：
 
@@ -180,7 +180,7 @@ ai_assets
 
 从 `database/schema/admin.hcl` 删除两个 task table block；保留 `ai_usage_charge_items.category` 的 `media` 取值。只运行一次 `pwsh -NoProfile -File scripts/database/atlas.ps1 migrate hash --dir file://database/migrations` 更新 `atlas.sum`；若 Atlas 镜像未就绪或两分钟内不能完成，停止并把该命令留给用户，绝不连接数据库或执行 `migrate apply`。在 `atlas.sum` 尚未成功覆盖新 migration 时不得提交或声称 Plan 08 完成。
 
-- [ ] **Step 4: 改写当前架构断言和文档**
+- [x] **Step 4: 改写当前架构断言和文档**
 
 当前架构测试应断言两个 module 根目录、runtime factories、当前 HCL 表和当前场景均不存在；`ai_billing_wave0_contract_test.go` 仍可读取 `202607250101/103` 证明历史 audio migration 事实，但不得再要求当前 HCL 存在 `ai_audio_tasks`。`admin_only_test.go` 将 transport-only 负向断言加强为两个 module 根目录均不存在。
 
@@ -198,7 +198,7 @@ database/reconciliation/**
 
 ### Task 5: 一次集中格式化、验证、修复与提交
 
-- [ ] **Step 1: 集中生成和格式化**
+- [x] **Step 1: 集中生成和格式化**
 
 完成 Task 1-4 后再统一运行：
 
@@ -227,7 +227,7 @@ Set-Location E:\admin\admin_front_ts
 npm run locale:generate
 ```
 
-- [ ] **Step 2: 只跑最小定向验证并集中修一次**
+- [x] **Step 2: 只跑最小定向验证并集中修一次**
 
 ```powershell
 Set-Location E:\admin\admin_back_go
@@ -242,7 +242,7 @@ npm run typecheck
 
 若失败，汇总全部失败后一次修复，再只重跑失败命令；禁止为每个文件开启独立审查循环。
 
-- [ ] **Step 3: 做正反两向静态边界审计**
+- [x] **Step 3: 做正反两向静态边界审计**
 
 负向搜索只查当前运行时、当前 schema/docs 和前端源代码，不查历史 migrations/reconciliation/specs/plans：
 
@@ -260,7 +260,7 @@ rg -n 'videoPlaceholder|UpMedia' E:\admin\admin_front_ts\src
 
 Expected: 两条均有与保留能力相符的 matches。不得把普通 audio/video 文本当成清理失败。
 
-- [ ] **Step 4: 发布并同步 Contract Bundle**
+- [x] **Step 4: 发布并同步 Contract Bundle**
 
 先提交后端源代码，使 manifest 绑定一个确定 commit，再生成契约：
 
@@ -312,7 +312,7 @@ git commit -m "refactor(ai): remove audio and video agent scenes"
 
 即使 OpenAPI schema 无结构变化，也必须让后端 manifest 和前端 vendored contract 指向同一个已提交 backend commit；禁止手改 generated contract。
 
-- [ ] **Step 5: 最终轻量检查并交付人工命令**
+- [x] **Step 5: 最终轻量检查并交付人工命令**
 
 两个仓库各执行一次 `git diff --check` 和 `git status --short`。不自动运行以下项目，只在交付中列给用户按需手动执行：
 
