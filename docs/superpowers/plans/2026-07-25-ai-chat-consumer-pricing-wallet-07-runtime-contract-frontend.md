@@ -8,6 +8,8 @@
 
 **Tech Stack:** Go runtime wiring、Admin OpenAPI/permission bundle、Vue/TypeScript、现有 contract sync/check scripts。
 
+**Scope note:** Plan 06 已完成 chat/text/tool/image 的付费 Worker、队列注册和恢复装配，Task 1 只复核这些已合并事实并补缺，不重复建第二套 Gateway。音频、视频不进入本计划，也不得在本计划中新增、改造或删除；它们由后续独立 Plan 08 完整退役。
+
 ---
 
 ### Task 1: Wire dependencies in API and Worker
@@ -20,15 +22,15 @@
 - Modify: `internal/jobs/noop.go`
 - Modify: `internal/jobs/noop_test.go`
 
-- [ ] **Step 1: Construct shared repositories once**
+- [x] **Step 1: Construct shared repositories once**
 
-Build pricing catalog, wallet repository, Hold service, Gateway, Run/attempt repositories and finalizer from the existing `Resources.DB`; pass the same instances to chat/text/tool/image/video/audio services. Do not add a second DB, RPC client or secret.
+Audit the Plan 06 composition and keep one process-owned wallet repository plus the existing Run/attempt/finalizer dependencies built from `Resources.DB`; pass those dependencies only through the existing chat/text/tool/image paths. Do not add a second DB, RPC client, secret or parallel Gateway implementation.
 
-- [ ] **Step 2: Register durable handlers**
+- [x] **Step 2: Register durable handlers**
 
-Register chat drain/finalizer and media task handlers in the existing task queue registry. HTTP request context must never be passed as provider execution context; the queue lease owns execution, and a lost dispatched lease closes locally as `outcome_unknown + released`.
+Confirm chat drain/finalizer plus text and image task handlers remain registered in the existing task queue registry. HTTP request context must never be passed as provider execution context; the queue lease owns execution, and a lost dispatched lease closes locally as `outcome_unknown + released`.
 
-- [ ] **Step 3: Verify composition**
+- [x] **Step 3: Verify composition**
 
 Run `go test ./internal/platform/admin ./internal/runtime -run 'Test.*Build|Test.*Worker|Test.*Registry'` and `git diff --check`.
 
@@ -77,6 +79,8 @@ Assert a role without `ai_run_list` receives forbidden and a principal with it c
 
 Extend `RunDetailRow`/repository/service DTOs and curated `AIRunDetail` with `billing_status`, `billing_reason`, `held_amount`, `actual_amount`, closed `pricing`, `usage_items` and `provider_attempts`. The backend validates the immutable Run `pricing_snapshot_json` and maps only that Run-level configuration into the closed pricing object, which exposes distinct `catalog_vendor` and `transport_engine`; it must not retain the obsolete ambiguous `provider_engine` field or derive pricing from per-attempt `quote_json`/`prepared_request_json`. Publish the exact reason enum `pending|held|settled_complete_usage|released_before_dispatch|released_insufficient_balance|released_provider_failed|released_outcome_unknown|unbilled_usage_incomplete|unbilled_over_hold|legacy_unpriced`. Convert Charge `held_units` (the Run's maximum successfully reserved audit amount), `actual_units`, rate prices and item amounts through Plan 01's `sharedmoney.FormatRMBUnits`. Do not expose raw units as JSON numbers, do not add a second formatter, and do not derive terminal `held_amount` from the now-zero active Hold. Fetch charge, item and attempt facts with bounded batch queries; do not make the frontend parse Run or attempt JSON to reconstruct pricing or billed usage. Keep provider API keys, raw credential material, exact prepared request bodies and raw quote evidence absent from consumer DTOs. Add repository/service/schema tests that prove nullable legacy `unbilled` Runs map to `legacy_unpriced`, failed attempt items are non-billable, attempt quotes cannot override the Run pricing configuration, a terminal Run retains its maximum `held_amount`, and new settled Run item amounts sum exactly to `actual_amount`.
 
+For historical `legacy_unpriced` Runs without a Charge or valid paid snapshot, publish `pricing: null`, zero canonical amount strings and empty billing arrays; never feed the legacy marker into the paid snapshot parser or fabricate pricing evidence.
+
 - [ ] **Step 2: Generate from compiled routes/schema**
 
 Commit the backend source first, then generate from that exact commit. Do not hand-edit generated JSON:
@@ -121,6 +125,9 @@ Run `npm test -- tests/unit/contracts/admin-contract.test.ts` from the frontend 
 - Modify: `..\admin_front_ts\src\api\ai\agents.ts`
 - Modify: `..\admin_front_ts\src\api\ai\runs.ts`
 - Modify: `..\admin_front_ts\src\api\wallet\index.ts`
+- Modify: `..\admin_front_ts\src\modules\http\error.ts`
+- Modify: `..\admin_front_ts\src\modules\realtime\protocol.ts`
+- Modify: `..\admin_front_ts\src\features\ai-chat\workflow.ts`
 - Modify: `..\admin_front_ts\src\views\Main\ai\agents\use-agent-admin-page.ts`
 - Modify: `..\admin_front_ts\src\views\Main\ai\agents\index.vue`
 - Modify: `..\admin_front_ts\src\views\Main\ai\runs\components\RunList\RunDetailDialog.vue`
@@ -136,6 +143,9 @@ Run `npm test -- tests/unit/contracts/admin-contract.test.ts` from the frontend 
 - Create: `..\admin_front_ts\tests\shared\ai\ai-request-id.test.ts`
 - Create: `..\admin_front_ts\tests\component\ai\ToolGenerateDialog.test.ts`
 - Create: `..\admin_front_ts\tests\shared\wallet\wallet-money-units.test.ts`
+- Modify: `..\admin_front_ts\tests\unit\realtime\protocol.test.ts`
+- Modify: `..\admin_front_ts\tests\shared\http\ai-conversation-websocket-contract.test.ts`
+- Modify: `..\admin_front_ts\tests\integration\features\ai-chat.test.ts`
 
 - [ ] **Step 1: Give tool generation a stable paid request identity**
 
@@ -159,7 +169,7 @@ Render the generated `pricing`, `usage_items`, `provider_attempts`, billing stat
 
 - [ ] **Step 6: Run focused frontend checks**
 
-Run `npm test -- tests/shared/ai/ai-agent-api.test.ts tests/shared/ai/ai-run-api.test.ts tests/shared/ai/ai-tool-generate-api.test.ts tests/shared/ai/ai-billing-error.test.ts tests/shared/ai/ai-chat-cancel-state.test.ts tests/shared/ai/ai-request-id.test.ts tests/component/ai/ToolGenerateDialog.test.ts tests/shared/wallet/wallet-money-units.test.ts`. Run `npm run typecheck` only if it completes within two minutes; otherwise leave the command for manual execution.
+Run `npm test -- tests/shared/ai/ai-agent-api.test.ts tests/shared/ai/ai-run-api.test.ts tests/shared/ai/ai-tool-generate-api.test.ts tests/shared/ai/ai-billing-error.test.ts tests/shared/ai/ai-chat-cancel-state.test.ts tests/shared/ai/ai-request-id.test.ts tests/component/ai/ToolGenerateDialog.test.ts tests/shared/wallet/wallet-money-units.test.ts tests/unit/realtime/protocol.test.ts tests/shared/http/ai-conversation-websocket-contract.test.ts tests/integration/features/ai-chat.test.ts`. Run `npm run typecheck` only if it completes within two minutes; otherwise leave the command for manual execution.
 
 ### Task 5: Final fast audit and handoff
 
