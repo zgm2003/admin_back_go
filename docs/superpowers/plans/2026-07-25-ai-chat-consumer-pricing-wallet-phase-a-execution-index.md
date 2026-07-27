@@ -20,6 +20,8 @@
 ## Plan Files
 
 - [x] Plan 06：文本、工具草稿与图片任务级 Gateway 结算已完成定向验证。
+- [x] Plan 07：runtime、权限、Admin Contract Bundle 与前端计费展示已完成并合并。
+- [ ] Plan 08：完整退役 AI audio/video；只生成破坏性 migration，不自动执行。
 
 | Wave | Plan | Ownership | Depends on |
 | --- | --- | --- | --- |
@@ -30,6 +32,7 @@
 | 2 | `2026-07-25-ai-chat-consumer-pricing-wallet-05-chat-drain-settlement.md` | 聊天 Runner、取消 drain、重试、unknown、统一 finalizer | 02、03、04 |
 | 2 | `2026-07-25-ai-chat-consumer-pricing-wallet-06-media-settlement.md` | 文本/工具/图片的任务级 Gateway 接入；视频、音频明确不做 | 02、03、04 |
 | 3 | `2026-07-25-ai-chat-consumer-pricing-wallet-07-runtime-contract-frontend.md` | runtime 装配、Admin 权限/契约、前端停止状态与展示 | 05、06 |
+| 4 | `2026-07-27-ai-chat-consumer-pricing-wallet-08-audio-video-retirement.md` | 删除 AI 音频/视频生成模块、场景、adapter 与当前任务表；保留普通媒体和历史账务 | 07 |
 
 ## Dependency Waves
 
@@ -49,6 +52,10 @@
 
 Plan 07 最后修改 runtime、权限、编译后契约和前端 generated contract；它必须在后端接口稳定后运行同步脚本。前端全量 build、Docker、E2E 由用户手动运行。
 
+### Wave 4: 串行退役非产品能力
+
+Plan 08 在 Plan 07 合并后由一个实施者连续完成。先做完整删除雏形，中间不跑测试或逐任务审查，最后集中做一次定向验证和修复。它是此 Wave 唯一可以修改当前 `database/schema/admin.hcl`、新增退役 migration 并更新 `atlas.sum` 的计划；迁移只生成，不连接或修改真实 MySQL。
+
 ## Shared File Ownership
 
 | File/area | Owner | Rule |
@@ -66,6 +73,7 @@ Plan 07 最后修改 runtime、权限、编译后契约和前端 generated contr
 | `internal/module/ai/image/*`、`tool/*`、`text/*` | Plan 06 | 只做任务型 Gateway 接入和结果存储；不修改 `video/*`、`audio/*` |
 | `internal/platform/admin/build.go`、`internal/runtime/worker.go` | Plan 02 then Plan 07 | Plan 02 只接入 payment wallet participant；Plan 07 在依赖合并后完成 AI Gateway/worker 装配 |
 | Run 详情源、`contracts/admin/v1/*`、`admin_front_ts/src` | Plan 07 | 后端先发布字段，再从编译产物同步；工具生成也必须提供稳定 `request_id` |
+| AI audio/video modules、scenes、provider adapter、当前 task schema | Plan 08 | 完整退役；不得误删普通上传、`ai_assets`、图片生成、`media` category 或历史账务/迁移证据 |
 
 ## Execution Protocol
 
