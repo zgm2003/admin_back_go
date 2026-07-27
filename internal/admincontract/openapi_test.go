@@ -177,51 +177,57 @@ func TestWorkflowOperationsUseFieldCompleteContracts(t *testing.T) {
 	}
 
 	type operationExpectation struct {
-		method            string
-		path              string
-		responseStatus    string
-		responseSchema    string
-		requestSchema     string
-		requestRequired   bool
-		queryParameters   []string
-		requiredQueries   []string
-		hasPositiveIDPath bool
+		method          string
+		path            string
+		operationID     string
+		responseStatus  string
+		responseSchema  string
+		requestSchema   string
+		requestRequired bool
+		queryParameters []string
+		requiredQueries []string
+		positivePathIDs []string
 	}
 	operations := []operationExpectation{
 		{method: "get", path: "/api/admin/v1/users/page-init", responseStatus: "200", responseSchema: "UserPageInitSuccessEnvelope"},
 		{method: "get", path: "/api/admin/v1/users", responseStatus: "200", responseSchema: "UserListSuccessEnvelope", queryParameters: []string{"address_id", "current_page", "date", "date_end", "date_start", "detail_address", "email", "keyword", "page_size", "role_id", "sex", "username"}, requiredQueries: []string{"current_page", "page_size"}},
 		{method: "patch", path: "/api/admin/v1/users", responseStatus: "200", responseSchema: "EmptySuccessEnvelope", requestSchema: "UserBatchProfileRequest", requestRequired: true},
 		{method: "delete", path: "/api/admin/v1/users", responseStatus: "200", responseSchema: "EmptySuccessEnvelope", requestSchema: "UserBatchDeleteRequest", requestRequired: true},
-		{method: "put", path: "/api/admin/v1/users/{id}", responseStatus: "200", responseSchema: "EmptySuccessEnvelope", requestSchema: "UserUpdateRequest", requestRequired: true, hasPositiveIDPath: true},
-		{method: "delete", path: "/api/admin/v1/users/{id}", responseStatus: "200", responseSchema: "EmptySuccessEnvelope", hasPositiveIDPath: true},
-		{method: "patch", path: "/api/admin/v1/users/{id}/status", responseStatus: "200", responseSchema: "EmptySuccessEnvelope", requestSchema: "UserStatusRequest", requestRequired: true, hasPositiveIDPath: true},
+		{method: "put", path: "/api/admin/v1/users/{id}", responseStatus: "200", responseSchema: "EmptySuccessEnvelope", requestSchema: "UserUpdateRequest", requestRequired: true, positivePathIDs: []string{"id"}},
+		{method: "delete", path: "/api/admin/v1/users/{id}", responseStatus: "200", responseSchema: "EmptySuccessEnvelope", positivePathIDs: []string{"id"}},
+		{method: "patch", path: "/api/admin/v1/users/{id}/status", responseStatus: "200", responseSchema: "EmptySuccessEnvelope", requestSchema: "UserStatusRequest", requestRequired: true, positivePathIDs: []string{"id"}},
 		{method: "post", path: "/api/admin/v1/users/export", responseStatus: "200", responseSchema: "UserExportSuccessEnvelope", requestSchema: "UserExportRequest", requestRequired: true},
 
 		{method: "get", path: "/api/admin/v1/notifications/page-init", responseStatus: "200", responseSchema: "NotificationPageInitSuccessEnvelope"},
 		{method: "get", path: "/api/admin/v1/notifications", responseStatus: "200", responseSchema: "NotificationListSuccessEnvelope", queryParameters: []string{"before_id", "current_page", "is_read", "keyword", "level", "page_size", "type"}, requiredQueries: []string{"current_page", "page_size"}},
 		{method: "delete", path: "/api/admin/v1/notifications", responseStatus: "200", responseSchema: "EmptySuccessEnvelope", requestSchema: "NotificationDeleteBatchRequest", requestRequired: true},
 		{method: "get", path: "/api/admin/v1/notifications/unread-count", responseStatus: "200", responseSchema: "NotificationUnreadCountSuccessEnvelope"},
-		{method: "patch", path: "/api/admin/v1/notifications/{id}/read", responseStatus: "200", responseSchema: "EmptySuccessEnvelope", hasPositiveIDPath: true},
+		{method: "patch", path: "/api/admin/v1/notifications/{id}/read", responseStatus: "200", responseSchema: "EmptySuccessEnvelope", positivePathIDs: []string{"id"}},
 		{method: "patch", path: "/api/admin/v1/notifications/read", responseStatus: "200", responseSchema: "EmptySuccessEnvelope", requestSchema: "NotificationReadRequest"},
-		{method: "delete", path: "/api/admin/v1/notifications/{id}", responseStatus: "200", responseSchema: "EmptySuccessEnvelope", hasPositiveIDPath: true},
+		{method: "delete", path: "/api/admin/v1/notifications/{id}", responseStatus: "200", responseSchema: "EmptySuccessEnvelope", positivePathIDs: []string{"id"}},
 
 		{method: "get", path: "/api/admin/v1/export-tasks", responseStatus: "200", responseSchema: "ExportTaskListSuccessEnvelope", queryParameters: []string{"before_id", "current_page", "file_name", "kind", "page_size", "status", "title"}},
 		{method: "delete", path: "/api/admin/v1/export-tasks", responseStatus: "200", responseSchema: "EmptySuccessEnvelope", requestSchema: "ExportTaskDeleteBatchRequest", requestRequired: true},
 		{method: "get", path: "/api/admin/v1/export-tasks/status-count", responseStatus: "200", responseSchema: "ExportTaskStatusCountSuccessEnvelope", queryParameters: []string{"file_name", "kind", "title"}},
-		{method: "delete", path: "/api/admin/v1/export-tasks/{id}", responseStatus: "200", responseSchema: "EmptySuccessEnvelope", hasPositiveIDPath: true},
+		{method: "delete", path: "/api/admin/v1/export-tasks/{id}", responseStatus: "200", responseSchema: "EmptySuccessEnvelope", positivePathIDs: []string{"id"}},
 
 		{method: "get", path: "/api/admin/v1/ai-conversations", responseStatus: "200", responseSchema: "AIConversationListSuccessEnvelope", queryParameters: []string{"agent_id", "before_id", "before_time", "limit"}},
 		{method: "post", path: "/api/admin/v1/ai-conversations", responseStatus: "200", responseSchema: "AIConversationCreateSuccessEnvelope", requestSchema: "AIConversationCreateRequest", requestRequired: true},
-		{method: "get", path: "/api/admin/v1/ai-conversations/{id}", responseStatus: "200", responseSchema: "AIConversationDetailSuccessEnvelope", hasPositiveIDPath: true},
-		{method: "put", path: "/api/admin/v1/ai-conversations/{id}", responseStatus: "200", responseSchema: "EmptySuccessEnvelope", requestSchema: "AIConversationUpdateRequest", requestRequired: true, hasPositiveIDPath: true},
-		{method: "delete", path: "/api/admin/v1/ai-conversations/{id}", responseStatus: "200", responseSchema: "EmptySuccessEnvelope", hasPositiveIDPath: true},
-		{method: "get", path: "/api/admin/v1/ai-conversations/{id}/messages", responseStatus: "200", responseSchema: "AIMessageListSuccessEnvelope", queryParameters: []string{"before_id", "limit"}, hasPositiveIDPath: true},
-		{method: "post", path: "/api/admin/v1/ai-conversations/{id}/messages", responseStatus: "202", responseSchema: "AIMessageSendSuccessEnvelope", requestSchema: "AIMessageSendRequest", requestRequired: true, hasPositiveIDPath: true},
-		{method: "post", path: "/api/admin/v1/ai-conversations/{id}/messages/cancel", responseStatus: "200", responseSchema: "AIMessageCancelSuccessEnvelope", requestSchema: "AIMessageCancelRequest", requestRequired: true, hasPositiveIDPath: true},
+		{method: "get", path: "/api/admin/v1/ai-conversations/{id}", responseStatus: "200", responseSchema: "AIConversationDetailSuccessEnvelope", positivePathIDs: []string{"id"}},
+		{method: "put", path: "/api/admin/v1/ai-conversations/{id}", responseStatus: "200", responseSchema: "EmptySuccessEnvelope", requestSchema: "AIConversationUpdateRequest", requestRequired: true, positivePathIDs: []string{"id"}},
+		{method: "delete", path: "/api/admin/v1/ai-conversations/{id}", responseStatus: "200", responseSchema: "EmptySuccessEnvelope", positivePathIDs: []string{"id"}},
+		{method: "get", path: "/api/admin/v1/ai-conversations/{id}/messages", responseStatus: "200", responseSchema: "AIMessageListSuccessEnvelope", queryParameters: []string{"before_id", "limit"}, positivePathIDs: []string{"id"}},
+		{method: "post", path: "/api/admin/v1/ai-conversations/{id}/messages", responseStatus: "202", responseSchema: "AIMessageSendSuccessEnvelope", requestSchema: "AIMessageSendRequest", requestRequired: true, positivePathIDs: []string{"id"}},
+		{method: "post", path: "/api/admin/v1/ai-conversations/{id}/messages/cancel", responseStatus: "200", responseSchema: "AIMessageCancelSuccessEnvelope", requestSchema: "AIMessageCancelRequest", requestRequired: true, positivePathIDs: []string{"id"}},
+		{method: "post", path: "/api/admin/v1/ai-conversations/{id}/messages/{message_id}/revisions", operationID: "post_api_admin_v1_ai_conversations_id_messages_message_id_revisions", responseStatus: "202", responseSchema: "AIMessageSendSuccessEnvelope", requestSchema: "AIMessageRevisionRequest", requestRequired: true, positivePathIDs: []string{"id", "message_id"}},
+		{method: "post", path: "/api/admin/v1/ai-conversations/{id}/messages/{message_id}/regenerations", operationID: "post_api_admin_v1_ai_conversations_id_messages_message_id_regenerations", responseStatus: "202", responseSchema: "AIMessageSendSuccessEnvelope", requestSchema: "AIMessageRegenerationRequest", requestRequired: true, positivePathIDs: []string{"id", "message_id"}},
+		{method: "delete", path: "/api/admin/v1/ai-conversations/{id}/messages", operationID: "delete_api_admin_v1_ai_conversations_id_messages", responseStatus: "200", responseSchema: "AIMessageDeleteSuccessEnvelope", requestSchema: "AIMessageDeleteRequest", requestRequired: true, positivePathIDs: []string{"id"}},
+		{method: "put", path: "/api/admin/v1/ai-conversations/{id}/read-cursor", operationID: "put_api_admin_v1_ai_conversations_id_read_cursor", responseStatus: "200", responseSchema: "AIConversationReadCursorSuccessEnvelope", requestSchema: "AIConversationReadCursorRequest", requestRequired: true, positivePathIDs: []string{"id"}},
 
 		{method: "get", path: "/api/admin/v1/ai-runs/page-init", responseStatus: "200", responseSchema: "AIRunPageInitSuccessEnvelope"},
 		{method: "get", path: "/api/admin/v1/ai-runs", responseStatus: "200", responseSchema: "AIRunListSuccessEnvelope", queryParameters: []string{"agent_id", "current_page", "date_end", "date_start", "page_size", "platform", "provider_id", "request_id", "status", "user_id"}},
-		{method: "get", path: "/api/admin/v1/ai-runs/{id}", responseStatus: "200", responseSchema: "AIRunDetailSuccessEnvelope", hasPositiveIDPath: true},
+		{method: "get", path: "/api/admin/v1/ai-runs/{id}", responseStatus: "200", responseSchema: "AIRunDetailSuccessEnvelope", positivePathIDs: []string{"id"}},
+		{method: "put", path: "/api/admin/v1/ai-runs/{id}/user-feedback", operationID: "put_api_admin_v1_ai_runs_id_user_feedback", responseStatus: "200", responseSchema: "AIRunUserFeedbackSuccessEnvelope", requestSchema: "AIRunUserFeedbackRequest", requestRequired: true, positivePathIDs: []string{"id"}},
 		{method: "get", path: "/api/admin/v1/ai-runs/stats", responseStatus: "200", responseSchema: "AIRunStatsSuccessEnvelope", queryParameters: []string{"agent_id", "date_end", "date_start", "platform", "provider_id", "user_id"}},
 		{method: "get", path: "/api/admin/v1/ai-runs/stats/by-date", responseStatus: "200", responseSchema: "AIRunStatsByDateSuccessEnvelope", queryParameters: []string{"agent_id", "current_page", "date_end", "date_start", "page_size", "platform", "provider_id", "user_id"}},
 		{method: "get", path: "/api/admin/v1/ai-runs/stats/by-agent", responseStatus: "200", responseSchema: "AIRunStatsByAgentSuccessEnvelope", queryParameters: []string{"agent_id", "current_page", "date_end", "date_start", "page_size", "platform", "provider_id", "user_id"}},
@@ -235,9 +241,12 @@ func TestWorkflowOperationsUseFieldCompleteContracts(t *testing.T) {
 			if operation == nil {
 				t.Fatalf("missing operation")
 			}
+			if expectation.operationID != "" && operation["operationId"] != expectation.operationID {
+				t.Fatalf("operationId=%#v, want %s", operation["operationId"], expectation.operationID)
+			}
 			assertOperationResponseRef(t, operation, expectation.responseStatus, expectation.responseSchema)
 			assertOperationRequestBody(t, operation, expectation.requestSchema, expectation.requestRequired)
-			assertOperationParameters(t, operation, expectation.queryParameters, expectation.requiredQueries, expectation.hasPositiveIDPath)
+			assertOperationParameters(t, operation, expectation.queryParameters, expectation.requiredQueries, expectation.positivePathIDs)
 		})
 	}
 	assertQueryStringEnum(t, document.Paths["/api/admin/v1/ai-runs"]["get"], "status", []string{"running", "success", "failed", "canceled", "timeout", "outcome_unknown"})
@@ -259,6 +268,8 @@ func TestWorkflowSchemasCloseBusinessFieldsAndDeclareNullability(t *testing.T) {
 		"NotificationPageInitSuccessEnvelope", "NotificationListSuccessEnvelope",
 		"ExportTaskListSuccessEnvelope", "ExportTaskStatusCountSuccessEnvelope",
 		"AIConversationListSuccessEnvelope", "AIMessageSendRequest", "AIMessageSendSuccessEnvelope",
+		"AIMessageRevisionRequest", "AIMessageRegenerationRequest", "AIMessageDeleteSuccessEnvelope",
+		"AIConversationReadCursorSuccessEnvelope", "AIRunUserFeedbackSuccessEnvelope",
 		"AIRunPageInitSuccessEnvelope", "AIRunListSuccessEnvelope", "AIRunDetailSuccessEnvelope",
 		"AIRunStatsSuccessEnvelope", "AIRunStatsByDateSuccessEnvelope",
 	} {
@@ -273,7 +284,45 @@ func TestWorkflowSchemasCloseBusinessFieldsAndDeclareNullability(t *testing.T) {
 	for _, field := range []string{"file_name", "file_url", "row_count", "error_msg", "expire_at"} {
 		assertNullableProperty(t, document.Components.Schemas["ExportTaskItem"], field)
 	}
+	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIConversationItem", "unread_count")
+	conversationProperties := document.Components.Schemas["AIConversationItem"]["properties"].(map[string]any)
+	if unread := conversationProperties["unread_count"].(map[string]any); unread["type"] != "integer" || unread["minimum"] != float64(0) {
+		t.Fatalf("AIConversationItem.unread_count=%#v", unread)
+	}
+	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIMessageItem", "paired_message_id", "run_id", "liked")
+	assertNullableProperty(t, document.Components.Schemas["AIMessageItem"], "paired_message_id")
+	assertNullableProperty(t, document.Components.Schemas["AIMessageItem"], "run_id")
+	if liked := document.Components.Schemas["AIMessageItem"]["properties"].(map[string]any)["liked"].(map[string]any); liked["type"] != "boolean" {
+		t.Fatalf("AIMessageItem.liked=%#v", liked)
+	}
+	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIMessageDeleteResult", "deleted_ids")
+	deletedIDs := document.Components.Schemas["AIMessageDeleteResult"]["properties"].(map[string]any)["deleted_ids"].(map[string]any)
+	if deletedIDs["uniqueItems"] != true || deletedIDs["minItems"] != float64(1) || !strings.Contains(deletedIDs["description"].(string), "ascending") {
+		t.Fatalf("AIMessageDeleteResult.deleted_ids=%#v", deletedIDs)
+	}
+	for schemaName, fields := range map[string][]string{
+		"AIMessageRevisionRequest":        {"content", "request_id"},
+		"AIMessageRegenerationRequest":    {"request_id"},
+		"AIMessageDeleteRequest":          {"ids"},
+		"AIMessageDeleteResult":           {"deleted_ids"},
+		"AIConversationReadCursorRequest": {"message_id"},
+		"AIConversationReadCursorResult":  {"conversation_id", "last_read_message_id", "unread_count"},
+		"AIRunUserFeedbackRequest":        {"liked"},
+		"AIRunUserFeedbackResult":         {"id", "liked", "liked_at"},
+	} {
+		assertClosedSchemaWithRequired(t, document.Components.Schemas, schemaName, fields...)
+		properties := document.Components.Schemas[schemaName]["properties"].(map[string]any)
+		if got := sortedMapKeys(properties); !reflect.DeepEqual(got, fields) {
+			t.Fatalf("%s properties=%v want=%v", schemaName, got, fields)
+		}
+		if got := anyStrings(document.Components.Schemas[schemaName]["required"]); !reflect.DeepEqual(got, fields) {
+			t.Fatalf("%s required=%v want=%v", schemaName, got, fields)
+		}
+	}
+	assertNullableProperty(t, document.Components.Schemas["AIRunUserFeedbackResult"], "liked_at")
 	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIRunDetail", "id", "user_message", "assistant_message", "events", "knowledge_retrievals", "tool_calls")
+	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIRunDetail", "liked", "liked_at")
+	assertNullableProperty(t, document.Components.Schemas["AIRunDetail"], "liked_at")
 	assertNullableProperty(t, document.Components.Schemas["AIRunDetail"], "user_message")
 	assertNullableProperty(t, document.Components.Schemas["AIRunDetail"], "assistant_message")
 	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIRunDetail", "billing_status", "billing_reason", "held_amount", "actual_amount", "pricing", "usage_items", "provider_attempts")
@@ -387,11 +436,11 @@ func assertOperationRequestBody(t *testing.T, operation map[string]any, schema s
 	}
 }
 
-func assertOperationParameters(t *testing.T, operation map[string]any, queryNames []string, requiredQueries []string, positiveIDPath bool) {
+func assertOperationParameters(t *testing.T, operation map[string]any, queryNames []string, requiredQueries []string, positivePathIDs []string) {
 	t.Helper()
 	parameters, _ := operation["parameters"].([]any)
 	queries := make(map[string]bool)
-	positiveIDFound := false
+	positivePaths := make(map[string]bool)
 	for _, raw := range parameters {
 		parameter := raw.(map[string]any)
 		name, _ := parameter["name"].(string)
@@ -399,9 +448,9 @@ func assertOperationParameters(t *testing.T, operation map[string]any, queryName
 		if location == "query" {
 			queries[name], _ = parameter["required"].(bool)
 		}
-		if location == "path" && name == "id" {
+		if location == "path" {
 			schema := parameter["schema"].(map[string]any)
-			positiveIDFound = schema["type"] == "integer" && schema["minimum"] == float64(1)
+			positivePaths[name] = schema["type"] == "integer" && schema["minimum"] == float64(1)
 		}
 	}
 	if queryNames == nil {
@@ -415,8 +464,16 @@ func assertOperationParameters(t *testing.T, operation map[string]any, queryName
 			t.Fatalf("query parameter %s must be required", name)
 		}
 	}
-	if positiveIDFound != positiveIDPath {
-		t.Fatalf("positive id path=%v, want %v", positiveIDFound, positiveIDPath)
+	if positivePathIDs == nil {
+		positivePathIDs = []string{}
+	}
+	if got := sortedMapKeys(positivePaths); !reflect.DeepEqual(got, positivePathIDs) {
+		t.Fatalf("positive path parameters=%v, want %v", got, positivePathIDs)
+	}
+	for _, name := range positivePathIDs {
+		if !positivePaths[name] {
+			t.Fatalf("path parameter %s must be a positive integer", name)
+		}
 	}
 }
 

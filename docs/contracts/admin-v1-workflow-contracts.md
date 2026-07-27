@@ -189,6 +189,10 @@ not a keyed object.
 | `GET /api/admin/v1/ai-conversations/{id}/messages` | path `id`; optional positive `before_id`, `limit 1..100` (default `20`) | `AIMessageListResult` |
 | `POST /api/admin/v1/ai-conversations/{id}/messages` | path `id`; required `AIMessageSendRequest`; HTTP `202` | `AIMessageSendResult` |
 | `POST /api/admin/v1/ai-conversations/{id}/messages/cancel` | path `id`; required `{ request_id: non-empty string <= 128 }` | `{ conversation_id: positive integer, request_id: string, status: "stopping" }` |
+| `POST /api/admin/v1/ai-conversations/{id}/messages/{message_id}/revisions` | positive path `id` and `message_id`; required `AIMessageRevisionRequest`; HTTP `202` | `AIMessageSendResult` |
+| `POST /api/admin/v1/ai-conversations/{id}/messages/{message_id}/regenerations` | positive path `id` and `message_id`; required `AIMessageRegenerationRequest`; HTTP `202` | `AIMessageSendResult` |
+| `DELETE /api/admin/v1/ai-conversations/{id}/messages` | positive path `id`; required `AIMessageDeleteRequest` | `AIMessageDeleteResult` |
+| `PUT /api/admin/v1/ai-conversations/{id}/read-cursor` | positive path `id`; required `{ message_id: positive integer }` | `AIConversationReadCursorResult` |
 
 `before_time` uses `YYYY-MM-DD HH:mm:ss`. Supplying only one conversation cursor
 field is a validation error; the client must preserve both values returned by
@@ -199,7 +203,8 @@ the previous response.
 ```text
 AIConversationItem = {
   id: positive integer, agent_id: positive integer, agent_name: string,
-  title: string, last_message_at: string, updated_at: string
+  title: string, unread_count: integer >= 0,
+  last_message_at: string, updated_at: string
 }
 AIConversationListResult = {
   list: AIConversationItem[], next_time: string,
@@ -227,6 +232,8 @@ Exactly one usable input is required: trimmed `content` must be non-empty or
 AIMessageItem = {
   id: positive integer, role: 1 | 2 | 3, content_type: string,
   content: string, meta_json?: AIMessageMeta,
+  paired_message_id: positive integer | null,
+  run_id: positive integer | null, liked: boolean,
   created_at: string, updated_at: string
 }
 AIMessageMeta = {
@@ -242,7 +249,28 @@ AIMessageSendResult = {
   state: "pending" | "claimed" | "running" | "succeeded" | "failed" |
          "canceled" | "outcome_unknown" | "timed_out"
 }
+AIMessageRevisionRequest = {
+  content: non-empty string <= 20000,
+  request_id: non-empty string <= 128
+}
+AIMessageRegenerationRequest = { request_id: non-empty string <= 128 }
+AIMessageDeleteRequest = { ids: unique non-empty positive integer[] }
+AIMessageDeleteResult = { deleted_ids: unique positive integer[] in ascending order }
+AIConversationReadCursorResult = {
+  conversation_id: positive integer,
+  last_read_message_id: positive integer,
+  unread_count: integer >= 0
+}
 ```
+
+Revision and regeneration use the canonical authenticated `(user_id,
+request_id)` replay key. Conversation ID, source message ID, operation and the
+normalized inherited input are request-fingerprint facts, not alternate
+idempotency scopes. Replaying the same key and fingerprint returns the original
+`AIMessageSendResult`; reusing the key with a different fingerprint is a
+conflict. `paired_message_id` and `run_id` are always present and explicitly
+`null` when no persisted relationship exists; clients must not infer either
+relationship from message order.
 
 An empty conversation/message cursor result uses an empty list, zero/empty
 cursor values, and `has_more: false`. It is not a missing/error response.
@@ -256,6 +284,7 @@ cursor values, and `has_more: false`. It is not a missing/error response.
 | `GET /api/admin/v1/ai-runs/page-init` | none | `AIRunPageInit` |
 | `GET /api/admin/v1/ai-runs` | optional `current_page >= 1` (default `1`), `page_size 1..50` (default `20`), `platform in {admin,app,canvas}`, `status in {running,success,failed,canceled,timeout}`, positive `user_id`, `request_id <= 128`, positive `agent_id`, positive `provider_id`, `date_start <= 20`, `date_end <= 20` | `AIRunListResult` |
 | `GET /api/admin/v1/ai-runs/{id}` | path `id` | `AIRunDetail` |
+| `PUT /api/admin/v1/ai-runs/{id}/user-feedback` | positive path `id`; required `{ liked: boolean }`; authenticated self-service, no `ai_run_list` permission | `{ id: positive integer, liked: boolean, liked_at: string \| null }` |
 | `GET /api/admin/v1/ai-runs/stats` | optional `date_start <= 20`, `date_end <= 20`, `platform`, positive `agent_id`, positive `provider_id`, positive `user_id` | `AIRunStatsResult` |
 | `GET /api/admin/v1/ai-runs/stats/by-date` | the stats filters plus optional `current_page >= 1` (default `1`) and `page_size 1..50` (default `20`) | `{ list: AIRunStatsByDateItem[], page: Page }` |
 | `GET /api/admin/v1/ai-runs/stats/by-agent` | same as by-date | `{ list: AIRunStatsByAgentItem[], page: Page }` |
@@ -330,6 +359,7 @@ AIRunDetail contains every AIRunListItem field except it additionally has:
   usage_items: AIRunUsageItem[], provider_attempts: AIRunProviderAttempt[],
   user_message: AIRunMessageSummary | null,
   assistant_message: AIRunMessageSummary | null,
+  liked: boolean, liked_at: string | null,
   events: AIRunEvent[],
   knowledge_retrievals: AIRunKnowledgeRetrieval[],
   tool_calls: AIRunToolCall[],
@@ -409,8 +439,9 @@ JSON is normalized by the backend to `{}`. This is not permission for a client
 to read a different business field as a fallback.
 
 All detail collections are always arrays and use `[]` when no records exist.
-The two message fields, `pricing`, and the documented duration/conversation/call
-fields are the only nullable detail values; empty time strings remain strings.
+The two message fields, `pricing`, `liked_at`, and the documented
+duration/conversation/call fields are the only nullable detail values; empty
+time strings remain strings.
 Legacy unpriced runs publish `billing_reason="legacy_unpriced"`, zero amounts,
 `pricing=null`, and empty billing evidence arrays. Paid pricing comes only from
 the immutable Run snapshot. Failed-attempt usage is audit-only with

@@ -7,6 +7,7 @@ func aiWorkflowSchemas() map[string]any {
 			"agent_id":        positiveIntegerSchema(),
 			"agent_name":      stringSchema(),
 			"title":           stringSchema(),
+			"unread_count":    nonNegativeIntegerSchema(),
 			"last_message_at": stringSchema(),
 			"updated_at":      stringSchema(),
 		}),
@@ -62,15 +63,18 @@ func aiWorkflowSchemas() map[string]any {
 			"runtime_params": schemaReference("AIRuntimeParams"),
 		}),
 		"AIMessageItem": closedObjectSchema(
-			[]string{"id", "role", "content_type", "content", "created_at", "updated_at"},
+			[]string{"id", "role", "content_type", "content", "paired_message_id", "run_id", "liked", "created_at", "updated_at"},
 			map[string]any{
-				"id":           positiveIntegerSchema(),
-				"role":         integerEnumSchema(1, 2, 3),
-				"content_type": stringSchema(),
-				"content":      stringSchema(),
-				"meta_json":    schemaReference("AIMessageMeta"),
-				"created_at":   stringSchema(),
-				"updated_at":   stringSchema(),
+				"id":                positiveIntegerSchema(),
+				"role":              integerEnumSchema(1, 2, 3),
+				"content_type":      stringSchema(),
+				"content":           stringSchema(),
+				"meta_json":         schemaReference("AIMessageMeta"),
+				"paired_message_id": nullableSchema(positiveIntegerSchema()),
+				"run_id":            nullableSchema(positiveIntegerSchema()),
+				"liked":             booleanSchema(),
+				"created_at":        stringSchema(),
+				"updated_at":        stringSchema(),
 			},
 		),
 		"AIMessageListResult": closedObjectAllProperties(map[string]any{
@@ -89,6 +93,24 @@ func aiWorkflowSchemas() map[string]any {
 			),
 		}),
 		"AIMessageSendSuccessEnvelope": successEnvelopeWithData(schemaReference("AIMessageSendResult")),
+		"AIMessageRevisionRequest": closedObjectAllProperties(map[string]any{
+			"content":    schemaWith(maxStringSchema(20000), "minLength", 1, "description", "Trimmed content must be non-empty."),
+			"request_id": schemaWith(maxStringSchema(128), "minLength", 1),
+		}),
+		"AIMessageRegenerationRequest": closedObjectAllProperties(map[string]any{
+			"request_id": schemaWith(maxStringSchema(128), "minLength", 1),
+		}),
+		"AIMessageDeleteRequest": closedObjectAllProperties(map[string]any{
+			"ids": schemaWith(nonEmptyArraySchema(positiveIntegerSchema()), "uniqueItems", true),
+		}),
+		"AIMessageDeleteResult": closedObjectAllProperties(map[string]any{
+			"deleted_ids": schemaWith(
+				nonEmptyArraySchema(positiveIntegerSchema()),
+				"uniqueItems", true,
+				"description", "The submitted message IDs normalized to unique ascending order.",
+			),
+		}),
+		"AIMessageDeleteSuccessEnvelope": successEnvelopeWithData(schemaReference("AIMessageDeleteResult")),
 		"AIMessageCancelRequest": closedObjectSchema([]string{"request_id"}, map[string]any{
 			"request_id": schemaWith(maxStringSchema(128), "minLength", 1),
 		}),
@@ -98,6 +120,15 @@ func aiWorkflowSchemas() map[string]any {
 			"status":          map[string]any{"type": "string", "const": "stopping"},
 		}),
 		"AIMessageCancelSuccessEnvelope": successEnvelopeWithData(schemaReference("AIMessageCancelResult")),
+		"AIConversationReadCursorRequest": closedObjectAllProperties(map[string]any{
+			"message_id": positiveIntegerSchema(),
+		}),
+		"AIConversationReadCursorResult": closedObjectAllProperties(map[string]any{
+			"conversation_id":      positiveIntegerSchema(),
+			"last_read_message_id": positiveIntegerSchema(),
+			"unread_count":         nonNegativeIntegerSchema(),
+		}),
+		"AIConversationReadCursorSuccessEnvelope": successEnvelopeWithData(schemaReference("AIConversationReadCursorResult")),
 
 		"AIRunPageInitDict": closedObjectAllProperties(map[string]any{
 			"status_arr":   arraySchema(schemaReference("StringOption")),
@@ -126,7 +157,16 @@ func aiWorkflowSchemas() map[string]any {
 		"AIRunProviderAttempt":       aiRunProviderAttemptSchema(),
 		"AIRunDetail":                aiRunDetailSchema(),
 		"AIRunDetailSuccessEnvelope": successEnvelopeWithData(schemaReference("AIRunDetail")),
-		"AIRunStatsSummary":          aiRunStatsSummarySchema(),
+		"AIRunUserFeedbackRequest": closedObjectAllProperties(map[string]any{
+			"liked": booleanSchema(),
+		}),
+		"AIRunUserFeedbackResult": closedObjectAllProperties(map[string]any{
+			"id":       positiveIntegerSchema(),
+			"liked":    booleanSchema(),
+			"liked_at": nullableSchema(stringSchema()),
+		}),
+		"AIRunUserFeedbackSuccessEnvelope": successEnvelopeWithData(schemaReference("AIRunUserFeedbackResult")),
+		"AIRunStatsSummary":                aiRunStatsSummarySchema(),
 		"AIRunStatsResult": closedObjectAllProperties(map[string]any{
 			"date_range": schemaReference("AIRunStatsDateRange"),
 			"summary":    schemaReference("AIRunStatsSummary"),
@@ -300,6 +340,8 @@ func aiRunDetailSchema() map[string]any {
 	properties["pricing"] = nullableSchema(schemaReference("AIRunPricing"))
 	properties["usage_items"] = arraySchema(schemaReference("AIRunUsageItem"))
 	properties["provider_attempts"] = arraySchema(schemaReference("AIRunProviderAttempt"))
+	properties["liked"] = booleanSchema()
+	properties["liked_at"] = nullableSchema(stringSchema())
 	properties["started_at"] = stringSchema()
 	properties["finished_at"] = stringSchema()
 	properties["updated_at"] = stringSchema()
