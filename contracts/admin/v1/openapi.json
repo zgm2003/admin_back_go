@@ -163,6 +163,11 @@
           "title": {
             "type": "string"
           },
+          "unread_count": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "updated_at": {
             "type": "string"
           }
@@ -173,6 +178,7 @@
           "id",
           "last_message_at",
           "title",
+          "unread_count",
           "updated_at"
         ],
         "type": "object"
@@ -215,6 +221,67 @@
           },
           "data": {
             "$ref": "#/components/schemas/AIConversationListResult"
+          },
+          "msg": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "data",
+          "msg"
+        ],
+        "type": "object"
+      },
+      "AIConversationReadCursorRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "message_id": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "message_id"
+        ],
+        "type": "object"
+      },
+      "AIConversationReadCursorResult": {
+        "additionalProperties": false,
+        "properties": {
+          "conversation_id": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "last_read_message_id": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "unread_count": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "conversation_id",
+          "last_read_message_id",
+          "unread_count"
+        ],
+        "type": "object"
+      },
+      "AIConversationReadCursorSuccessEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": 0,
+            "type": "integer"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AIConversationReadCursorResult"
           },
           "msg": {
             "type": "string"
@@ -299,6 +366,66 @@
         ],
         "type": "object"
       },
+      "AIMessageDeleteRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "ids": {
+            "items": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "ids"
+        ],
+        "type": "object"
+      },
+      "AIMessageDeleteResult": {
+        "additionalProperties": false,
+        "properties": {
+          "deleted_ids": {
+            "description": "The submitted message IDs normalized to unique ascending order.",
+            "items": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "deleted_ids"
+        ],
+        "type": "object"
+      },
+      "AIMessageDeleteSuccessEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": 0,
+            "type": "integer"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AIMessageDeleteResult"
+          },
+          "msg": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "data",
+          "msg"
+        ],
+        "type": "object"
+      },
       "AIMessageItem": {
         "additionalProperties": false,
         "properties": {
@@ -316,8 +443,23 @@
             "minimum": 1,
             "type": "integer"
           },
+          "liked": {
+            "type": "boolean"
+          },
           "meta_json": {
             "$ref": "#/components/schemas/AIMessageMeta"
+          },
+          "paired_message_id": {
+            "anyOf": [
+              {
+                "format": "int64",
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "role": {
             "enum": [
@@ -326,6 +468,18 @@
               3
             ],
             "type": "integer"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "format": "int64",
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "updated_at": {
             "type": "string"
@@ -336,6 +490,9 @@
           "role",
           "content_type",
           "content",
+          "paired_message_id",
+          "run_id",
+          "liked",
           "created_at",
           "updated_at"
         ],
@@ -426,6 +583,41 @@
           "size",
           "type",
           "url"
+        ],
+        "type": "object"
+      },
+      "AIMessageRegenerationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "request_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id"
+        ],
+        "type": "object"
+      },
+      "AIMessageRevisionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "description": "Trimmed content must be non-empty.",
+            "maxLength": 20000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "request_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "content",
+          "request_id"
         ],
         "type": "object"
       },
@@ -642,6 +834,19 @@
             },
             "type": "array"
           },
+          "liked": {
+            "type": "boolean"
+          },
+          "liked_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "model_display_name": {
             "type": "string"
           },
@@ -762,6 +967,8 @@
           "id",
           "input_snapshot",
           "knowledge_retrievals",
+          "liked",
+          "liked_at",
           "model_display_name",
           "model_id",
           "platform",
@@ -2001,6 +2208,68 @@
           "unit",
           "unit_price",
           "unit_scale"
+        ],
+        "type": "object"
+      },
+      "AIRunUserFeedbackRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "liked": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "liked"
+        ],
+        "type": "object"
+      },
+      "AIRunUserFeedbackResult": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "liked": {
+            "type": "boolean"
+          },
+          "liked_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "liked",
+          "liked_at"
+        ],
+        "type": "object"
+      },
+      "AIRunUserFeedbackSuccessEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": 0,
+            "type": "integer"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AIRunUserFeedbackResult"
+          },
+          "msg": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "data",
+          "msg"
         ],
         "type": "object"
       },
@@ -6238,12 +6507,6 @@
           "payment_method": {
             "$ref": "#/components/schemas/Go_internal_module_payment_RechargePaymentMethod_Output"
           },
-          "recent": {
-            "items": {
-              "$ref": "#/components/schemas/Go_internal_module_payment_RechargeListItem_Output"
-            },
-            "type": "array"
-          },
           "wallet": {
             "$ref": "#/components/schemas/Go_internal_module_payment_WalletSummary_Output"
           }
@@ -6252,7 +6515,6 @@
           "dict",
           "packages",
           "payment_method",
-          "recent",
           "wallet"
         ],
         "type": "object"
@@ -17354,6 +17616,72 @@
       }
     },
     "/api/admin/v1/ai-conversations/{id}/messages": {
+      "delete": {
+        "operationId": "delete_api_admin_v1_ai_conversations_id_messages",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AIMessageDeleteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIMessageDeleteSuccessEnvelope"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Classified safe error response"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "DELETE /api/admin/v1/ai-conversations/:id/messages",
+        "tags": [
+          "ai-conversations"
+        ],
+        "x-admin-access": {
+          "kind": "authenticated"
+        },
+        "x-admin-audit": {
+          "enabled": true,
+          "module": "ai_message",
+          "action": "delete",
+          "title": "删除AI消息"
+        },
+        "x-runtime-path": "/api/admin/v1/ai-conversations/:id/messages"
+      },
       "get": {
         "operationId": "get_api_admin_v1_ai_conversations_id_messages",
         "parameters": [
@@ -17566,6 +17894,235 @@
           "reason": "self-service AI run cancellation"
         },
         "x-runtime-path": "/api/admin/v1/ai-conversations/:id/messages/cancel"
+      }
+    },
+    "/api/admin/v1/ai-conversations/{id}/messages/{message_id}/regenerations": {
+      "post": {
+        "operationId": "post_api_admin_v1_ai_conversations_id_messages_message_id_regenerations",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AIMessageRegenerationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIMessageSendSuccessEnvelope"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Classified safe error response"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "POST /api/admin/v1/ai-conversations/:id/messages/:message_id/regenerations",
+        "tags": [
+          "ai-conversations"
+        ],
+        "x-admin-access": {
+          "kind": "authenticated"
+        },
+        "x-admin-audit": {
+          "enabled": true,
+          "module": "ai_message",
+          "action": "regenerate",
+          "title": "重新生成AI回复"
+        },
+        "x-admin-parameter-rules": [
+          "canonical replay key is the authenticated (user_id, request_id); conversation and source message belong to the request fingerprint"
+        ],
+        "x-runtime-path": "/api/admin/v1/ai-conversations/:id/messages/:message_id/regenerations"
+      }
+    },
+    "/api/admin/v1/ai-conversations/{id}/messages/{message_id}/revisions": {
+      "post": {
+        "operationId": "post_api_admin_v1_ai_conversations_id_messages_message_id_revisions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AIMessageRevisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIMessageSendSuccessEnvelope"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Classified safe error response"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "POST /api/admin/v1/ai-conversations/:id/messages/:message_id/revisions",
+        "tags": [
+          "ai-conversations"
+        ],
+        "x-admin-access": {
+          "kind": "authenticated"
+        },
+        "x-admin-audit": {
+          "enabled": true,
+          "module": "ai_message",
+          "action": "revise",
+          "title": "编辑AI消息",
+          "skip_request_payload": true
+        },
+        "x-admin-parameter-rules": [
+          "canonical replay key is the authenticated (user_id, request_id); conversation and source message belong to the request fingerprint"
+        ],
+        "x-runtime-path": "/api/admin/v1/ai-conversations/:id/messages/:message_id/revisions"
+      }
+    },
+    "/api/admin/v1/ai-conversations/{id}/read-cursor": {
+      "put": {
+        "operationId": "put_api_admin_v1_ai_conversations_id_read_cursor",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AIConversationReadCursorRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIConversationReadCursorSuccessEnvelope"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Classified safe error response"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "PUT /api/admin/v1/ai-conversations/:id/read-cursor",
+        "tags": [
+          "ai-conversations"
+        ],
+        "x-admin-access": {
+          "kind": "authenticated"
+        },
+        "x-admin-audit": {
+          "enabled": false,
+          "reason": "self-service AI conversation read state"
+        },
+        "x-runtime-path": "/api/admin/v1/ai-conversations/:id/read-cursor"
       }
     },
     "/api/admin/v1/ai-knowledge-bases": {
@@ -20156,6 +20713,72 @@
           "reason": "read-only"
         },
         "x-runtime-path": "/api/admin/v1/ai-runs/:id"
+      }
+    },
+    "/api/admin/v1/ai-runs/{id}/user-feedback": {
+      "put": {
+        "operationId": "put_api_admin_v1_ai_runs_id_user_feedback",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AIRunUserFeedbackRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIRunUserFeedbackSuccessEnvelope"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Classified safe error response"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "PUT /api/admin/v1/ai-runs/:id/user-feedback",
+        "tags": [
+          "ai-runs"
+        ],
+        "x-admin-access": {
+          "kind": "authenticated"
+        },
+        "x-admin-audit": {
+          "enabled": false,
+          "reason": "self-service AI run feedback"
+        },
+        "x-runtime-path": "/api/admin/v1/ai-runs/:id/user-feedback"
       }
     },
     "/api/admin/v1/ai-tools": {
