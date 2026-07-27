@@ -35,12 +35,12 @@ func TestPermissionsCatalogAndOperationPoliciesAreComplete(t *testing.T) {
 			t.Fatalf("retired client-version permission %q remains published", code)
 		}
 	}
-	for _, required := range []string{"ai_agent_add", "ai_run_list", "payment_recharge_add", "payment_recharge_list", "system_mail", "system_mail_logView", "devTools_queueMonitor_list"} {
+	for _, required := range []string{"ai_agent_add", "ai_run_list", "ai_model_pricing_list", "ai_model_pricing_edit", "payment_recharge_add", "payment_recharge_list", "system_mail", "system_mail_logView", "devTools_queueMonitor_list"} {
 		if _, exists := catalog[required]; !exists {
 			t.Fatalf("missing active permission code %q", required)
 		}
 	}
-	if got, want := len(document.PermissionCodes), 106; got != want {
+	if got, want := len(document.PermissionCodes), 108; got != want {
 		t.Fatalf("permission codes=%d want=%d", got, want)
 	}
 

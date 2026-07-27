@@ -2,8 +2,10 @@ CONNECT /api/admin/v1/queue-monitor-ui
 CONNECT /api/admin/v1/queue-monitor-ui/*path
 DELETE /api/admin/v1/ai-agents/:id
 DELETE /api/admin/v1/ai-conversations/:id
+DELETE /api/admin/v1/ai-conversations/:id/messages
 DELETE /api/admin/v1/ai-knowledge-bases/:id
 DELETE /api/admin/v1/ai-knowledge-documents/:id
+DELETE /api/admin/v1/ai-model-prices/:model_id/override
 DELETE /api/admin/v1/ai-providers/:id
 DELETE /api/admin/v1/ai-tools/:id
 DELETE /api/admin/v1/auth-platforms
@@ -58,6 +60,9 @@ GET /api/admin/v1/ai-knowledge-bases/:id/documents
 GET /api/admin/v1/ai-knowledge-bases/page-init
 GET /api/admin/v1/ai-knowledge-documents/:id
 GET /api/admin/v1/ai-knowledge-documents/:id/chunks
+GET /api/admin/v1/ai-model-prices
+GET /api/admin/v1/ai-model-prices/:model_id
+GET /api/admin/v1/ai-model-prices/page-init
 GET /api/admin/v1/ai-providers
 GET /api/admin/v1/ai-providers/:id/models
 GET /api/admin/v1/ai-providers/page-init
@@ -176,6 +181,8 @@ POST /api/admin/v1/ai-agents
 POST /api/admin/v1/ai-agents/:id/test
 POST /api/admin/v1/ai-conversations
 POST /api/admin/v1/ai-conversations/:id/messages
+POST /api/admin/v1/ai-conversations/:id/messages/:message_id/regenerations
+POST /api/admin/v1/ai-conversations/:id/messages/:message_id/revisions
 POST /api/admin/v1/ai-conversations/:id/messages/cancel
 POST /api/admin/v1/ai-knowledge-bases
 POST /api/admin/v1/ai-knowledge-bases/:id/documents
@@ -226,10 +233,13 @@ PUT /api/admin/v1/ai-agents/:id
 PUT /api/admin/v1/ai-agents/:id/knowledge-bases
 PUT /api/admin/v1/ai-agents/:id/tools
 PUT /api/admin/v1/ai-conversations/:id
+PUT /api/admin/v1/ai-conversations/:id/read-cursor
 PUT /api/admin/v1/ai-knowledge-bases/:id
 PUT /api/admin/v1/ai-knowledge-documents/:id
+PUT /api/admin/v1/ai-model-prices/:model_id
 PUT /api/admin/v1/ai-providers/:id
 PUT /api/admin/v1/ai-providers/:id/models
+PUT /api/admin/v1/ai-runs/:id/user-feedback
 PUT /api/admin/v1/ai-tools/:id
 PUT /api/admin/v1/auth-platforms/:id
 PUT /api/admin/v1/cron-tasks/:id

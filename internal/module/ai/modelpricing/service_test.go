@@ -53,6 +53,37 @@ func TestAIModelPricingResolveUsesCanonicalIdentityWithoutCaching(t *testing.T) 
 	}
 }
 
+func TestAIModelPricingManagementReadModelsFiltersAndFormatsDecimal(t *testing.T) {
+	repository := &fakePricingRepository{override: validStoredOverride()}
+	service := NewService(repository, WithCatalog(testPricingCatalog(t, "")))
+
+	result, appErr := service.List(context.Background(), ListQuery{Family: "gpt", ModelID: "reviewed"})
+	if appErr != nil {
+		t.Fatal(appErr)
+	}
+	if len(result.List) != 1 {
+		t.Fatalf("list = %#v", result)
+	}
+	item := result.List[0]
+	if item.ModelID != "gpt-reviewed" || item.ModelFamily != "gpt" || item.Official.Source != "official" || item.Effective.Source != "override" || item.Effective.OverrideVersion != 2 {
+		t.Fatalf("model price item = %#v", item)
+	}
+	if len(item.Official.Rates) != 2 || item.Official.Rates[0].Price != "1" || len(item.Effective.Rates) != 2 || item.Effective.Rates[0].Price != "1.25" {
+		t.Fatalf("decimal rates = official %#v effective %#v", item.Official.Rates, item.Effective.Rates)
+	}
+	if repository.findCalls != 1 {
+		t.Fatalf("override reads = %d", repository.findCalls)
+	}
+
+	detail, appErr := service.Detail(context.Background(), "gpt-reviewed")
+	if appErr != nil || detail.ModelID != "gpt-reviewed" {
+		t.Fatalf("detail = %#v, %v", detail, appErr)
+	}
+	if _, appErr := service.Detail(context.Background(), "gpt-reviewed-alias"); appErr == nil || appErr.Code != ErrorCodeModelNotFound {
+		t.Fatalf("alias detail error = %#v", appErr)
+	}
+}
+
 func TestAIModelPricingReviewAfterOnlyBlocksOfficialFallback(t *testing.T) {
 	catalog := testPricingCatalog(t, "2026-07-27")
 	repository := &fakePricingRepository{}

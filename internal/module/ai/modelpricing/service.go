@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -104,6 +105,141 @@ func NewService(repository Repository, options ...Option) *Service {
 		}
 	}
 	return service
+}
+
+func (service *Service) PageInit(ctx context.Context) (*PageInitResponse, *apperror.Error) {
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return nil, internalPricingError(err)
+		}
+	}
+	return &PageInitResponse{Dict: PageInitDict{FamilyOptions: []OptionDTO{
+		{Label: "GPT", Value: "gpt"},
+		{Label: "Claude", Value: "claude"},
+	}}}, nil
+}
+
+func (service *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
+	if service == nil || service.catalog == nil || service.repository == nil {
+		return nil, internalPricingError(ErrRepositoryNotConfigured)
+	}
+	family := strings.TrimSpace(query.Family)
+	if family != "" && family != "gpt" && family != "claude" {
+		return nil, invalidOverrideError(fmt.Errorf("%w: invalid model family", ErrInvalidOverride))
+	}
+	needle := strings.ToLower(strings.TrimSpace(query.ModelID))
+	models := service.managedModels()
+	items := make([]ModelPriceDTO, 0, len(models))
+	for _, official := range models {
+		if family != "" && official.ModelFamily != family {
+			continue
+		}
+		if needle != "" && !strings.Contains(strings.ToLower(official.ModelID), needle) {
+			continue
+		}
+		item, err := service.managementModel(ctx, official)
+		if err != nil {
+			return nil, internalPricingError(err)
+		}
+		items = append(items, item)
+	}
+	return &ListResponse{List: items}, nil
+}
+
+func (service *Service) Detail(ctx context.Context, modelID string) (*ModelPriceDTO, *apperror.Error) {
+	official, appErr := service.resolveManagedModel(modelID)
+	if appErr != nil {
+		return nil, appErr
+	}
+	item, err := service.managementModel(ctx, official)
+	if err != nil {
+		return nil, internalPricingError(err)
+	}
+	return &item, nil
+}
+
+func (service *Service) managedModels() []pricing.ModelPrice {
+	if service == nil || service.catalog == nil {
+		return nil
+	}
+	models := service.catalog.Models()
+	managed := make([]pricing.ModelPrice, 0, len(models))
+	for _, model := range models {
+		model = officialPrice(model)
+		if isReviewedManagedModel(model) {
+			managed = append(managed, model)
+		}
+	}
+	sort.Slice(managed, func(i, j int) bool {
+		if managed[i].ModelFamily != managed[j].ModelFamily {
+			return managed[i].ModelFamily < managed[j].ModelFamily
+		}
+		return managed[i].ModelID < managed[j].ModelID
+	})
+	return managed
+}
+
+func (service *Service) managementModel(ctx context.Context, official pricing.ModelPrice) (ModelPriceDTO, error) {
+	if service == nil || service.repository == nil {
+		return ModelPriceDTO{}, ErrRepositoryNotConfigured
+	}
+	override, err := service.repository.FindOverride(ctx, official.CatalogVendor, official.ModelID)
+	if err != nil {
+		return ModelPriceDTO{}, err
+	}
+	effective := officialPrice(official)
+	if override != nil {
+		effective, err = priceFromOverride(official, override)
+		if err != nil {
+			return ModelPriceDTO{}, err
+		}
+	}
+	officialAvailable := service.validateOfficialReview(official) == nil
+	officialDTO, err := priceDTO(officialPrice(official), officialAvailable)
+	if err != nil {
+		return ModelPriceDTO{}, err
+	}
+	effectiveDTO, err := priceDTO(effective, effective.PriceSource == "override" || officialAvailable)
+	if err != nil {
+		return ModelPriceDTO{}, err
+	}
+	return ModelPriceDTO{
+		CatalogVendor: official.CatalogVendor, ModelFamily: official.ModelFamily, ModelID: official.ModelID,
+		Aliases: append([]string(nil), official.Aliases...), PricingProfile: official.PricingProfile,
+		CatalogVersion: official.CatalogVersion, MaxOutputTokens: official.MaxOutputTokens,
+		ContextTierThresholdTokens: official.ContextTierThresholdTokens, ReviewAfter: official.ReviewAfter,
+		Official: officialDTO, Effective: effectiveDTO,
+	}, nil
+}
+
+func priceDTO(model pricing.ModelPrice, available bool) (PriceDTO, error) {
+	rates := make([]RateDTO, len(model.Rates))
+	for index, rate := range model.Rates {
+		formatted, err := money.FormatRMBUnits(rate.PriceUnits)
+		if err != nil {
+			return PriceDTO{}, err
+		}
+		rates[index] = RateDTO{Category: rate.Category, Unit: rate.Unit, TierKey: rate.TierKey, Price: formatted, UnitScale: rate.UnitScale}
+	}
+	return PriceDTO{
+		PricingVersion: model.Version, Source: model.PriceSource, OverrideVersion: model.OverrideVersion,
+		SourceURL: model.SourceURL, VerifiedAt: model.RetrievedAt, Available: available, Rates: rates,
+	}, nil
+}
+
+func MutationResponseFromSummary(summary *MutationSummary) (*MutationResponse, error) {
+	if summary == nil {
+		return nil, errors.New("model pricing mutation summary is missing")
+	}
+	before, err := priceDTO(summary.Before.ModelPrice, true)
+	if err != nil {
+		return nil, err
+	}
+	after, err := priceDTO(summary.After.ModelPrice, true)
+	if err != nil {
+		return nil, err
+	}
+	return &MutationResponse{Before: before, After: after}, nil
 }
 
 func (service *Service) Resolve(ctx context.Context, requestedModelID string) (pricing.ModelPrice, error) {

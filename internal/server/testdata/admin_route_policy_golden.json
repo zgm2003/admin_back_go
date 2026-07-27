@@ -100,6 +100,21 @@
     },
     {
       "method": "DELETE",
+      "path": "/api/admin/v1/ai-model-prices/:model_id/override",
+      "operation_id": "delete_api_admin_v1_ai_model_prices_model_id_override",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_model_pricing_edit"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_model_pricing",
+        "action": "restore_official",
+        "title": "恢复模型官方定价"
+      }
+    },
+    {
+      "method": "DELETE",
       "path": "/api/admin/v1/ai-providers/:id",
       "operation_id": "delete_api_admin_v1_ai_providers_id",
       "access": {
@@ -840,6 +855,45 @@
       "operation_id": "get_api_admin_v1_ai_knowledge_documents_id_chunks",
       "access": {
         "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/v1/ai-model-prices",
+      "operation_id": "get_api_admin_v1_ai_model_prices",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_model_pricing_list"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/v1/ai-model-prices/:model_id",
+      "operation_id": "get_api_admin_v1_ai_model_prices_model_id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_model_pricing_list"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/v1/ai-model-prices/page-init",
+      "operation_id": "get_api_admin_v1_ai_model_prices_page_init",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_model_pricing_list"
       },
       "audit": {
         "enabled": false,
@@ -3157,6 +3211,21 @@
         "module": "ai_knowledge_document",
         "action": "update",
         "title": "编辑AI知识库文档"
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/api/admin/v1/ai-model-prices/:model_id",
+      "operation_id": "put_api_admin_v1_ai_model_prices_model_id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_model_pricing_edit"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_model_pricing",
+        "action": "update",
+        "title": "编辑模型定价"
       }
     },
     {

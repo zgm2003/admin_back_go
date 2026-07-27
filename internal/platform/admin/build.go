@@ -352,6 +352,7 @@ func Build(input BuildInput) (*BuildResult, error) {
 			Conversations: aiConversationService,
 			Knowledge:     aiKnowledgeService,
 			Messages:      aiMessageService,
+			ModelPrices:   aiModelPricingResolver,
 			Providers:     aiProviderService,
 			Runs:          aiRunService,
 			Tools:         aiToolService,
