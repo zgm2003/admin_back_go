@@ -79,6 +79,7 @@
                 "ai/agents",
                 "ai/chat",
                 "ai/knowledge",
+                "ai/model-pricing",
                 "ai/providers",
                 "ai/runs",
                 "ai/tools",
@@ -149,6 +150,8 @@
               "ai_knowledge_reindex",
               "ai_knowledge_retrieval_test",
               "ai_knowledge_status",
+              "ai_model_pricing_edit",
+              "ai_model_pricing_list",
               "ai_provider_add",
               "ai_provider_del",
               "ai_provider_edit",
@@ -305,6 +308,15 @@
       "i18n_key": "menu.ai_knowledge",
       "show_menu": 1,
       "permission_codes": []
+    },
+    {
+      "path": "/ai/model-pricing",
+      "view_key": "ai/model-pricing",
+      "i18n_key": "menu.ai_model_pricing",
+      "show_menu": 1,
+      "permission_codes": [
+        "ai_model_pricing_list"
+      ]
     },
     {
       "path": "/ai/providers",

@@ -17,6 +17,8 @@
     "ai_knowledge_reindex",
     "ai_knowledge_retrieval_test",
     "ai_knowledge_status",
+    "ai_model_pricing_edit",
+    "ai_model_pricing_list",
     "ai_provider_add",
     "ai_provider_del",
     "ai_provider_edit",
@@ -675,6 +677,75 @@
         "module": "ai_knowledge_document",
         "action": "change_status",
         "title": "修改AI知识库文档状态"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_ai_model_prices",
+      "method": "GET",
+      "path": "/api/admin/v1/ai-model-prices",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_model_pricing_list"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_ai_model_prices_model_id",
+      "method": "GET",
+      "path": "/api/admin/v1/ai-model-prices/:model_id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_model_pricing_list"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "operation_id": "put_api_admin_v1_ai_model_prices_model_id",
+      "method": "PUT",
+      "path": "/api/admin/v1/ai-model-prices/:model_id",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_model_pricing_edit"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_model_pricing",
+        "action": "update",
+        "title": "编辑模型定价"
+      }
+    },
+    {
+      "operation_id": "delete_api_admin_v1_ai_model_prices_model_id_override",
+      "method": "DELETE",
+      "path": "/api/admin/v1/ai-model-prices/:model_id/override",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_model_pricing_edit"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_model_pricing",
+        "action": "restore_official",
+        "title": "恢复模型官方定价"
+      }
+    },
+    {
+      "operation_id": "get_api_admin_v1_ai_model_prices_page_init",
+      "method": "GET",
+      "path": "/api/admin/v1/ai-model-prices/page-init",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_model_pricing_list"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
       }
     },
     {
