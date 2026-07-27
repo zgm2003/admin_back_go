@@ -70,7 +70,7 @@ func TestBillingDetailUsesThreeBoundedQueries(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, held_units, actual_units, status FROM `ai_usage_charges` WHERE run_id = ? LIMIT ?")).WithArgs(int64(44), 1).WillReturnRows(
 		sqlmock.NewRows([]string{"id", "held_units", "actual_units", "status"}).AddRow(9, 900, 250, "settled"),
 	)
-	mock.ExpectQuery("SELECT .* FROM ai_usage_charge_items i JOIN ai_usage_charges c ON c.id = i.charge_id JOIN ai_provider_attempts a ON a.id = i.attempt_id WHERE c.run_id = \\? ORDER BY a.attempt_no ASC, i.id ASC").WithArgs(int64(44)).WillReturnRows(
+	mock.ExpectQuery("SELECT .* FROM ai_usage_charge_items i JOIN ai_usage_charges c ON c.id = i.charge_id JOIN ai_provider_attempts a ON a.id = i.attempt_id AND a.run_id = c.run_id WHERE c.run_id = \\? ORDER BY a.attempt_no ASC, i.id ASC").WithArgs(int64(44)).WillReturnRows(
 		sqlmock.NewRows([]string{"attempt_id", "attempt_no", "attempt_state", "category", "tier_key", "quantity", "unit", "unit_price_units", "unit_scale", "amount_units"}).AddRow(101, 1, "succeeded", "input", "", 2, "token", 100, 1, 250),
 	)
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, attempt_no, state, provider_request_id, usage_status, usage_json FROM `ai_provider_attempts` WHERE run_id = ? ORDER BY attempt_no ASC")).WithArgs(int64(44)).WillReturnRows(

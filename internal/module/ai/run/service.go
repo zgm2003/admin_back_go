@@ -314,10 +314,20 @@ func buildBillingDetail(row RunDetailRow, charge *ChargeRow, usageRows []UsageCh
 	legacy := row.BillingStatus == string(billing.BillingStatusUnbilled) && row.BillingReason == string(billing.BillingReasonLegacyUnpriced)
 	legacy = legacy || (charge == nil && strings.TrimSpace(row.BillingStatus) == "" && strings.TrimSpace(row.BillingReason) == "")
 	if legacy {
+		if charge != nil || len(usageRows) != 0 || len(attemptRows) != 0 {
+			return billingDetailView{}, fmt.Errorf("legacy unpriced run contains paid billing evidence")
+		}
 		return billingDetailView{
 			status: string(billing.BillingStatusUnbilled), reason: string(billing.BillingReasonLegacyUnpriced),
 			held: "0", actual: "0", usage: []UsageItemDetail{}, attempts: []ProviderAttemptDetail{},
 		}, nil
+	}
+	if charge == nil {
+		return billingDetailView{}, fmt.Errorf("paid run has no usage charge")
+	}
+	expectedChargeStatus, ok := chargeStatusForBillingStatus(row.BillingStatus)
+	if !ok || charge.Status != expectedChargeStatus {
+		return billingDetailView{}, fmt.Errorf("charge status %q does not match billing status %q", charge.Status, row.BillingStatus)
 	}
 
 	snapshot, err := aigateway.ParsePricingSnapshot(row.PricingSnapshotJSON)
@@ -328,17 +338,24 @@ func buildBillingDetail(row RunDetailRow, charge *ChargeRow, usageRows []UsageCh
 	if err != nil {
 		return billingDetailView{}, err
 	}
-	var heldUnits, actualUnits int64
-	if charge != nil {
-		heldUnits, actualUnits = charge.HeldUnits, charge.ActualUnits
-	}
-	held, err := sharedmoney.FormatRMBUnits(heldUnits)
+	held, err := sharedmoney.FormatRMBUnits(charge.HeldUnits)
 	if err != nil {
 		return billingDetailView{}, fmt.Errorf("format held amount: %w", err)
 	}
-	actual, err := sharedmoney.FormatRMBUnits(actualUnits)
+	actual, err := sharedmoney.FormatRMBUnits(charge.ActualUnits)
 	if err != nil {
 		return billingDetailView{}, fmt.Errorf("format actual amount: %w", err)
+	}
+
+	attemptByID := make(map[int64]ProviderAttemptRow, len(attemptRows))
+	for _, attempt := range attemptRows {
+		if !validProviderAttemptRow(attempt) {
+			return billingDetailView{}, fmt.Errorf("provider attempt %d is invalid", attempt.ID)
+		}
+		if _, exists := attemptByID[attempt.ID]; exists {
+			return billingDetailView{}, fmt.Errorf("provider attempt %d is duplicated", attempt.ID)
+		}
+		attemptByID[attempt.ID] = attempt
 	}
 
 	usage := make([]UsageItemDetail, 0, len(usageRows))
@@ -351,6 +368,10 @@ func buildBillingDetail(row RunDetailRow, charge *ChargeRow, usageRows []UsageCh
 		if err := (billing.UsageItem{Category: billing.UsageCategory(item.Category), TierKey: item.TierKey, Quantity: item.Quantity, Unit: item.Unit}).Validate(); err != nil {
 			return billingDetailView{}, fmt.Errorf("persisted usage item is invalid: %w", err)
 		}
+		attempt, exists := attemptByID[item.AttemptID]
+		if !exists || attempt.AttemptNo != item.AttemptNo || attempt.State != item.AttemptState {
+			return billingDetailView{}, fmt.Errorf("usage item attempt %d does not belong to this run", item.AttemptID)
+		}
 		unitPrice, formatErr := sharedmoney.FormatRMBUnits(item.UnitPriceUnits)
 		if formatErr != nil {
 			return billingDetailView{}, fmt.Errorf("format usage unit price: %w", formatErr)
@@ -359,22 +380,26 @@ func buildBillingDetail(row RunDetailRow, charge *ChargeRow, usageRows []UsageCh
 		if formatErr != nil {
 			return billingDetailView{}, fmt.Errorf("format usage amount: %w", formatErr)
 		}
-		billable := item.AttemptState != string(billing.AttemptStateFailed)
+		billable := item.AttemptState == string(billing.AttemptStateSucceeded)
 		if billable {
 			if item.AmountUnits > math.MaxInt64-billableSum {
 				return billingDetailView{}, fmt.Errorf("billable usage amount overflow")
 			}
 			billableSum += item.AmountUnits
 		}
-		seenItems[usageItemKey(item.AttemptID, item.Category, item.TierKey, item.Unit)] = struct{}{}
+		itemKey := usageItemKey(item.AttemptID, item.Category, item.TierKey, item.Unit)
+		if _, exists := seenItems[itemKey]; exists {
+			return billingDetailView{}, fmt.Errorf("usage item %q is duplicated", itemKey)
+		}
+		seenItems[itemKey] = struct{}{}
 		usage = append(usage, UsageItemDetail{
 			AttemptNo: item.AttemptNo, Category: item.Category, TierKey: item.TierKey,
 			Quantity: item.Quantity, Unit: item.Unit, UnitPrice: unitPrice,
 			UnitScale: item.UnitScale, Amount: amount, Billable: billable,
 		})
 	}
-	if row.BillingStatus == string(billing.BillingStatusSettled) && billableSum != actualUnits {
-		return billingDetailView{}, fmt.Errorf("settled usage item sum %d does not equal actual units %d", billableSum, actualUnits)
+	if row.BillingStatus == string(billing.BillingStatusSettled) && billableSum != charge.ActualUnits {
+		return billingDetailView{}, fmt.Errorf("settled usage item sum %d does not equal actual units %d", billableSum, charge.ActualUnits)
 	}
 
 	attempts := make([]ProviderAttemptDetail, 0, len(attemptRows))
@@ -444,6 +469,34 @@ func buildBillingDetail(row RunDetailRow, charge *ChargeRow, usageRows []UsageCh
 		status: row.BillingStatus, reason: row.BillingReason, held: held, actual: actual,
 		pricing: pricingDetail, usage: usage, attempts: attempts,
 	}, nil
+}
+
+func chargeStatusForBillingStatus(status string) (string, bool) {
+	switch billing.BillingStatus(status) {
+	case billing.BillingStatusPending, billing.BillingStatusHeld:
+		return string(billing.ChargeStatusOpen), true
+	case billing.BillingStatusSettled:
+		return string(billing.ChargeStatusSettled), true
+	case billing.BillingStatusReleased:
+		return string(billing.ChargeStatusReleased), true
+	case billing.BillingStatusUnbilled:
+		return string(billing.ChargeStatusUnbilled), true
+	default:
+		return "", false
+	}
+}
+
+func validProviderAttemptRow(attempt ProviderAttemptRow) bool {
+	if attempt.ID <= 0 || attempt.AttemptNo == 0 {
+		return false
+	}
+	switch billing.AttemptState(attempt.State) {
+	case billing.AttemptStatePrepared, billing.AttemptStateDispatched, billing.AttemptStateSucceeded,
+		billing.AttemptStateFailed, billing.AttemptStateCanceled, billing.AttemptStateOutcomeUnknown:
+	default:
+		return false
+	}
+	return attempt.UsageStatus == string(billing.UsageStatusComplete) || attempt.UsageStatus == string(billing.UsageStatusUnavailable)
 }
 
 func pricingDetailFromSnapshot(snapshot aigateway.PricingSnapshot) (*PricingDetail, error) {

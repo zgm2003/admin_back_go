@@ -218,7 +218,7 @@ func TestDetailMapsLegacyRunWithoutChargeWithoutParsingMarker(t *testing.T) {
 	}
 }
 
-func TestDetailPreservesCurrentPaidRunWithoutCharge(t *testing.T) {
+func TestDetailRejectsCurrentPaidRunWithoutCharge(t *testing.T) {
 	repo := &fakeRepository{
 		run: &RunDetailRow{
 			ID: 48, BillingStatus: string(billing.BillingStatusPending), BillingReason: string(billing.BillingReasonPending),
@@ -226,28 +226,37 @@ func TestDetailPreservesCurrentPaidRunWithoutCharge(t *testing.T) {
 		},
 		attempts: []ProviderAttemptRow{{ID: 201, AttemptNo: 1, State: string(billing.AttemptStatePrepared), UsageStatus: string(billing.UsageStatusUnavailable)}},
 	}
-	res, appErr := NewService(repo).Detail(context.Background(), 48)
-	if appErr != nil {
-		t.Fatalf("current paid detail returned error: %v", appErr)
+	if _, appErr := NewService(repo).Detail(context.Background(), 48); appErr == nil || appErr.HTTPStatus != 500 {
+		t.Fatalf("paid Run without Charge must fail closed, got %#v", appErr)
 	}
-	if res.BillingStatus != "pending" || res.BillingReason != "pending" || res.HeldAmount != "0" || res.ActualAmount != "0" || res.Pricing == nil || len(res.ProviderAttempts) != 1 || len(res.UsageItems) != 0 {
-		t.Fatalf("current paid billing detail=%#v", res)
+}
+
+func TestDetailRejectsLegacyRunWithPaidEvidence(t *testing.T) {
+	repo := &fakeRepository{
+		run:    &RunDetailRow{ID: 50, BillingStatus: string(billing.BillingStatusUnbilled), BillingReason: string(billing.BillingReasonLegacyUnpriced)},
+		charge: &ChargeRow{ID: 13, Status: string(billing.ChargeStatusUnbilled)},
+	}
+	if _, appErr := NewService(repo).Detail(context.Background(), 50); appErr == nil || appErr.HTTPStatus != 500 {
+		t.Fatalf("legacy Run with paid evidence must fail closed, got %#v", appErr)
 	}
 }
 
 func TestDetailRejectsInvalidPaidSnapshotAndMismatchedSettlement(t *testing.T) {
 	for _, test := range []struct {
-		name   string
-		run    RunDetailRow
-		charge ChargeRow
-		items  []UsageChargeItemRow
+		name     string
+		run      RunDetailRow
+		charge   ChargeRow
+		items    []UsageChargeItemRow
+		attempts []ProviderAttemptRow
 	}{
 		{name: "invalid snapshot", run: RunDetailRow{ID: 46, BillingStatus: "settled", BillingReason: "settled_complete_usage", PricingSnapshotJSON: `{"version":"attempt-quote"}`}, charge: ChargeRow{ID: 10, ActualUnits: 1, Status: "settled"}},
-		{name: "item sum", run: RunDetailRow{ID: 47, BillingStatus: "settled", BillingReason: "settled_complete_usage", PricingSnapshotJSON: paidPricingSnapshotJSON()}, charge: ChargeRow{ID: 11, ActualUnits: 2, Status: "settled"}, items: []UsageChargeItemRow{{AttemptNo: 1, AttemptState: "succeeded", Category: "input", Quantity: 1, Unit: "token", UnitScale: 1, AmountUnits: 1}}},
-		{name: "invalid item", run: RunDetailRow{ID: 49, BillingStatus: "settled", BillingReason: "settled_complete_usage", PricingSnapshotJSON: paidPricingSnapshotJSON()}, charge: ChargeRow{ID: 12, ActualUnits: 0, Status: "settled"}, items: []UsageChargeItemRow{{AttemptNo: 1, AttemptState: "succeeded", Category: "input", Quantity: 1, Unit: "token", UnitScale: 0, AmountUnits: 0}}},
+		{name: "charge status", run: RunDetailRow{ID: 51, BillingStatus: "settled", BillingReason: "settled_complete_usage", PricingSnapshotJSON: paidPricingSnapshotJSON()}, charge: ChargeRow{ID: 14, Status: "open"}},
+		{name: "item sum", run: RunDetailRow{ID: 47, BillingStatus: "settled", BillingReason: "settled_complete_usage", PricingSnapshotJSON: paidPricingSnapshotJSON()}, charge: ChargeRow{ID: 11, ActualUnits: 2, Status: "settled"}, items: []UsageChargeItemRow{{AttemptID: 101, AttemptNo: 1, AttemptState: "succeeded", Category: "input", Quantity: 1, Unit: "token", UnitScale: 1, AmountUnits: 1}}, attempts: []ProviderAttemptRow{{ID: 101, AttemptNo: 1, State: "succeeded", UsageStatus: "complete"}}},
+		{name: "foreign attempt", run: RunDetailRow{ID: 52, BillingStatus: "settled", BillingReason: "settled_complete_usage", PricingSnapshotJSON: paidPricingSnapshotJSON()}, charge: ChargeRow{ID: 15, ActualUnits: 1, Status: "settled"}, items: []UsageChargeItemRow{{AttemptID: 999, AttemptNo: 1, AttemptState: "succeeded", Category: "input", Quantity: 1, Unit: "token", UnitScale: 1, AmountUnits: 1}}, attempts: []ProviderAttemptRow{{ID: 101, AttemptNo: 1, State: "succeeded", UsageStatus: "complete"}}},
+		{name: "invalid item", run: RunDetailRow{ID: 49, BillingStatus: "settled", BillingReason: "settled_complete_usage", PricingSnapshotJSON: paidPricingSnapshotJSON()}, charge: ChargeRow{ID: 12, ActualUnits: 0, Status: "settled"}, items: []UsageChargeItemRow{{AttemptID: 101, AttemptNo: 1, AttemptState: "succeeded", Category: "input", Quantity: 1, Unit: "token", UnitScale: 0, AmountUnits: 0}}, attempts: []ProviderAttemptRow{{ID: 101, AttemptNo: 1, State: "succeeded", UsageStatus: "complete"}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			repo := &fakeRepository{run: &test.run, charge: &test.charge, usageItems: test.items}
+			repo := &fakeRepository{run: &test.run, charge: &test.charge, usageItems: test.items, attempts: test.attempts}
 			if _, appErr := NewService(repo).Detail(context.Background(), test.run.ID); appErr == nil || appErr.HTTPStatus != 500 {
 				t.Fatalf("expected explicit internal error, got %#v", appErr)
 			}

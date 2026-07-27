@@ -163,7 +163,7 @@ func aiRunListQueryParameters() []map[string]any {
 		queryParameter("platform", false, registeredPlatformSchema(), "Origin platform filter."),
 		queryParameter("provider_id", false, positiveIntegerSchema(), "Provider ID filter."),
 		queryParameter("request_id", false, maxStringSchema(128), "Request ID search."),
-		queryParameter("status", false, stringEnumSchema("running", "success", "failed", "canceled", "timeout"), "Run status filter."),
+		queryParameter("status", false, stringEnumSchema("running", "success", "failed", "canceled", "timeout", "outcome_unknown"), "Run status filter."),
 		queryParameter("user_id", false, positiveIntegerSchema(), "User ID filter."),
 	}
 	return parameters

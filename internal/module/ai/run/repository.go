@@ -117,7 +117,7 @@ func (r *GormRepository) BillingDetail(ctx context.Context, runID int64) (*Charg
 			i.category, i.tier_key, i.quantity, i.unit,
 			i.unit_price_units, i.unit_scale, i.amount_units`).
 		Joins("JOIN ai_usage_charges c ON c.id = i.charge_id").
-		Joins("JOIN ai_provider_attempts a ON a.id = i.attempt_id").
+		Joins("JOIN ai_provider_attempts a ON a.id = i.attempt_id AND a.run_id = c.run_id").
 		Where("c.run_id = ?", runID).
 		Order("a.attempt_no ASC, i.id ASC").
 		Scan(&items).Error; err != nil {

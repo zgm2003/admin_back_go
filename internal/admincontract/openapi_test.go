@@ -240,6 +240,7 @@ func TestWorkflowOperationsUseFieldCompleteContracts(t *testing.T) {
 			assertOperationParameters(t, operation, expectation.queryParameters, expectation.requiredQueries, expectation.hasPositiveIDPath)
 		})
 	}
+	assertQueryStringEnum(t, document.Paths["/api/admin/v1/ai-runs"]["get"], "status", []string{"running", "success", "failed", "canceled", "timeout", "outcome_unknown"})
 }
 
 func TestWorkflowSchemasCloseBusinessFieldsAndDeclareNullability(t *testing.T) {
@@ -299,6 +300,8 @@ func TestWorkflowSchemasCloseBusinessFieldsAndDeclareNullability(t *testing.T) {
 	assertSchemaPropertyStringEnum(t, document.Components.Schemas, "AIRunProviderAttempt", "state", []string{"prepared", "dispatched", "succeeded", "failed", "canceled", "outcome_unknown"})
 	assertSchemaPropertyStringEnum(t, document.Components.Schemas, "AIRunProviderAttempt", "usage_status", []string{"complete", "unavailable"})
 	assertSchemaPropertyStringEnum(t, document.Components.Schemas, "AIRunUsageItem", "category", []string{"input", "output", "cache_read", "cache_write", "media"})
+	assertSchemaPropertyStringEnum(t, document.Components.Schemas, "AIRunListItem", "status", []string{"running", "success", "failed", "canceled", "timeout", "outcome_unknown"})
+	assertSchemaPropertyStringEnum(t, document.Components.Schemas, "AIRunEvent", "event_type", []string{"start", "completed", "failed", "canceled", "timeout", "retry_scheduled", "usage_recorded", "outcome_unknown", "settled", "released", "unbilled"})
 	for _, field := range []string{"held_amount", "actual_amount"} {
 		property := document.Components.Schemas["AIRunDetail"]["properties"].(map[string]any)[field].(map[string]any)
 		if property["type"] != "string" || property["pattern"] != `^(0|[1-9][0-9]*)(\.[0-9]{0,7}[1-9])?$` {

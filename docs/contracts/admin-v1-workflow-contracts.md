@@ -291,7 +291,8 @@ AIRunListItem = {
   duration_text: string, error_message: string, created_at: string
 }
 
-RunStatus = "running" | "success" | "failed" | "canceled" | "timeout"
+RunStatus = "running" | "success" | "failed" | "canceled" | "timeout" |
+  "outcome_unknown"
 AIRunStatsResult = {
   date_range: { start: string | null, end: string | null },
   summary: {
@@ -369,7 +370,9 @@ AIRunMessageSummary = {
 }
 AIRunEvent = {
   id: positive integer, seq: integer >= 0,
-  event_type: "start" | "completed" | "failed" | "canceled" | "timeout",
+  event_type: "start" | "completed" | "failed" | "canceled" | "timeout" |
+    "retry_scheduled" | "usage_recorded" | "outcome_unknown" | "settled" |
+    "released" | "unbilled",
   event_type_name: string, message: string,
   elapsed_ms: integer >= 0 | null, elapsed_text: string, created_at: string
 }

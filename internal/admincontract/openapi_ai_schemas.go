@@ -183,7 +183,7 @@ func aiRunListItemProperties() map[string]any {
 		"conversation_id":    nullableSchema(positiveIntegerSchema()),
 		"conversation_title": stringSchema(),
 		"status": stringEnumSchema(
-			"running", "success", "failed", "canceled", "timeout",
+			"running", "success", "failed", "canceled", "timeout", "outcome_unknown",
 		),
 		"status_name":        stringSchema(),
 		"model_id":           stringSchema(),
@@ -215,9 +215,12 @@ func aiRunMessageSummarySchema() map[string]any {
 
 func aiRunEventSchema() map[string]any {
 	return closedObjectAllProperties(map[string]any{
-		"id":              positiveIntegerSchema(),
-		"seq":             nonNegativeIntegerSchema(),
-		"event_type":      stringEnumSchema("start", "completed", "failed", "canceled", "timeout"),
+		"id":  positiveIntegerSchema(),
+		"seq": nonNegativeIntegerSchema(),
+		"event_type": stringEnumSchema(
+			"start", "completed", "failed", "canceled", "timeout", "retry_scheduled",
+			"usage_recorded", "outcome_unknown", "settled", "released", "unbilled",
+		),
 		"event_type_name": stringSchema(),
 		"message":         stringSchema(),
 		"elapsed_ms":      nullableSchema(nonNegativeIntegerSchema()),
