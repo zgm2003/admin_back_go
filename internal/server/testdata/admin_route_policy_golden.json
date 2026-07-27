@@ -872,7 +872,8 @@
       "path": "/api/admin/v1/ai-runs",
       "operation_id": "get_api_admin_v1_ai_runs",
       "access": {
-        "kind": "authenticated"
+        "kind": "permission",
+        "permission_code": "ai_run_list"
       },
       "audit": {
         "enabled": false,
@@ -884,7 +885,8 @@
       "path": "/api/admin/v1/ai-runs/:id",
       "operation_id": "get_api_admin_v1_ai_runs_id",
       "access": {
-        "kind": "authenticated"
+        "kind": "permission",
+        "permission_code": "ai_run_list"
       },
       "audit": {
         "enabled": false,
@@ -896,7 +898,8 @@
       "path": "/api/admin/v1/ai-runs/page-init",
       "operation_id": "get_api_admin_v1_ai_runs_page_init",
       "access": {
-        "kind": "authenticated"
+        "kind": "permission",
+        "permission_code": "ai_run_list"
       },
       "audit": {
         "enabled": false,
@@ -908,7 +911,8 @@
       "path": "/api/admin/v1/ai-runs/stats",
       "operation_id": "get_api_admin_v1_ai_runs_stats",
       "access": {
-        "kind": "authenticated"
+        "kind": "permission",
+        "permission_code": "ai_run_list"
       },
       "audit": {
         "enabled": false,
@@ -920,7 +924,8 @@
       "path": "/api/admin/v1/ai-runs/stats/by-agent",
       "operation_id": "get_api_admin_v1_ai_runs_stats_by_agent",
       "access": {
-        "kind": "authenticated"
+        "kind": "permission",
+        "permission_code": "ai_run_list"
       },
       "audit": {
         "enabled": false,
@@ -932,7 +937,8 @@
       "path": "/api/admin/v1/ai-runs/stats/by-date",
       "operation_id": "get_api_admin_v1_ai_runs_stats_by_date",
       "access": {
-        "kind": "authenticated"
+        "kind": "permission",
+        "permission_code": "ai_run_list"
       },
       "audit": {
         "enabled": false,
@@ -944,7 +950,8 @@
       "path": "/api/admin/v1/ai-runs/stats/by-user",
       "operation_id": "get_api_admin_v1_ai_runs_stats_by_user",
       "access": {
-        "kind": "authenticated"
+        "kind": "permission",
+        "permission_code": "ai_run_list"
       },
       "audit": {
         "enabled": false,

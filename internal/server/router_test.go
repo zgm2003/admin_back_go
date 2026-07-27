@@ -3309,6 +3309,75 @@ func TestRouterPassesTelemetryToRequiredOperationLog(t *testing.T) {
 	}
 }
 
+type aiRunReadRouteCase struct {
+	requestPath    string
+	registeredPath string
+}
+
+func aiRunReadRouteCases() []aiRunReadRouteCase {
+	return []aiRunReadRouteCase{
+		{requestPath: "/api/admin/v1/ai-runs/page-init", registeredPath: "/api/admin/v1/ai-runs/page-init"},
+		{requestPath: "/api/admin/v1/ai-runs", registeredPath: "/api/admin/v1/ai-runs"},
+		{requestPath: "/api/admin/v1/ai-runs/1", registeredPath: "/api/admin/v1/ai-runs/:id"},
+		{requestPath: "/api/admin/v1/ai-runs/stats", registeredPath: "/api/admin/v1/ai-runs/stats"},
+		{requestPath: "/api/admin/v1/ai-runs/stats/by-date", registeredPath: "/api/admin/v1/ai-runs/stats/by-date"},
+		{requestPath: "/api/admin/v1/ai-runs/stats/by-agent", registeredPath: "/api/admin/v1/ai-runs/stats/by-agent"},
+		{requestPath: "/api/admin/v1/ai-runs/stats/by-user", registeredPath: "/api/admin/v1/ai-runs/stats/by-user"},
+	}
+}
+
+func TestRouterAIRunReadsRequireAIRunListPermission(t *testing.T) {
+	tests := []struct {
+		name          string
+		hasPermission bool
+		wantStatus    int
+	}{
+		{name: "without permission", wantStatus: http.StatusForbidden},
+		{name: "with permission", hasPermission: true, wantStatus: http.StatusOK},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var permissionInputs []middleware.PermissionInput
+			permissions := map[string]struct{}{}
+			if tc.hasPermission {
+				permissions["ai_run_list"] = struct{}{}
+			}
+			router := newTestRouter(t, testDependencies{
+				Authenticator: func(context.Context, middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
+					return &middleware.AuthIdentity{UserID: 7, SessionID: 9, Platform: "admin"}, nil
+				},
+				PermissionChecker: func(_ context.Context, input middleware.PermissionInput) *apperror.Error {
+					permissionInputs = append(permissionInputs, input)
+					if _, exists := permissions[input.Code]; !exists {
+						return apperror.Forbidden("无接口权限")
+					}
+					return nil
+				},
+				AiRunService: fakeRouterAIRunService{},
+			})
+
+			for index, route := range aiRunReadRouteCases() {
+				recorder := httptest.NewRecorder()
+				request := httptest.NewRequest(http.MethodGet, route.requestPath, nil)
+				request.Header.Set("Authorization", "Bearer access-token")
+				router.ServeHTTP(recorder, request)
+
+				if recorder.Code != tc.wantStatus {
+					t.Fatalf("GET %s status=%d want=%d body=%s", route.requestPath, recorder.Code, tc.wantStatus, recorder.Body.String())
+				}
+				if got := len(permissionInputs); got != index+1 {
+					t.Fatalf("GET %s permission checks=%d want=%d", route.requestPath, got, index+1)
+				}
+				input := permissionInputs[index]
+				if input.Code != "ai_run_list" || input.Path != route.registeredPath {
+					t.Fatalf("GET %s permission input=%#v", route.requestPath, input)
+				}
+			}
+		})
+	}
+}
+
 func TestRouterInstallsAIRuntimeRESTRoutes(t *testing.T) {
 	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
@@ -3329,13 +3398,9 @@ func TestRouterInstallsAIRuntimeRESTRoutes(t *testing.T) {
 		{http.MethodGet, "/api/admin/v1/ai-conversations/1/messages", ""},
 		{http.MethodPost, "/api/admin/v1/ai-conversations/1/messages", `{"content":"hello","request_id":"rid"}`},
 		{http.MethodPost, "/api/admin/v1/ai-conversations/1/messages/cancel", `{"request_id":"rid"}`},
-		{http.MethodGet, "/api/admin/v1/ai-runs/page-init", ""},
-		{http.MethodGet, "/api/admin/v1/ai-runs", ""},
-		{http.MethodGet, "/api/admin/v1/ai-runs/1", ""},
-		{http.MethodGet, "/api/admin/v1/ai-runs/stats", ""},
-		{http.MethodGet, "/api/admin/v1/ai-runs/stats/by-date", ""},
-		{http.MethodGet, "/api/admin/v1/ai-runs/stats/by-agent", ""},
-		{http.MethodGet, "/api/admin/v1/ai-runs/stats/by-user", ""},
+	}
+	for _, route := range aiRunReadRouteCases() {
+		cases = append(cases, struct{ method, path, body string }{http.MethodGet, route.requestPath, ""})
 	}
 	for _, tc := range cases {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {

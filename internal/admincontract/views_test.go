@@ -93,6 +93,31 @@ func TestViewsPublishPaymentRedeemCodeManagement(t *testing.T) {
 	t.Fatalf("missing redeem code view %q", want.ViewKey)
 }
 
+func TestViewsProtectAIRunMonitoringWithListPermission(t *testing.T) {
+	bundle := mustBuildBundle(t)
+	var document ViewsDocument
+	if err := json.Unmarshal(bundle.Artifacts["views.json"], &document); err != nil {
+		t.Fatalf("decode views: %v", err)
+	}
+
+	want := View{
+		Path:            "/ai/runs",
+		ViewKey:         "ai/runs",
+		I18nKey:         "menu.ai_runs",
+		ShowMenu:        1,
+		PermissionCodes: []string{"ai_run_list"},
+	}
+	for _, view := range document.Views {
+		if view.ViewKey == want.ViewKey {
+			if !reflect.DeepEqual(view, want) {
+				t.Fatalf("AI run view=%#v want=%#v", view, want)
+			}
+			return
+		}
+	}
+	t.Fatalf("missing AI run view %q", want.ViewKey)
+}
+
 func TestUsersMeSchemaClosesButtonCodesToPublishedPermissionCatalog(t *testing.T) {
 	bundle := mustBuildBundle(t)
 	var views ViewsDocument

@@ -30,7 +30,7 @@ func buildViewsDocument() ViewsDocument {
 		{Path: "/ai/chat", ViewKey: "ai/chat", I18nKey: "menu.ai_chat", ShowMenu: 1},
 		{Path: "/ai/knowledge", ViewKey: "ai/knowledge", I18nKey: "menu.ai_knowledge", ShowMenu: 1},
 		{Path: "/ai/providers", ViewKey: "ai/providers", I18nKey: "menu.ai_providers", ShowMenu: 1},
-		{Path: "/ai/runs", ViewKey: "ai/runs", I18nKey: "menu.ai_runs", ShowMenu: 1},
+		{Path: "/ai/runs", ViewKey: "ai/runs", I18nKey: "menu.ai_runs", ShowMenu: 1, PermissionCodes: []string{"ai_run_list"}},
 		{Path: "/ai/tools", ViewKey: "ai/tools", I18nKey: "menu.ai_tools", ShowMenu: 1},
 		{Path: "/component/display", ViewKey: "component/display", I18nKey: "menu.component_display", ShowMenu: 1},
 		{Path: "/component/download", ViewKey: "component/download", I18nKey: "menu.component_download", ShowMenu: 1},
