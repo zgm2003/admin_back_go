@@ -251,6 +251,9 @@ func loadOfficialCatalog(data []byte) (*Catalog, error) {
 		if _, exists := identities[modelID]; modelID == "" || modelID != raw.ModelID || exists {
 			return nil, fmt.Errorf("%w: duplicate canonical model", ErrInvalidCatalog)
 		}
+		if strings.TrimSpace(raw.ModelFamily) == "" || strings.TrimSpace(raw.ModelFamily) != raw.ModelFamily {
+			return nil, fmt.Errorf("%w: missing model family", ErrInvalidCatalog)
+		}
 		identities[modelID] = struct{}{}
 		if !validOfficialSource(raw.SourceURL) || !validUTCDate(raw.RetrievedAt) || (raw.ReviewAfter != "" && !validUTCDate(raw.ReviewAfter)) {
 			return nil, fmt.Errorf("%w: invalid official source metadata", ErrInvalidCatalog)

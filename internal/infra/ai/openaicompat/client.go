@@ -386,7 +386,7 @@ func (c *Client) readChatCompletionStream(ctx context.Context, body io.Reader, s
 			result.PromptTokens = usageInt(chunk.Usage.PromptTokens)
 			result.CompletionTokens = usageInt(chunk.Usage.CompletionTokens)
 			result.TotalTokens = usageInt(chunk.Usage.TotalTokens)
-			result.Usage = tokenUsageSnapshot(chunk.Usage.PromptTokens, chunk.Usage.CompletionTokens, chunk.Usage.TotalTokens, chunk.Usage.PromptDetails)
+			result.Usage = streamUsageSnapshot(chunk.Usage)
 			result.Usage.RawProviderJSON = append([]byte(nil), data...)
 			result.Usage.ResponseSHA256 = sha256.Sum256([]byte(data))
 			result.ResponseSHA256 = result.Usage.ResponseSHA256
@@ -481,12 +481,31 @@ type chatCompletionStreamChunk struct {
 			ToolCalls []chatStreamToolCall `json:"tool_calls"`
 		} `json:"delta"`
 	} `json:"choices"`
-	Usage *struct {
-		PromptTokens     *int                `json:"prompt_tokens"`
-		CompletionTokens *int                `json:"completion_tokens"`
-		TotalTokens      *int                `json:"total_tokens"`
-		PromptDetails    *promptTokenDetails `json:"prompt_tokens_details,omitempty"`
-	} `json:"usage"`
+	Usage *chatCompletionUsage `json:"usage"`
+}
+
+type chatCompletionUsage struct {
+	PromptTokens             *int                  `json:"prompt_tokens"`
+	CompletionTokens         *int                  `json:"completion_tokens"`
+	TotalTokens              *int                  `json:"total_tokens"`
+	CacheCreationInputTokens *int                  `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     *int                  `json:"cache_read_input_tokens"`
+	CacheCreation            *cacheCreationDetails `json:"cache_creation,omitempty"`
+	PromptDetails            *promptTokenDetails   `json:"prompt_tokens_details,omitempty"`
+	hasDuplicateKey          bool
+}
+
+func (usage *chatCompletionUsage) UnmarshalJSON(data []byte) error {
+	duplicate, err := hasDuplicateJSONKey(data)
+	if err != nil {
+		return err
+	}
+	type plainUsage chatCompletionUsage
+	if err := json.Unmarshal(data, (*plainUsage)(usage)); err != nil {
+		return err
+	}
+	usage.hasDuplicateKey = duplicate
+	return nil
 }
 
 type promptTokenDetails struct {
@@ -506,6 +525,149 @@ func usageInt(value *int) int {
 		return 0
 	}
 	return *value
+}
+
+func streamUsageSnapshot(usage *chatCompletionUsage) infraai.UsageSnapshot {
+	if usage == nil || usage.hasDuplicateKey {
+		return infraai.UsageSnapshot{Status: infraai.UsageStatusUnavailable}
+	}
+	details, ok := mergedPromptTokenDetails(usage)
+	if !ok {
+		return infraai.UsageSnapshot{Status: infraai.UsageStatusUnavailable}
+	}
+	return tokenUsageSnapshot(usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens, details)
+}
+
+func mergedPromptTokenDetails(usage *chatCompletionUsage) (*promptTokenDetails, bool) {
+	if usage == nil {
+		return nil, true
+	}
+	var merged promptTokenDetails
+	hasDetails := usage.PromptDetails != nil || usage.CacheCreationInputTokens != nil || usage.CacheReadInputTokens != nil || usage.CacheCreation != nil
+	if usage.PromptDetails != nil {
+		merged = *usage.PromptDetails
+		if usage.PromptDetails.CacheCreation != nil {
+			creation := *usage.PromptDetails.CacheCreation
+			merged.CacheCreation = &creation
+		}
+	}
+	if usage.CacheReadInputTokens != nil {
+		if !consistentOptionalInt(usage.CacheReadInputTokens, merged.CachedTokens) || !consistentOptionalInt(usage.CacheReadInputTokens, merged.CacheReadInputTokens) {
+			return nil, false
+		}
+		if merged.CachedTokens == nil && merged.CacheReadInputTokens == nil {
+			merged.CacheReadInputTokens = usage.CacheReadInputTokens
+		}
+	}
+	if !mergeOptionalInt(&merged.CacheCreationInputTokens, usage.CacheCreationInputTokens) {
+		return nil, false
+	}
+	if usage.CacheCreation != nil {
+		if merged.CacheCreation != nil && !sameCacheCreationDetails(merged.CacheCreation, usage.CacheCreation) {
+			return nil, false
+		}
+		if merged.CacheCreation == nil {
+			creation := *usage.CacheCreation
+			merged.CacheCreation = &creation
+		}
+	}
+	if !hasDetails {
+		return nil, true
+	}
+	return &merged, true
+}
+
+func consistentOptionalInt(authoritative, variant *int) bool {
+	return authoritative == nil || variant == nil || *authoritative == *variant
+}
+
+func mergeOptionalInt(target **int, value *int) bool {
+	if value == nil {
+		return true
+	}
+	if *target != nil {
+		return **target == *value
+	}
+	*target = value
+	return true
+}
+
+func sameCacheCreationDetails(left, right *cacheCreationDetails) bool {
+	return sameOptionalInt(left.Ephemeral5mInputTokens, right.Ephemeral5mInputTokens) &&
+		sameOptionalInt(left.Ephemeral1hInputTokens, right.Ephemeral1hInputTokens)
+}
+
+func sameOptionalInt(left, right *int) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
+}
+
+func hasDuplicateJSONKey(data []byte) (bool, error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	duplicate, err := scanJSONValue(decoder)
+	if err != nil {
+		return false, err
+	}
+	if _, err := decoder.Token(); err != io.EOF {
+		return false, fmt.Errorf("invalid trailing JSON data")
+	}
+	return duplicate, nil
+}
+
+func scanJSONValue(decoder *json.Decoder) (bool, error) {
+	token, err := decoder.Token()
+	if err != nil {
+		return false, err
+	}
+	delimiter, ok := token.(json.Delim)
+	if !ok {
+		return false, nil
+	}
+	switch delimiter {
+	case '{':
+		seen := make(map[string]struct{})
+		duplicate := false
+		for decoder.More() {
+			keyToken, err := decoder.Token()
+			if err != nil {
+				return false, err
+			}
+			key, ok := keyToken.(string)
+			if !ok {
+				return false, fmt.Errorf("invalid JSON object key")
+			}
+			if _, exists := seen[key]; exists {
+				duplicate = true
+			}
+			seen[key] = struct{}{}
+			childDuplicate, err := scanJSONValue(decoder)
+			if err != nil {
+				return false, err
+			}
+			duplicate = duplicate || childDuplicate
+		}
+		if _, err := decoder.Token(); err != nil {
+			return false, err
+		}
+		return duplicate, nil
+	case '[':
+		duplicate := false
+		for decoder.More() {
+			childDuplicate, err := scanJSONValue(decoder)
+			if err != nil {
+				return false, err
+			}
+			duplicate = duplicate || childDuplicate
+		}
+		if _, err := decoder.Token(); err != nil {
+			return false, err
+		}
+		return duplicate, nil
+	default:
+		return false, fmt.Errorf("unexpected JSON delimiter")
+	}
 }
 
 func tokenUsageSnapshot(promptValue, completionValue, totalValue *int, details *promptTokenDetails) infraai.UsageSnapshot {

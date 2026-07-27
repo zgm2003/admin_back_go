@@ -165,6 +165,93 @@ func TestClientStreamChatDoesNotTreatOmittedUsageCountsAsZero(t *testing.T) {
 	}
 }
 
+func TestClientStreamChatParsesDirectCacheUsageFields(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":1,\"total_tokens\":11,\"cache_read_input_tokens\":2,\"cache_creation_input_tokens\":3,\"cache_creation\":{\"ephemeral_5m_input_tokens\":1,\"ephemeral_1h_input_tokens\":2}}}\n\ndata: [DONE]\n\n")
+	}))
+	defer server.Close()
+
+	result, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).StreamChat(context.Background(), infraai.ChatInput{Content: "hi", Inputs: map[string]any{"model_id": "claude-test"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.UsageStatus != infraai.UsageStatusReported {
+		t.Fatalf("direct cache usage unavailable: %+v", result.Usage)
+	}
+	want := []infraai.UsageItem{
+		{Category: infraai.UsageCategoryInput, Unit: "token", Quantity: 5},
+		{Category: infraai.UsageCategoryOutput, Unit: "token", Quantity: 1},
+		{Category: infraai.UsageCategoryCacheRead, Unit: "token", Quantity: 2},
+		{Category: infraai.UsageCategoryCacheWrite, Unit: "token", TierKey: "5m", Quantity: 1},
+		{Category: infraai.UsageCategoryCacheWrite, Unit: "token", TierKey: "1h", Quantity: 2},
+	}
+	if !reflect.DeepEqual(result.Usage.Items, want) {
+		t.Fatalf("direct cache items=%+v, want %+v", result.Usage.Items, want)
+	}
+}
+
+func TestClientStreamChatAcceptsConsistentDirectAndPromptCacheVariants(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":1,\"total_tokens\":11,\"cache_read_input_tokens\":2,\"cache_creation_input_tokens\":3,\"cache_creation\":{\"ephemeral_5m_input_tokens\":1,\"ephemeral_1h_input_tokens\":2},\"prompt_tokens_details\":{\"cache_read_input_tokens\":2,\"cache_creation_input_tokens\":3,\"cache_creation\":{\"ephemeral_5m_input_tokens\":1,\"ephemeral_1h_input_tokens\":2}}}}\n\ndata: [DONE]\n\n")
+	}))
+	defer server.Close()
+
+	result, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).StreamChat(context.Background(), infraai.ChatInput{Content: "hi", Inputs: map[string]any{"model_id": "claude-test"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.UsageStatus != infraai.UsageStatusReported || len(result.Usage.Items) != 5 {
+		t.Fatalf("consistent cache variants rejected: %+v", result.Usage)
+	}
+}
+
+func TestClientStreamChatKeepsUntieredDirectCacheCreationTotal(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":4,\"completion_tokens\":1,\"total_tokens\":5,\"cache_creation_input_tokens\":3}}\n\ndata: [DONE]\n\n")
+	}))
+	defer server.Close()
+
+	result, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).StreamChat(context.Background(), infraai.ChatInput{Content: "hi", Inputs: map[string]any{"model_id": "claude-test"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range result.Usage.Items {
+		if item.Category == infraai.UsageCategoryCacheWrite && item.Quantity == 3 && item.TierKey == "" {
+			return
+		}
+	}
+	t.Fatalf("untiered cache creation total missing: %+v", result.Usage)
+}
+
+func TestClientStreamChatRejectsDuplicateAndConflictingUsageFields(t *testing.T) {
+	tests := map[string]string{
+		"duplicate usage field":                 `{"choices":[],"usage":{"prompt_tokens":10,"prompt_tokens":10,"completion_tokens":1,"total_tokens":11}}`,
+		"duplicate cache creation total":        `{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":1,"total_tokens":11,"cache_creation_input_tokens":1,"cache_creation_input_tokens":1}}`,
+		"duplicate cache creation detail":       `{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":1,"total_tokens":11,"cache_creation_input_tokens":2,"cache_creation":{"ephemeral_5m_input_tokens":1,"ephemeral_5m_input_tokens":1}}}`,
+		"conflicting direct and prompt details": `{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":1,"total_tokens":11,"cache_read_input_tokens":2,"prompt_tokens_details":{"cache_read_input_tokens":3}}}`,
+		"conflicting cache creation variants":   `{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":1,"total_tokens":11,"cache_creation":{"ephemeral_5m_input_tokens":1},"prompt_tokens_details":{"cache_creation":{"ephemeral_5m_input_tokens":2}}}}`,
+	}
+	for name, rawChunk := range tests {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", rawChunk)
+			}))
+			defer server.Close()
+			result, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).StreamChat(context.Background(), infraai.ChatInput{Content: "hi", Inputs: map[string]any{"model_id": "claude-test"}}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.UsageStatus != infraai.UsageStatusUnavailable || result.Usage.Complete() {
+				t.Fatalf("invalid raw usage accepted: %+v", result.Usage)
+			}
+		})
+	}
+}
+
 func TestClientStreamChatSendsOpenAIChatCompletionAndEmitsDelta(t *testing.T) {
 	var requestBody map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

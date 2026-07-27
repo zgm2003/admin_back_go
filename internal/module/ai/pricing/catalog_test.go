@@ -85,6 +85,15 @@ func TestV3CatalogRejectsNormalizedIdentityCollisions(t *testing.T) {
 	}
 }
 
+func TestV3CatalogRequiresExplicitModelFamily(t *testing.T) {
+	input := `{
+		"version":"official_numeric_parity_v3","official_currency":"USD","billing_currency":"CNY","conversion_policy":"numeric_parity",
+		"models":[{"catalog_vendor":"openai","model_id":"image","aliases":[],"max_output_tokens":1,"source_url":"https://openai.com/image","retrieved_at":"2026-07-27","rates":[{"category":"media","unit":"image","tier_key":"","price":"1","unit_scale":1}]}]}`
+	if _, err := loadOfficialCatalog([]byte(input)); !errors.Is(err, ErrInvalidCatalog) {
+		t.Fatalf("missing model family returned %v", err)
+	}
+}
+
 func TestEmbeddedV3CatalogContainsOnlyReviewedManagedModels(t *testing.T) {
 	wantAliases := map[string]string{"gpt-5.6": "gpt-5.6-sol", "gpt-4.1-latest": "gpt-4.1", "claude-haiku-4-5": "claude-haiku-4-5-20251001", "claude-sonnet-4-5": "claude-sonnet-4-5-20250929", "claude-opus-4-5": "claude-opus-4-5-20251101"}
 	wantManaged := map[string]bool{
@@ -154,8 +163,8 @@ func TestEmbeddedCatalogIncludesReviewedMediaRates(t *testing.T) {
 	}
 	assertCatalogRate(t, image, InputTokens, "token", "", 500000000, 1000000)
 	assertCatalogRate(t, image, OutputTokens, "token", "", 3000000000, 1000000)
-	if image.MaxOutputTokens != 355785 {
-		t.Fatalf("gpt-image-2 request output bound=%d, want 355785", image.MaxOutputTokens)
+	if image.MaxOutputTokens != 355785 || image.ModelFamily != "image" {
+		t.Fatalf("gpt-image-2 metadata=%#v", image)
 	}
 
 	if _, err := Default.Resolve("sora-2-pro"); !errors.Is(err, ErrPriceUnavailable) {
