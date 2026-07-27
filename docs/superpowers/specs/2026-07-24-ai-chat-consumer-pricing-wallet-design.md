@@ -1,8 +1,8 @@
 # AI Gateway、官方数值定价与钱包结算设计
 
-**修订日期：** 2026-07-25
-**状态：** 技术架构与核心产品决策已确认；阶段 A、阶段 B 均已拆分 implementation plan，等待按执行索引分波实施。
-**唯一规范性 Spec：** 本文是本需求唯一可用于计划和实现的规范。此前版本保留在 Git 历史及两份 `*-spec-review.md` 审查记录中，但不再具有规范性。
+**修订日期：** 2026-07-27
+**状态：** 阶段 A、阶段 B 已完成当前实现；GPT / Claude 模型定价后台管理按规范性补充另行规划。
+**规范性 Spec：** 本文是 AI 消费、钱包和结算的核心规范。模型基础价后台管理由规范性补充 `2026-07-27-ai-model-pricing-management-design.md` 定义；两者冲突时，仅模型基础价来源、覆盖、菜单和 RBAC 以该补充为准。此前版本保留在 Git 历史及两份 `*-spec-review.md` 审查记录中，但不再具有规范性。
 
 ## 1. 目标与收敛原则
 
@@ -29,8 +29,8 @@
 
 ### 2.1 定价
 
-1. 模型基础价来自审核后录入仓库的官方公开价格目录，不在运行时抓取网页或信任第三方聚合价格表。
-2. 使用 `official_numeric_parity_v1`：官方 `$5 / 1M input tokens` 在本平台直接表示为 `¥5 / 1M input tokens`。这不是汇率换算，不存在 FX 配置。
+1. 模型基础价以审核后录入仓库的官方公开价格目录为基线，不在运行时抓取网页或信任第三方聚合价格表；GPT、Claude 的受控数据库覆盖与恢复规则由 `2026-07-27-ai-model-pricing-management-design.md` 定义。
+2. 使用版本化 `official_numeric_parity` 策略：官方 `$5 / 1M input tokens` 在本平台直接表示为 `¥5 / 1M input tokens`。这不是汇率换算，不存在 FX 配置；目录文件版本由模型定价补充 Spec 管理。
 3. 供应商和供应商模型不配置倍率。每个智能体只保存一个大于零的 `billing_multiplier`，默认 `1.0`；后端以 PPM 定点整数保存（`1_000_000 = 1.0`），接口使用十进制字符串，不使用浮点数。
 4. 最终价格使用精确有理数计算：
 
@@ -43,7 +43,7 @@ ceil_once(sum(quantity_i * price_units_i / unit_scale_i) * billing_multiplier_pp
 5. 普通输入、输出、缓存读取、缓存写入和媒体单位分别记录和计价，归一化后的计费分类必须互斥。若供应商的 aggregate input 已包含 cached token，adapter 只能依据该供应商的文档化字段关系拆成“非缓存输入 + 缓存读/写”；不能证明包含关系或拆分后出现负数/重叠时，usage 标为不可用。缓存命中不得再次按普通输入计费。
 6. 价格目录无法确定、模型映射不唯一、上游声明的计量能力不能返回所需分类 usage，或单位不受支持时，不调用上游，也不猜测价格。
 7. 价格目录版本、rate rows、智能体倍率、effective `max_output_tokens` 和解析后的模型身份在 Run 接受事务中形成不可变配置快照；以后配置变化不重算或改写该 Run。每轮最终出站请求只能在 Worker 组装后确定，因此其精确请求体和上界报价单独保存到对应 provider attempt，不能事后塞回或覆盖 Run 快照。现有 `engine_type=openai` 只表示 OpenAI-compatible 传输，不能当作官方定价厂商。目录按全局 canonical model ID/受审别名解析并记录 `catalog_vendor`，同时另存 `transport_engine`；别名映射不唯一时 fail closed，不要求管理员再维护厂商或价格字段。
-8. 管理员不能编辑模型基础价，只能在智能体上设置倍率和该智能体允许的最大输出。
+8. 智能体配置只允许设置倍率和该智能体允许的最大输出。受权管理员可在独立“模型定价”页面覆盖 GPT、Claude 的全局模型基础价；供应商和供应商模型仍不得保存价格。
 
 ### 2.2 钱包与结算
 
@@ -88,7 +88,7 @@ route -> handler -> service -> aigateway -> provider adapter
 - `handler` 只处理 HTTP/WebSocket，不访问钱包或供应商。
 - 业务服务创建或读取业务任务、消息和 Run，然后调用 Gateway；不自行计算价格或扣款。
 - `aigateway` 负责报价、冻结、attempt、供应商调用、usage 归一化和一次终态结算。
-- `pricing` 只负责只读目录解析、报价和整数金额计算。
+- `pricing` 负责版本化官方目录、报价和整数金额计算；`modelpricing` 负责受控数据库覆盖与有效价格解析，两者都不得侵入供应商或钱包模块。
 - `wallet` 只拥有余额、冻结、捕获、释放和流水，不知道模型或供应商。
 - provider adapter 只处理协议差异，返回规范的 `Usage`、上游请求 ID 和可识别的派发结果。
 
@@ -189,7 +189,7 @@ Gateway 的规范输出至少包含：
 - `ai.response.failed.v1` 的 payload 在现有 `conversation_id`、`request_id`、`msg` 基础上增加必填 `error_code` 与可空 `wallet_path`、`recharge_path`；只有余额不足时两个路径非空，其他失败显式为 `null`。HTTP 等待中断只停止等待，不能取消 Worker；相同 `request_id` 重放读取同一任务/终态。
 - 聊天停止接口只确认 durable stop intent，成功响应固定为 `status="stopping"`，不能沿用会误报终态的 `status="canceled"`。只有 finalizer 已在同一提交中完成 Run/Charge/Hold 收尾后，才能追加 durable `ai.response.canceled.v1`；前端收到该终态事件后才显示“已停止”。
 - 钱包资金明细显示 AI 消费金额、关联 Run 和可读的模型/智能体摘要；兑换码充值继续作为独立入账来源。
-- 智能体配置只允许受权管理员修改倍率和最大输出配置；模型官方基础价只读展示。
+- 智能体配置只允许受权管理员修改倍率和最大输出配置；模型基础价在独立、受 RBAC 保护的“模型定价”页面管理，智能体页只读展示当前生效价。
 - Run 详情显示价格快照、分类 usage、冻结/实际扣款、provider request ID（管理员可见）和终态原因。
 - 任何新增 Admin 权限只注册定义，不自动写入 `role_permissions`；由管理员手动授予。
 
@@ -466,6 +466,7 @@ pending | claimed | running
 - 不新增计费专用密钥，不修改 `APP_SECRET` 或 `APP_SECRET_PREVIOUS`；
 - 不允许负余额、透支、估算补扣或 AI 退款；
 - 不做汇率、供应商倍率、供应商模型倍率、会员套餐或优惠计费；
+- 模型基础价只允许按 `2026-07-27-ai-model-pricing-management-design.md` 的全局 canonical model 覆盖，不按供应商拆价；
 - 不以聚合余额/统计接口作为逐请求结算依据；
 - 不建立长期自动对账、跨实例计费封禁、无限冻结或复杂结果恢复平台；
 - 不在 usage 缺失时收费，也不在 unknown 后自动盲目重发；
