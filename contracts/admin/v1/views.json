@@ -154,6 +154,7 @@
               "ai_provider_edit",
               "ai_provider_status",
               "ai_provider_test",
+              "ai_run_list",
               "ai_tool_add",
               "ai_tool_del",
               "ai_tool_edit",
@@ -317,7 +318,9 @@
       "view_key": "ai/runs",
       "i18n_key": "menu.ai_runs",
       "show_menu": 1,
-      "permission_codes": []
+      "permission_codes": [
+        "ai_run_list"
+      ]
     },
     {
       "path": "/ai/tools",

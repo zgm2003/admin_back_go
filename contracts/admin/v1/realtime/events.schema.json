@@ -204,11 +204,53 @@
       "properties": {
         "data": {
           "additionalProperties": false,
+          "allOf": [
+            {
+              "else": {
+                "properties": {
+                  "recharge_path": {
+                    "type": "null"
+                  },
+                  "wallet_path": {
+                    "type": "null"
+                  }
+                }
+              },
+              "if": {
+                "properties": {
+                  "error_code": {
+                    "const": "ai.billing.insufficient_balance"
+                  }
+                },
+                "required": [
+                  "error_code"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "recharge_path": {
+                    "const": "/payment/recharge",
+                    "type": "string"
+                  },
+                  "wallet_path": {
+                    "const": "/profile/wallet",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ],
           "properties": {
             "conversation_id": {
               "format": "int64",
               "minimum": 1,
               "type": "integer"
+            },
+            "error_code": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": ".*\\S.*",
+              "type": "string"
             },
             "msg": {
               "maxLength": 1024,
@@ -216,17 +258,46 @@
               "pattern": ".*\\S.*",
               "type": "string"
             },
+            "recharge_path": {
+              "anyOf": [
+                {
+                  "maxLength": 2048,
+                  "minLength": 1,
+                  "pattern": ".*\\S.*",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "request_id": {
               "maxLength": 128,
               "minLength": 1,
               "pattern": ".*\\S.*",
               "type": "string"
+            },
+            "wallet_path": {
+              "anyOf": [
+                {
+                  "maxLength": 2048,
+                  "minLength": 1,
+                  "pattern": ".*\\S.*",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [
             "conversation_id",
             "request_id",
-            "msg"
+            "msg",
+            "error_code",
+            "wallet_path",
+            "recharge_path"
           ],
           "type": "object"
         },

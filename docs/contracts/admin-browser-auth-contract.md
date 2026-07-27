@@ -6,8 +6,8 @@ Activation marker:
 
 ```text
 bundle_version=admin-2026-07-15.3
-backend_source_commit=135c02aff724bfd1605a58df5fca72d7c65a8fbd
-manifest_sha256=a83bb1a40059cf324612f1b228bf3e87e4f87ebc7143fdf86be3dfe9762f46a9
+backend_source_commit=3d25bea6e98987367e1f5441cd39fd991d4a810a
+manifest_sha256=a493e49f0f97c7a7af85c9fc539f74e156a5dd8f3ec9e7408867983a0c7e5e66
 ```
 
 The checked-in generated bundle is the machine-readable current truth for this

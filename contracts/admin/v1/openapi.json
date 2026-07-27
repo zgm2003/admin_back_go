@@ -267,7 +267,7 @@
             "type": "string"
           },
           "status": {
-            "const": "canceled",
+            "const": "stopping",
             "type": "string"
           }
         },
@@ -527,6 +527,10 @@
       "AIRunDetail": {
         "additionalProperties": false,
         "properties": {
+          "actual_amount": {
+            "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{0,7}[1-9])?$",
+            "type": "string"
+          },
           "agent_id": {
             "format": "int64",
             "minimum": 1,
@@ -544,6 +548,31 @@
                 "type": "null"
               }
             ]
+          },
+          "billing_reason": {
+            "enum": [
+              "pending",
+              "held",
+              "settled_complete_usage",
+              "released_before_dispatch",
+              "released_insufficient_balance",
+              "released_provider_failed",
+              "released_outcome_unknown",
+              "unbilled_usage_incomplete",
+              "unbilled_over_hold",
+              "legacy_unpriced"
+            ],
+            "type": "string"
+          },
+          "billing_status": {
+            "enum": [
+              "pending",
+              "held",
+              "settled",
+              "released",
+              "unbilled"
+            ],
+            "type": "string"
           },
           "completion_tokens": {
             "format": "int64",
@@ -595,6 +624,10 @@
           "finished_at": {
             "type": "string"
           },
+          "held_amount": {
+            "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{0,7}[1-9])?$",
+            "type": "string"
+          },
           "id": {
             "format": "int64",
             "minimum": 1,
@@ -621,10 +654,26 @@
             ],
             "type": "string"
           },
+          "pricing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AIRunPricing"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "prompt_tokens": {
             "format": "int64",
             "minimum": 0,
             "type": "integer"
+          },
+          "provider_attempts": {
+            "items": {
+              "$ref": "#/components/schemas/AIRunProviderAttempt"
+            },
+            "type": "array"
           },
           "provider_id": {
             "format": "int64",
@@ -646,7 +695,8 @@
               "success",
               "failed",
               "canceled",
-              "timeout"
+              "timeout",
+              "outcome_unknown"
             ],
             "type": "string"
           },
@@ -666,6 +716,12 @@
           },
           "updated_at": {
             "type": "string"
+          },
+          "usage_items": {
+            "items": {
+              "$ref": "#/components/schemas/AIRunUsageItem"
+            },
+            "type": "array"
           },
           "user_id": {
             "format": "int64",
@@ -687,9 +743,12 @@
           }
         },
         "required": [
+          "actual_amount",
           "agent_id",
           "agent_name",
           "assistant_message",
+          "billing_reason",
+          "billing_status",
           "completion_tokens",
           "conversation_id",
           "conversation_title",
@@ -699,13 +758,16 @@
           "error_message",
           "events",
           "finished_at",
+          "held_amount",
           "id",
           "input_snapshot",
           "knowledge_retrievals",
           "model_display_name",
           "model_id",
           "platform",
+          "pricing",
           "prompt_tokens",
+          "provider_attempts",
           "provider_id",
           "provider_name",
           "request_id",
@@ -715,6 +777,7 @@
           "tool_calls",
           "total_tokens",
           "updated_at",
+          "usage_items",
           "user_id",
           "user_message",
           "username"
@@ -769,7 +832,13 @@
               "completed",
               "failed",
               "canceled",
-              "timeout"
+              "timeout",
+              "retry_scheduled",
+              "usage_recorded",
+              "outcome_unknown",
+              "settled",
+              "released",
+              "unbilled"
             ],
             "type": "string"
           },
@@ -1057,7 +1126,8 @@
               "success",
               "failed",
               "canceled",
-              "timeout"
+              "timeout",
+              "outcome_unknown"
             ],
             "type": "string"
           },
@@ -1246,6 +1316,142 @@
           "code",
           "data",
           "msg"
+        ],
+        "type": "object"
+      },
+      "AIRunPricing": {
+        "additionalProperties": false,
+        "properties": {
+          "billing_multiplier": {
+            "pattern": "^(0\\.[0-9]{0,5}[1-9]|[1-9][0-9]*(\\.[0-9]{0,5}[1-9])?)$",
+            "type": "string"
+          },
+          "catalog_vendor": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "max_output_tokens": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "model_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "rates": {
+            "items": {
+              "$ref": "#/components/schemas/AIRunPricingRate"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "resolved_alias": {
+            "type": "string"
+          },
+          "transport_engine": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "version": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "billing_multiplier",
+          "catalog_vendor",
+          "max_output_tokens",
+          "model_id",
+          "rates",
+          "resolved_alias",
+          "transport_engine",
+          "version"
+        ],
+        "type": "object"
+      },
+      "AIRunPricingRate": {
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "enum": [
+              "input",
+              "output",
+              "cache_read",
+              "cache_write",
+              "media"
+            ],
+            "type": "string"
+          },
+          "price": {
+            "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{0,7}[1-9])?$",
+            "type": "string"
+          },
+          "tier_key": {
+            "type": "string"
+          },
+          "unit": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "unit_scale": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "category",
+          "price",
+          "tier_key",
+          "unit",
+          "unit_scale"
+        ],
+        "type": "object"
+      },
+      "AIRunProviderAttempt": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt_no": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "provider_request_id": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "enum": [
+              "prepared",
+              "dispatched",
+              "succeeded",
+              "failed",
+              "canceled",
+              "outcome_unknown"
+            ],
+            "type": "string"
+          },
+          "usage_status": {
+            "enum": [
+              "complete",
+              "unavailable"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "attempt_no",
+          "provider_request_id",
+          "state",
+          "usage_status"
         ],
         "type": "object"
       },
@@ -1738,6 +1944,66 @@
         ],
         "type": "object"
       },
+      "AIRunUsageItem": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{0,7}[1-9])?$",
+            "type": "string"
+          },
+          "attempt_no": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "billable": {
+            "type": "boolean"
+          },
+          "category": {
+            "enum": [
+              "input",
+              "output",
+              "cache_read",
+              "cache_write",
+              "media"
+            ],
+            "type": "string"
+          },
+          "quantity": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "tier_key": {
+            "type": "string"
+          },
+          "unit": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "unit_price": {
+            "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{0,7}[1-9])?$",
+            "type": "string"
+          },
+          "unit_scale": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "amount",
+          "attempt_no",
+          "billable",
+          "category",
+          "quantity",
+          "tier_key",
+          "unit",
+          "unit_price",
+          "unit_scale"
+        ],
+        "type": "object"
+      },
       "AIRuntimeParams": {
         "additionalProperties": false,
         "properties": {
@@ -2136,6 +2402,24 @@
           "avatar": {
             "type": "string"
           },
+          "billing_multiplier": {
+            "type": "string"
+          },
+          "catalog_model_id": {
+            "type": "string"
+          },
+          "catalog_rates": {
+            "items": {
+              "$ref": "#/components/schemas/Go_internal_module_ai_agent_CatalogRateDTO_Output"
+            },
+            "type": "array"
+          },
+          "catalog_vendor": {
+            "type": "string"
+          },
+          "catalog_version": {
+            "type": "string"
+          },
           "created_at": {
             "type": "string"
           },
@@ -2143,6 +2427,9 @@
             "type": "string"
           },
           "id": {
+            "type": "integer"
+          },
+          "max_output_tokens": {
             "type": "integer"
           },
           "model_display_name": {
@@ -2187,9 +2474,11 @@
         },
         "required": [
           "avatar",
+          "billing_multiplier",
           "created_at",
           "engine_type",
           "id",
+          "max_output_tokens",
           "model_display_name",
           "model_id",
           "name",
@@ -2243,10 +2532,56 @@
         ],
         "type": "object"
       },
+      "Go_internal_module_ai_agent_CatalogRateDTO_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "price": {
+            "type": "string"
+          },
+          "tier_key": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "unit_scale": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "category",
+          "price",
+          "tier_key",
+          "unit",
+          "unit_scale"
+        ],
+        "type": "object"
+      },
       "Go_internal_module_ai_agent_DetailResponse_Output": {
         "additionalProperties": false,
         "properties": {
           "avatar": {
+            "type": "string"
+          },
+          "billing_multiplier": {
+            "type": "string"
+          },
+          "catalog_model_id": {
+            "type": "string"
+          },
+          "catalog_rates": {
+            "items": {
+              "$ref": "#/components/schemas/Go_internal_module_ai_agent_CatalogRateDTO_Output"
+            },
+            "type": "array"
+          },
+          "catalog_vendor": {
+            "type": "string"
+          },
+          "catalog_version": {
             "type": "string"
           },
           "created_at": {
@@ -2256,6 +2591,9 @@
             "type": "string"
           },
           "id": {
+            "type": "integer"
+          },
+          "max_output_tokens": {
             "type": "integer"
           },
           "model_display_name": {
@@ -2300,9 +2638,11 @@
         },
         "required": [
           "avatar",
+          "billing_multiplier",
           "created_at",
           "engine_type",
           "id",
+          "max_output_tokens",
           "model_display_name",
           "model_id",
           "name",
@@ -2340,11 +2680,17 @@
       "Go_internal_module_ai_agent_InitDict_Output": {
         "additionalProperties": false,
         "properties": {
+          "billing_multiplier_default": {
+            "type": "string"
+          },
           "common_status_arr": {
             "items": {
               "$ref": "#/components/schemas/Go_internal_shared_dict_Option_int_Output"
             },
             "type": "array"
+          },
+          "max_output_tokens_default": {
+            "type": "integer"
           },
           "provider_model_options": {
             "items": {
@@ -2366,7 +2712,9 @@
           }
         },
         "required": [
+          "billing_multiplier_default",
           "common_status_arr",
+          "max_output_tokens_default",
           "provider_model_options",
           "provider_options",
           "scene_arr"
@@ -2407,11 +2755,32 @@
       "Go_internal_module_ai_agent_ModelOption_Output": {
         "additionalProperties": false,
         "properties": {
+          "billing_multiplier": {
+            "type": "string"
+          },
+          "catalog_model_id": {
+            "type": "string"
+          },
+          "catalog_rates": {
+            "items": {
+              "$ref": "#/components/schemas/Go_internal_module_ai_agent_CatalogRateDTO_Output"
+            },
+            "type": "array"
+          },
+          "catalog_vendor": {
+            "type": "string"
+          },
+          "catalog_version": {
+            "type": "string"
+          },
           "display_name": {
             "type": "string"
           },
           "label": {
             "type": "string"
+          },
+          "max_output_tokens": {
+            "type": "integer"
           },
           "model_id": {
             "type": "string"
@@ -2424,8 +2793,10 @@
           }
         },
         "required": [
+          "billing_multiplier",
           "display_name",
           "label",
+          "max_output_tokens",
           "model_id",
           "provider_id",
           "value"
@@ -5937,32 +6308,28 @@
       "Go_internal_module_payment_WalletSummary_Output": {
         "additionalProperties": false,
         "properties": {
-          "balance_cents": {
-            "type": "integer"
-          },
-          "balance_text": {
+          "available_balance": {
             "type": "string"
           },
-          "total_consume_cents": {
-            "type": "integer"
-          },
-          "total_consume_text": {
+          "balance": {
             "type": "string"
           },
-          "total_recharge_cents": {
-            "type": "integer"
+          "held_amount": {
+            "type": "string"
           },
-          "total_recharge_text": {
+          "total_consume": {
+            "type": "string"
+          },
+          "total_recharge": {
             "type": "string"
           }
         },
         "required": [
-          "balance_cents",
-          "balance_text",
-          "total_consume_cents",
-          "total_consume_text",
-          "total_recharge_cents",
-          "total_recharge_text"
+          "available_balance",
+          "balance",
+          "held_amount",
+          "total_consume",
+          "total_recharge"
         ],
         "type": "object"
       },
@@ -6261,22 +6628,13 @@
       "Go_internal_module_payment_redeemcode_transport_admin_redemptionTransaction_Output": {
         "additionalProperties": false,
         "properties": {
-          "amount_cents": {
-            "type": "integer"
-          },
-          "amount_text": {
+          "amount": {
             "type": "string"
           },
-          "balance_after_cents": {
-            "type": "integer"
-          },
-          "balance_after_text": {
+          "balance_after": {
             "type": "string"
           },
-          "balance_before_cents": {
-            "type": "integer"
-          },
-          "balance_before_text": {
+          "balance_before": {
             "type": "string"
           },
           "created_at": {
@@ -6299,12 +6657,9 @@
           }
         },
         "required": [
-          "amount_cents",
-          "amount_text",
-          "balance_after_cents",
-          "balance_after_text",
-          "balance_before_cents",
-          "balance_before_text",
+          "amount",
+          "balance_after",
+          "balance_before",
           "created_at",
           "direction",
           "direction_text",
@@ -6353,32 +6708,28 @@
       "Go_internal_module_payment_wallet_SummaryResponse_Output": {
         "additionalProperties": false,
         "properties": {
-          "balance_cents": {
-            "type": "integer"
-          },
-          "balance_text": {
+          "available_balance": {
             "type": "string"
           },
-          "total_consume_cents": {
-            "type": "integer"
-          },
-          "total_consume_text": {
+          "balance": {
             "type": "string"
           },
-          "total_recharge_cents": {
-            "type": "integer"
+          "held_amount": {
+            "type": "string"
           },
-          "total_recharge_text": {
+          "total_consume": {
+            "type": "string"
+          },
+          "total_recharge": {
             "type": "string"
           }
         },
         "required": [
-          "balance_cents",
-          "balance_text",
-          "total_consume_cents",
-          "total_consume_text",
-          "total_recharge_cents",
-          "total_recharge_text"
+          "available_balance",
+          "balance",
+          "held_amount",
+          "total_consume",
+          "total_recharge"
         ],
         "type": "object"
       },
@@ -6388,22 +6739,13 @@
           "account": {
             "type": "string"
           },
-          "amount_cents": {
-            "type": "integer"
-          },
-          "amount_text": {
+          "amount": {
             "type": "string"
           },
-          "balance_after_cents": {
-            "type": "integer"
-          },
-          "balance_after_text": {
+          "balance_after": {
             "type": "string"
           },
-          "balance_before_cents": {
-            "type": "integer"
-          },
-          "balance_before_text": {
+          "balance_before": {
             "type": "string"
           },
           "created_at": {
@@ -6442,12 +6784,9 @@
         },
         "required": [
           "account",
-          "amount_cents",
-          "amount_text",
-          "balance_after_cents",
-          "balance_after_text",
-          "balance_before_cents",
-          "balance_before_text",
+          "amount",
+          "balance_after",
+          "balance_before",
           "created_at",
           "direction",
           "direction_text",
@@ -6509,25 +6848,22 @@
           "account": {
             "type": "string"
           },
-          "balance_cents": {
-            "type": "integer"
+          "available_balance": {
+            "type": "string"
           },
-          "balance_text": {
+          "balance": {
+            "type": "string"
+          },
+          "held_amount": {
             "type": "string"
           },
           "id": {
             "type": "integer"
           },
-          "total_consume_cents": {
-            "type": "integer"
-          },
-          "total_consume_text": {
+          "total_consume": {
             "type": "string"
           },
-          "total_recharge_cents": {
-            "type": "integer"
-          },
-          "total_recharge_text": {
+          "total_recharge": {
             "type": "string"
           },
           "updated_at": {
@@ -6545,13 +6881,12 @@
         },
         "required": [
           "account",
-          "balance_cents",
-          "balance_text",
+          "available_balance",
+          "balance",
+          "held_amount",
           "id",
-          "total_consume_cents",
-          "total_consume_text",
-          "total_recharge_cents",
-          "total_recharge_text",
+          "total_consume",
+          "total_recharge",
           "updated_at",
           "user_id",
           "username",
@@ -12034,6 +12369,14 @@
             "maxLength": 512,
             "type": "string"
           },
+          "billing_multiplier": {
+            "maxLength": 32,
+            "type": "string"
+          },
+          "max_output_tokens": {
+            "minimum": 1,
+            "type": "integer"
+          },
           "model_id": {
             "maxLength": 191,
             "type": "string"
@@ -12591,6 +12934,10 @@
             "maxLength": 64,
             "type": "string"
           },
+          "request_id": {
+            "maxLength": 128,
+            "type": "string"
+          },
           "requirement": {
             "maxLength": 4000,
             "type": "string"
@@ -12598,6 +12945,7 @@
         },
         "required": [
           "agent_id",
+          "request_id",
           "requirement"
         ],
         "type": "object"
@@ -14191,6 +14539,14 @@
           "avatar": {
             "maxLength": 512,
             "type": "string"
+          },
+          "billing_multiplier": {
+            "maxLength": 32,
+            "type": "string"
+          },
+          "max_output_tokens": {
+            "minimum": 1,
+            "type": "integer"
           },
           "model_id": {
             "maxLength": 191,
@@ -19117,7 +19473,8 @@
                 "success",
                 "failed",
                 "canceled",
-                "timeout"
+                "timeout",
+                "outcome_unknown"
               ],
               "type": "string"
             }
@@ -19166,7 +19523,8 @@
           "ai-runs"
         ],
         "x-admin-access": {
-          "kind": "authenticated"
+          "kind": "permission",
+          "permission_code": "ai_run_list"
         },
         "x-admin-audit": {
           "enabled": false,
@@ -19210,7 +19568,8 @@
           "ai-runs"
         ],
         "x-admin-access": {
-          "kind": "authenticated"
+          "kind": "permission",
+          "permission_code": "ai_run_list"
         },
         "x-admin-audit": {
           "enabled": false,
@@ -19321,7 +19680,8 @@
           "ai-runs"
         ],
         "x-admin-access": {
-          "kind": "authenticated"
+          "kind": "permission",
+          "permission_code": "ai_run_list"
         },
         "x-admin-audit": {
           "enabled": false,
@@ -19457,7 +19817,8 @@
           "ai-runs"
         ],
         "x-admin-access": {
-          "kind": "authenticated"
+          "kind": "permission",
+          "permission_code": "ai_run_list"
         },
         "x-admin-audit": {
           "enabled": false,
@@ -19593,7 +19954,8 @@
           "ai-runs"
         ],
         "x-admin-access": {
-          "kind": "authenticated"
+          "kind": "permission",
+          "permission_code": "ai_run_list"
         },
         "x-admin-audit": {
           "enabled": false,
@@ -19729,7 +20091,8 @@
           "ai-runs"
         ],
         "x-admin-access": {
-          "kind": "authenticated"
+          "kind": "permission",
+          "permission_code": "ai_run_list"
         },
         "x-admin-audit": {
           "enabled": false,
@@ -19785,7 +20148,8 @@
           "ai-runs"
         ],
         "x-admin-access": {
-          "kind": "authenticated"
+          "kind": "permission",
+          "permission_code": "ai_run_list"
         },
         "x-admin-audit": {
           "enabled": false,
