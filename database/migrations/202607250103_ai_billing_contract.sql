@@ -163,24 +163,24 @@ FROM (
      OR (command_row.`request_identity_status` = 'replayable' AND command_row.`request_identity_marker` <> '')
      OR (command_row.`request_identity_status` = 'legacy_non_replayable' AND (
        run_row.`id` IS NULL OR run_row.`request_identity_status` <> 'legacy_non_replayable'
-       OR command_row.`request_identity_marker` <> run_row.`request_identity_marker`
+       OR BINARY command_row.`request_identity_marker` <> BINARY run_row.`request_identity_marker`
        OR command_row.`request_fingerprint` <> run_row.`request_fingerprint`
      ))
   UNION ALL
   SELECT task.`id` FROM `ai_text_tasks` AS task LEFT JOIN `ai_runs` AS run_row ON run_row.`id` = task.`run_id`
   WHERE task.`request_identity_status` NOT IN ('replayable', 'legacy_non_replayable')
      OR (task.`request_identity_status` = 'replayable' AND task.`request_identity_marker` <> '')
-     OR (task.`request_identity_status` = 'legacy_non_replayable' AND (run_row.`request_identity_status` <> 'legacy_non_replayable' OR task.`request_identity_marker` <> run_row.`request_identity_marker` OR task.`request_fingerprint` <> run_row.`request_fingerprint`))
+     OR (task.`request_identity_status` = 'legacy_non_replayable' AND (run_row.`request_identity_status` <> 'legacy_non_replayable' OR BINARY task.`request_identity_marker` <> BINARY run_row.`request_identity_marker` OR task.`request_fingerprint` <> run_row.`request_fingerprint`))
   UNION ALL
   SELECT task.`id` FROM `ai_image_tasks` AS task LEFT JOIN `ai_runs` AS run_row ON run_row.`id` = task.`run_id`
   WHERE task.`request_identity_status` NOT IN ('replayable', 'legacy_non_replayable')
      OR (task.`request_identity_status` = 'replayable' AND task.`request_identity_marker` <> '')
-     OR (task.`request_identity_status` = 'legacy_non_replayable' AND (run_row.`request_identity_status` <> 'legacy_non_replayable' OR task.`request_identity_marker` <> run_row.`request_identity_marker` OR task.`request_fingerprint` <> run_row.`request_fingerprint`))
+     OR (task.`request_identity_status` = 'legacy_non_replayable' AND (run_row.`request_identity_status` <> 'legacy_non_replayable' OR BINARY task.`request_identity_marker` <> BINARY run_row.`request_identity_marker` OR task.`request_fingerprint` <> run_row.`request_fingerprint`))
   UNION ALL
   SELECT task.`id` FROM `ai_video_tasks` AS task LEFT JOIN `ai_runs` AS run_row ON run_row.`id` = task.`run_id`
   WHERE task.`request_identity_status` NOT IN ('replayable', 'legacy_non_replayable')
      OR (task.`request_identity_status` = 'replayable' AND task.`request_identity_marker` <> '')
-     OR (task.`request_identity_status` = 'legacy_non_replayable' AND (run_row.`request_identity_status` <> 'legacy_non_replayable' OR task.`request_identity_marker` <> run_row.`request_identity_marker` OR task.`request_fingerprint` <> run_row.`request_fingerprint`))
+     OR (task.`request_identity_status` = 'legacy_non_replayable' AND (run_row.`request_identity_status` <> 'legacy_non_replayable' OR BINARY task.`request_identity_marker` <> BINARY run_row.`request_identity_marker` OR task.`request_fingerprint` <> run_row.`request_fingerprint`))
   UNION ALL
   SELECT task.`id` FROM `ai_audio_tasks` AS task LEFT JOIN `ai_runs` AS run_row ON run_row.`id` = task.`run_id`
   WHERE task.`request_identity_status` <> 'replayable'

@@ -1,5 +1,6 @@
--- Backfill only in the declared maintenance window. This revision never creates
--- a historical Hold or Charge: legacy terminal work is explicitly unbilled.
+-- Recover ai_billing_backfill_v1 after the original wallet lock omitted the
+-- `user_wallets AS wallet` alias. Run only after the failed transaction is
+-- proven rolled back and all paid writers remain stopped.
 DROP TEMPORARY TABLE IF EXISTS `_ai_billing_backfill_guard`;
 CREATE TEMPORARY TABLE `_ai_billing_backfill_guard` (
   `violations` BIGINT NOT NULL,
@@ -14,17 +15,23 @@ SELECT IF(COUNT(*) = 1, 0, 1)
 FROM `ai_billing_migration_metadata`
 WHERE `migration_key` = 'ai_billing_expand_v1' AND `phase` = 'complete';
 
-SET @ai_billing_backfill_preexisting = (
-  SELECT COUNT(*) FROM `ai_billing_migration_metadata`
-  WHERE `migration_key` = 'ai_billing_backfill_v1'
-);
 INSERT INTO `_ai_billing_backfill_guard`
-SELECT IF(COALESCE(@ai_billing_backfill_preexisting, 0) = 0, 0, 1);
+SELECT IF(COUNT(*) = 1, 0, 1)
+FROM `ai_billing_migration_metadata`
+WHERE `migration_key` = 'ai_billing_backfill_v1'
+  AND `phase` = 'started'
+  AND `phase_completed_at` IS NULL
+  AND `marker_version` = 'ai_billing_backfill_v1'
+  AND `marker_sha256` = UNHEX(SHA2('ai_billing_backfill_v1', 256));
 
 -- Capture one durable boundary before writing any legacy identity marker. The
 -- second-level precision is deliberate: legacy created_at columns are second
 -- precision, so rows created at the boundary are rejected conservatively.
-SET @ai_billing_legacy_cutover_at = CURRENT_TIMESTAMP(0);
+SET @ai_billing_legacy_cutover_at = (
+  SELECT `legacy_cutover_at`
+  FROM `ai_billing_migration_metadata`
+  WHERE `migration_key` = 'ai_billing_backfill_v1' AND `phase` = 'started'
+);
 
 INSERT INTO `_ai_billing_backfill_guard`
 SELECT IF(COUNT(*) = 0, 0, 1)
@@ -48,6 +55,36 @@ SELECT IF(COUNT(*) = 0, 0, 1)
 FROM `wallet_transactions`
 WHERE `amount_cents` < 0 OR `balance_before_cents` < 0 OR `balance_after_cents` < 0
    OR `amount_cents` > 9223372036854 OR `balance_before_cents` > 9223372036854 OR `balance_after_cents` > 9223372036854;
+
+-- Accept either the original rolled-back state or the fully committed wallet
+-- conversion from a prior recovery attempt. Mixed or inconsistent units fail.
+INSERT INTO `_ai_billing_backfill_guard`
+SELECT IF(COUNT(*) = 0, 0, 1)
+FROM `user_wallets`
+WHERE CASE
+  WHEN `balance_units` IS NULL
+    AND `total_recharge_units` IS NULL
+    AND `total_consume_units` IS NULL
+    AND `held_units` IS NULL THEN 0
+  WHEN `balance_units` = `balance_cents` * 1000000
+    AND `total_recharge_units` = `total_recharge_cents` * 1000000
+    AND `total_consume_units` = `total_consume_cents` * 1000000
+    AND `held_units` = 0 THEN 0
+  ELSE 1
+END = 1;
+
+INSERT INTO `_ai_billing_backfill_guard`
+SELECT IF(COUNT(*) = 0, 0, 1)
+FROM `wallet_transactions`
+WHERE CASE
+  WHEN `amount_units` IS NULL
+    AND `balance_before_units` IS NULL
+    AND `balance_after_units` IS NULL THEN 0
+  WHEN `amount_units` = `amount_cents` * 1000000
+    AND `balance_before_units` = `balance_before_cents` * 1000000
+    AND `balance_after_units` = `balance_after_cents` * 1000000 THEN 0
+  ELSE 1
+END = 1;
 
 INSERT INTO `_ai_billing_backfill_guard`
 SELECT IF(COUNT(*) = 0, 0, 1)
@@ -122,17 +159,6 @@ FROM (
   GROUP BY task.`id`
   HAVING COUNT(run_row.`id`) <> 1
 ) AS unmapped_paid_tasks;
-
--- All read-only preflight guards passed.  The next section locks writers and
--- mutates units, so journal the durable started boundary immediately before it.
-INSERT INTO `ai_billing_migration_metadata` (
-  `migration_key`, `legacy_cutover_at`, `marker_version`, `marker_sha256`,
-  `phase`, `phase_started_at`, `phase_completed_at`
-)
-VALUES (
-  'ai_billing_backfill_v1', CURRENT_TIMESTAMP(6), 'ai_billing_backfill_v1',
-  UNHEX(SHA2('ai_billing_backfill_v1', 256)), 'started', CURRENT_TIMESTAMP(6), NULL
-);
 
 -- Wallet writers are locked across both conversion and conservation checks.
 SET @ai_billing_previous_autocommit = @@autocommit;
