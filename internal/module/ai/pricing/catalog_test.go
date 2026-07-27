@@ -2,6 +2,7 @@ package pricing
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -14,6 +15,111 @@ func TestCatalogResolvesCanonicalAndAliasWithoutTransportInference(t *testing.T)
 	got, err = catalog.Resolve("claude-3")
 	if err != nil || got.ModelID != "claude-3" {
 		t.Fatalf("canonical resolution = %#v, %v", got, err)
+	}
+}
+
+func TestV3CatalogDocumentRequiresCurrencyPolicyAndOfficialSources(t *testing.T) {
+	valid := `{
+		"version":"official_numeric_parity_v3",
+		"official_currency":"USD",
+		"billing_currency":"CNY",
+		"conversion_policy":"numeric_parity",
+		"models":[{
+			"catalog_vendor":"openai","model_family":"gpt","model_id":"m",
+			"pricing_profile":"standard_global","max_output_tokens":1,
+			"source_url":"https://developers.openai.com/api/docs/pricing",
+			"retrieved_at":"2026-07-27",
+			"rates":[{"category":"input","unit":"token","tier_key":"","price":"0.1","unit_scale":1000000}]
+		}]}`
+	catalog, err := loadOfficialCatalog([]byte(valid))
+	if err != nil {
+		t.Fatalf("load valid v3 catalog: %v", err)
+	}
+	price, err := catalog.Resolve("m")
+	if err != nil || price.Rates[0].PriceUnits != 10000000 || price.ModelFamily != "gpt" || price.PricingProfile != "standard_global" {
+		t.Fatalf("loaded price = %#v, %v", price, err)
+	}
+
+	for name, replacement := range map[string]string{
+		"version":  `"version":"v3"`,
+		"official": `"official_currency":"EUR"`,
+		"billing":  `"billing_currency":"USD"`,
+		"policy":   `"conversion_policy":"fx"`,
+		"host":     `"source_url":"https://example.test/pricing"`,
+		"http":     `"source_url":"http://developers.openai.com/api/docs/pricing"`,
+		"zero":     `"price":"0"`,
+		"unit":     `"unit":"request"`,
+	} {
+		input := valid
+		switch name {
+		case "version":
+			input = strings.Replace(input, `"version":"official_numeric_parity_v3"`, replacement, 1)
+		case "official":
+			input = strings.Replace(input, `"official_currency":"USD"`, replacement, 1)
+		case "billing":
+			input = strings.Replace(input, `"billing_currency":"CNY"`, replacement, 1)
+		case "policy":
+			input = strings.Replace(input, `"conversion_policy":"numeric_parity"`, replacement, 1)
+		case "host", "http":
+			input = strings.Replace(input, `"source_url":"https://developers.openai.com/api/docs/pricing"`, replacement, 1)
+		case "zero":
+			input = strings.Replace(input, `"price":"0.1"`, replacement, 1)
+		case "unit":
+			input = strings.Replace(input, `"unit":"token"`, replacement, 1)
+		}
+		if _, err := loadOfficialCatalog([]byte(input)); !errors.Is(err, ErrInvalidCatalog) {
+			t.Fatalf("%s violation returned %v", name, err)
+		}
+	}
+}
+
+func TestV3CatalogRejectsNormalizedIdentityCollisions(t *testing.T) {
+	input := `{
+		"version":"official_numeric_parity_v3","official_currency":"USD","billing_currency":"CNY","conversion_policy":"numeric_parity",
+		"models":[
+			{"catalog_vendor":"openai","model_family":"gpt","model_id":"a","aliases":["shared"],"pricing_profile":"standard_global","max_output_tokens":1,"source_url":"https://openai.com/a","retrieved_at":"2026-07-27","rates":[{"category":"input","unit":"token","tier_key":"","price":"1","unit_scale":1}]},
+			{"catalog_vendor":"openai","model_family":"gpt","model_id":"b","aliases":[" shared "],"pricing_profile":"standard_global","max_output_tokens":1,"source_url":"https://openai.com/b","retrieved_at":"2026-07-27","rates":[{"category":"input","unit":"token","tier_key":"","price":"1","unit_scale":1}]}
+		]}`
+	if _, err := loadOfficialCatalog([]byte(input)); !errors.Is(err, ErrInvalidCatalog) {
+		t.Fatalf("normalized alias collision returned %v", err)
+	}
+}
+
+func TestEmbeddedV3CatalogContainsOnlyReviewedManagedModels(t *testing.T) {
+	wantAliases := map[string]string{"gpt-5.6": "gpt-5.6-sol", "gpt-4.1-latest": "gpt-4.1", "claude-haiku-4-5": "claude-haiku-4-5-20251001", "claude-sonnet-4-5": "claude-sonnet-4-5-20250929", "claude-opus-4-5": "claude-opus-4-5-20251101"}
+	wantManaged := map[string]bool{
+		"gpt-5.6-sol": true, "gpt-5.6-terra": true, "gpt-5.6-luna": true, "gpt-5.5": true, "gpt-5.5-pro": true,
+		"gpt-5.4": true, "gpt-5.4-mini": true, "gpt-5.4-nano": true, "gpt-5.4-pro": true, "gpt-4.1": true,
+		"gpt-4.1-mini": true, "gpt-4o": true, "gpt-4o-mini": true, "claude-fable-5": true, "claude-opus-5": true,
+		"claude-sonnet-5": true, "claude-haiku-4-5-20251001": true, "claude-opus-4-8": true, "claude-opus-4-7": true,
+		"claude-opus-4-6": true, "claude-sonnet-4-6": true, "claude-sonnet-4-5-20250929": true, "claude-opus-4-5-20251101": true,
+	}
+	if Default.Version() != "official_numeric_parity_v3" {
+		t.Fatalf("catalog version = %q", Default.Version())
+	}
+	for _, price := range Default.Models() {
+		if price.ModelFamily == "gpt" || price.ModelFamily == "claude" {
+			if !wantManaged[price.ModelID] {
+				t.Fatalf("unexpected managed model %q", price.ModelID)
+			}
+			delete(wantManaged, price.ModelID)
+			if price.PricingProfile != "standard_global" || price.RetrievedAt != "2026-07-27" {
+				t.Fatalf("invalid managed metadata: %#v", price)
+			}
+		}
+	}
+	if len(wantManaged) != 0 {
+		t.Fatalf("missing managed models: %v", wantManaged)
+	}
+	for alias, want := range wantAliases {
+		got, err := Default.Resolve(alias)
+		if err != nil || got.ModelID != want {
+			t.Fatalf("alias %q = %#v, %v", alias, got, err)
+		}
+	}
+	sonnet5, err := Default.Resolve("claude-sonnet-5")
+	if err != nil || sonnet5.ReviewAfter != "2026-09-01" {
+		t.Fatalf("claude-sonnet-5 review metadata = %#v, %v", sonnet5, err)
 	}
 }
 
@@ -52,13 +158,25 @@ func TestEmbeddedCatalogIncludesReviewedMediaRates(t *testing.T) {
 		t.Fatalf("gpt-image-2 request output bound=%d, want 355785", image.MaxOutputTokens)
 	}
 
-	video, err := Default.Resolve("sora-2-pro")
-	if err != nil {
-		t.Fatalf("resolve sora-2-pro: %v", err)
+	if _, err := Default.Resolve("sora-2-pro"); !errors.Is(err, ErrPriceUnavailable) {
+		t.Fatalf("retired video pricing should be unavailable, got %v", err)
 	}
-	assertCatalogRate(t, video, MediaUnits, "second", "720p", 30000000, 1)
-	assertCatalogRate(t, video, MediaUnits, "second", "1024p", 50000000, 1)
-	assertCatalogRate(t, video, MediaUnits, "second", "1080p", 70000000, 1)
+}
+
+func TestEmbeddedCatalogUsesConfirmedGPT54ContextRates(t *testing.T) {
+	model, err := Default.Resolve("gpt-5.4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if model.ContextTierThresholdTokens != 272000 || model.MaxOutputTokens != 128000 || model.SourceURL != "https://developers.openai.com/api/docs/models/gpt-5.4" {
+		t.Fatalf("gpt-5.4 metadata = %#v", model)
+	}
+	assertCatalogRate(t, model, InputTokens, "token", "short_context", 250000000, 1000000)
+	assertCatalogRate(t, model, CacheRead, "token", "short_context", 25000000, 1000000)
+	assertCatalogRate(t, model, OutputTokens, "token", "short_context", 1500000000, 1000000)
+	assertCatalogRate(t, model, InputTokens, "token", "long_context", 500000000, 1000000)
+	assertCatalogRate(t, model, CacheRead, "token", "long_context", 50000000, 1000000)
+	assertCatalogRate(t, model, OutputTokens, "token", "long_context", 2250000000, 1000000)
 }
 
 func assertCatalogRate(t *testing.T, model ModelPrice, category Category, unit, tier string, priceUnits, unitScale int64) {

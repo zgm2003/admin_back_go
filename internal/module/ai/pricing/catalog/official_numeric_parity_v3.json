@@ -1,0 +1,290 @@
+{
+  "version": "official_numeric_parity_v3",
+  "official_currency": "USD",
+  "billing_currency": "CNY",
+  "conversion_policy": "numeric_parity",
+  "models": [
+    {
+      "catalog_vendor": "openai", "model_family": "gpt", "model_id": "gpt-5.6-sol", "aliases": ["gpt-5.6"],
+      "pricing_profile": "standard_global", "max_output_tokens": 128000, "context_tier_threshold_tokens": 272000,
+      "source_url": "https://developers.openai.com/api/docs/models/gpt-5.6-sol", "retrieved_at": "2026-07-27",
+      "rates": [
+        {"category":"input","unit":"token","tier_key":"short_context","price":"5","unit_scale":1000000},
+        {"category":"cache_read","unit":"token","tier_key":"short_context","price":"0.5","unit_scale":1000000},
+        {"category":"cache_write","unit":"token","tier_key":"short_context","price":"6.25","unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"short_context","price":"30","unit_scale":1000000},
+        {"category":"input","unit":"token","tier_key":"long_context","price":"10","unit_scale":1000000},
+        {"category":"cache_read","unit":"token","tier_key":"long_context","price":"1","unit_scale":1000000},
+        {"category":"cache_write","unit":"token","tier_key":"long_context","price":"12.5","unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"long_context","price":"45","unit_scale":1000000}
+      ]
+    },
+    {
+      "catalog_vendor": "openai", "model_family": "gpt", "model_id": "gpt-5.6-terra", "aliases": [],
+      "pricing_profile": "standard_global", "max_output_tokens": 128000, "context_tier_threshold_tokens": 272000,
+      "source_url": "https://developers.openai.com/api/docs/models/gpt-5.6-terra", "retrieved_at": "2026-07-27",
+      "rates": [
+        {"category":"input","unit":"token","tier_key":"short_context","price":"2.5","unit_scale":1000000},
+        {"category":"cache_read","unit":"token","tier_key":"short_context","price":"0.25","unit_scale":1000000},
+        {"category":"cache_write","unit":"token","tier_key":"short_context","price":"3.125","unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"short_context","price":"15","unit_scale":1000000},
+        {"category":"input","unit":"token","tier_key":"long_context","price":"5","unit_scale":1000000},
+        {"category":"cache_read","unit":"token","tier_key":"long_context","price":"0.5","unit_scale":1000000},
+        {"category":"cache_write","unit":"token","tier_key":"long_context","price":"6.25","unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"long_context","price":"22.5","unit_scale":1000000}
+      ]
+    },
+    {
+      "catalog_vendor": "openai", "model_family": "gpt", "model_id": "gpt-5.6-luna", "aliases": [],
+      "pricing_profile": "standard_global", "max_output_tokens": 128000, "context_tier_threshold_tokens": 272000,
+      "source_url": "https://developers.openai.com/api/docs/models/gpt-5.6-luna", "retrieved_at": "2026-07-27",
+      "rates": [
+        {"category":"input","unit":"token","tier_key":"short_context","price":"1","unit_scale":1000000},
+        {"category":"cache_read","unit":"token","tier_key":"short_context","price":"0.1","unit_scale":1000000},
+        {"category":"cache_write","unit":"token","tier_key":"short_context","price":"1.25","unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"short_context","price":"6","unit_scale":1000000},
+        {"category":"input","unit":"token","tier_key":"long_context","price":"2","unit_scale":1000000},
+        {"category":"cache_read","unit":"token","tier_key":"long_context","price":"0.2","unit_scale":1000000},
+        {"category":"cache_write","unit":"token","tier_key":"long_context","price":"2.5","unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"long_context","price":"9","unit_scale":1000000}
+      ]
+    },
+    {
+      "catalog_vendor": "openai", "model_family": "gpt", "model_id": "gpt-5.5", "aliases": [],
+      "pricing_profile": "standard_global", "max_output_tokens": 128000, "context_tier_threshold_tokens": 272000,
+      "source_url": "https://developers.openai.com/api/docs/models/gpt-5.5", "retrieved_at": "2026-07-27",
+      "rates": [
+        {"category":"input","unit":"token","tier_key":"short_context","price":"5","unit_scale":1000000},
+        {"category":"cache_read","unit":"token","tier_key":"short_context","price":"0.5","unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"short_context","price":"30","unit_scale":1000000},
+        {"category":"input","unit":"token","tier_key":"long_context","price":"10","unit_scale":1000000},
+        {"category":"cache_read","unit":"token","tier_key":"long_context","price":"1","unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"long_context","price":"45","unit_scale":1000000}
+      ]
+    },
+    {
+      "catalog_vendor": "openai", "model_family": "gpt", "model_id": "gpt-5.5-pro", "aliases": [],
+      "pricing_profile": "standard_global", "max_output_tokens": 128000, "context_tier_threshold_tokens": 272000,
+      "source_url": "https://developers.openai.com/api/docs/models/gpt-5.5-pro", "retrieved_at": "2026-07-27",
+      "rates": [
+        {"category":"input","unit":"token","tier_key":"short_context","price":"30","unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"short_context","price":"180","unit_scale":1000000},
+        {"category":"input","unit":"token","tier_key":"long_context","price":"60","unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"long_context","price":"270","unit_scale":1000000}
+      ]
+    },
+    {
+      "catalog_vendor": "openai", "model_family": "gpt", "model_id": "gpt-5.4", "aliases": [],
+      "pricing_profile": "standard_global", "max_output_tokens": 128000, "context_tier_threshold_tokens": 272000,
+      "source_url": "https://developers.openai.com/api/docs/models/gpt-5.4", "retrieved_at": "2026-07-27",
+      "rates": [
+        {"category":"input","unit":"token","tier_key":"short_context","price":"2.5","unit_scale":1000000},
+        {"category":"cache_read","unit":"token","tier_key":"short_context","price":"0.25","unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"short_context","price":"15","unit_scale":1000000},
+        {"category":"input","unit":"token","tier_key":"long_context","price":"5","unit_scale":1000000},
+        {"category":"cache_read","unit":"token","tier_key":"long_context","price":"0.5","unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"long_context","price":"22.5","unit_scale":1000000}
+      ]
+    },
+    {
+      "catalog_vendor": "openai", "model_family": "gpt", "model_id": "gpt-5.4-mini", "aliases": [],
+      "pricing_profile": "standard_global", "max_output_tokens": 128000,
+      "source_url": "https://developers.openai.com/api/docs/models/gpt-5.4-mini", "retrieved_at": "2026-07-27",
+      "rates": [
+        {"category":"input","unit":"token","tier_key":"","price":"0.75","unit_scale":1000000},
+        {"category":"cache_read","unit":"token","tier_key":"","price":"0.075","unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"","price":"4.5","unit_scale":1000000}
+      ]
+    },
+    {
+      "catalog_vendor": "openai", "model_family": "gpt", "model_id": "gpt-5.4-nano", "aliases": [],
+      "pricing_profile": "standard_global", "max_output_tokens": 128000,
+      "source_url": "https://developers.openai.com/api/docs/models/gpt-5.4-nano", "retrieved_at": "2026-07-27",
+      "rates": [
+        {"category":"input","unit":"token","tier_key":"","price":"0.2","unit_scale":1000000},
+        {"category":"cache_read","unit":"token","tier_key":"","price":"0.02","unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"","price":"1.25","unit_scale":1000000}
+      ]
+    },
+    {
+      "catalog_vendor": "openai", "model_family": "gpt", "model_id": "gpt-5.4-pro", "aliases": [],
+      "pricing_profile": "standard_global", "max_output_tokens": 128000, "context_tier_threshold_tokens": 272000,
+      "source_url": "https://developers.openai.com/api/docs/models/gpt-5.4-pro", "retrieved_at": "2026-07-27",
+      "rates": [
+        {"category":"input","unit":"token","tier_key":"short_context","price":"30","unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"short_context","price":"180","unit_scale":1000000},
+        {"category":"input","unit":"token","tier_key":"long_context","price":"60","unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"long_context","price":"270","unit_scale":1000000}
+      ]
+    },
+    {
+      "catalog_vendor": "openai", "model_family": "gpt", "model_id": "gpt-4.1", "aliases": ["gpt-4.1-latest"],
+      "pricing_profile": "standard_global", "max_output_tokens": 32768,
+      "source_url": "https://developers.openai.com/api/docs/models/gpt-4.1", "retrieved_at": "2026-07-27",
+      "rates": [
+        {"category":"input","unit":"token","tier_key":"","price":"2","unit_scale":1000000},
+        {"category":"cache_read","unit":"token","tier_key":"","price":"0.5","unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"","price":"8","unit_scale":1000000}
+      ]
+    },
+    {
+      "catalog_vendor": "openai", "model_family": "gpt", "model_id": "gpt-4.1-mini", "aliases": [],
+      "pricing_profile": "standard_global", "max_output_tokens": 32768,
+      "source_url": "https://developers.openai.com/api/docs/models/gpt-4.1-mini", "retrieved_at": "2026-07-27",
+      "rates": [
+        {"category":"input","unit":"token","tier_key":"","price":"0.4","unit_scale":1000000},
+        {"category":"cache_read","unit":"token","tier_key":"","price":"0.1","unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"","price":"1.6","unit_scale":1000000}
+      ]
+    },
+    {
+      "catalog_vendor": "openai", "model_family": "gpt", "model_id": "gpt-4o", "aliases": [],
+      "pricing_profile": "standard_global", "max_output_tokens": 16384,
+      "source_url": "https://developers.openai.com/api/docs/models/gpt-4o", "retrieved_at": "2026-07-27",
+      "rates": [
+        {"category":"input","unit":"token","tier_key":"","price":"2.5","unit_scale":1000000},
+        {"category":"cache_read","unit":"token","tier_key":"","price":"1.25","unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"","price":"10","unit_scale":1000000}
+      ]
+    },
+    {
+      "catalog_vendor": "openai", "model_family": "gpt", "model_id": "gpt-4o-mini", "aliases": [],
+      "pricing_profile": "standard_global", "max_output_tokens": 16384,
+      "source_url": "https://developers.openai.com/api/docs/models/gpt-4o-mini", "retrieved_at": "2026-07-27",
+      "rates": [
+        {"category":"input","unit":"token","tier_key":"","price":"0.15","unit_scale":1000000},
+        {"category":"cache_read","unit":"token","tier_key":"","price":"0.075","unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"","price":"0.6","unit_scale":1000000}
+      ]
+    },
+    {
+      "catalog_vendor": "anthropic", "model_family": "claude", "model_id": "claude-fable-5", "aliases": [],
+      "pricing_profile": "standard_global", "max_output_tokens": 128000,
+      "source_url": "https://platform.claude.com/docs/en/about-claude/pricing", "retrieved_at": "2026-07-27",
+      "rates": [
+        {"category":"input","unit":"token","tier_key":"","price":"10","unit_scale":1000000},
+        {"category":"cache_write","unit":"token","tier_key":"5m","price":"12.5","unit_scale":1000000},
+        {"category":"cache_write","unit":"token","tier_key":"1h","price":"20","unit_scale":1000000},
+        {"category":"cache_read","unit":"token","tier_key":"","price":"1","unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"","price":"50","unit_scale":1000000}
+      ]
+    },
+    {
+      "catalog_vendor": "anthropic", "model_family": "claude", "model_id": "claude-opus-5", "aliases": [],
+      "pricing_profile": "standard_global", "max_output_tokens": 128000,
+      "source_url": "https://platform.claude.com/docs/en/about-claude/pricing", "retrieved_at": "2026-07-27",
+      "rates": [
+        {"category":"input","unit":"token","tier_key":"","price":"5","unit_scale":1000000},
+        {"category":"cache_write","unit":"token","tier_key":"5m","price":"6.25","unit_scale":1000000},
+        {"category":"cache_write","unit":"token","tier_key":"1h","price":"10","unit_scale":1000000},
+        {"category":"cache_read","unit":"token","tier_key":"","price":"0.5","unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"","price":"25","unit_scale":1000000}
+      ]
+    },
+    {
+      "catalog_vendor": "anthropic", "model_family": "claude", "model_id": "claude-sonnet-5", "aliases": [],
+      "pricing_profile": "standard_global", "max_output_tokens": 128000,
+      "source_url": "https://platform.claude.com/docs/en/about-claude/pricing", "retrieved_at": "2026-07-27", "review_after": "2026-09-01",
+      "rates": [
+        {"category":"input","unit":"token","tier_key":"","price":"2","unit_scale":1000000},
+        {"category":"cache_write","unit":"token","tier_key":"5m","price":"2.5","unit_scale":1000000},
+        {"category":"cache_write","unit":"token","tier_key":"1h","price":"4","unit_scale":1000000},
+        {"category":"cache_read","unit":"token","tier_key":"","price":"0.2","unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"","price":"10","unit_scale":1000000}
+      ]
+    },
+    {
+      "catalog_vendor": "anthropic", "model_family": "claude", "model_id": "claude-haiku-4-5-20251001", "aliases": ["claude-haiku-4-5"],
+      "pricing_profile": "standard_global", "max_output_tokens": 64000,
+      "source_url": "https://platform.claude.com/docs/en/about-claude/pricing", "retrieved_at": "2026-07-27",
+      "rates": [
+        {"category":"input","unit":"token","tier_key":"","price":"1","unit_scale":1000000},
+        {"category":"cache_write","unit":"token","tier_key":"5m","price":"1.25","unit_scale":1000000},
+        {"category":"cache_write","unit":"token","tier_key":"1h","price":"2","unit_scale":1000000},
+        {"category":"cache_read","unit":"token","tier_key":"","price":"0.1","unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"","price":"5","unit_scale":1000000}
+      ]
+    },
+    {
+      "catalog_vendor": "anthropic", "model_family": "claude", "model_id": "claude-opus-4-8", "aliases": [],
+      "pricing_profile": "standard_global", "max_output_tokens": 128000,
+      "source_url": "https://platform.claude.com/docs/en/about-claude/pricing", "retrieved_at": "2026-07-27",
+      "rates": [
+        {"category":"input","unit":"token","tier_key":"","price":"5","unit_scale":1000000},
+        {"category":"cache_write","unit":"token","tier_key":"5m","price":"6.25","unit_scale":1000000},
+        {"category":"cache_write","unit":"token","tier_key":"1h","price":"10","unit_scale":1000000},
+        {"category":"cache_read","unit":"token","tier_key":"","price":"0.5","unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"","price":"25","unit_scale":1000000}
+      ]
+    },
+    {
+      "catalog_vendor": "anthropic", "model_family": "claude", "model_id": "claude-opus-4-7", "aliases": [],
+      "pricing_profile": "standard_global", "max_output_tokens": 128000,
+      "source_url": "https://platform.claude.com/docs/en/about-claude/pricing", "retrieved_at": "2026-07-27",
+      "rates": [
+        {"category":"input","unit":"token","tier_key":"","price":"5","unit_scale":1000000},
+        {"category":"cache_write","unit":"token","tier_key":"5m","price":"6.25","unit_scale":1000000},
+        {"category":"cache_write","unit":"token","tier_key":"1h","price":"10","unit_scale":1000000},
+        {"category":"cache_read","unit":"token","tier_key":"","price":"0.5","unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"","price":"25","unit_scale":1000000}
+      ]
+    },
+    {
+      "catalog_vendor": "anthropic", "model_family": "claude", "model_id": "claude-opus-4-6", "aliases": [],
+      "pricing_profile": "standard_global", "max_output_tokens": 128000,
+      "source_url": "https://platform.claude.com/docs/en/about-claude/pricing", "retrieved_at": "2026-07-27",
+      "rates": [
+        {"category":"input","unit":"token","tier_key":"","price":"5","unit_scale":1000000},
+        {"category":"cache_write","unit":"token","tier_key":"5m","price":"6.25","unit_scale":1000000},
+        {"category":"cache_write","unit":"token","tier_key":"1h","price":"10","unit_scale":1000000},
+        {"category":"cache_read","unit":"token","tier_key":"","price":"0.5","unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"","price":"25","unit_scale":1000000}
+      ]
+    },
+    {
+      "catalog_vendor": "anthropic", "model_family": "claude", "model_id": "claude-sonnet-4-6", "aliases": [],
+      "pricing_profile": "standard_global", "max_output_tokens": 64000,
+      "source_url": "https://platform.claude.com/docs/en/about-claude/pricing", "retrieved_at": "2026-07-27",
+      "rates": [
+        {"category":"input","unit":"token","tier_key":"","price":"3","unit_scale":1000000},
+        {"category":"cache_write","unit":"token","tier_key":"5m","price":"3.75","unit_scale":1000000},
+        {"category":"cache_write","unit":"token","tier_key":"1h","price":"6","unit_scale":1000000},
+        {"category":"cache_read","unit":"token","tier_key":"","price":"0.3","unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"","price":"15","unit_scale":1000000}
+      ]
+    },
+    {
+      "catalog_vendor": "anthropic", "model_family": "claude", "model_id": "claude-sonnet-4-5-20250929", "aliases": ["claude-sonnet-4-5"],
+      "pricing_profile": "standard_global", "max_output_tokens": 64000,
+      "source_url": "https://platform.claude.com/docs/en/about-claude/pricing", "retrieved_at": "2026-07-27",
+      "rates": [
+        {"category":"input","unit":"token","tier_key":"","price":"3","unit_scale":1000000},
+        {"category":"cache_write","unit":"token","tier_key":"5m","price":"3.75","unit_scale":1000000},
+        {"category":"cache_write","unit":"token","tier_key":"1h","price":"6","unit_scale":1000000},
+        {"category":"cache_read","unit":"token","tier_key":"","price":"0.3","unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"","price":"15","unit_scale":1000000}
+      ]
+    },
+    {
+      "catalog_vendor": "anthropic", "model_family": "claude", "model_id": "claude-opus-4-5-20251101", "aliases": ["claude-opus-4-5"],
+      "pricing_profile": "standard_global", "max_output_tokens": 64000,
+      "source_url": "https://platform.claude.com/docs/en/about-claude/pricing", "retrieved_at": "2026-07-27",
+      "rates": [
+        {"category":"input","unit":"token","tier_key":"","price":"5","unit_scale":1000000},
+        {"category":"cache_write","unit":"token","tier_key":"5m","price":"6.25","unit_scale":1000000},
+        {"category":"cache_write","unit":"token","tier_key":"1h","price":"10","unit_scale":1000000},
+        {"category":"cache_read","unit":"token","tier_key":"","price":"0.5","unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"","price":"25","unit_scale":1000000}
+      ]
+    },
+    {
+      "catalog_vendor": "openai", "model_id": "gpt-image-2", "aliases": [],
+      "max_output_tokens": 355785,
+      "source_url": "https://developers.openai.com/api/docs/pricing#image-generation", "retrieved_at": "2026-07-27",
+      "rates": [
+        {"category":"input","unit":"token","tier_key":"","price":"5","unit_scale":1000000},
+        {"category":"output","unit":"token","tier_key":"","price":"30","unit_scale":1000000}
+      ]
+    }
+  ]
+}

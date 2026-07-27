@@ -490,9 +490,15 @@ type chatCompletionStreamChunk struct {
 }
 
 type promptTokenDetails struct {
-	CachedTokens             *int `json:"cached_tokens"`
-	CacheCreationInputTokens *int `json:"cache_creation_input_tokens"`
-	CacheReadInputTokens     *int `json:"cache_read_input_tokens"`
+	CachedTokens             *int                  `json:"cached_tokens"`
+	CacheCreationInputTokens *int                  `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     *int                  `json:"cache_read_input_tokens"`
+	CacheCreation            *cacheCreationDetails `json:"cache_creation,omitempty"`
+}
+
+type cacheCreationDetails struct {
+	Ephemeral5mInputTokens *int `json:"ephemeral_5m_input_tokens"`
+	Ephemeral1hInputTokens *int `json:"ephemeral_1h_input_tokens"`
 }
 
 func usageInt(value *int) int {
@@ -512,15 +518,36 @@ func tokenUsageSnapshot(promptValue, completionValue, totalValue *int, details *
 	}
 	read, write := 0, 0
 	hasRead, hasWrite := false, false
+	var writeItems []infraai.UsageItem
 	if details != nil {
 		cached, explicitRead := usageInt(details.CachedTokens), usageInt(details.CacheReadInputTokens)
 		if details.CachedTokens != nil && details.CacheReadInputTokens != nil {
 			return infraai.UsageSnapshot{Status: infraai.UsageStatusUnavailable}
 		}
 		read = cached + explicitRead
-		write = usageInt(details.CacheCreationInputTokens)
 		hasRead = details.CachedTokens != nil || details.CacheReadInputTokens != nil
-		hasWrite = details.CacheCreationInputTokens != nil
+		if details.CacheCreation != nil {
+			fiveMinutes := usageInt(details.CacheCreation.Ephemeral5mInputTokens)
+			oneHour := usageInt(details.CacheCreation.Ephemeral1hInputTokens)
+			if fiveMinutes < 0 || oneHour < 0 {
+				return infraai.UsageSnapshot{Status: infraai.UsageStatusUnavailable}
+			}
+			write = fiveMinutes + oneHour
+			if details.CacheCreationInputTokens != nil && *details.CacheCreationInputTokens != write {
+				return infraai.UsageSnapshot{Status: infraai.UsageStatusUnavailable}
+			}
+			if details.CacheCreation.Ephemeral5mInputTokens != nil {
+				writeItems = append(writeItems, infraai.UsageItem{Category: infraai.UsageCategoryCacheWrite, Unit: "token", TierKey: "5m", Quantity: int64(fiveMinutes)})
+			}
+			if details.CacheCreation.Ephemeral1hInputTokens != nil {
+				writeItems = append(writeItems, infraai.UsageItem{Category: infraai.UsageCategoryCacheWrite, Unit: "token", TierKey: "1h", Quantity: int64(oneHour)})
+			}
+			hasWrite = len(writeItems) > 0
+		} else if details.CacheCreationInputTokens != nil {
+			write = *details.CacheCreationInputTokens
+			hasWrite = true
+			writeItems = append(writeItems, infraai.UsageItem{Category: infraai.UsageCategoryCacheWrite, Unit: "token", Quantity: int64(write)})
+		}
 	}
 	if read < 0 || write < 0 || read+write > prompt {
 		return infraai.UsageSnapshot{Status: infraai.UsageStatusUnavailable}
@@ -531,7 +558,7 @@ func tokenUsageSnapshot(promptValue, completionValue, totalValue *int, details *
 			items = append(items, infraai.UsageItem{Category: infraai.UsageCategoryCacheRead, Unit: "token", Quantity: int64(read)})
 		}
 		if hasWrite {
-			items = append(items, infraai.UsageItem{Category: infraai.UsageCategoryCacheWrite, Unit: "token", Quantity: int64(write)})
+			items = append(items, writeItems...)
 		}
 	}
 	snapshot, err := infraai.NewUsageSnapshot(infraai.UsageStatusReported, nil, items)

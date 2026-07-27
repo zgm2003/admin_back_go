@@ -1,13 +1,18 @@
 package pricing
 
 import (
+	"bytes"
 	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net/url"
 	"strings"
+	"time"
+
+	"admin_back_go/internal/shared/money"
 )
 
 const MaxSafeOutputTokens int64 = math.MaxInt32
@@ -31,19 +36,50 @@ type Rate struct {
 }
 
 type ModelPrice struct {
-	Version         string   `json:"version"`
-	CatalogVendor   string   `json:"catalog_vendor"`
-	ModelID         string   `json:"model_id"`
-	Aliases         []string `json:"aliases"`
-	MaxOutputTokens int64    `json:"max_output_tokens"`
-	SourceURL       string   `json:"source_url"`
-	RetrievedAt     string   `json:"retrieved_at"`
-	Rates           []Rate   `json:"rates"`
+	Version                    string   `json:"version"`
+	CatalogVersion             string   `json:"catalog_version,omitempty"`
+	CatalogVendor              string   `json:"catalog_vendor"`
+	ModelFamily                string   `json:"model_family,omitempty"`
+	ModelID                    string   `json:"model_id"`
+	Aliases                    []string `json:"aliases"`
+	PricingProfile             string   `json:"pricing_profile,omitempty"`
+	MaxOutputTokens            int64    `json:"max_output_tokens"`
+	ContextTierThresholdTokens int64    `json:"context_tier_threshold_tokens,omitempty"`
+	PriceSource                string   `json:"price_source,omitempty"`
+	SourceURL                  string   `json:"source_url"`
+	RetrievedAt                string   `json:"retrieved_at"`
+	ReviewAfter                string   `json:"review_after,omitempty"`
+	Rates                      []Rate   `json:"rates"`
 }
 
 type catalogDocument struct {
-	Version string       `json:"version"`
-	Models  []ModelPrice `json:"models"`
+	Version          string               `json:"version"`
+	OfficialCurrency string               `json:"official_currency"`
+	BillingCurrency  string               `json:"billing_currency"`
+	ConversionPolicy string               `json:"conversion_policy"`
+	Models           []officialModelPrice `json:"models"`
+}
+
+type officialModelPrice struct {
+	CatalogVendor              string         `json:"catalog_vendor"`
+	ModelFamily                string         `json:"model_family,omitempty"`
+	ModelID                    string         `json:"model_id"`
+	Aliases                    []string       `json:"aliases"`
+	PricingProfile             string         `json:"pricing_profile,omitempty"`
+	MaxOutputTokens            int64          `json:"max_output_tokens"`
+	ContextTierThresholdTokens int64          `json:"context_tier_threshold_tokens,omitempty"`
+	SourceURL                  string         `json:"source_url"`
+	RetrievedAt                string         `json:"retrieved_at"`
+	ReviewAfter                string         `json:"review_after,omitempty"`
+	Rates                      []officialRate `json:"rates"`
+}
+
+type officialRate struct {
+	Category  Category `json:"category"`
+	Unit      string   `json:"unit"`
+	TierKey   string   `json:"tier_key"`
+	Price     string   `json:"price"`
+	UnitScale int64    `json:"unit_scale"`
 }
 
 var (
@@ -195,27 +231,107 @@ func rateKey(category Category, unit, tier string) string {
 	return string(category) + "\x00" + unit + "\x00" + tier
 }
 
-//go:embed catalog/official_numeric_parity_v2.json
+func loadOfficialCatalog(data []byte) (*Catalog, error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var document catalogDocument
+	if err := decoder.Decode(&document); err != nil {
+		return nil, fmt.Errorf("%w: decode official catalog: %v", ErrInvalidCatalog, err)
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return nil, fmt.Errorf("%w: trailing catalog data", ErrInvalidCatalog)
+	}
+	if document.Version != "official_numeric_parity_v3" || document.OfficialCurrency != "USD" || document.BillingCurrency != "CNY" || document.ConversionPolicy != "numeric_parity" {
+		return nil, fmt.Errorf("%w: invalid catalog policy", ErrInvalidCatalog)
+	}
+	models := make([]ModelPrice, len(document.Models))
+	identities := make(map[string]struct{})
+	for i, raw := range document.Models {
+		modelID := strings.TrimSpace(raw.ModelID)
+		if _, exists := identities[modelID]; modelID == "" || modelID != raw.ModelID || exists {
+			return nil, fmt.Errorf("%w: duplicate canonical model", ErrInvalidCatalog)
+		}
+		identities[modelID] = struct{}{}
+		if !validOfficialSource(raw.SourceURL) || !validUTCDate(raw.RetrievedAt) || (raw.ReviewAfter != "" && !validUTCDate(raw.ReviewAfter)) {
+			return nil, fmt.Errorf("%w: invalid official source metadata", ErrInvalidCatalog)
+		}
+		if (raw.ModelFamily == "gpt" || raw.ModelFamily == "claude") && raw.PricingProfile != "standard_global" {
+			return nil, fmt.Errorf("%w: invalid managed pricing profile", ErrInvalidCatalog)
+		}
+		model := ModelPrice{
+			Version: document.Version, CatalogVersion: document.Version, CatalogVendor: raw.CatalogVendor,
+			ModelFamily: raw.ModelFamily, ModelID: raw.ModelID, Aliases: raw.Aliases, PricingProfile: raw.PricingProfile,
+			MaxOutputTokens: raw.MaxOutputTokens, ContextTierThresholdTokens: raw.ContextTierThresholdTokens,
+			PriceSource: "official", SourceURL: raw.SourceURL, RetrievedAt: raw.RetrievedAt, ReviewAfter: raw.ReviewAfter,
+			Rates: make([]Rate, len(raw.Rates)),
+		}
+		positive := false
+		for j, rawRate := range raw.Rates {
+			if (raw.ModelFamily == "gpt" || raw.ModelFamily == "claude") && rawRate.Unit != "token" {
+				return nil, fmt.Errorf("%w: managed model rate must use token", ErrInvalidCatalog)
+			}
+			units, err := money.ParseRMBUnits(rawRate.Price)
+			if err != nil {
+				return nil, fmt.Errorf("%w: invalid decimal price", ErrInvalidCatalog)
+			}
+			positive = positive || units > 0
+			model.Rates[j] = Rate{Category: rawRate.Category, Unit: rawRate.Unit, TierKey: rawRate.TierKey, PriceUnits: units, UnitScale: rawRate.UnitScale}
+		}
+		if !positive {
+			return nil, fmt.Errorf("%w: model has no positive rate", ErrInvalidCatalog)
+		}
+		models[i] = model
+	}
+	for _, raw := range document.Models {
+		for _, alias := range raw.Aliases {
+			normalized := strings.TrimSpace(alias)
+			if normalized == "" || normalized != alias {
+				return nil, fmt.Errorf("%w: empty alias", ErrInvalidCatalog)
+			}
+			if _, exists := identities[normalized]; exists {
+				return nil, fmt.Errorf("%w: duplicate model identity", ErrInvalidCatalog)
+			}
+			identities[normalized] = struct{}{}
+		}
+	}
+	catalog, err := NewCatalogChecked(models)
+	if err != nil {
+		return nil, err
+	}
+	catalog.version = document.Version
+	return catalog, nil
+}
+
+func validUTCDate(value string) bool {
+	parsed, err := time.Parse("2006-01-02", value)
+	return err == nil && parsed.Location() == time.UTC && parsed.Format("2006-01-02") == value
+}
+
+func validOfficialSource(value string) bool {
+	source, err := url.Parse(value)
+	if err != nil || source.Scheme != "https" || source.Hostname() == "" || source.User != nil {
+		return false
+	}
+	host := strings.ToLower(source.Hostname())
+	for _, allowed := range []string{"openai.com", "anthropic.com", "claude.com"} {
+		if host == allowed || strings.HasSuffix(host, "."+allowed) {
+			return true
+		}
+	}
+	return false
+}
+
+//go:embed catalog/official_numeric_parity_v3.json
 var catalogJSON []byte
 
 var Default *Catalog
 var DefaultCatalog *Catalog
 
 func init() {
-	var document catalogDocument
-	if err := json.Unmarshal(catalogJSON, &document); err != nil {
-		panic(err)
-	}
-	for i := range document.Models {
-		if document.Models[i].Version == "" {
-			document.Models[i].Version = document.Version
-		}
-	}
 	var err error
-	Default, err = NewCatalogChecked(document.Models)
+	Default, err = loadOfficialCatalog(catalogJSON)
 	if err != nil {
 		panic(err)
 	}
-	Default.version = document.Version
 	DefaultCatalog = Default
 }

@@ -309,6 +309,40 @@ func TestTokenUsageRejectsUndocumentedCacheAggregateAndSubset(t *testing.T) {
 	}
 }
 
+func TestTokenUsageSplitsCacheCreationDurations(t *testing.T) {
+	prompt, completion, total := 12, 1, 13
+	fiveMinutes, oneHour := 2, 3
+	usage := tokenUsageSnapshot(&prompt, &completion, &total, &promptTokenDetails{
+		CacheCreation: &cacheCreationDetails{Ephemeral5mInputTokens: &fiveMinutes, Ephemeral1hInputTokens: &oneHour},
+	})
+	if usage.Status != infraai.UsageStatusReported {
+		t.Fatalf("usage unavailable: %+v", usage)
+	}
+	var tiers = map[string]int64{}
+	for _, item := range usage.Items {
+		if item.Category == infraai.UsageCategoryCacheWrite {
+			tiers[item.TierKey] = item.Quantity
+		}
+	}
+	if tiers["5m"] != 2 || tiers["1h"] != 3 || len(tiers) != 2 {
+		t.Fatalf("cache creation tiers = %#v", tiers)
+	}
+}
+
+func TestTokenUsageRejectsConflictingCacheCreationDetails(t *testing.T) {
+	prompt, completion, total := 10, 1, 11
+	for _, values := range [][3]int{{5, 2, 2}, {5, -1, 6}, {11, 5, 6}} {
+		write, fiveMinutes, oneHour := values[0], values[1], values[2]
+		usage := tokenUsageSnapshot(&prompt, &completion, &total, &promptTokenDetails{
+			CacheCreationInputTokens: &write,
+			CacheCreation:            &cacheCreationDetails{Ephemeral5mInputTokens: &fiveMinutes, Ephemeral1hInputTokens: &oneHour},
+		})
+		if usage.Status != infraai.UsageStatusUnavailable {
+			t.Fatalf("invalid cache creation values %v accepted: %+v", values, usage)
+		}
+	}
+}
+
 func TestClientStreamChatDoesNotSendSystemMessageWhenSystemPromptBlank(t *testing.T) {
 	var requestBody map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

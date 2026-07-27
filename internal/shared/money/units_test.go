@@ -42,3 +42,26 @@ func TestFormatRMBUnits(t *testing.T) {
 		t.Fatal("negative units must be rejected")
 	}
 }
+
+func TestParseRMBUnitsStrictDecimal(t *testing.T) {
+	tests := map[string]int64{
+		"0":                    0,
+		"0.00000001":           1,
+		"2.5":                  250000000,
+		"92233720368.54775807": math.MaxInt64,
+	}
+	for input, want := range tests {
+		got, err := ParseRMBUnits(input)
+		if err != nil || got != want {
+			t.Fatalf("ParseRMBUnits(%q) = %d, %v; want %d", input, got, err, want)
+		}
+	}
+}
+
+func TestParseRMBUnitsRejectsNonCanonicalAndOverflowingValues(t *testing.T) {
+	for _, input := range []string{"", ".", ".5", "1.", " 1", "1 ", "+1", "-1", "1e2", "1.000000001", "92233720368.54775808"} {
+		if _, err := ParseRMBUnits(input); err == nil {
+			t.Fatalf("ParseRMBUnits(%q) unexpectedly succeeded", input)
+		}
+	}
+}
