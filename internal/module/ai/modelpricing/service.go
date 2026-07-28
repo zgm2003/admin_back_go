@@ -205,7 +205,7 @@ func (service *Service) managementModel(ctx context.Context, official pricing.Mo
 	}
 	return ModelPriceDTO{
 		CatalogVendor: official.CatalogVendor, ModelFamily: official.ModelFamily, ModelID: official.ModelID,
-		Aliases: append([]string(nil), official.Aliases...), PricingProfile: official.PricingProfile,
+		Aliases: append([]string{}, official.Aliases...), PricingProfile: official.PricingProfile,
 		CatalogVersion: official.CatalogVersion, MaxOutputTokens: official.MaxOutputTokens,
 		ContextTierThresholdTokens: official.ContextTierThresholdTokens, ReviewAfter: official.ReviewAfter,
 		Official: officialDTO, Effective: effectiveDTO,

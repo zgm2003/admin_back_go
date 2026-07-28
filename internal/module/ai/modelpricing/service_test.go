@@ -2,6 +2,7 @@ package modelpricing
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -81,6 +82,22 @@ func TestAIModelPricingManagementReadModelsFiltersAndFormatsDecimal(t *testing.T
 	}
 	if _, appErr := service.Detail(context.Background(), "gpt-reviewed-alias"); appErr == nil || appErr.Code != ErrorCodeModelNotFound {
 		t.Fatalf("alias detail error = %#v", appErr)
+	}
+}
+
+func TestAIModelPricingManagementReadSerializesEmptyAliasesAsArray(t *testing.T) {
+	service := NewService(&fakePricingRepository{}, WithCatalog(testPricingCatalog(t, "")))
+
+	result, appErr := service.List(context.Background(), ListQuery{Family: "gpt", ModelID: "no-alias"})
+	if appErr != nil || len(result.List) != 1 {
+		t.Fatalf("list = %#v, %v", result, appErr)
+	}
+	payload, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal list response: %v", err)
+	}
+	if !strings.Contains(string(payload), `"aliases":[]`) {
+		t.Fatalf("aliases must satisfy the array response contract: %s", payload)
 	}
 }
 
@@ -398,6 +415,12 @@ func testPricingCatalog(t *testing.T, reviewAfter string) *pricing.Catalog {
 			Version: "catalog-test-v1", CatalogVersion: "catalog-test-v1", CatalogVendor: "openai", ModelFamily: "image",
 			ModelID: "gpt-image-test", MaxOutputTokens: 1, PriceSource: "official", SourceURL: "https://openai.com/api/pricing", RetrievedAt: "2026-07-26",
 			Rates: []pricing.Rate{{Category: pricing.MediaUnits, Unit: "image", PriceUnits: 1, UnitScale: 1}},
+		},
+		{
+			Version: "catalog-test-v1", CatalogVersion: "catalog-test-v1", CatalogVendor: "openai", ModelFamily: "gpt",
+			ModelID: "gpt-no-alias", Aliases: []string{}, PricingProfile: "standard_global", MaxOutputTokens: 4096,
+			PriceSource: "official", SourceURL: "https://openai.com/api/pricing", RetrievedAt: "2026-07-26",
+			Rates: []pricing.Rate{{Category: pricing.InputTokens, Unit: "token", PriceUnits: 100_000_000, UnitScale: 1_000_000}},
 		},
 	})
 	if err != nil {
