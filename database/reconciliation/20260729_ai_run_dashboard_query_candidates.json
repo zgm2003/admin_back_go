@@ -1,0 +1,46 @@
+[
+  {
+    "name": "ai_run_dashboard_model_created",
+    "repository_file": "internal/module/ai/run/dashboard_repository.go",
+    "sql": "SELECT r.id,r.model_id,r.created_at FROM ai_runs r WHERE r.model_id=:model_id AND r.created_at>=:date_start AND r.created_at<:date_end ORDER BY r.created_at DESC,r.id DESC LIMIT :limit",
+    "bindings": {"model_id": "perf-model-1", "date_start": "2026-05-01 00:00:00", "date_end": "2026-07-30 00:00:00", "limit": 100},
+    "expected_order": ["r.created_at DESC", "r.id DESC"],
+    "row_distribution_sql": "SELECT model_id,COUNT(*) rows_count FROM ai_runs WHERE created_at>='2026-05-01 00:00:00' AND created_at<'2026-07-30 00:00:00' GROUP BY model_id ORDER BY rows_count DESC,model_id",
+    "proposed_index": "CREATE INDEX idx_ai_runs_model_created ON ai_runs (model_id,created_at,id)",
+    "max_rows_examined": 100,
+    "max_p95_ms": 100
+  },
+  {
+    "name": "ai_run_dashboard_platform_created",
+    "repository_file": "internal/module/ai/run/dashboard_repository.go",
+    "sql": "SELECT r.id,r.platform,r.created_at FROM ai_runs r WHERE r.platform=:platform AND r.created_at>=:date_start AND r.created_at<:date_end ORDER BY r.created_at DESC,r.id DESC LIMIT :limit",
+    "bindings": {"platform": "admin", "date_start": "2026-05-01 00:00:00", "date_end": "2026-07-30 00:00:00", "limit": 100},
+    "expected_order": ["r.created_at DESC", "r.id DESC"],
+    "row_distribution_sql": "SELECT platform,COUNT(*) rows_count FROM ai_runs WHERE created_at>='2026-05-01 00:00:00' AND created_at<'2026-07-30 00:00:00' GROUP BY platform ORDER BY rows_count DESC,platform",
+    "proposed_index": "CREATE INDEX idx_ai_runs_platform_created ON ai_runs (platform,created_at,id)",
+    "max_rows_examined": 100,
+    "max_p95_ms": 100
+  },
+  {
+    "name": "ai_run_dashboard_billing_created",
+    "repository_file": "internal/module/ai/run/dashboard_repository.go",
+    "sql": "SELECT r.id,r.billing_status,r.billing_reason,r.created_at FROM ai_runs r WHERE r.billing_status=:billing_status AND r.billing_reason=:billing_reason AND r.created_at>=:date_start AND r.created_at<:date_end ORDER BY r.created_at DESC,r.id DESC LIMIT :limit",
+    "bindings": {"billing_status": "settled", "billing_reason": "settled_complete_usage", "date_start": "2026-05-01 00:00:00", "date_end": "2026-07-30 00:00:00", "limit": 100},
+    "expected_order": ["r.created_at DESC", "r.id DESC"],
+    "row_distribution_sql": "SELECT billing_status,billing_reason,COUNT(*) rows_count FROM ai_runs WHERE created_at>='2026-05-01 00:00:00' AND created_at<'2026-07-30 00:00:00' GROUP BY billing_status,billing_reason ORDER BY rows_count DESC,billing_status,billing_reason",
+    "proposed_index": "CREATE INDEX idx_ai_runs_billing_created ON ai_runs (billing_status,billing_reason,created_at,id)",
+    "max_rows_examined": 100,
+    "max_p95_ms": 100
+  },
+  {
+    "name": "ai_run_dashboard_attempt_error",
+    "repository_file": "internal/module/ai/run/dashboard_repository.go",
+    "sql": "SELECT a.id,a.run_id,a.error_code FROM ai_provider_attempts a JOIN ai_runs r ON r.id=a.run_id WHERE a.error_code=:error_code AND r.created_at>=:date_start AND r.created_at<:date_end ORDER BY a.run_id DESC,a.id DESC LIMIT :limit",
+    "bindings": {"error_code": "perf_error_1", "date_start": "2026-05-01 00:00:00", "date_end": "2026-07-30 00:00:00", "limit": 100},
+    "expected_order": ["a.run_id DESC", "a.id DESC"],
+    "row_distribution_sql": "SELECT error_code,COUNT(*) rows_count FROM ai_provider_attempts WHERE error_code<>'' GROUP BY error_code ORDER BY rows_count DESC,error_code",
+    "proposed_index": "CREATE INDEX idx_ai_provider_attempts_error_run ON ai_provider_attempts (error_code,run_id,id)",
+    "max_rows_examined": 100,
+    "max_p95_ms": 100
+  }
+]
