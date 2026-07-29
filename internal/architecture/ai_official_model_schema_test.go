@@ -51,6 +51,29 @@ func TestAIOfficialModelFinalSchemaUsesOnlyCanonicalNames(t *testing.T) {
 	}
 }
 
+func TestAIOfficialModelMigrationUpgradesLegacyRBACBeforeDestructiveDDL(t *testing.T) {
+	root := backendRoot(t)
+	migrationPath := filepath.Join(root, "database", "migrations", "202607280101_ai_official_models.sql")
+	migration := normalizeOfficialModelSchema(t, migrationPath)
+
+	legacyGuard := strings.Index(migration, "ai_model_pricing_list")
+	destructiveDDL := strings.Index(migration, "drop table if exists ai_model_price_override_rates")
+	if legacyGuard < 0 || destructiveDDL < 0 || legacyGuard > destructiveDDL {
+		t.Fatal("legacy RBAC must be validated before old pricing tables are dropped")
+	}
+
+	for _, required := range []string{
+		"ai_model_pricing_edit",
+		"update permissions",
+		"insert into authz_principal_versions",
+		"permission_id in (921, 922)",
+	} {
+		if !strings.Contains(migration, required) {
+			t.Errorf("legacy RBAC upgrade missing %q", required)
+		}
+	}
+}
+
 func normalizeOfficialModelSchema(t *testing.T, path string) string {
 	t.Helper()
 	return strings.ToLower(strings.Join(strings.Fields(strings.NewReplacer("`", "", "\r", " ", "\n", " ", "\t", " ").Replace(readOfficialModelSchemaFile(t, path))), " "))
