@@ -2,6 +2,7 @@ package aiconversation
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -80,18 +81,26 @@ func (s *Service) AdvanceReadCursor(ctx context.Context, userID int64, conversat
 	if appErr != nil {
 		return nil, appErr
 	}
-	cursor, valid, err := repo.AdvanceReadCursor(ctx, conversationID, userID, messageID)
+	cursor, unreadCount, valid, err := repo.AdvanceReadCursor(ctx, conversationID, userID, messageID)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return nil, apperror.Wrap(
+				"request.canceled",
+				apperror.CategoryCanceled,
+				0,
+				apperror.Permanent,
+				"",
+				nil,
+				"请求已取消",
+				err,
+			)
+		}
 		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiconversation.read_cursor.update_failed", nil, "更新AI会话已读位置失败", err)
 	}
 	if !valid {
 		return nil, apperror.NotFoundKey("aiconversation.read_cursor.message_invalid", nil, "AI消息不存在或不可用于已读位置")
 	}
-	counts, err := repo.UnreadCounts(ctx, []int64{conversationID})
-	if err != nil {
-		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "aiconversation.unread_count_failed", nil, "查询AI会话未读数失败", err)
-	}
-	return &ReadCursorResponse{ConversationID: conversationID, LastReadMessageID: cursor, UnreadCount: counts[conversationID]}, nil
+	return &ReadCursorResponse{ConversationID: conversationID, LastReadMessageID: cursor, UnreadCount: unreadCount}, nil
 }
 
 func (s *Service) Detail(ctx context.Context, userID int64, id int64) (*ConversationDetail, *apperror.Error) {

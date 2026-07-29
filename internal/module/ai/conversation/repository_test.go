@@ -71,27 +71,22 @@ func TestRepositoryReadCursorUsesVisibleAssistantAndGreatest(t *testing.T) {
 	sqlDB, mock, db := newConversationRepositoryTestDB(t)
 	t.Cleanup(func() { _ = sqlDB.Close() })
 
-	mock.ExpectBegin()
-	mock.ExpectQuery("(?s)SELECT .*last_read_message_id.* FROM .*ai_conversations.* WHERE id = \\? AND user_id = \\? AND is_del = \\?.*LIMIT \\? FOR UPDATE").
-		WithArgs(int64(3), int64(7), 2, 1).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "last_read_message_id"}).AddRow(3, 4))
-	mock.ExpectQuery("(?s)SELECT .*id.* FROM .*ai_messages.* WHERE id = \\? AND conversation_id = \\? AND role = \\? AND is_del = \\?.*LIMIT \\? FOR UPDATE").
-		WithArgs(int64(9), int64(3), 2, 2, 1).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(9))
-	mock.ExpectExec("UPDATE .*ai_conversations.* SET .*last_read_message_id.*GREATEST\\(last_read_message_id, \\?\\).* WHERE id = \\? AND user_id = \\? AND is_del = \\?").
-		WithArgs(int64(9), int64(3), int64(7), 2).
+	mock.ExpectExec("(?s)UPDATE ai_conversations AS c JOIN ai_messages AS target .*SET c\\.last_read_message_id = GREATEST\\(c\\.last_read_message_id, target\\.id\\).*").
+		WithArgs(int64(9), int64(3), 2, 2, int64(7), 2).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectCommit()
+	mock.ExpectQuery("(?s)SELECT c\\.last_read_message_id, COUNT\\(unread\\.id\\) AS unread_count FROM ai_conversations AS c JOIN ai_messages AS target .*LEFT JOIN ai_messages AS unread .*GROUP BY c\\.last_read_message_id.*LIMIT \\?").
+		WithArgs(int64(9), 2, 2, 2, 2, int64(3), int64(7), 2, 1).
+		WillReturnRows(sqlmock.NewRows([]string{"last_read_message_id", "unread_count"}).AddRow(9, 2))
 
-	cursor, valid, err := (&GormRepository{db: db}).AdvanceReadCursor(context.Background(), 3, 7, 9)
+	cursor, unreadCount, valid, err := (&GormRepository{db: db}).AdvanceReadCursor(context.Background(), 3, 7, 9)
 	if err != nil {
 		t.Fatalf("AdvanceReadCursor returned error: %v", err)
 	}
-	if !valid || cursor != 9 {
-		t.Fatalf("unexpected cursor result: cursor=%d valid=%v", cursor, valid)
+	if !valid || cursor != 9 || unreadCount != 2 {
+		t.Fatalf("unexpected cursor result: cursor=%d unread=%d valid=%v", cursor, unreadCount, valid)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("cursor update did not validate and advance atomically: %v", err)
+		t.Fatalf("cursor update must use exactly one update and one state query: %v", err)
 	}
 }
 

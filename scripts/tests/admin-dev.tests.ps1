@@ -212,6 +212,7 @@ foreach ($required in @(
   'send_interrupt = true',
   'kill_delay = "2s"',
   'include_ext = ["go"]',
+  'include_file = ["internal/module/ai/officialmodel/catalog/official_models_v1.json"]',
   'exclude_dir = [".git", ".tmp", "deploy", "docs", "runtime"]'
 )) {
   if (-not $apiAir.Contains($required) -or -not $workerAir.Contains($required)) {

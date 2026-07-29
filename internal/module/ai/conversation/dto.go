@@ -73,7 +73,7 @@ type Repository interface {
 	ActiveChatAgentExists(ctx context.Context, id int64) (bool, error)
 	Create(ctx context.Context, row Conversation) (int64, error)
 	UpdateTitle(ctx context.Context, id int64, userID int64, title string) error
-	AdvanceReadCursor(ctx context.Context, conversationID int64, userID int64, messageID int64) (int64, bool, error)
+	AdvanceReadCursor(ctx context.Context, conversationID int64, userID int64, messageID int64) (int64, uint64, bool, error)
 	Delete(ctx context.Context, id int64, userID int64) error
 }
 

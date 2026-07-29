@@ -402,6 +402,16 @@ func TestWorkflowSchemasCloseBusinessFieldsAndDeclareNullability(t *testing.T) {
 	if got := sortedMapKeys(attachment["properties"].(map[string]any)); !reflect.DeepEqual(got, []string{"name", "object_key", "type"}) {
 		t.Fatalf("AIAttachmentRequest properties=%v", got)
 	}
+	metaAttachment := document.Components.Schemas["AIMessageMetaAttachment"]
+	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIMessageMetaAttachment", "type", "url", "name", "size")
+	if got := anyStrings(metaAttachment["required"]); !reflect.DeepEqual(got, []string{"type", "url", "name", "size"}) {
+		t.Fatalf("AIMessageMetaAttachment required=%v", got)
+	}
+	for _, optional := range []string{"object_key", "mime_type"} {
+		if containsString(anyStrings(metaAttachment["required"]), optional) {
+			t.Fatalf("AIMessageMetaAttachment.%s must remain optional for historical messages", optional)
+		}
+	}
 
 	sendRequest := document.Components.Schemas["AIMessageSendRequest"]
 	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIMessageSendRequest", "request_id")

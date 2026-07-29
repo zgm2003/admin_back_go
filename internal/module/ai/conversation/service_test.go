@@ -2,9 +2,11 @@ package aiconversation
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
+	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
 )
 
@@ -24,6 +26,7 @@ type fakeRepository struct {
 	updateUserID             int64
 	updateTitle              string
 	cursorMessageIDs         []int64
+	cursorErr                error
 }
 
 func (f *fakeRepository) List(ctx context.Context, query ListQuery) ([]ListRow, bool, error) {
@@ -60,15 +63,18 @@ func (f *fakeRepository) Delete(ctx context.Context, id int64, userID int64) err
 	return nil
 }
 
-func (f *fakeRepository) AdvanceReadCursor(ctx context.Context, conversationID int64, userID int64, messageID int64) (int64, bool, error) {
+func (f *fakeRepository) AdvanceReadCursor(ctx context.Context, conversationID int64, userID int64, messageID int64) (int64, uint64, bool, error) {
 	f.cursorMessageIDs = append(f.cursorMessageIDs, messageID)
+	if f.cursorErr != nil {
+		return 0, 0, false, f.cursorErr
+	}
 	if f.row == nil || f.row.ID != conversationID || f.row.UserID != userID || !f.visibleAssistantMessages[messageID] {
-		return 0, false, nil
+		return 0, 0, false, nil
 	}
 	if messageID > f.row.LastReadMessageID {
 		f.row.LastReadMessageID = messageID
 	}
-	return f.row.LastReadMessageID, true, nil
+	return f.row.LastReadMessageID, f.unreadCounts[conversationID], true, nil
 }
 
 func TestListUsesCursorLimitAndDoesNotExposeUserOrStatus(t *testing.T) {
@@ -236,8 +242,22 @@ func TestReadCursorAdvancesMonotonicallyAndReturnsFreshUnreadCount(t *testing.T)
 	if len(repo.cursorMessageIDs) != 3 || repo.cursorMessageIDs[0] != 9 || repo.cursorMessageIDs[1] != 9 || repo.cursorMessageIDs[2] != 7 {
 		t.Fatalf("unexpected cursor requests: %#v", repo.cursorMessageIDs)
 	}
-	if len(repo.unreadCountQueries) != 3 {
-		t.Fatalf("each cursor response must refresh unread count, calls=%#v", repo.unreadCountQueries)
+	if len(repo.unreadCountQueries) != 0 {
+		t.Fatalf("cursor repository result must avoid a separate unread query: calls=%#v", repo.unreadCountQueries)
+	}
+}
+
+func TestReadCursorPreservesRequestCancellation(t *testing.T) {
+	repo := &fakeRepository{cursorErr: context.Canceled}
+	_, appErr := NewService(repo).AdvanceReadCursor(context.Background(), 7, 3, 9)
+	if appErr == nil {
+		t.Fatal("expected canceled read cursor error")
+	}
+	if appErr.Category != apperror.CategoryCanceled || appErr.HTTPStatus != 408 || appErr.Code != "request.canceled" {
+		t.Fatalf("request cancellation was reclassified: %#v", appErr)
+	}
+	if !errors.Is(appErr, context.Canceled) {
+		t.Fatalf("canceled cause was not preserved: %v", appErr)
 	}
 }
 

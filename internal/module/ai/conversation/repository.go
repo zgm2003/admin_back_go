@@ -9,7 +9,6 @@ import (
 	"admin_back_go/internal/shared/enum"
 
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 var ErrRepositoryNotConfigured = errors.New("aiconversation repository not configured")
@@ -155,55 +154,60 @@ func (r *GormRepository) UpdateTitle(ctx context.Context, id int64, userID int64
 		Updates(map[string]any{"title": title, "updated_at": time.Now()}).Error
 }
 
-func (r *GormRepository) AdvanceReadCursor(ctx context.Context, conversationID int64, userID int64, messageID int64) (int64, bool, error) {
+func (r *GormRepository) AdvanceReadCursor(ctx context.Context, conversationID int64, userID int64, messageID int64) (int64, uint64, bool, error) {
 	if r == nil || r.db == nil {
-		return 0, false, ErrRepositoryNotConfigured
+		return 0, 0, false, ErrRepositoryNotConfigured
 	}
-	var cursor int64
-	valid := false
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var conversation struct {
-			ID                int64
-			LastReadMessageID int64
-		}
-		err := tx.Table("ai_conversations").
-			Select("id, last_read_message_id").
-			Where("id = ? AND user_id = ? AND is_del = ?", conversationID, userID, enum.CommonNo).
-			Clauses(clause.Locking{Strength: "UPDATE"}).
-			Take(&conversation).Error
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
+	db := r.db.WithContext(ctx)
+	if err := db.Exec(`
+UPDATE ai_conversations AS c
+JOIN ai_messages AS target
+  ON target.id = ?
+ AND target.conversation_id = ?
+ AND target.role = ?
+ AND target.is_del = ?
+SET c.last_read_message_id = GREATEST(c.last_read_message_id, target.id)
+WHERE c.id = target.conversation_id
+  AND c.user_id = ?
+  AND c.is_del = ?`,
+		messageID, conversationID, enum.AIMessageRoleAssistant, enum.CommonNo, userID, enum.CommonNo,
+	).Error; err != nil {
+		return 0, 0, false, err
+	}
 
-		var message struct{ ID int64 }
-		err = tx.Table("ai_messages").
-			Select("id").
-			Where("id = ? AND conversation_id = ? AND role = ? AND is_del = ?", messageID, conversationID, enum.AIMessageRoleAssistant, enum.CommonNo).
-			Clauses(clause.Locking{Strength: "UPDATE"}).
-			Take(&message).Error
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-
-		if err := tx.Table("ai_conversations").
-			Where("id = ? AND user_id = ? AND is_del = ?", conversationID, userID, enum.CommonNo).
-			Update("last_read_message_id", gorm.Expr("GREATEST(last_read_message_id, ?)", messageID)).Error; err != nil {
-			return err
-		}
-		cursor = conversation.LastReadMessageID
-		if messageID > cursor {
-			cursor = messageID
-		}
-		valid = true
-		return nil
-	})
-	return cursor, valid, err
+	var state struct {
+		LastReadMessageID int64
+		UnreadCount       uint64
+	}
+	err := db.Raw(`
+SELECT c.last_read_message_id, COUNT(unread.id) AS unread_count
+FROM ai_conversations AS c
+JOIN ai_messages AS target
+  ON target.id = ?
+ AND target.conversation_id = c.id
+ AND target.role = ?
+ AND target.is_del = ?
+LEFT JOIN ai_messages AS unread
+  ON unread.conversation_id = c.id
+ AND unread.role = ?
+ AND unread.is_del = ?
+ AND unread.id > c.last_read_message_id
+WHERE c.id = ?
+  AND c.user_id = ?
+  AND c.is_del = ?
+GROUP BY c.last_read_message_id
+LIMIT ?`,
+		messageID, enum.AIMessageRoleAssistant, enum.CommonNo,
+		enum.AIMessageRoleAssistant, enum.CommonNo,
+		conversationID, userID, enum.CommonNo, 1,
+	).Scan(&state).Error
+	if err != nil {
+		return 0, 0, false, err
+	}
+	if state.LastReadMessageID == 0 {
+		return 0, 0, false, nil
+	}
+	return state.LastReadMessageID, state.UnreadCount, true, nil
 }
 
 func (r *GormRepository) Delete(ctx context.Context, id int64, userID int64) error {

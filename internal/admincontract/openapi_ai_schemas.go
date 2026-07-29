@@ -50,7 +50,7 @@ func aiWorkflowSchemas() map[string]any {
 			"name":       stringSchema(),
 		}),
 		"AIMessageSendRequest": aiMessageSendRequestSchema(),
-		"AIMessageMetaAttachment": closedObjectAllProperties(map[string]any{
+		"AIMessageMetaAttachment": closedObjectSchema([]string{"type", "url", "name", "size"}, map[string]any{
 			"type":       map[string]any{"type": "string", "const": "image"},
 			"object_key": nonEmptyStringSchema(),
 			"mime_type":  nonEmptyStringSchema(),

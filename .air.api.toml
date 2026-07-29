@@ -9,6 +9,7 @@ tmp_dir = ".tmp/dev/api"
   exclude_regex = ["_test.go"]
   exclude_unchanged = true
   include_ext = ["go"]
+  include_file = ["internal/module/ai/officialmodel/catalog/official_models_v1.json"]
   kill_delay = "2s"
   rerun = false
   send_interrupt = true
