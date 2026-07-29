@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/infra/database"
+	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/replycommand"
 	"admin_back_go/internal/module/ai/requestidentity"
 	"admin_back_go/internal/shared/enum"
@@ -158,7 +159,7 @@ func TestHistoryCanonicalReplayRunsBeforeCurrentRuntimeOrSourceReads(t *testing.
 	participant := &fakeHistoryParticipant{replayResult: &replycommand.CreateReplyResult{
 		UserMessageID: 71, CommandID: 81, RunID: 91, ChargeID: 101, RequestID: "revision-1", State: replycommand.StatePending,
 	}}
-	repository := &GormRepository{db: db, history: participant}
+	repository := &GormRepository{db: db, history: participant, pricing: testMessagePricingResolver()}
 
 	mock.ExpectBegin()
 	mock.ExpectCommit()
@@ -178,10 +179,10 @@ func TestHistoryCanonicalReplaySurvivesDisabledRuntimeAndHiddenSource(t *testing
 	db, mock, cleanup := newMessageMockDB(t)
 	defer cleanup()
 	replyRepository := replycommand.NewGormRepository(&database.Client{Gorm: db})
-	repository := &GormRepository{db: db, history: replycommand.NewHistoryParticipant(replyRepository)}
-	runtime := AgentRuntime{AgentID: 5, ModelID: "gpt-4.1-mini", MaxOutputTokens: 4096}
+	repository := &GormRepository{db: db, history: replycommand.NewHistoryParticipant(replyRepository), pricing: testMessagePricingResolver()}
+	runtime := AgentRuntime{AgentID: 5, ModelID: "gpt-4.1-mini"}
 	source := historySourceSnapshot{target: Message{ID: 41}, user: Message{ID: 41, Content: "old text"}}
-	facts, err := buildHistoryRequestFacts(HistoryOperationRevision, 7, 3, "new text", source, runtime)
+	facts, err := buildHistoryRequestFacts(HistoryOperationRevision, 7, 3, "new text", source, runtime, 4096)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +197,7 @@ func TestHistoryCanonicalReplaySurvivesDisabledRuntimeAndHiddenSource(t *testing
 			AddRow(81, "revision-1", fingerprint[:], requestidentity.IdentityStatusReplayable, 71, replycommand.StatePending))
 	mock.ExpectQuery("SELECT ai_agents.id AS agent_id.*FROM `ai_conversations`.*JOIN ai_agents").
 		WithArgs(int64(3), int64(7), enum.CommonNo, 1).
-		WillReturnRows(sqlmock.NewRows([]string{"agent_id", "model_id", "max_output_tokens"}).AddRow(5, "gpt-4.1-mini", 4096))
+		WillReturnRows(sqlmock.NewRows([]string{"agent_id", "model_id"}).AddRow(5, "gpt-4.1-mini"))
 	expectHistoryMessage(mock, 41, enum.AIMessageRoleUser, "old text", "", enum.CommonYes)
 	mock.ExpectQuery("SELECT `id` FROM `ai_runs`").WithArgs(int64(7), "revision-1", 1).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(91))
@@ -220,7 +221,7 @@ func TestHistoryRevisionRollsBackVisibleTailWhenParticipantFails(t *testing.T) {
 	db, mock, cleanup := newMessageMockDB(t)
 	defer cleanup()
 	participant := &fakeHistoryParticipant{createErr: errors.New("run insert failed")}
-	repository := &GormRepository{db: db, history: participant}
+	repository := &GormRepository{db: db, history: participant, pricing: testMessagePricingResolver()}
 	now := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
 	repository.now = func() time.Time { return now }
 
@@ -230,7 +231,7 @@ func TestHistoryRevisionRollsBackVisibleTailWhenParticipantFails(t *testing.T) {
 	expectNoActiveHistoryCommand(mock, true)
 	expectHistoryRuntime(mock, true)
 	mock.ExpectQuery("SELECT COALESCE\\(MAX\\(id\\), 0\\).*FROM `ai_messages`").WillReturnRows(sqlmock.NewRows([]string{"max_id"}).AddRow(97))
-	expectHistoryMessage(mock, 41, enum.AIMessageRoleUser, "old text", `{"attachments":[{"type":"image","url":"https://example.test/a.png","name":"a.png","size":10}]}`, enum.CommonNo)
+	expectHistoryMessage(mock, 41, enum.AIMessageRoleUser, "old text", `{"attachments":[{"type":"image","object_key":"ai_chat_images/2026/07/28/a.png","mime_type":"image/png","url":"https://trusted.test/a.png","name":"a.png","size":10}]}`, enum.CommonNo)
 	mock.ExpectExec("UPDATE `ai_messages` SET .*`is_del`=\\?.*conversation_id = \\? AND is_del = \\? AND id >= \\? AND id <= \\?").
 		WillReturnResult(sqlmock.NewResult(0, 4))
 	mock.ExpectRollback()
@@ -254,7 +255,7 @@ func TestHistoryRevisionRollsBackVisibleTailWhenParticipantFails(t *testing.T) {
 func TestHistoryRegenerationRejectsMissingPairWithoutMutation(t *testing.T) {
 	db, mock, cleanup := newMessageMockDB(t)
 	defer cleanup()
-	repository := &GormRepository{db: db, history: &fakeHistoryParticipant{}}
+	repository := &GormRepository{db: db, history: &fakeHistoryParticipant{}, pricing: testMessagePricingResolver()}
 
 	mock.ExpectBegin()
 	expectNoActiveHistoryCommand(mock, false)
@@ -279,7 +280,7 @@ func TestHistoryRegenerationRejectsMissingPairWithoutMutation(t *testing.T) {
 func TestHistoryDeleteSoftDeletesOnlySubmittedIDsAndPreservesAuditTables(t *testing.T) {
 	db, mock, cleanup := newMessageMockDB(t)
 	defer cleanup()
-	repository := &GormRepository{db: db, history: &fakeHistoryParticipant{}}
+	repository := &GormRepository{db: db, history: &fakeHistoryParticipant{}, pricing: testMessagePricingResolver()}
 	now := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
 	repository.now = func() time.Time { return now }
 
@@ -323,8 +324,10 @@ func expectHistoryRuntime(mock sqlmock.Sqlmock, locked bool) {
 		pattern += ".*FOR UPDATE"
 	}
 	mock.ExpectQuery(pattern).WillReturnRows(sqlmock.NewRows([]string{
-		"agent_id", "provider_id", "model_id", "model_display_name", "engine_type", "billing_multiplier_ppm", "max_output_tokens", "status", "scenes_json",
-	}).AddRow(5, 9, "gpt-4.1-mini", "GPT-4.1 mini", "openai", 1_250_000, 4096, enum.CommonYes, `["chat"]`))
+		"agent_id", "provider_id", "model_id", "model_display_name", "engine_type", "billing_multiplier_ppm", "status", "scenes_json",
+		"provider_model_status", "official_model_id", "official_catalog_version", "mapping_status",
+	}).AddRow(5, 9, "gpt-4.1-mini", "GPT-4.1 mini", "openai", 1_250_000, enum.CommonYes, `["chat"]`,
+		enum.CommonYes, "gpt-4.1-mini", "catalog-v3", officialmodel.MappingStatusMapped))
 }
 
 func expectHistoryMessage(mock sqlmock.Sqlmock, id int64, role int, content string, meta string, isDel int) {

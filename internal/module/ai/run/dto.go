@@ -169,6 +169,8 @@ type DetailResponse struct {
 	Pricing             *PricingDetail           `json:"pricing"`
 	UsageItems          []UsageItemDetail        `json:"usage_items"`
 	ProviderAttempts    []ProviderAttemptDetail  `json:"provider_attempts"`
+	Latency             LatencyBreakdown         `json:"latency"`
+	RequestSummary      SafeRequestSummary       `json:"request_summary"`
 	UserMessage         *MessageSummary          `json:"user_message"`
 	AssistantMessage    *MessageSummary          `json:"assistant_message"`
 	Events              []EventItem              `json:"events"`
@@ -180,6 +182,24 @@ type DetailResponse struct {
 	FinishedAt          string                   `json:"finished_at"`
 	CreatedAt           string                   `json:"created_at"`
 	UpdatedAt           string                   `json:"updated_at"`
+}
+
+type LatencyBreakdown struct {
+	AcceptMS        *int64 `json:"accept_ms"`
+	QueueMS         *int64 `json:"queue_ms"`
+	PrepareMS       *int64 `json:"prepare_ms"`
+	TTFTMS          *int64 `json:"ttft_ms"`
+	ProviderTotalMS *int64 `json:"provider_total_ms"`
+	SettlementMS    *int64 `json:"settlement_ms"`
+	EndToEndMS      *int64 `json:"end_to_end_ms"`
+	ClaimSource     string `json:"claim_source"`
+}
+
+type SafeRequestSummary struct {
+	ProviderAttemptCount int  `json:"provider_attempt_count"`
+	ToolCallCount        int  `json:"tool_call_count"`
+	PreparedRequestBytes int  `json:"prepared_request_bytes"`
+	MessageCount         *int `json:"message_count"`
 }
 
 type PricingDetail struct {
@@ -286,6 +306,28 @@ type StatsByUserResponse struct {
 	Page Page              `json:"page"`
 }
 
+type LatencyStatsResponse struct {
+	WindowDays int                `json:"window_days"`
+	MaxSamples int                `json:"max_samples"`
+	List       []LatencyStatsItem `json:"list"`
+}
+
+type LatencyStatsItem struct {
+	ProviderID    int64               `json:"provider_id"`
+	ProviderName  string              `json:"provider_name"`
+	ModelID       string              `json:"model_id"`
+	TTFT          LatencyDistribution `json:"ttft"`
+	ProviderTotal LatencyDistribution `json:"provider_total"`
+}
+
+type LatencyDistribution struct {
+	SampleCount        int   `json:"sample_count"`
+	InsufficientSample bool  `json:"insufficient_sample"`
+	P50MS              int64 `json:"p50_ms"`
+	P95MS              int64 `json:"p95_ms"`
+	P99MS              int64 `json:"p99_ms"`
+}
+
 type OptionRow struct {
 	ID   int64
 	Name string
@@ -339,10 +381,15 @@ type RunDetailRow struct {
 	BillingStatus       string
 	BillingReason       string
 	LikedAt             *time.Time
+	RequestReceivedAt   *time.Time
+	AcceptedAt          *time.Time
+	ClaimedAt           *time.Time
+	ClaimSource         string
 	UserMessage         *MessageSummary `gorm:"-"`
 	AssistantMessage    *MessageSummary `gorm:"-"`
 	StartedAt           *time.Time
 	FinishedAt          *time.Time
+	SettledAt           *time.Time
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 }
@@ -368,12 +415,26 @@ type UsageChargeItemRow struct {
 }
 
 type ProviderAttemptRow struct {
-	ID                int64
-	AttemptNo         uint
-	State             string
-	ProviderRequestID string
-	UsageStatus       string
-	UsageJSON         string
+	ID                  int64
+	AttemptNo           uint
+	State               string
+	ProviderRequestID   string
+	UsageStatus         string
+	UsageJSON           string
+	PreparedRequestJSON string
+	PrepareStartedAt    *time.Time
+	DispatchedAt        *time.Time
+	FirstDeltaAt        *time.Time
+	FinishedAt          *time.Time
+}
+
+type LatencySampleRow struct {
+	ProviderID   int64
+	ProviderName string
+	ModelID      string
+	DispatchedAt *time.Time
+	FirstDeltaAt *time.Time
+	FinishedAt   *time.Time
 }
 
 type EventRow struct {
@@ -485,6 +546,7 @@ type Repository interface {
 	StatsByDate(ctx context.Context, query StatsListQuery) ([]StatsByDateRow, int64, error)
 	StatsByAgent(ctx context.Context, query StatsListQuery) ([]StatsByAgentRow, int64, error)
 	StatsByUser(ctx context.Context, query StatsListQuery) ([]StatsByUserRow, int64, error)
+	LatencySamples(ctx context.Context, since time.Time, limit int) ([]LatencySampleRow, error)
 }
 
 type HTTPService interface {
@@ -495,6 +557,7 @@ type HTTPService interface {
 	StatsByDate(ctx context.Context, query StatsListQuery) (*StatsByDateResponse, *apperror.Error)
 	StatsByAgent(ctx context.Context, query StatsListQuery) (*StatsByAgentResponse, *apperror.Error)
 	StatsByUser(ctx context.Context, query StatsListQuery) (*StatsByUserResponse, *apperror.Error)
+	LatencyStats(ctx context.Context) (*LatencyStatsResponse, *apperror.Error)
 }
 
 type FeedbackHTTPService interface {

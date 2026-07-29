@@ -23,6 +23,12 @@ import (
 
 const timeLayout = "2006-01-02 15:04:05"
 
+const (
+	latencyStatsWindowDays     = 30
+	latencyStatsMaxSamples     = 10000
+	latencyStatsMinimumSamples = 20
+)
+
 var emptyJSONObject = json.RawMessage("{}")
 
 var knowledgeRetrievalStatusLabels = map[string]string{
@@ -143,7 +149,7 @@ func (s *Service) Detail(ctx context.Context, id int64) (*DetailResponse, *apper
 	if appErr != nil {
 		return nil, appErr
 	}
-	result := detailItem(*row, events, knowledgeRetrievals, toolCalls, billingView)
+	result := detailItem(*row, events, knowledgeRetrievals, toolCalls, billingView, buildLatencyBreakdown(*row, attemptRows), buildSafeRequestSummary(attemptRows, toolCalls))
 	return &result, nil
 }
 
@@ -256,6 +262,56 @@ func (s *Service) StatsByUser(ctx context.Context, query StatsListQuery) (*Stats
 		list = append(list, StatsByUserItem{Username: row.Username, StatsMetricItem: metricItem(row.StatsMetricRow)})
 	}
 	return &StatsByUserResponse{List: list, Page: page(total, query.CurrentPage, query.PageSize)}, nil
+}
+
+func (s *Service) LatencyStats(ctx context.Context) (*LatencyStatsResponse, *apperror.Error) {
+	repo, appErr := s.requireRepository()
+	if appErr != nil {
+		return nil, appErr
+	}
+	now := s.clock.Now().UTC()
+	rows, err := repo.LatencySamples(ctx, now.AddDate(0, 0, -latencyStatsWindowDays), latencyStatsMaxSamples)
+	if err != nil {
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI延迟统计失败", err)
+	}
+	type groupKey struct {
+		providerID int64
+		modelID    string
+	}
+	type samples struct {
+		providerName string
+		ttft         []int64
+		provider     []int64
+	}
+	groups := make(map[groupKey]*samples)
+	for _, row := range rows {
+		key := groupKey{providerID: row.ProviderID, modelID: strings.TrimSpace(row.ModelID)}
+		group := groups[key]
+		if group == nil {
+			group = &samples{providerName: strings.TrimSpace(row.ProviderName)}
+			groups[key] = group
+		}
+		if value := nonNegativeDurationMS(row.DispatchedAt, row.FirstDeltaAt); value != nil {
+			group.ttft = append(group.ttft, *value)
+		}
+		if value := nonNegativeDurationMS(row.DispatchedAt, row.FinishedAt); value != nil {
+			group.provider = append(group.provider, *value)
+		}
+	}
+	list := make([]LatencyStatsItem, 0, len(groups))
+	for key, group := range groups {
+		list = append(list, LatencyStatsItem{
+			ProviderID: key.providerID, ProviderName: group.providerName, ModelID: key.modelID,
+			TTFT: latencyDistribution(group.ttft), ProviderTotal: latencyDistribution(group.provider),
+		})
+	}
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].ProviderID != list[j].ProviderID {
+			return list[i].ProviderID < list[j].ProviderID
+		}
+		return list[i].ModelID < list[j].ModelID
+	})
+	return &LatencyStatsResponse{WindowDays: latencyStatsWindowDays, MaxSamples: latencyStatsMaxSamples, List: list}, nil
 }
 
 func (s *Service) requireRepository() (Repository, *apperror.Error) {
@@ -459,10 +515,9 @@ func buildBillingDetail(row RunDetailRow, charge *ChargeRow, usageRows []UsageCh
 		}
 	}
 	if len(auditLines) > 0 {
-		quoted, quoteErr := pricing.Quote(pricing.ModelPrice{
-			Version: snapshot.Version, CatalogVendor: snapshot.CatalogVendor, ModelID: snapshot.CanonicalModelID,
-			MaxOutputTokens: snapshot.CatalogMaxOutputTokens, SourceURL: snapshot.SourceURL,
-			RetrievedAt: snapshot.RetrievedAt, Rates: snapshot.Rates,
+		quoted, quoteErr := pricing.Quote(pricing.PriceBook{
+			ModelID: snapshot.CanonicalModelID, ContextTierThresholdTokens: snapshot.ContextTierThresholdTokens,
+			Rates: snapshot.Rates,
 		}, auditLines, snapshot.MultiplierPPM)
 		if quoteErr != nil {
 			return billingDetailView{}, fmt.Errorf("price failed attempt audit usage: %w", quoteErr)
@@ -569,7 +624,7 @@ func optionalNonBlank(value string) *string {
 	return &value
 }
 
-func detailItem(row RunDetailRow, events []EventRow, knowledgeRetrievals []KnowledgeRetrievalItem, toolCalls []ToolCallRow, billingView billingDetailView) DetailResponse {
+func detailItem(row RunDetailRow, events []EventRow, knowledgeRetrievals []KnowledgeRetrievalItem, toolCalls []ToolCallRow, billingView billingDetailView, latency LatencyBreakdown, requestSummary SafeRequestSummary) DetailResponse {
 	items := make([]EventItem, 0, len(events))
 	for _, event := range events {
 		items = append(items, eventItem(event, row.StartedAt))
@@ -591,12 +646,79 @@ func detailItem(row RunDetailRow, events []EventRow, knowledgeRetrievals []Knowl
 		BillingStatus: billingView.status, BillingReason: billingView.reason,
 		HeldAmount: billingView.held, ActualAmount: billingView.actual,
 		Pricing: billingView.pricing, UsageItems: billingView.usage, ProviderAttempts: billingView.attempts,
+		Latency: latency, RequestSummary: requestSummary,
 		UserMessage: row.UserMessage, AssistantMessage: row.AssistantMessage, Events: items, KnowledgeRetrievals: knowledgeRetrievals, ToolCalls: callItems,
 		Liked: row.LikedAt != nil, LikedAt: formatOptionalTimePointer(row.LikedAt),
 		StartedAt: formatOptionalTime(row.StartedAt), FinishedAt: formatOptionalTime(row.FinishedAt),
 		CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt),
 	}
 }
+
+func buildLatencyBreakdown(row RunDetailRow, attempts []ProviderAttemptRow) LatencyBreakdown {
+	result := LatencyBreakdown{
+		AcceptMS:    nonNegativeDurationMS(row.RequestReceivedAt, row.AcceptedAt),
+		QueueMS:     nonNegativeDurationMS(row.AcceptedAt, row.ClaimedAt),
+		EndToEndMS:  nonNegativeDurationMS(row.RequestReceivedAt, row.SettledAt),
+		ClaimSource: strings.TrimSpace(row.ClaimSource),
+	}
+	if len(attempts) == 0 {
+		return result
+	}
+	latest := attempts[len(attempts)-1]
+	result.PrepareMS = nonNegativeDurationMS(latest.PrepareStartedAt, latest.DispatchedAt)
+	result.TTFTMS = nonNegativeDurationMS(latest.DispatchedAt, latest.FirstDeltaAt)
+	result.ProviderTotalMS = nonNegativeDurationMS(latest.DispatchedAt, latest.FinishedAt)
+	result.SettlementMS = nonNegativeDurationMS(latest.FinishedAt, row.SettledAt)
+	return result
+}
+
+func buildSafeRequestSummary(attempts []ProviderAttemptRow, toolCalls []ToolCallRow) SafeRequestSummary {
+	result := SafeRequestSummary{ProviderAttemptCount: len(attempts), ToolCallCount: len(toolCalls)}
+	if len(attempts) == 0 {
+		return result
+	}
+	prepared := attempts[len(attempts)-1].PreparedRequestJSON
+	result.PreparedRequestBytes = len(prepared)
+	var envelope struct {
+		Messages []json.RawMessage `json:"messages"`
+	}
+	if json.Unmarshal([]byte(prepared), &envelope) == nil && envelope.Messages != nil {
+		count := len(envelope.Messages)
+		result.MessageCount = &count
+	}
+	return result
+}
+
+func nonNegativeDurationMS(start, end *time.Time) *int64 {
+	if start == nil || end == nil || start.IsZero() || end.IsZero() || end.Before(*start) {
+		return nil
+	}
+	value := end.Sub(*start).Milliseconds()
+	return &value
+}
+
+func latencyDistribution(values []int64) LatencyDistribution {
+	sorted := append([]int64(nil), values...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+	result := LatencyDistribution{SampleCount: len(sorted), InsufficientSample: len(sorted) < latencyStatsMinimumSamples}
+	if len(sorted) == 0 {
+		return result
+	}
+	result.P50MS = nearestRank(sorted, 50)
+	result.P95MS = nearestRank(sorted, 95)
+	result.P99MS = nearestRank(sorted, 99)
+	return result
+}
+
+func nearestRank(sorted []int64, percentile int) int64 {
+	if len(sorted) == 0 || percentile <= 0 || percentile > 100 {
+		return 0
+	}
+	index := (percentile*len(sorted)+99)/100 - 1
+	return sorted[index]
+}
+
+func int64Pointer(value int64) *int64 { return &value }
 
 func knowledgeRetrievalItem(row KnowledgeRetrievalRow, hits []KnowledgeHitRow) KnowledgeRetrievalItem {
 	items := make([]KnowledgeHitItem, 0, len(hits))

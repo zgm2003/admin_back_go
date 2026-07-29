@@ -5,6 +5,7 @@ import (
 
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/infra/ai/provider"
+	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/dict"
 )
@@ -63,14 +64,18 @@ type ProviderDTO struct {
 }
 
 type ProviderModelDTO struct {
-	ID          uint64 `json:"id"`
-	ProviderID  uint64 `json:"provider_id"`
-	ModelID     string `json:"model_id"`
-	DisplayName string `json:"display_name"`
-	Status      int    `json:"status"`
-	StatusName  string `json:"status_name"`
-	CreatedAt   string `json:"created_at"`
-	UpdatedAt   string `json:"updated_at"`
+	ID                     uint64                      `json:"id"`
+	ProviderID             uint64                      `json:"provider_id"`
+	ModelID                string                      `json:"model_id"`
+	DisplayName            string                      `json:"display_name"`
+	OfficialModelID        string                      `json:"official_model_id"`
+	OfficialCatalogVersion string                      `json:"official_catalog_version"`
+	MappingStatus          officialmodel.MappingStatus `json:"mapping_status"`
+	MappedAt               string                      `json:"mapped_at"`
+	Status                 int                         `json:"status"`
+	StatusName             string                      `json:"status_name"`
+	CreatedAt              string                      `json:"created_at"`
+	UpdatedAt              string                      `json:"updated_at"`
 }
 
 type ModelOptionDTO struct {

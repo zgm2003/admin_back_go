@@ -9,6 +9,7 @@ import (
 
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/infra/accesstoken"
+	infraai "admin_back_go/internal/infra/ai"
 	aiproviderinfra "admin_back_go/internal/infra/ai/provider"
 	"admin_back_go/internal/infra/database"
 	"admin_back_go/internal/infra/logstore"
@@ -26,7 +27,7 @@ import (
 	aiimage "admin_back_go/internal/module/ai/image"
 	aiknowledge "admin_back_go/internal/module/ai/knowledge"
 	aimessage "admin_back_go/internal/module/ai/message"
-	"admin_back_go/internal/module/ai/modelpricing"
+	"admin_back_go/internal/module/ai/officialmodel"
 	aiprovider "admin_back_go/internal/module/ai/provider"
 	"admin_back_go/internal/module/ai/replycommand"
 	airun "admin_back_go/internal/module/ai/run"
@@ -72,9 +73,10 @@ type ProviderSet struct {
 	MailSender mail.Sender
 	SMSSender  sms.Sender
 
-	AIConnectionTester aiprovider.ProviderTester
-	AIChatFactory      aichat.EngineFactory
-	AIImageFactory     aiimage.ImageEngineFactory
+	AIConnectionTester      aiprovider.ProviderTester
+	AIChatFactory           aichat.EngineFactory
+	AIImageFactory          aiimage.ImageEngineFactory
+	AITransportCapabilities infraai.TransportCapabilityResolver
 
 	ObjectReader     storagecos.ObjectReader
 	ObjectWriter     storagecos.ObjectWriter
@@ -171,14 +173,30 @@ func Build(input BuildInput) (*BuildResult, error) {
 		Clock:         sharedClock,
 	})
 	smsService := sms.NewService(sms.NewGormRepository(resources.DB), providers.Secretbox, providers.SMSSender)
+	aiOfficialModelResolver := officialmodel.NewService(officialmodel.NewGormRepository(resources.DB))
+	aiProviderRepository := aiprovider.NewGormRepository(resources.DB)
 	aiProviderService := aiprovider.NewServiceWithDriver(
-		aiprovider.NewGormRepository(resources.DB),
+		aiProviderRepository,
 		providers.Secretbox,
 		providers.AIConnectionTester,
 		aiproviderinfra.NewOpenAIDriver(nil, aiproviderinfra.WithTelemetry(recorder)),
+		aiprovider.WithOfficialModelMatcher(aiOfficialModelResolver),
 	)
-	aiModelPricingResolver := modelpricing.NewService(modelpricing.NewGormRepository(resources.DB))
-	aiAgentService := aiagent.NewService(aiagent.NewGormRepository(resources.DB), providers.Secretbox, providers.AIConnectionTester, aiagent.WithPricingResolver(aiModelPricingResolver))
+	if aiProviderRepository != nil {
+		reconcileCtx, cancelReconcile := context.WithTimeout(context.Background(), 10*time.Second)
+		if err := aiProviderService.ReconcileOfficialModelMappings(reconcileCtx); err != nil {
+			cancelReconcile()
+			return nil, fmt.Errorf("reconcile AI provider model mappings: %w", err)
+		}
+		cancelReconcile()
+	}
+	aiAgentService := aiagent.NewService(
+		aiagent.NewGormRepository(resources.DB),
+		providers.Secretbox,
+		providers.AIConnectionTester,
+		aiagent.WithPricingResolver(aiOfficialModelResolver),
+		aiagent.WithTransportCapabilityResolver(providers.AITransportCapabilities),
+	)
 	aiRunRepository := airun.NewGormRepository(resources.DB)
 	aiRunRecorder := airun.NewRecorder(aiRunRepository, nil)
 	aiTextTasks := aitext.NewGormStore(resources.DB)
@@ -191,7 +209,7 @@ func Build(input BuildInput) (*BuildResult, error) {
 		aiToolRepository,
 		aitool.DefaultExecutors(aiToolRepository),
 		aitool.WithDraftTaskService(aiTextService),
-		aitool.WithPricingResolver(aiModelPricingResolver),
+		aitool.WithPricingResolver(aiOfficialModelResolver),
 	)
 	aiKnowledgeService := aiknowledge.NewService(aiknowledge.NewGormRepository(resources.DB))
 	aiConversationService := aiconversation.NewService(aiconversation.NewGormRepository(resources.DB))
@@ -203,11 +221,16 @@ func Build(input BuildInput) (*BuildResult, error) {
 		CertResolver: providers.PaymentCertResolver,
 		CertStore:    providers.PaymentCertStore,
 	})
+	uploadTokenRepository := uploadtoken.NewGormRepository(resources.DB)
 	uploadTokenService := uploadtoken.NewService(
-		uploadtoken.NewGormRepository(resources.DB),
+		uploadTokenRepository,
 		providers.Secretbox,
 		providers.CredentialSigner,
 		uploadtoken.Options{TTLPolicy: uploadtoken.NewSystemSettingTTLPolicyProvider(systemSettingRepository)},
+	)
+	aiChatObjectInspector := storagecos.NewObjectInspector(
+		uploadtoken.NewObjectConfigProvider(uploadTokenRepository, providers.Secretbox),
+		storagecos.ObjectInspectorConfig{Enabled: true},
 	)
 	queueMonitorService := queuemonitor.NewService(
 		queuemonitor.NewTaskqueueInspector(input.QueueInspector),
@@ -261,7 +284,7 @@ func Build(input BuildInput) (*BuildResult, error) {
 	operationService := operationlog.NewService(operationRepository)
 	notificationService := notification.NewService(notification.NewGormRepository(resources.DB))
 
-	aiChatService := aichat.NewService(aichat.Dependencies{
+	aiChatService, err := aichat.NewRuntimeService(aichat.Dependencies{
 		Repository:       aichat.NewGormRepository(resources.DB),
 		Publisher:        publisher,
 		Secretbox:        providers.Secretbox,
@@ -270,10 +293,13 @@ func Build(input BuildInput) (*BuildResult, error) {
 		KnowledgeRuntime: knowledgeRuntimeAdapter{service: aiKnowledgeService},
 		RunRecorder:      aiRunRecorder,
 		TextGeneration:   aiTextService,
-		PricingResolver:  aiModelPricingResolver,
+		PricingResolver:  aiOfficialModelResolver,
 		RunStaleTimeout:  cfg.AI.RunStaleTimeout,
 		Logger:           logger,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("build admin AI chat service: %w", err)
+	}
 	aiReplyRepository := replycommand.NewGormRepository(
 		resources.DB,
 		replycommand.WithDurableEventSink(realtimeEventSink),
@@ -283,11 +309,13 @@ func Build(input BuildInput) (*BuildResult, error) {
 			resources.DB,
 			aiReplyRepository,
 			replycommand.NewHistoryParticipant(aiReplyRepository),
-			aimessage.WithRepositoryPricingResolver(aiModelPricingResolver),
+			aimessage.WithRepositoryPricingResolver(aiOfficialModelResolver),
 		),
 		aimessage.WithReplyWaker(replycommand.NewWakeupEnqueuer(input.Queue)),
 		aimessage.WithCancelPublisher(replycommand.NewRedisCancelPublisher(resources.Redis)),
-		aimessage.WithPricingResolver(aiModelPricingResolver),
+		aimessage.WithPricingResolver(aiOfficialModelResolver),
+		aimessage.WithTransportCapabilityResolver(providers.AITransportCapabilities),
+		aimessage.WithObjectInspector(aiChatObjectInspector),
 	)
 	notificationTaskService := notificationtask.NewService(
 		notificationtask.NewGormRepository(resources.DB, notificationtask.WithDurableEventSink(realtimeEventSink)),
@@ -347,15 +375,15 @@ func Build(input BuildInput) (*BuildResult, error) {
 		},
 		Commerce: CommerceGraph{Payment: paymentService, Wallet: walletService, RedeemCodes: redeemCodeService},
 		AI: AIGraph{
-			Agents:        aiAgentService,
-			Chat:          aiChatService,
-			Conversations: aiConversationService,
-			Knowledge:     aiKnowledgeService,
-			Messages:      aiMessageService,
-			ModelPrices:   aiModelPricingResolver,
-			Providers:     aiProviderService,
-			Runs:          aiRunService,
-			Tools:         aiToolService,
+			Agents:         aiAgentService,
+			Chat:           aiChatService,
+			Conversations:  aiConversationService,
+			Knowledge:      aiKnowledgeService,
+			Messages:       aiMessageService,
+			OfficialModels: aiOfficialModelResolver,
+			Providers:      aiProviderService,
+			Runs:           aiRunService,
+			Tools:          aiToolService,
 		},
 	}
 	if err := graph.Validate(); err != nil {

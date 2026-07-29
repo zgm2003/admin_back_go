@@ -26,8 +26,8 @@ var (
 const defaultLeaseTTL = 30 * time.Second
 
 type RunnerRepository interface {
-	ClaimNext(context.Context, string, time.Time, time.Duration) (*Claim, error)
-	ClaimByID(context.Context, uint64, string, time.Time, time.Duration) (*Claim, error)
+	ClaimNext(context.Context, ClaimSource, string, time.Time, time.Duration) (*Claim, error)
+	ClaimByID(context.Context, uint64, ClaimSource, string, time.Time, time.Duration) (*Claim, error)
 	Renew(context.Context, uint64, string, uint64, time.Time) (Renewal, error)
 	Transition(context.Context, uint64, string, uint64, State, State, map[string]any) (bool, error)
 }
@@ -94,7 +94,7 @@ func (r *Runner) RunOnce(ctx context.Context) (bool, error) {
 	if err := r.ready(); err != nil {
 		return false, err
 	}
-	claim, err := r.repository.ClaimNext(ctx, r.owner, r.now(), r.leaseTTL)
+	claim, err := r.repository.ClaimNext(ctx, ClaimSourcePoll, r.owner, r.now(), r.leaseTTL)
 	if err != nil || claim == nil {
 		return false, err
 	}
@@ -105,7 +105,7 @@ func (r *Runner) RunCommand(ctx context.Context, commandID uint64) (bool, error)
 	if err := r.ready(); err != nil {
 		return false, err
 	}
-	claim, err := r.repository.ClaimByID(ctx, commandID, r.owner, r.now(), r.leaseTTL)
+	claim, err := r.repository.ClaimByID(ctx, commandID, ClaimSourceWake, r.owner, r.now(), r.leaseTTL)
 	if err != nil || claim == nil {
 		return false, err
 	}

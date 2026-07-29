@@ -10,6 +10,7 @@ import (
 
 	"admin_back_go/internal/infra/database"
 	"admin_back_go/internal/module/ai/billing"
+	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/requestidentity"
 	airun "admin_back_go/internal/module/ai/run"
 	"admin_back_go/internal/shared/enum"
@@ -309,15 +310,19 @@ func (r *GormRepository) agentRuntimeDB(ctx context.Context) *gorm.DB {
 			a.model_id AS model_id,
 			a.model_display_name AS model_display_name,
 			a.billing_multiplier_ppm AS billing_multiplier_ppm,
-			a.max_output_tokens AS max_output_tokens,
 			a.system_prompt AS system_prompt,
 			a.scenes_json AS scenes_json,
 			a.status AS agent_status,
 			e.engine_type AS engine_type,
 			e.base_url AS engine_base_url,
 			e.api_key_enc AS engine_api_key_enc,
-			e.status AS engine_status`).
+			e.status AS engine_status,
+			pm.status AS provider_model_status,
+			pm.official_model_id AS official_model_id,
+			pm.official_catalog_version AS official_catalog_version,
+			pm.mapping_status AS mapping_status`).
 		Joins("JOIN ai_providers e ON e.id = a.provider_id AND e.is_del = ? AND e.status = ?", enum.CommonNo, enum.CommonYes).
+		Joins("JOIN ai_provider_models pm ON pm.provider_id = a.provider_id AND pm.model_id = a.model_id AND pm.status = ? AND pm.mapping_status = ?", enum.CommonYes, officialmodel.MappingStatusMapped).
 		Where("a.is_del = ? AND a.status = ?", enum.CommonNo, enum.CommonYes)
 }
 

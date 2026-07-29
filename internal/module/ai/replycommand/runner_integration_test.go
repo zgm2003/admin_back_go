@@ -57,7 +57,7 @@ func TestClaimLeaseFencingAndIdempotentAssistantPublication(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	claimA, err := repository.ClaimNext(ctx, "worker-a", now, 3*time.Second)
+	claimA, err := repository.ClaimNext(ctx, ClaimSourcePoll, "worker-a", now, 3*time.Second)
 	if err != nil || claimA == nil {
 		t.Fatalf("worker A claim=%+v err=%v", claimA, err)
 	}
@@ -71,7 +71,7 @@ func TestClaimLeaseFencingAndIdempotentAssistantPublication(t *testing.T) {
 		t.Fatalf("expired publication id=%d published=%v err=%v", assistantID, published, err)
 	}
 
-	claimB, err := repository.ClaimNext(ctx, "worker-b", now.Add(4*time.Second), 3*time.Second)
+	claimB, err := repository.ClaimNext(ctx, ClaimSourcePoll, "worker-b", now.Add(4*time.Second), 3*time.Second)
 	if err != nil || claimB == nil {
 		t.Fatalf("worker B reclaim=%+v err=%v", claimB, err)
 	}

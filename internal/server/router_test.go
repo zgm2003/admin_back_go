@@ -240,6 +240,10 @@ func (fakeRouterAIRunService) Stats(ctx context.Context, query airun.StatsFilter
 	return &airun.StatsResponse{}, nil
 }
 
+func (fakeRouterAIRunService) LatencyStats(ctx context.Context) (*airun.LatencyStatsResponse, *apperror.Error) {
+	return &airun.LatencyStatsResponse{}, nil
+}
+
 func (fakeRouterAIRunService) StatsByDate(ctx context.Context, query airun.StatsListQuery) (*airun.StatsByDateResponse, *apperror.Error) {
 	return &airun.StatsByDateResponse{Page: airun.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
 }

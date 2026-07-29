@@ -40,6 +40,12 @@ func (p *PreparedChatProvider) SetStopProbe(probe func() bool) {
 	}
 }
 
+func (p *PreparedChatProvider) SetSink(sink infraai.EventSink) {
+	if p != nil {
+		p.sink = sink
+	}
+}
+
 func NewPreparedChatProvider(transport PreparedChatTransport, sink infraai.EventSink, encoder ChatCandidateEncoder) *PreparedChatProvider {
 	return &PreparedChatProvider{transport: transport, sink: sink, candidateEncoder: encoder}
 }

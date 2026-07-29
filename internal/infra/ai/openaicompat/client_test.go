@@ -49,6 +49,14 @@ func TestCompatibleClientDoesNotClaimTokenizerUpperBoundCapability(t *testing.T)
 	if !reflect.DeepEqual(capabilities.SupportedUsageIdentities, wantUsage) {
 		t.Fatalf("supported usage identities=%+v, want %+v", capabilities.SupportedUsageIdentities, wantUsage)
 	}
+	if !reflect.DeepEqual(capabilities.InputModalities, []string{"text", "image"}) ||
+		!reflect.DeepEqual(capabilities.OutputModalities, []string{"text"}) ||
+		!reflect.DeepEqual(capabilities.SupportedParameters, []string{"temperature"}) {
+		t.Fatalf("compatible transport capability sets=%+v", capabilities)
+	}
+	if !capabilities.SupportsTools || !capabilities.SupportsStreaming || !capabilities.SupportsStructuredOutput {
+		t.Fatalf("compatible transport capability flags=%+v", capabilities)
+	}
 }
 
 func (s *captureSink) Emit(ctx context.Context, event infraai.Event) error {
@@ -462,7 +470,7 @@ func TestClientStreamChatDoesNotSendSystemMessageWhenSystemPromptBlank(t *testin
 	}
 }
 
-func TestClientStreamChatSendsVisionContentAndRuntimeParams(t *testing.T) {
+func TestOpenAIAdapterUsesSystemEffectiveMaxOutputTokens(t *testing.T) {
 	var requestBody map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
@@ -475,7 +483,8 @@ func TestClientStreamChatSendsVisionContentAndRuntimeParams(t *testing.T) {
 	defer server.Close()
 
 	_, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).StreamChat(context.Background(), infraai.ChatInput{
-		Content: "看图",
+		Content:                  "看图",
+		EffectiveMaxOutputTokens: 2048,
 		Inputs: map[string]any{
 			"model_id":    "gpt-5.4",
 			"temperature": 0.7,
@@ -486,8 +495,8 @@ func TestClientStreamChatSendsVisionContentAndRuntimeParams(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StreamChat returned error: %v", err)
 	}
-	if requestBody["temperature"] != 0.7 || requestBody["max_tokens"] != 1024.0 {
-		t.Fatalf("runtime params not sent: %#v", requestBody)
+	if requestBody["temperature"] != 0.7 || requestBody["max_tokens"] != 2048.0 {
+		t.Fatalf("adapter did not use the system output bound: %#v", requestBody)
 	}
 	messages := requestBody["messages"].([]any)
 	userMessage := messages[len(messages)-1].(map[string]any)
@@ -585,11 +594,12 @@ func TestClientStreamChatSendsToolsAndReturnsToolCalls(t *testing.T) {
 	}))
 	defer server.Close()
 
+	sink := &captureSink{}
 	result, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", Timeout: time.Second}).StreamChat(context.Background(), infraai.ChatInput{
 		Content: "查用户量",
 		Inputs:  map[string]any{"model_id": "gpt-5.4"},
 		Tools:   []infraai.ToolDefinition{{Name: "admin_user_count", Description: "查询当前用户量", Parameters: map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}}},
-	}, nil)
+	}, sink)
 	if err != nil {
 		t.Fatalf("StreamChat returned error: %v", err)
 	}
@@ -607,6 +617,15 @@ func TestClientStreamChatSendsToolsAndReturnsToolCalls(t *testing.T) {
 	}
 	if result.Answer != "" {
 		t.Fatalf("tool-call round must not fake final answer, got %q", result.Answer)
+	}
+	if len(sink.events) != 2 || sink.events[0].Type != "tool_delta" || sink.events[1].Type != "tool_delta" {
+		t.Fatalf("tool deltas=%#v", sink.events)
+	}
+	if sink.events[0].Payload["tool_call_id"] != "call_1" || sink.events[0].Payload["name"] != "admin_user_count" || sink.events[0].Payload["arguments_delta"] != "{" {
+		t.Fatalf("first tool delta=%#v", sink.events[0])
+	}
+	if sink.events[1].Payload["arguments_delta"] != "}" {
+		t.Fatalf("second tool delta=%#v", sink.events[1])
 	}
 }
 

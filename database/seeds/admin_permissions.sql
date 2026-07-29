@@ -32,18 +32,18 @@ WHERE `id` = 920 OR `code` = 'ai_run_list';
 
 DROP TEMPORARY TABLE `_ai_run_permission_seed_guard`;
 
-CREATE TEMPORARY TABLE `_ai_model_pricing_permission_seed_guard` (
+CREATE TEMPORARY TABLE `_ai_official_model_permission_seed_guard` (
   `violations` BIGINT NOT NULL,
   CHECK (`violations` = 0)
 );
 
-INSERT INTO `_ai_model_pricing_permission_seed_guard`
+INSERT INTO `_ai_official_model_permission_seed_guard`
 SELECT IF(COUNT(*) = 0, 0, 1)
 FROM `permissions`
 WHERE `id` IN (921, 922)
-   OR `code` IN ('ai_model_pricing_list', 'ai_model_pricing_edit');
+   OR `code` IN ('ai_official_model_list', 'ai_official_model_price_sync');
 
-DROP TEMPORARY TABLE `_ai_model_pricing_permission_seed_guard`;
+DROP TEMPORARY TABLE `_ai_official_model_permission_seed_guard`;
 
 DROP TEMPORARY TABLE `_admin_permission_seed_guard`;
 
@@ -187,7 +187,7 @@ INSERT INTO `permissions` (
 (913, '批量生成兑换码', '', '', 912, NULL, 'admin', 3, 1, 'payment_redeem_code_generate', '', 2, 1, 2),
 (914, '作废兑换码', '', '', 912, NULL, 'admin', 3, 2, 'payment_redeem_code_void', '', 2, 1, 2),
 (920, '查看运行记录', '', '', 50, NULL, 'admin', 3, 1, 'ai_run_list', '', 2, 1, 2),
-(921, '模型定价', '/ai/model-pricing', '', 5, 'ai/model-pricing', 'admin', 2, 7, 'ai_model_pricing_list', 'menu.ai_model_pricing', 1, 1, 2),
-(922, '编辑模型定价', '', '', 921, NULL, 'admin', 3, 1, 'ai_model_pricing_edit', '', 2, 1, 2);
+(921, '官方模型', '/ai/official-models', '', 5, 'ai/official-models', 'admin', 2, 7, 'ai_official_model_list', 'menu.ai_official_models', 1, 1, 2),
+(922, '同步官方模型价格', '', '', 921, NULL, 'admin', 3, 1, 'ai_official_model_price_sync', '', 2, 1, 2);
 
 COMMIT;

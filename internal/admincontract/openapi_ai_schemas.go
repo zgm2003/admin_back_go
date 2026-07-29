@@ -42,21 +42,21 @@ func aiWorkflowSchemas() map[string]any {
 
 		"AIRuntimeParams": closedObjectSchema(nil, map[string]any{
 			"temperature": schemaWith(numberSchema(), "minimum", 0, "maximum", 2),
-			"max_tokens":  integerRangeSchema(1, 200000),
 			"max_history": integerRangeSchema(1, 50),
 		}),
-		"AIAttachmentRequest": closedObjectSchema([]string{"type", "url"}, map[string]any{
-			"type": map[string]any{"type": "string", "const": "image"},
-			"url":  nonEmptyStringSchema(),
-			"name": stringSchema(),
-			"size": nonNegativeIntegerSchema(),
+		"AIAttachmentRequest": closedObjectSchema([]string{"type", "object_key"}, map[string]any{
+			"type":       map[string]any{"type": "string", "const": "image"},
+			"object_key": nonEmptyStringSchema(),
+			"name":       stringSchema(),
 		}),
 		"AIMessageSendRequest": aiMessageSendRequestSchema(),
 		"AIMessageMetaAttachment": closedObjectAllProperties(map[string]any{
-			"type": map[string]any{"type": "string", "const": "image"},
-			"url":  stringSchema(),
-			"name": stringSchema(),
-			"size": nonNegativeIntegerSchema(),
+			"type":       map[string]any{"type": "string", "const": "image"},
+			"object_key": nonEmptyStringSchema(),
+			"mime_type":  nonEmptyStringSchema(),
+			"url":        nonEmptyStringSchema(),
+			"name":       stringSchema(),
+			"size":       nonNegativeIntegerSchema(),
 		}),
 		"AIMessageMeta": closedObjectSchema(nil, map[string]any{
 			"attachments":    arraySchema(schemaReference("AIMessageMetaAttachment")),
@@ -155,6 +155,8 @@ func aiWorkflowSchemas() map[string]any {
 		"AIRunPricing":               aiRunPricingSchema(),
 		"AIRunUsageItem":             aiRunUsageItemSchema(),
 		"AIRunProviderAttempt":       aiRunProviderAttemptSchema(),
+		"AIRunLatencyBreakdown":      aiRunLatencyBreakdownSchema(),
+		"AIRunRequestSummary":        aiRunRequestSummarySchema(),
 		"AIRunDetail":                aiRunDetailSchema(),
 		"AIRunDetailSuccessEnvelope": successEnvelopeWithData(schemaReference("AIRunDetail")),
 		"AIRunUserFeedbackRequest": closedObjectAllProperties(map[string]any{
@@ -195,6 +197,14 @@ func aiWorkflowSchemas() map[string]any {
 		"AIRunStatsByDateSuccessEnvelope":  successEnvelopeWithData(schemaReference("AIRunStatsByDateResult")),
 		"AIRunStatsByAgentSuccessEnvelope": successEnvelopeWithData(schemaReference("AIRunStatsByAgentResult")),
 		"AIRunStatsByUserSuccessEnvelope":  successEnvelopeWithData(schemaReference("AIRunStatsByUserResult")),
+		"AIRunLatencyDistribution":         aiRunLatencyDistributionSchema(),
+		"AIRunLatencyStatsItem":            aiRunLatencyStatsItemSchema(),
+		"AIRunLatencyStatsResult": closedObjectAllProperties(map[string]any{
+			"window_days": positiveIntegerSchema(),
+			"max_samples": positiveIntegerSchema(),
+			"list":        arraySchema(schemaReference("AIRunLatencyStatsItem")),
+		}),
+		"AIRunLatencyStatsSuccessEnvelope": successEnvelopeWithData(schemaReference("AIRunLatencyStatsResult")),
 	}
 }
 
@@ -340,6 +350,8 @@ func aiRunDetailSchema() map[string]any {
 	properties["pricing"] = nullableSchema(schemaReference("AIRunPricing"))
 	properties["usage_items"] = arraySchema(schemaReference("AIRunUsageItem"))
 	properties["provider_attempts"] = arraySchema(schemaReference("AIRunProviderAttempt"))
+	properties["latency"] = schemaReference("AIRunLatencyBreakdown")
+	properties["request_summary"] = schemaReference("AIRunRequestSummary")
 	properties["liked"] = booleanSchema()
 	properties["liked_at"] = nullableSchema(stringSchema())
 	properties["started_at"] = stringSchema()
@@ -391,6 +403,45 @@ func aiRunProviderAttemptSchema() map[string]any {
 		"state":               stringEnumSchema("prepared", "dispatched", "succeeded", "failed", "canceled", "outcome_unknown"),
 		"provider_request_id": nullableSchema(nonEmptyStringSchema()),
 		"usage_status":        stringEnumSchema("complete", "unavailable"),
+	})
+}
+
+func aiRunLatencyBreakdownSchema() map[string]any {
+	properties := map[string]any{
+		"claim_source": stringEnumSchema("", "wake", "poll", "recovery"),
+	}
+	for _, field := range []string{"accept_ms", "queue_ms", "prepare_ms", "ttft_ms", "provider_total_ms", "settlement_ms", "end_to_end_ms"} {
+		properties[field] = nullableSchema(nonNegativeIntegerSchema())
+	}
+	return closedObjectAllProperties(properties)
+}
+
+func aiRunRequestSummarySchema() map[string]any {
+	return closedObjectAllProperties(map[string]any{
+		"provider_attempt_count": nonNegativeIntegerSchema(),
+		"tool_call_count":        nonNegativeIntegerSchema(),
+		"prepared_request_bytes": nonNegativeIntegerSchema(),
+		"message_count":          nullableSchema(nonNegativeIntegerSchema()),
+	})
+}
+
+func aiRunLatencyDistributionSchema() map[string]any {
+	return closedObjectAllProperties(map[string]any{
+		"sample_count":        nonNegativeIntegerSchema(),
+		"insufficient_sample": booleanSchema(),
+		"p50_ms":              nonNegativeIntegerSchema(),
+		"p95_ms":              nonNegativeIntegerSchema(),
+		"p99_ms":              nonNegativeIntegerSchema(),
+	})
+}
+
+func aiRunLatencyStatsItemSchema() map[string]any {
+	return closedObjectAllProperties(map[string]any{
+		"provider_id":    positiveIntegerSchema(),
+		"provider_name":  stringSchema(),
+		"model_id":       stringSchema(),
+		"ttft":           schemaReference("AIRunLatencyDistribution"),
+		"provider_total": schemaReference("AIRunLatencyDistribution"),
 	})
 }
 

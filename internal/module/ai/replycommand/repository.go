@@ -39,8 +39,8 @@ const defaultMaxAttempts = 3
 type Repository interface {
 	CreateReply(context.Context, CreateReplyInput) (CreateReplyResult, error)
 	RequestCancel(context.Context, int64, int64, string, time.Time) (*Command, error)
-	ClaimNext(context.Context, string, time.Time, time.Duration) (*Claim, error)
-	ClaimByID(context.Context, uint64, string, time.Time, time.Duration) (*Claim, error)
+	ClaimNext(context.Context, ClaimSource, string, time.Time, time.Duration) (*Claim, error)
+	ClaimByID(context.Context, uint64, ClaimSource, string, time.Time, time.Duration) (*Claim, error)
 	Renew(context.Context, uint64, string, uint64, time.Time) (Renewal, error)
 	Transition(context.Context, uint64, string, uint64, State, State, map[string]any) (bool, error)
 	PublishAssistant(context.Context, PublishAssistantInput) (int64, bool, error)
@@ -165,7 +165,7 @@ func (r *GormRepository) CreateReply(ctx context.Context, input CreateReplyInput
 	input.ModelDisplayName = strings.TrimSpace(input.ModelDisplayName)
 	input.InputSnapshot = strings.TrimSpace(input.InputSnapshot)
 	pricingSnapshot, pricingErr := aigateway.ParsePricingSnapshot(input.PricingSnapshotJSON)
-	if input.ConversationID <= 0 || input.UserID <= 0 || input.AgentID <= 0 || input.ProviderID <= 0 || input.ModelID == "" || input.InputSnapshot == "" || input.RequestID == "" || utf8.RuneCountInString(input.RequestID) > 128 || input.RequestFingerprint == ([32]byte{}) || input.RequestIdentityStatus != requestidentity.IdentityStatusReplayable || input.RequestIdentityMarker != "" || pricingErr != nil || pricingSnapshot.RequestedModelID != input.ModelID || int64(pricingSnapshot.EffectiveMaxOutputTokens) != input.EffectiveMaxTokens {
+	if input.ConversationID <= 0 || input.UserID <= 0 || input.AgentID <= 0 || input.ProviderID <= 0 || input.ModelID == "" || input.InputSnapshot == "" || input.RequestID == "" || input.RequestReceivedAt.IsZero() || utf8.RuneCountInString(input.RequestID) > 128 || input.RequestFingerprint == ([32]byte{}) || input.RequestIdentityStatus != requestidentity.IdentityStatusReplayable || input.RequestIdentityMarker != "" || pricingErr != nil || pricingSnapshot.RequestedModelID != input.ModelID || int64(pricingSnapshot.EffectiveMaxOutputTokens) != input.EffectiveMaxTokens {
 		return CreateReplyResult{}, fmt.Errorf("%w: conversation_id, user_id and request_id are required and request_id is at most 128 characters", ErrCreateInputInvalid)
 	}
 	if ctx == nil {
@@ -241,6 +241,8 @@ func (r *GormRepository) CreateReply(ctx context.Context, input CreateReplyInput
 			UserID:                input.UserID,
 			ConversationID:        input.ConversationID,
 			UserMessageID:         message.ID,
+			RequestReceivedAt:     &input.RequestReceivedAt,
+			AcceptedAt:            &now,
 			State:                 StatePending,
 			MaxAttempts:           defaultMaxAttempts,
 			NextAttemptAt:         now,
@@ -328,23 +330,23 @@ func loadAcceptedRunCharge(db *gorm.DB, userID int64, requestID string, lock boo
 	return billing.AcceptedRun{RunID: run.ID, ChargeID: charge.ID}, nil
 }
 
-func (r *GormRepository) ClaimNext(ctx context.Context, owner string, now time.Time, ttl time.Duration) (*Claim, error) {
-	return r.claim(ctx, 0, owner, now, ttl)
+func (r *GormRepository) ClaimNext(ctx context.Context, source ClaimSource, owner string, now time.Time, ttl time.Duration) (*Claim, error) {
+	return r.claim(ctx, 0, source, owner, now, ttl)
 }
 
-func (r *GormRepository) ClaimByID(ctx context.Context, commandID uint64, owner string, now time.Time, ttl time.Duration) (*Claim, error) {
+func (r *GormRepository) ClaimByID(ctx context.Context, commandID uint64, source ClaimSource, owner string, now time.Time, ttl time.Duration) (*Claim, error) {
 	if commandID == 0 {
 		return nil, ErrCreateInputInvalid
 	}
-	return r.claim(ctx, commandID, owner, now, ttl)
+	return r.claim(ctx, commandID, source, owner, now, ttl)
 }
 
-func (r *GormRepository) claim(ctx context.Context, commandID uint64, owner string, now time.Time, ttl time.Duration) (*Claim, error) {
+func (r *GormRepository) claim(ctx context.Context, commandID uint64, source ClaimSource, owner string, now time.Time, ttl time.Duration) (*Claim, error) {
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured
 	}
 	owner = strings.TrimSpace(owner)
-	if owner == "" || ttl <= 0 {
+	if owner == "" || ttl <= 0 || (source != ClaimSourceWake && source != ClaimSourcePoll) {
 		return nil, ErrCreateInputInvalid
 	}
 	if ctx == nil {
@@ -412,6 +414,8 @@ func (r *GormRepository) claim(ctx context.Context, commandID uint64, owner stri
 			"lease_owner":      owner,
 			"lease_token":      nextToken,
 			"lease_expires_at": leaseExpiresAt,
+			"claimed_at":       now,
+			"claim_source":     source,
 			"updated_at":       now,
 		}
 		if !skipAttemptIncrement {
@@ -433,6 +437,8 @@ func (r *GormRepository) claim(ctx context.Context, commandID uint64, owner stri
 		command.LeaseOwner = &owner
 		command.LeaseToken = nextToken
 		command.LeaseExpiresAt = &leaseExpiresAt
+		command.ClaimedAt = &now
+		command.ClaimSource = source
 		command.UpdatedAt = now
 		claimed = &Claim{Command: command, Owner: owner, FencingToken: nextToken, LeaseExpiresAt: leaseExpiresAt}
 		return nil

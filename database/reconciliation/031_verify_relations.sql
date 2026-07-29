@@ -25,6 +25,13 @@ FROM (
   WHERE u.`status`=1 AND u.`is_del`=2 AND v.`user_id` IS NULL
 ) bad;
 
+SELECT 'ai_latency_timeline_invalid' AS invariant, COUNT(*) AS violations
+FROM `ai_reply_commands` command_row
+WHERE (command_row.`claimed_at` IS NULL AND command_row.`claim_source`<>'')
+   OR (command_row.`claimed_at` IS NOT NULL AND command_row.`claim_source`='')
+   OR (command_row.`request_received_at` IS NOT NULL AND command_row.`accepted_at` IS NOT NULL
+       AND command_row.`accepted_at`<command_row.`request_received_at`);
+
 SELECT 'payment_relationship_orphans' AS invariant, COUNT(*) AS violations
 FROM (
   SELECT CONCAT('order_config:',o.`id`) entity
@@ -211,12 +218,12 @@ FROM (
 ) invalid_batches;
 
 -- Expected action: ON UPDATE RESTRICT, ON DELETE CASCADE.
-SELECT 'ai_model_pricing_foreign_keys' AS invariant, COUNT(*) AS violations
+SELECT 'ai_official_model_foreign_keys' AS invariant, COUNT(*) AS violations
 FROM (
-  SELECT 'ai_model_price_override_rates' AS table_name,
-    'fk_ai_model_price_override_rates_override' AS constraint_name,
+  SELECT 'ai_official_model_price_override_rates' AS table_name,
+    'fk_ai_official_model_price_override_rates_override' AS constraint_name,
     'override_id' AS column_name,
-    'ai_model_price_overrides' AS referenced_table_name,
+    'ai_official_model_price_overrides' AS referenced_table_name,
     'id' AS referenced_column_name,
     'RESTRICT' AS on_update,
     'CASCADE' AS on_delete
@@ -231,7 +238,7 @@ LEFT JOIN (
    AND rc.table_name=kcu.table_name
    AND rc.constraint_name=kcu.constraint_name
   WHERE kcu.table_schema=DATABASE()
-    AND kcu.table_name='ai_model_price_override_rates'
+    AND kcu.table_name='ai_official_model_price_override_rates'
     AND kcu.referenced_table_name IS NOT NULL
 ) actual
   ON actual.table_name=required.table_name
@@ -243,16 +250,16 @@ WHERE actual.constraint_name IS NULL
    OR actual.update_rule<>required.on_update
    OR actual.delete_rule<>required.on_delete;
 
-SELECT 'ai_model_pricing_relationship_orphans' AS invariant, COUNT(*) AS violations
+SELECT 'ai_official_model_relationship_orphans' AS invariant, COUNT(*) AS violations
 FROM (
-  SELECT CONCAT('ai_model_price_override_rate:',rate_row.`id`) AS entity
-  FROM `ai_model_price_override_rates` AS rate_row
-  LEFT JOIN `ai_model_price_overrides` AS override_row
+  SELECT CONCAT('ai_official_model_price_override_rate:',rate_row.`id`) AS entity
+  FROM `ai_official_model_price_override_rates` AS rate_row
+  LEFT JOIN `ai_official_model_price_overrides` AS override_row
     ON override_row.`id`=rate_row.`override_id`
   WHERE override_row.`id` IS NULL
   UNION ALL
-  SELECT CONCAT('ai_model_price_override_updater:',override_row.`id`)
-  FROM `ai_model_price_overrides` AS override_row
+  SELECT CONCAT('ai_official_model_price_override_updater:',override_row.`id`)
+  FROM `ai_official_model_price_overrides` AS override_row
   LEFT JOIN `users` AS updater ON updater.`id`=override_row.`updated_by`
   WHERE updater.`id` IS NULL
 ) orphan_rows;

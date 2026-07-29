@@ -1,0 +1,1553 @@
+{
+  "version": "official_models_v1",
+  "official_currency": "USD",
+  "billing_currency": "CNY",
+  "conversion_policy": "numeric_parity",
+  "models": [
+    {
+      "catalog_vendor": "openai",
+      "model_family": "gpt",
+      "model_id": "gpt-5.6-sol",
+      "aliases": [
+        "gpt-5.6"
+      ],
+      "lifecycle_status": "active",
+      "context_window_tokens": 1050000,
+      "max_output_tokens": 128000,
+      "context_tier_threshold_tokens": 272000,
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "supports_streaming": true,
+      "supports_tools": true,
+      "supports_structured_output": true,
+      "supported_parameters": [],
+      "native_file_input": false,
+      "pricing_profile": "standard_global",
+      "rates": [
+        {
+          "category": "input",
+          "unit": "token",
+          "tier_key": "short_context",
+          "price": "5",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_read",
+          "unit": "token",
+          "tier_key": "short_context",
+          "price": "0.5",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_write",
+          "unit": "token",
+          "tier_key": "short_context",
+          "price": "6.25",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "output",
+          "unit": "token",
+          "tier_key": "short_context",
+          "price": "30",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "input",
+          "unit": "token",
+          "tier_key": "long_context",
+          "price": "10",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_read",
+          "unit": "token",
+          "tier_key": "long_context",
+          "price": "1",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_write",
+          "unit": "token",
+          "tier_key": "long_context",
+          "price": "12.5",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "output",
+          "unit": "token",
+          "tier_key": "long_context",
+          "price": "45",
+          "unit_scale": 1000000
+        }
+      ],
+      "model_source_url": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+      "pricing_source_url": "https://developers.openai.com/api/docs/pricing",
+      "retrieved_at": "2026-07-27",
+      "review_after": "2026-10-27"
+    },
+    {
+      "catalog_vendor": "openai",
+      "model_family": "gpt",
+      "model_id": "gpt-5.6-terra",
+      "aliases": [],
+      "lifecycle_status": "active",
+      "context_window_tokens": 1050000,
+      "max_output_tokens": 128000,
+      "context_tier_threshold_tokens": 272000,
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "supports_streaming": true,
+      "supports_tools": true,
+      "supports_structured_output": true,
+      "supported_parameters": [],
+      "native_file_input": false,
+      "pricing_profile": "standard_global",
+      "rates": [
+        {
+          "category": "input",
+          "unit": "token",
+          "tier_key": "short_context",
+          "price": "2.5",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_read",
+          "unit": "token",
+          "tier_key": "short_context",
+          "price": "0.25",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_write",
+          "unit": "token",
+          "tier_key": "short_context",
+          "price": "3.125",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "output",
+          "unit": "token",
+          "tier_key": "short_context",
+          "price": "15",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "input",
+          "unit": "token",
+          "tier_key": "long_context",
+          "price": "5",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_read",
+          "unit": "token",
+          "tier_key": "long_context",
+          "price": "0.5",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_write",
+          "unit": "token",
+          "tier_key": "long_context",
+          "price": "6.25",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "output",
+          "unit": "token",
+          "tier_key": "long_context",
+          "price": "22.5",
+          "unit_scale": 1000000
+        }
+      ],
+      "model_source_url": "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+      "pricing_source_url": "https://developers.openai.com/api/docs/pricing",
+      "retrieved_at": "2026-07-27",
+      "review_after": "2026-10-27"
+    },
+    {
+      "catalog_vendor": "openai",
+      "model_family": "gpt",
+      "model_id": "gpt-5.6-luna",
+      "aliases": [],
+      "lifecycle_status": "active",
+      "context_window_tokens": 1050000,
+      "max_output_tokens": 128000,
+      "context_tier_threshold_tokens": 272000,
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "supports_streaming": true,
+      "supports_tools": true,
+      "supports_structured_output": true,
+      "supported_parameters": [],
+      "native_file_input": false,
+      "pricing_profile": "standard_global",
+      "rates": [
+        {
+          "category": "input",
+          "unit": "token",
+          "tier_key": "short_context",
+          "price": "1",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_read",
+          "unit": "token",
+          "tier_key": "short_context",
+          "price": "0.1",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_write",
+          "unit": "token",
+          "tier_key": "short_context",
+          "price": "1.25",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "output",
+          "unit": "token",
+          "tier_key": "short_context",
+          "price": "6",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "input",
+          "unit": "token",
+          "tier_key": "long_context",
+          "price": "2",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_read",
+          "unit": "token",
+          "tier_key": "long_context",
+          "price": "0.2",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_write",
+          "unit": "token",
+          "tier_key": "long_context",
+          "price": "2.5",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "output",
+          "unit": "token",
+          "tier_key": "long_context",
+          "price": "9",
+          "unit_scale": 1000000
+        }
+      ],
+      "model_source_url": "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
+      "pricing_source_url": "https://developers.openai.com/api/docs/pricing",
+      "retrieved_at": "2026-07-27",
+      "review_after": "2026-10-27"
+    },
+    {
+      "catalog_vendor": "openai",
+      "model_family": "gpt",
+      "model_id": "gpt-5.5",
+      "aliases": [],
+      "lifecycle_status": "active",
+      "context_window_tokens": 1050000,
+      "max_output_tokens": 128000,
+      "context_tier_threshold_tokens": 272000,
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "supports_streaming": true,
+      "supports_tools": true,
+      "supports_structured_output": true,
+      "supported_parameters": [],
+      "native_file_input": false,
+      "pricing_profile": "standard_global",
+      "rates": [
+        {
+          "category": "input",
+          "unit": "token",
+          "tier_key": "short_context",
+          "price": "5",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_read",
+          "unit": "token",
+          "tier_key": "short_context",
+          "price": "0.5",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "output",
+          "unit": "token",
+          "tier_key": "short_context",
+          "price": "30",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "input",
+          "unit": "token",
+          "tier_key": "long_context",
+          "price": "10",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_read",
+          "unit": "token",
+          "tier_key": "long_context",
+          "price": "1",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "output",
+          "unit": "token",
+          "tier_key": "long_context",
+          "price": "45",
+          "unit_scale": 1000000
+        }
+      ],
+      "model_source_url": "https://developers.openai.com/api/docs/models/gpt-5.5",
+      "pricing_source_url": "https://developers.openai.com/api/docs/pricing",
+      "retrieved_at": "2026-07-27",
+      "review_after": "2026-10-27"
+    },
+    {
+      "catalog_vendor": "openai",
+      "model_family": "gpt",
+      "model_id": "gpt-5.5-pro",
+      "aliases": [],
+      "lifecycle_status": "active",
+      "context_window_tokens": 1050000,
+      "max_output_tokens": 128000,
+      "context_tier_threshold_tokens": 272000,
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "supports_streaming": true,
+      "supports_tools": true,
+      "supports_structured_output": true,
+      "supported_parameters": [],
+      "native_file_input": false,
+      "pricing_profile": "standard_global",
+      "rates": [
+        {
+          "category": "input",
+          "unit": "token",
+          "tier_key": "short_context",
+          "price": "30",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "output",
+          "unit": "token",
+          "tier_key": "short_context",
+          "price": "180",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "input",
+          "unit": "token",
+          "tier_key": "long_context",
+          "price": "60",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "output",
+          "unit": "token",
+          "tier_key": "long_context",
+          "price": "270",
+          "unit_scale": 1000000
+        }
+      ],
+      "model_source_url": "https://developers.openai.com/api/docs/models/gpt-5.5-pro",
+      "pricing_source_url": "https://developers.openai.com/api/docs/pricing",
+      "retrieved_at": "2026-07-27",
+      "review_after": "2026-10-27"
+    },
+    {
+      "catalog_vendor": "openai",
+      "model_family": "gpt",
+      "model_id": "gpt-5.4",
+      "aliases": [],
+      "lifecycle_status": "active",
+      "context_window_tokens": 1050000,
+      "max_output_tokens": 128000,
+      "context_tier_threshold_tokens": 272000,
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "supports_streaming": true,
+      "supports_tools": true,
+      "supports_structured_output": true,
+      "supported_parameters": [],
+      "native_file_input": false,
+      "image_input": {
+        "mime_types": [
+          "image/jpeg",
+          "image/png",
+          "image/webp",
+          "image/gif"
+        ],
+        "max_files": 5,
+        "max_bytes": 10485760
+      },
+      "pricing_profile": "standard_global",
+      "rates": [
+        {
+          "category": "input",
+          "unit": "token",
+          "tier_key": "short_context",
+          "price": "2.5",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_read",
+          "unit": "token",
+          "tier_key": "short_context",
+          "price": "0.25",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "output",
+          "unit": "token",
+          "tier_key": "short_context",
+          "price": "15",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "input",
+          "unit": "token",
+          "tier_key": "long_context",
+          "price": "5",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_read",
+          "unit": "token",
+          "tier_key": "long_context",
+          "price": "0.5",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "output",
+          "unit": "token",
+          "tier_key": "long_context",
+          "price": "22.5",
+          "unit_scale": 1000000
+        }
+      ],
+      "model_source_url": "https://developers.openai.com/api/docs/models/gpt-5.4",
+      "pricing_source_url": "https://developers.openai.com/api/docs/pricing",
+      "retrieved_at": "2026-07-27",
+      "review_after": "2026-10-27"
+    },
+    {
+      "catalog_vendor": "openai",
+      "model_family": "gpt",
+      "model_id": "gpt-5.4-mini",
+      "aliases": [],
+      "lifecycle_status": "active",
+      "context_window_tokens": 1050000,
+      "max_output_tokens": 128000,
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "supports_streaming": true,
+      "supports_tools": true,
+      "supports_structured_output": true,
+      "supported_parameters": [],
+      "native_file_input": false,
+      "pricing_profile": "standard_global",
+      "rates": [
+        {
+          "category": "input",
+          "unit": "token",
+          "tier_key": "",
+          "price": "0.75",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_read",
+          "unit": "token",
+          "tier_key": "",
+          "price": "0.075",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "output",
+          "unit": "token",
+          "tier_key": "",
+          "price": "4.5",
+          "unit_scale": 1000000
+        }
+      ],
+      "model_source_url": "https://developers.openai.com/api/docs/models/gpt-5.4-mini",
+      "pricing_source_url": "https://developers.openai.com/api/docs/pricing",
+      "retrieved_at": "2026-07-27",
+      "review_after": "2026-10-27"
+    },
+    {
+      "catalog_vendor": "openai",
+      "model_family": "gpt",
+      "model_id": "gpt-5.4-nano",
+      "aliases": [],
+      "lifecycle_status": "active",
+      "context_window_tokens": 1050000,
+      "max_output_tokens": 128000,
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "supports_streaming": true,
+      "supports_tools": true,
+      "supports_structured_output": true,
+      "supported_parameters": [],
+      "native_file_input": false,
+      "pricing_profile": "standard_global",
+      "rates": [
+        {
+          "category": "input",
+          "unit": "token",
+          "tier_key": "",
+          "price": "0.2",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_read",
+          "unit": "token",
+          "tier_key": "",
+          "price": "0.02",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "output",
+          "unit": "token",
+          "tier_key": "",
+          "price": "1.25",
+          "unit_scale": 1000000
+        }
+      ],
+      "model_source_url": "https://developers.openai.com/api/docs/models/gpt-5.4-nano",
+      "pricing_source_url": "https://developers.openai.com/api/docs/pricing",
+      "retrieved_at": "2026-07-27",
+      "review_after": "2026-10-27"
+    },
+    {
+      "catalog_vendor": "openai",
+      "model_family": "gpt",
+      "model_id": "gpt-5.4-pro",
+      "aliases": [],
+      "lifecycle_status": "active",
+      "context_window_tokens": 1050000,
+      "max_output_tokens": 128000,
+      "context_tier_threshold_tokens": 272000,
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "supports_streaming": true,
+      "supports_tools": true,
+      "supports_structured_output": true,
+      "supported_parameters": [],
+      "native_file_input": false,
+      "pricing_profile": "standard_global",
+      "rates": [
+        {
+          "category": "input",
+          "unit": "token",
+          "tier_key": "short_context",
+          "price": "30",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "output",
+          "unit": "token",
+          "tier_key": "short_context",
+          "price": "180",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "input",
+          "unit": "token",
+          "tier_key": "long_context",
+          "price": "60",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "output",
+          "unit": "token",
+          "tier_key": "long_context",
+          "price": "270",
+          "unit_scale": 1000000
+        }
+      ],
+      "model_source_url": "https://developers.openai.com/api/docs/models/gpt-5.4-pro",
+      "pricing_source_url": "https://developers.openai.com/api/docs/pricing",
+      "retrieved_at": "2026-07-27",
+      "review_after": "2026-10-27"
+    },
+    {
+      "catalog_vendor": "openai",
+      "model_family": "gpt",
+      "model_id": "gpt-4.1",
+      "aliases": [
+        "gpt-4.1-latest"
+      ],
+      "lifecycle_status": "active",
+      "context_window_tokens": 1047576,
+      "max_output_tokens": 32768,
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "supports_streaming": true,
+      "supports_tools": true,
+      "supports_structured_output": true,
+      "supported_parameters": [
+        "temperature"
+      ],
+      "native_file_input": false,
+      "image_input": {
+        "mime_types": [
+          "image/jpeg",
+          "image/png",
+          "image/webp",
+          "image/gif"
+        ],
+        "max_files": 5,
+        "max_bytes": 10485760
+      },
+      "pricing_profile": "standard_global",
+      "rates": [
+        {
+          "category": "input",
+          "unit": "token",
+          "tier_key": "",
+          "price": "2",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_read",
+          "unit": "token",
+          "tier_key": "",
+          "price": "0.5",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "output",
+          "unit": "token",
+          "tier_key": "",
+          "price": "8",
+          "unit_scale": 1000000
+        }
+      ],
+      "model_source_url": "https://developers.openai.com/api/docs/models/gpt-4.1",
+      "pricing_source_url": "https://developers.openai.com/api/docs/pricing",
+      "retrieved_at": "2026-07-27",
+      "review_after": "2026-10-27"
+    },
+    {
+      "catalog_vendor": "openai",
+      "model_family": "gpt",
+      "model_id": "gpt-4.1-mini",
+      "aliases": [],
+      "lifecycle_status": "active",
+      "context_window_tokens": 1047576,
+      "max_output_tokens": 32768,
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "supports_streaming": true,
+      "supports_tools": true,
+      "supports_structured_output": true,
+      "supported_parameters": [
+        "temperature"
+      ],
+      "native_file_input": false,
+      "image_input": {
+        "mime_types": [
+          "image/jpeg",
+          "image/png",
+          "image/webp",
+          "image/gif"
+        ],
+        "max_files": 5,
+        "max_bytes": 10485760
+      },
+      "pricing_profile": "standard_global",
+      "rates": [
+        {
+          "category": "input",
+          "unit": "token",
+          "tier_key": "",
+          "price": "0.4",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_read",
+          "unit": "token",
+          "tier_key": "",
+          "price": "0.1",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "output",
+          "unit": "token",
+          "tier_key": "",
+          "price": "1.6",
+          "unit_scale": 1000000
+        }
+      ],
+      "model_source_url": "https://developers.openai.com/api/docs/models/gpt-4.1-mini",
+      "pricing_source_url": "https://developers.openai.com/api/docs/pricing",
+      "retrieved_at": "2026-07-27",
+      "review_after": "2026-10-27"
+    },
+    {
+      "catalog_vendor": "openai",
+      "model_family": "gpt",
+      "model_id": "gpt-4o",
+      "aliases": [],
+      "lifecycle_status": "active",
+      "context_window_tokens": 128000,
+      "max_output_tokens": 16384,
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "supports_streaming": true,
+      "supports_tools": true,
+      "supports_structured_output": true,
+      "supported_parameters": [
+        "temperature"
+      ],
+      "native_file_input": false,
+      "image_input": {
+        "mime_types": [
+          "image/jpeg",
+          "image/png",
+          "image/webp",
+          "image/gif"
+        ],
+        "max_files": 5,
+        "max_bytes": 10485760
+      },
+      "pricing_profile": "standard_global",
+      "rates": [
+        {
+          "category": "input",
+          "unit": "token",
+          "tier_key": "",
+          "price": "2.5",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_read",
+          "unit": "token",
+          "tier_key": "",
+          "price": "1.25",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "output",
+          "unit": "token",
+          "tier_key": "",
+          "price": "10",
+          "unit_scale": 1000000
+        }
+      ],
+      "model_source_url": "https://developers.openai.com/api/docs/models/gpt-4o",
+      "pricing_source_url": "https://developers.openai.com/api/docs/pricing",
+      "retrieved_at": "2026-07-27",
+      "review_after": "2026-10-27"
+    },
+    {
+      "catalog_vendor": "openai",
+      "model_family": "gpt",
+      "model_id": "gpt-4o-mini",
+      "aliases": [],
+      "lifecycle_status": "active",
+      "context_window_tokens": 128000,
+      "max_output_tokens": 16384,
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "supports_streaming": true,
+      "supports_tools": true,
+      "supports_structured_output": true,
+      "supported_parameters": [
+        "temperature"
+      ],
+      "native_file_input": false,
+      "image_input": {
+        "mime_types": [
+          "image/jpeg",
+          "image/png",
+          "image/webp",
+          "image/gif"
+        ],
+        "max_files": 5,
+        "max_bytes": 10485760
+      },
+      "pricing_profile": "standard_global",
+      "rates": [
+        {
+          "category": "input",
+          "unit": "token",
+          "tier_key": "",
+          "price": "0.15",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_read",
+          "unit": "token",
+          "tier_key": "",
+          "price": "0.075",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "output",
+          "unit": "token",
+          "tier_key": "",
+          "price": "0.6",
+          "unit_scale": 1000000
+        }
+      ],
+      "model_source_url": "https://developers.openai.com/api/docs/models/gpt-4o-mini",
+      "pricing_source_url": "https://developers.openai.com/api/docs/pricing",
+      "retrieved_at": "2026-07-27",
+      "review_after": "2026-10-27"
+    },
+    {
+      "catalog_vendor": "anthropic",
+      "model_family": "claude",
+      "model_id": "claude-fable-5",
+      "aliases": [],
+      "lifecycle_status": "active",
+      "context_window_tokens": 200000,
+      "max_output_tokens": 128000,
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "supports_streaming": true,
+      "supports_tools": true,
+      "supports_structured_output": false,
+      "supported_parameters": [
+        "temperature"
+      ],
+      "native_file_input": false,
+      "pricing_profile": "standard_global",
+      "rates": [
+        {
+          "category": "input",
+          "unit": "token",
+          "tier_key": "",
+          "price": "10",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_write",
+          "unit": "token",
+          "tier_key": "5m",
+          "price": "12.5",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_write",
+          "unit": "token",
+          "tier_key": "1h",
+          "price": "20",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_read",
+          "unit": "token",
+          "tier_key": "",
+          "price": "1",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "output",
+          "unit": "token",
+          "tier_key": "",
+          "price": "50",
+          "unit_scale": 1000000
+        }
+      ],
+      "model_source_url": "https://platform.claude.com/docs/en/about-claude/models/overview",
+      "pricing_source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "retrieved_at": "2026-07-27",
+      "review_after": "2026-10-27"
+    },
+    {
+      "catalog_vendor": "anthropic",
+      "model_family": "claude",
+      "model_id": "claude-opus-5",
+      "aliases": [],
+      "lifecycle_status": "active",
+      "context_window_tokens": 200000,
+      "max_output_tokens": 128000,
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "supports_streaming": true,
+      "supports_tools": true,
+      "supports_structured_output": false,
+      "supported_parameters": [
+        "temperature"
+      ],
+      "native_file_input": false,
+      "pricing_profile": "standard_global",
+      "rates": [
+        {
+          "category": "input",
+          "unit": "token",
+          "tier_key": "",
+          "price": "5",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_write",
+          "unit": "token",
+          "tier_key": "5m",
+          "price": "6.25",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_write",
+          "unit": "token",
+          "tier_key": "1h",
+          "price": "10",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_read",
+          "unit": "token",
+          "tier_key": "",
+          "price": "0.5",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "output",
+          "unit": "token",
+          "tier_key": "",
+          "price": "25",
+          "unit_scale": 1000000
+        }
+      ],
+      "model_source_url": "https://platform.claude.com/docs/en/about-claude/models/overview",
+      "pricing_source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "retrieved_at": "2026-07-27",
+      "review_after": "2026-10-27"
+    },
+    {
+      "catalog_vendor": "anthropic",
+      "model_family": "claude",
+      "model_id": "claude-sonnet-5",
+      "aliases": [],
+      "lifecycle_status": "active",
+      "context_window_tokens": 200000,
+      "max_output_tokens": 128000,
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "supports_streaming": true,
+      "supports_tools": true,
+      "supports_structured_output": false,
+      "supported_parameters": [
+        "temperature"
+      ],
+      "native_file_input": false,
+      "pricing_profile": "standard_global",
+      "rates": [
+        {
+          "category": "input",
+          "unit": "token",
+          "tier_key": "",
+          "price": "2",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_write",
+          "unit": "token",
+          "tier_key": "5m",
+          "price": "2.5",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_write",
+          "unit": "token",
+          "tier_key": "1h",
+          "price": "4",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_read",
+          "unit": "token",
+          "tier_key": "",
+          "price": "0.2",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "output",
+          "unit": "token",
+          "tier_key": "",
+          "price": "10",
+          "unit_scale": 1000000
+        }
+      ],
+      "model_source_url": "https://platform.claude.com/docs/en/about-claude/models/overview",
+      "pricing_source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "retrieved_at": "2026-07-27",
+      "review_after": "2026-10-27"
+    },
+    {
+      "catalog_vendor": "anthropic",
+      "model_family": "claude",
+      "model_id": "claude-haiku-4-5-20251001",
+      "aliases": [
+        "claude-haiku-4-5"
+      ],
+      "lifecycle_status": "active",
+      "context_window_tokens": 200000,
+      "max_output_tokens": 64000,
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "supports_streaming": true,
+      "supports_tools": true,
+      "supports_structured_output": false,
+      "supported_parameters": [
+        "temperature"
+      ],
+      "native_file_input": false,
+      "pricing_profile": "standard_global",
+      "rates": [
+        {
+          "category": "input",
+          "unit": "token",
+          "tier_key": "",
+          "price": "1",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_write",
+          "unit": "token",
+          "tier_key": "5m",
+          "price": "1.25",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_write",
+          "unit": "token",
+          "tier_key": "1h",
+          "price": "2",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_read",
+          "unit": "token",
+          "tier_key": "",
+          "price": "0.1",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "output",
+          "unit": "token",
+          "tier_key": "",
+          "price": "5",
+          "unit_scale": 1000000
+        }
+      ],
+      "model_source_url": "https://platform.claude.com/docs/en/about-claude/models/overview",
+      "pricing_source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "retrieved_at": "2026-07-27",
+      "review_after": "2026-10-27"
+    },
+    {
+      "catalog_vendor": "anthropic",
+      "model_family": "claude",
+      "model_id": "claude-opus-4-8",
+      "aliases": [],
+      "lifecycle_status": "active",
+      "context_window_tokens": 200000,
+      "max_output_tokens": 128000,
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "supports_streaming": true,
+      "supports_tools": true,
+      "supports_structured_output": false,
+      "supported_parameters": [
+        "temperature"
+      ],
+      "native_file_input": false,
+      "pricing_profile": "standard_global",
+      "rates": [
+        {
+          "category": "input",
+          "unit": "token",
+          "tier_key": "",
+          "price": "5",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_write",
+          "unit": "token",
+          "tier_key": "5m",
+          "price": "6.25",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_write",
+          "unit": "token",
+          "tier_key": "1h",
+          "price": "10",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_read",
+          "unit": "token",
+          "tier_key": "",
+          "price": "0.5",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "output",
+          "unit": "token",
+          "tier_key": "",
+          "price": "25",
+          "unit_scale": 1000000
+        }
+      ],
+      "model_source_url": "https://platform.claude.com/docs/en/about-claude/models/overview",
+      "pricing_source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "retrieved_at": "2026-07-27",
+      "review_after": "2026-10-27"
+    },
+    {
+      "catalog_vendor": "anthropic",
+      "model_family": "claude",
+      "model_id": "claude-opus-4-7",
+      "aliases": [],
+      "lifecycle_status": "active",
+      "context_window_tokens": 200000,
+      "max_output_tokens": 128000,
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "supports_streaming": true,
+      "supports_tools": true,
+      "supports_structured_output": false,
+      "supported_parameters": [
+        "temperature"
+      ],
+      "native_file_input": false,
+      "pricing_profile": "standard_global",
+      "rates": [
+        {
+          "category": "input",
+          "unit": "token",
+          "tier_key": "",
+          "price": "5",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_write",
+          "unit": "token",
+          "tier_key": "5m",
+          "price": "6.25",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_write",
+          "unit": "token",
+          "tier_key": "1h",
+          "price": "10",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_read",
+          "unit": "token",
+          "tier_key": "",
+          "price": "0.5",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "output",
+          "unit": "token",
+          "tier_key": "",
+          "price": "25",
+          "unit_scale": 1000000
+        }
+      ],
+      "model_source_url": "https://platform.claude.com/docs/en/about-claude/models/overview",
+      "pricing_source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "retrieved_at": "2026-07-27",
+      "review_after": "2026-10-27"
+    },
+    {
+      "catalog_vendor": "anthropic",
+      "model_family": "claude",
+      "model_id": "claude-opus-4-6",
+      "aliases": [],
+      "lifecycle_status": "active",
+      "context_window_tokens": 200000,
+      "max_output_tokens": 128000,
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "supports_streaming": true,
+      "supports_tools": true,
+      "supports_structured_output": false,
+      "supported_parameters": [
+        "temperature"
+      ],
+      "native_file_input": false,
+      "pricing_profile": "standard_global",
+      "rates": [
+        {
+          "category": "input",
+          "unit": "token",
+          "tier_key": "",
+          "price": "5",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_write",
+          "unit": "token",
+          "tier_key": "5m",
+          "price": "6.25",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_write",
+          "unit": "token",
+          "tier_key": "1h",
+          "price": "10",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_read",
+          "unit": "token",
+          "tier_key": "",
+          "price": "0.5",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "output",
+          "unit": "token",
+          "tier_key": "",
+          "price": "25",
+          "unit_scale": 1000000
+        }
+      ],
+      "model_source_url": "https://platform.claude.com/docs/en/about-claude/models/overview",
+      "pricing_source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "retrieved_at": "2026-07-27",
+      "review_after": "2026-10-27"
+    },
+    {
+      "catalog_vendor": "anthropic",
+      "model_family": "claude",
+      "model_id": "claude-sonnet-4-6",
+      "aliases": [],
+      "lifecycle_status": "active",
+      "context_window_tokens": 200000,
+      "max_output_tokens": 64000,
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "supports_streaming": true,
+      "supports_tools": true,
+      "supports_structured_output": false,
+      "supported_parameters": [
+        "temperature"
+      ],
+      "native_file_input": false,
+      "pricing_profile": "standard_global",
+      "rates": [
+        {
+          "category": "input",
+          "unit": "token",
+          "tier_key": "",
+          "price": "3",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_write",
+          "unit": "token",
+          "tier_key": "5m",
+          "price": "3.75",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_write",
+          "unit": "token",
+          "tier_key": "1h",
+          "price": "6",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_read",
+          "unit": "token",
+          "tier_key": "",
+          "price": "0.3",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "output",
+          "unit": "token",
+          "tier_key": "",
+          "price": "15",
+          "unit_scale": 1000000
+        }
+      ],
+      "model_source_url": "https://platform.claude.com/docs/en/about-claude/models/overview",
+      "pricing_source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "retrieved_at": "2026-07-27",
+      "review_after": "2026-10-27"
+    },
+    {
+      "catalog_vendor": "anthropic",
+      "model_family": "claude",
+      "model_id": "claude-sonnet-4-5-20250929",
+      "aliases": [
+        "claude-sonnet-4-5"
+      ],
+      "lifecycle_status": "active",
+      "context_window_tokens": 200000,
+      "max_output_tokens": 64000,
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "supports_streaming": true,
+      "supports_tools": true,
+      "supports_structured_output": false,
+      "supported_parameters": [
+        "temperature"
+      ],
+      "native_file_input": false,
+      "pricing_profile": "standard_global",
+      "rates": [
+        {
+          "category": "input",
+          "unit": "token",
+          "tier_key": "",
+          "price": "3",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_write",
+          "unit": "token",
+          "tier_key": "5m",
+          "price": "3.75",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_write",
+          "unit": "token",
+          "tier_key": "1h",
+          "price": "6",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_read",
+          "unit": "token",
+          "tier_key": "",
+          "price": "0.3",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "output",
+          "unit": "token",
+          "tier_key": "",
+          "price": "15",
+          "unit_scale": 1000000
+        }
+      ],
+      "model_source_url": "https://platform.claude.com/docs/en/about-claude/models/overview",
+      "pricing_source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "retrieved_at": "2026-07-27",
+      "review_after": "2026-10-27"
+    },
+    {
+      "catalog_vendor": "anthropic",
+      "model_family": "claude",
+      "model_id": "claude-opus-4-5-20251101",
+      "aliases": [
+        "claude-opus-4-5"
+      ],
+      "lifecycle_status": "active",
+      "context_window_tokens": 200000,
+      "max_output_tokens": 64000,
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "supports_streaming": true,
+      "supports_tools": true,
+      "supports_structured_output": false,
+      "supported_parameters": [
+        "temperature"
+      ],
+      "native_file_input": false,
+      "pricing_profile": "standard_global",
+      "rates": [
+        {
+          "category": "input",
+          "unit": "token",
+          "tier_key": "",
+          "price": "5",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_write",
+          "unit": "token",
+          "tier_key": "5m",
+          "price": "6.25",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_write",
+          "unit": "token",
+          "tier_key": "1h",
+          "price": "10",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "cache_read",
+          "unit": "token",
+          "tier_key": "",
+          "price": "0.5",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "output",
+          "unit": "token",
+          "tier_key": "",
+          "price": "25",
+          "unit_scale": 1000000
+        }
+      ],
+      "model_source_url": "https://platform.claude.com/docs/en/about-claude/models/overview",
+      "pricing_source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "retrieved_at": "2026-07-27",
+      "review_after": "2026-10-27"
+    },
+    {
+      "catalog_vendor": "openai",
+      "model_family": "image",
+      "model_id": "gpt-image-2",
+      "aliases": [],
+      "lifecycle_status": "active",
+      "context_window_tokens": 1000000,
+      "max_output_tokens": 355785,
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "image"
+      ],
+      "supports_streaming": false,
+      "supports_tools": false,
+      "supports_structured_output": false,
+      "supported_parameters": [],
+      "native_file_input": false,
+      "rates": [
+        {
+          "category": "input",
+          "unit": "token",
+          "tier_key": "",
+          "price": "5",
+          "unit_scale": 1000000
+        },
+        {
+          "category": "output",
+          "unit": "token",
+          "tier_key": "",
+          "price": "30",
+          "unit_scale": 1000000
+        }
+      ],
+      "model_source_url": "https://developers.openai.com/api/docs/models/gpt-image-2",
+      "pricing_source_url": "https://developers.openai.com/api/docs/pricing",
+      "retrieved_at": "2026-07-27",
+      "review_after": "2026-10-27"
+    }
+  ]
+}

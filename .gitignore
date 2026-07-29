@@ -21,7 +21,6 @@ coverage.out
 
 # IDE/editor metadata
 .idea/
-.worktrees/
 
 deploy/docker-first/.docker-bin/
 deploy/docker-first/.env

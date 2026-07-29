@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"admin_back_go/internal/infra/database"
 	"admin_back_go/internal/shared/enum"
@@ -72,6 +73,7 @@ func (r *GormRepository) Detail(ctx context.Context, id int64) (*RunDetailRow, e
 	}
 	var row RunDetailRow
 	err := r.runsBase(ctx).
+		Joins("LEFT JOIN ai_reply_commands rc ON rc.user_id = r.user_id AND rc.request_id = r.request_id").
 		Select(`r.id, r.request_id, r.user_id, COALESCE(u.username, '') as username,
 			r.agent_id, COALESCE(a.name, '') as agent_name,
 			r.provider_id, COALESCE(p.name, '') as provider_name,
@@ -80,7 +82,8 @@ func (r *GormRepository) Detail(ctx context.Context, id int64) (*RunDetailRow, e
 			r.status, r.model_id, r.model_display_name,
 			r.prompt_tokens, r.completion_tokens, r.total_tokens, r.duration_ms, r.error_message,
 			r.pricing_snapshot_json, r.billing_status, r.billing_reason,
-			r.started_at, r.finished_at, r.liked_at, r.created_at, r.updated_at`).
+			r.started_at, r.finished_at, r.settled_at, r.liked_at, r.created_at, r.updated_at,
+			rc.request_received_at, rc.accepted_at, rc.claimed_at, COALESCE(rc.claim_source, '') AS claim_source`).
 		Where("r.id = ?", id).
 		Scan(&row).Error
 	if err != nil {
@@ -126,13 +129,37 @@ func (r *GormRepository) BillingDetail(ctx context.Context, runID int64) (*Charg
 
 	attempts := make([]ProviderAttemptRow, 0)
 	if err := r.db.WithContext(ctx).Table("ai_provider_attempts").
-		Select("id, attempt_no, state, provider_request_id, usage_status, usage_json").
+		Select("id, attempt_no, state, provider_request_id, usage_status, usage_json, prepared_request_json, prepare_started_at, dispatched_at, first_delta_at, finished_at").
 		Where("run_id = ?", runID).
 		Order("attempt_no ASC").
 		Scan(&attempts).Error; err != nil {
 		return nil, nil, nil, err
 	}
 	return chargePtr, items, attempts, nil
+}
+
+func (r *GormRepository) LatencySamples(ctx context.Context, since time.Time, limit int) ([]LatencySampleRow, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	if since.IsZero() {
+		return nil, errors.New("latency sample start time is required")
+	}
+	if limit <= 0 || limit > 10000 {
+		limit = 10000
+	}
+	rows := make([]LatencySampleRow, 0)
+	err := r.db.WithContext(ctx).Table("ai_provider_attempts attempt_row").
+		Select(`run_row.provider_id, COALESCE(provider_row.name, '') AS provider_name, run_row.model_id,
+			attempt_row.dispatched_at, attempt_row.first_delta_at, attempt_row.finished_at`).
+		Joins("JOIN ai_runs run_row ON run_row.id = attempt_row.run_id").
+		Joins("LEFT JOIN ai_providers provider_row ON provider_row.id = run_row.provider_id").
+		Where("run_row.created_at >= ?", since).
+		Where("attempt_row.state IN ?", []string{"succeeded", "failed", "canceled", "outcome_unknown"}).
+		Order("attempt_row.finished_at DESC, attempt_row.id DESC").
+		Limit(limit).
+		Scan(&rows).Error
+	return rows, err
 }
 
 func (r *GormRepository) Events(ctx context.Context, runID int64) ([]EventRow, error) {

@@ -245,12 +245,6 @@ table "ai_agents" {
     unsigned = true
     default  = 1000000
   }
-  column "max_output_tokens" {
-    null     = false
-    type     = int
-    unsigned = true
-    default  = 4096
-  }
   column "scenes_json" {
     null = true
     type = json
@@ -1397,7 +1391,7 @@ table "ai_prompts" {
     columns = [column.slug]
   }
 }
-table "ai_model_price_overrides" {
+table "ai_official_model_price_overrides" {
   schema  = schema.admin
   comment = "Current canonical AI model price overrides"
   column "id" {
@@ -1450,15 +1444,15 @@ table "ai_model_price_overrides" {
   primary_key {
     columns = [column.id]
   }
-  index "uk_ai_model_price_overrides_identity" {
+  index "uk_ai_official_model_price_overrides_identity" {
     unique  = true
     columns = [column.catalog_vendor, column.model_id]
   }
-  check "chk_ai_model_price_overrides_version" {
+  check "chk_ai_official_model_price_overrides_version" {
     expr = "(`version` > 0)"
   }
 }
-table "ai_model_price_override_rates" {
+table "ai_official_model_price_override_rates" {
   schema  = schema.admin
   comment = "Complete rate set for an AI model price override"
   column "id" {
@@ -1503,26 +1497,26 @@ table "ai_model_price_override_rates" {
   primary_key {
     columns = [column.id]
   }
-  foreign_key "fk_ai_model_price_override_rates_override" {
+  foreign_key "fk_ai_official_model_price_override_rates_override" {
     columns     = [column.override_id]
-    ref_columns = [table.ai_model_price_overrides.column.id]
+    ref_columns = [table.ai_official_model_price_overrides.column.id]
     on_update   = RESTRICT
     on_delete   = CASCADE
   }
-  index "uk_ai_model_price_override_rates_key" {
+  index "uk_ai_official_model_price_override_rates_key" {
     unique  = true
     columns = [column.override_id, column.category, column.unit, column.tier_key]
   }
-  check "chk_ai_model_price_override_rates_category" {
-    expr = "(`category` in (_ascii'input',_ascii'output',_ascii'cache_read',_ascii'cache_write'))"
+  check "chk_ai_official_model_price_override_rates_category" {
+    expr = "(`category` in (_ascii'input',_ascii'output',_ascii'cache_read',_ascii'cache_write',_ascii'media'))"
   }
-  check "chk_ai_model_price_override_rates_unit" {
-    expr = "(`unit` = _ascii'token')"
+  check "chk_ai_official_model_price_override_rates_unit" {
+    expr = "(char_length(trim(`unit`)) > 0)"
   }
-  check "chk_ai_model_price_override_rates_price" {
+  check "chk_ai_official_model_price_override_rates_price" {
     expr = "(`price_units` >= 0)"
   }
-  check "chk_ai_model_price_override_rates_scale" {
+  check "chk_ai_official_model_price_override_rates_scale" {
     expr = "(`unit_scale` > 0)"
   }
 }
@@ -1602,7 +1596,15 @@ table "ai_provider_attempts" {
     type    = varchar(64)
     default = ""
   }
+  column "prepare_started_at" {
+    null = true
+    type = datetime(6)
+  }
   column "dispatched_at" {
+    null = true
+    type = datetime(6)
+  }
+  column "first_delta_at" {
     null = true
     type = datetime(6)
   }
@@ -1677,6 +1679,29 @@ table "ai_provider_models" {
     type    = varchar(191)
     default = ""
   }
+  column "official_model_id" {
+    null    = true
+    type    = varchar(191)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "official_catalog_version" {
+    null    = true
+    type    = varchar(64)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "mapping_status" {
+    null    = false
+    type    = varchar(16)
+    charset = "ascii"
+    collate = "ascii_bin"
+    default = "unmapped"
+  }
+  column "mapped_at" {
+    null = true
+    type = datetime(6)
+  }
   column "status" {
     null     = false
     type     = tinyint
@@ -1700,9 +1725,18 @@ table "ai_provider_models" {
   index "idx_ai_provider_models_provider_status" {
     columns = [column.provider_id, column.status]
   }
+  index "idx_ai_provider_models_official_mapping" {
+    columns = [column.mapping_status, column.official_model_id, column.status]
+  }
   index "uk_ai_provider_models_provider_model" {
     unique  = true
     columns = [column.provider_id, column.model_id]
+  }
+  check "chk_ai_provider_models_mapping_status" {
+    expr = "(`mapping_status` in (_ascii'mapped',_ascii'unmapped'))"
+  }
+  check "chk_ai_provider_models_mapping" {
+    expr = "(((`mapping_status` = _ascii'mapped') and (`official_model_id` is not null) and (`official_catalog_version` is not null) and (`mapped_at` is not null)) or ((`mapping_status` = _ascii'unmapped') and (`official_model_id` is null) and (`official_catalog_version` is null) and (`mapped_at` is null)))"
   }
 }
 table "ai_providers" {
@@ -1850,6 +1884,23 @@ table "ai_reply_commands" {
     null = true
     type = bigint
   }
+  column "request_received_at" {
+    null = true
+    type = datetime(6)
+  }
+  column "accepted_at" {
+    null = true
+    type = datetime(6)
+  }
+  column "claimed_at" {
+    null = true
+    type = datetime(6)
+  }
+  column "claim_source" {
+    null    = false
+    type    = varchar(16)
+    default = ""
+  }
   column "state" {
     null    = false
     type    = varchar(32)
@@ -1946,6 +1997,9 @@ table "ai_reply_commands" {
   }
   check "chk_ai_reply_state" {
     expr = "(`state` in (_utf8mb4'pending',_utf8mb4'claimed',_utf8mb4'running',_utf8mb4'succeeded',_utf8mb4'failed',_utf8mb4'canceled',_utf8mb4'outcome_unknown',_utf8mb4'timed_out'))"
+  }
+  check "chk_ai_reply_claim_source" {
+    expr = "(`claim_source` in (_utf8mb4'',_utf8mb4'wake',_utf8mb4'poll',_utf8mb4'recovery'))"
   }
   check "chk_ai_reply_request_identity" {
     expr = "(((`request_identity_status` = _utf8mb4'replayable') and (`request_identity_marker` = _utf8mb4'')) or ((`request_identity_status` = _utf8mb4'legacy_non_replayable') and (`request_identity_marker` like _utf8mb4'legacy_non_replayable_v1:ai_runs:%')))"
@@ -2168,6 +2222,11 @@ table "ai_runs" {
     null    = true
     type    = datetime
     comment = "进入终态时间"
+  }
+  column "settled_at" {
+    null    = true
+    type    = datetime(6)
+    comment = "终态结算时间"
   }
   column "liked_at" {
     null = true

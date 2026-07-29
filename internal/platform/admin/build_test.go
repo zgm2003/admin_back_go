@@ -109,22 +109,67 @@ func TestBuildAIMessageRepositoryUsesDurableRealtimeSink(t *testing.T) {
 	}
 }
 
-func TestBuildWiresOneAuthoritativeAIModelPricingResolver(t *testing.T) {
+func TestBuildWiresOneAuthoritativeOfficialModelResolver(t *testing.T) {
 	compact := compactAdminBuild(t)
 	for _, want := range []string{
-		"aiModelPricingResolver := modelpricing.NewService(modelpricing.NewGormRepository(resources.DB))",
-		"aiagent.WithPricingResolver(aiModelPricingResolver)",
-		"aitool.WithPricingResolver(aiModelPricingResolver)",
-		"PricingResolver: aiModelPricingResolver",
-		"aimessage.WithRepositoryPricingResolver(aiModelPricingResolver)",
-		"aimessage.WithPricingResolver(aiModelPricingResolver)",
+		"aiOfficialModelResolver := officialmodel.NewService(officialmodel.NewGormRepository(resources.DB))",
+		"aiagent.WithPricingResolver(aiOfficialModelResolver)",
+		"aitool.WithPricingResolver(aiOfficialModelResolver)",
+		"PricingResolver: aiOfficialModelResolver",
+		"aimessage.WithRepositoryPricingResolver(aiOfficialModelResolver)",
+		"aimessage.WithPricingResolver(aiOfficialModelResolver)",
 	} {
 		if !strings.Contains(compact, want) {
 			t.Fatalf("Admin AI pricing composition missing %q", want)
 		}
 	}
-	if strings.Count(compact, "modelpricing.NewService(modelpricing.NewGormRepository(resources.DB))") != 1 {
-		t.Fatal("Admin Build must instantiate exactly one authoritative model pricing resolver")
+	if strings.Count(compact, "officialmodel.NewService(officialmodel.NewGormRepository(resources.DB))") != 1 {
+		t.Fatal("Admin Build must instantiate exactly one authoritative official model resolver")
+	}
+}
+
+func TestBuildReconcilesProviderMappingsWithAuthoritativeResolver(t *testing.T) {
+	compact := compactAdminBuild(t)
+	for _, want := range []string{
+		"aiProviderRepository := aiprovider.NewGormRepository(resources.DB)",
+		"aiprovider.WithOfficialModelMatcher(aiOfficialModelResolver)",
+		"aiProviderService.ReconcileOfficialModelMappings(reconcileCtx)",
+	} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("Admin provider mapping composition missing %q", want)
+		}
+	}
+	resolverIndex := strings.Index(compact, "aiOfficialModelResolver :=")
+	providerIndex := strings.Index(compact, "aiProviderService :=")
+	if resolverIndex < 0 || providerIndex < 0 || resolverIndex > providerIndex {
+		t.Fatal("official model resolver must be constructed before provider service")
+	}
+}
+
+func TestBuildWiresMessageCapabilitiesAndTrustedObjectInspection(t *testing.T) {
+	compact := compactAdminBuild(t)
+	for _, want := range []string{
+		"uploadTokenRepository := uploadtoken.NewGormRepository(resources.DB)",
+		"storagecos.NewObjectInspector( uploadtoken.NewObjectConfigProvider(uploadTokenRepository, providers.Secretbox)",
+		"aimessage.WithTransportCapabilityResolver(providers.AITransportCapabilities)",
+		"aimessage.WithObjectInspector(aiChatObjectInspector)",
+	} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("Admin AI message capability composition missing %q", want)
+		}
+	}
+}
+
+func TestBuildUsesRuntimeChatConstructorWithDefaultToolRuntime(t *testing.T) {
+	compact := compactAdminBuild(t)
+	for _, want := range []string{
+		"aiToolRepository := aitool.NewGormRepository(resources.DB)",
+		"aitool.DefaultExecutors(aiToolRepository)",
+		"aiChatService, err := aichat.NewRuntimeService(aichat.Dependencies{",
+	} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("Admin AI tool composition missing %q", want)
+		}
 	}
 }
 

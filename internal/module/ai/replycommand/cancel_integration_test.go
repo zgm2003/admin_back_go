@@ -66,7 +66,7 @@ func TestRequestCancelIsDurableAndIdempotentForPendingAndRunningCommands(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	claim, err := repository.ClaimByID(ctx, running.CommandID, "worker-a", now, time.Minute)
+	claim, err := repository.ClaimByID(ctx, running.CommandID, ClaimSourcePoll, "worker-a", now, time.Minute)
 	if err != nil || claim == nil {
 		t.Fatalf("claim=%+v err=%v", claim, err)
 	}

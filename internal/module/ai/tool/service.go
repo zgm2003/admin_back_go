@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/module/ai/aigateway"
-	"admin_back_go/internal/module/ai/modelpricing"
+	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/pricing"
 	"admin_back_go/internal/module/ai/requestidentity"
 	aitext "admin_back_go/internal/module/ai/text"
@@ -29,7 +29,7 @@ type Service struct {
 	repository Repository
 	executors  map[string]Executor
 	draftTasks DraftTaskService
-	pricing    modelpricing.Resolver
+	pricing    officialmodel.Resolver
 	now        func() time.Time
 }
 
@@ -41,7 +41,7 @@ func WithDraftTaskService(tasks DraftTaskService) Option {
 	}
 }
 
-func WithPricingResolver(resolver modelpricing.Resolver) Option {
+func WithPricingResolver(resolver officialmodel.Resolver) Option {
 	return func(s *Service) { s.pricing = resolver }
 }
 
@@ -152,7 +152,7 @@ func (s *Service) GenerateDraft(ctx context.Context, input GenerateDraftInput) (
 	if strings.TrimSpace(agent.SystemPrompt) == "" {
 		return nil, toolGenerationError(aitext.ErrorCodeConfiguration, apperror.CategoryValidation, 400, "AI生成智能体系统提示词未配置", nil)
 	}
-	if agent.AgentID == 0 || agent.ProviderID == 0 || strings.TrimSpace(agent.ModelID) == "" || strings.TrimSpace(agent.EngineType) == "" || agent.BillingMultiplierPPM <= 0 || agent.MaxOutputTokens <= 0 {
+	if agent.AgentID == 0 || agent.ProviderID == 0 || agent.ProviderModelStatus != enum.CommonYes || strings.TrimSpace(agent.ModelID) == "" || strings.TrimSpace(agent.EngineType) == "" || agent.BillingMultiplierPPM <= 0 {
 		return nil, toolGenerationError(aitext.ErrorCodeConfiguration, apperror.CategoryValidation, 400, "AI生成智能体计费配置无效", nil)
 	}
 	pricingSnapshotJSON, effectiveMaxOutputTokens, appErr := s.toolDraftPricingSnapshot(ctx, *agent)
@@ -368,6 +368,16 @@ func (s *Service) UpdateAgentTools(ctx context.Context, agentID uint64, input Up
 		if !activeSet[id] {
 			return apperror.BadRequest("绑定工具不存在或已禁用")
 		}
+		tool, err := repo.GetRaw(ctx, id)
+		if err != nil {
+			return apperror.LegacyWrap(apperror.CodeInternal, 500, "查询可绑定AI工具失败", err)
+		}
+		if tool == nil || tool.RiskLevel != RiskLow {
+			return apperror.BadRequest("仅允许绑定低风险AI工具")
+		}
+		if !s.executorRegistered(tool.Code) {
+			return apperror.BadRequest("AI工具编码未注册服务端实现")
+		}
 	}
 	if err := repo.ReplaceAgentTools(ctx, agentID, toolIDs); err != nil {
 		return apperror.LegacyWrap(apperror.CodeInternal, 500, "更新智能体工具绑定失败", err)
@@ -392,6 +402,9 @@ func (s *Service) ListRuntimeTools(ctx context.Context, agentID uint64) ([]Runti
 		if row.ToolStatus != enum.CommonYes || row.BindingStatus != enum.CommonYes {
 			continue
 		}
+		if row.RiskLevel != RiskLow || !s.executorRegistered(row.Code) {
+			continue
+		}
 		tool, appErr := runtimeTool(row)
 		if appErr != nil {
 			return nil, appErr
@@ -410,15 +423,26 @@ func (s *Service) Execute(ctx context.Context, input ExecuteInput) (*ExecuteResu
 		return nil, apperror.BadRequest("AI工具调用参数错误")
 	}
 	startedAt := s.nowTime()
-	callID, err := repo.StartToolCall(ctx, StartToolCallInput{RunID: input.RunID, ToolID: input.Tool.ID, ToolCode: input.Tool.Code, ToolName: input.Tool.Name, CallID: input.CallID, ArgumentsJSON: input.Arguments, StartedAt: startedAt})
+	auditArguments := input.Arguments
+	if !json.Valid(auditArguments) {
+		auditArguments = invalidJSONAuditEnvelope(auditArguments)
+	}
+	callID, err := repo.StartToolCall(ctx, StartToolCallInput{RunID: input.RunID, ToolID: input.Tool.ID, ToolCode: input.Tool.Code, ToolName: input.Tool.Name, CallID: input.CallID, ArgumentsJSON: auditArguments, StartedAt: startedAt})
 	if err != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "创建AI工具调用记录失败", err)
+	}
+	if input.Tool.RiskLevel != RiskLow {
+		msg := "仅允许执行低风险AI工具"
+		return nil, s.finishToolCallFailure(repo, callID, startedAt, ToolCallFailed, msg, apperror.BadRequest(msg))
 	}
 	executor := s.executors[strings.TrimSpace(input.Tool.Code)]
 	if executor == nil {
 		msg := "AI工具服务端实现未注册"
-		_ = repo.FinishToolCall(context.Background(), FinishToolCallInput{ID: callID, Status: ToolCallFailed, ErrorMessage: msg, DurationMS: durationMS(startedAt, s.nowTime()), FinishedAt: s.nowTime()})
-		return nil, apperror.BadRequest(msg)
+		return nil, s.finishToolCallFailure(repo, callID, startedAt, ToolCallFailed, msg, apperror.BadRequest(msg))
+	}
+	if err := validateJSONAgainstSchema(input.Tool.ParametersJSON, input.Arguments); err != nil {
+		msg := "AI工具参数不符合Schema"
+		return nil, s.finishToolCallFailure(repo, callID, startedAt, ToolCallFailed, msg, apperror.BadRequest(msg))
 	}
 	timeout := time.Duration(input.Tool.TimeoutMS) * time.Millisecond
 	if timeout <= 0 {
@@ -428,25 +452,44 @@ func (s *Service) Execute(ctx context.Context, input ExecuteInput) (*ExecuteResu
 	defer cancel()
 	result, execErr := executor.Execute(toolCtx, input.Arguments)
 	finishedAt := s.nowTime()
-	if execErr != nil {
+	if execErr != nil || errors.Is(toolCtx.Err(), context.DeadlineExceeded) {
 		status := ToolCallFailed
 		if errors.Is(execErr, context.DeadlineExceeded) || errors.Is(toolCtx.Err(), context.DeadlineExceeded) {
 			status = ToolCallTimeout
 		}
-		_ = repo.FinishToolCall(context.Background(), FinishToolCallInput{ID: callID, Status: status, ErrorMessage: execErr.Error(), DurationMS: durationMS(startedAt, finishedAt), FinishedAt: finishedAt})
-		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "执行AI工具失败", execErr)
+		if execErr == nil {
+			execErr = toolCtx.Err()
+		}
+		return nil, s.finishToolCallFailure(repo, callID, startedAt, status, execErr.Error(), apperror.LegacyWrap(apperror.CodeInternal, 500, "执行AI工具失败", execErr))
 	}
 	output, err := json.Marshal(result)
 	if err != nil {
 		msg := "AI工具结果不是合法JSON"
-		_ = repo.FinishToolCall(context.Background(), FinishToolCallInput{ID: callID, Status: ToolCallFailed, ErrorMessage: msg, DurationMS: durationMS(startedAt, finishedAt), FinishedAt: finishedAt})
-		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, msg, err)
+		return nil, s.finishToolCallFailure(repo, callID, startedAt, ToolCallFailed, msg, apperror.LegacyWrap(apperror.CodeInternal, 500, msg, err))
 	}
 	raw := json.RawMessage(output)
+	if err := validateJSONAgainstSchema(input.Tool.ResultSchemaJSON, raw); err != nil {
+		msg := "AI工具结果不符合Schema"
+		return nil, s.finishToolCallFailure(repo, callID, startedAt, ToolCallFailed, msg, apperror.LegacyWrap(apperror.CodeInternal, 500, msg, err))
+	}
 	if err := repo.FinishToolCall(context.Background(), FinishToolCallInput{ID: callID, Status: ToolCallSuccess, ResultJSON: &raw, DurationMS: durationMS(startedAt, finishedAt), FinishedAt: finishedAt}); err != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "更新AI工具调用记录失败", err)
 	}
 	return &ExecuteResult{CallID: input.CallID, Name: input.Tool.Code, Output: raw}, nil
+}
+
+func (s *Service) finishToolCallFailure(repo Repository, callID uint64, startedAt time.Time, status string, message string, appErr *apperror.Error) *apperror.Error {
+	finishedAt := s.nowTime()
+	if err := repo.FinishToolCall(context.Background(), FinishToolCallInput{
+		ID:           callID,
+		Status:       status,
+		ErrorMessage: message,
+		DurationMS:   durationMS(startedAt, finishedAt),
+		FinishedAt:   finishedAt,
+	}); err != nil {
+		return apperror.LegacyWrap(apperror.CodeInternal, 500, "更新AI工具调用记录失败", err)
+	}
+	return appErr
 }
 
 func (s *Service) requireRepository() (Repository, *apperror.Error) {
@@ -757,23 +800,24 @@ func generateUsageFromTask(result *aitext.Result) *GenerateUsage {
 
 func (s *Service) toolDraftPricingSnapshot(ctx context.Context, agent GenerateAgentConfig) (string, int64, *apperror.Error) {
 	if s == nil || s.pricing == nil {
-		return "", 0, toolGenerationError(aitext.ErrorCodePriceUnavailable, apperror.CategoryInternal, 500, "AI模型价格服务未配置", modelpricing.ErrRepositoryNotConfigured)
+		return "", 0, toolGenerationError(aitext.ErrorCodePriceUnavailable, apperror.CategoryInternal, 500, "AI模型价格服务未配置", officialmodel.ErrRepositoryNotConfigured)
 	}
-	model, err := s.pricing.Resolve(ctx, strings.TrimSpace(agent.ModelID))
+	model, err := officialmodel.ResolveMappedRoute(ctx, s.pricing, agent.ModelID, agent.OfficialModelID, agent.OfficialCatalogVersion, agent.MappingStatus)
 	if err != nil {
 		return "", 0, toolGenerationError(aitext.ErrorCodePriceUnavailable, apperror.CategoryConflict, 409, "该智能体缺少可用的模型价格", err)
 	}
-	if agent.MaxOutputTokens <= 0 || agent.MaxOutputTokens > model.MaxOutputTokens || agent.MaxOutputTokens > int64(^uint(0)>>1) {
+	effective := model.Model.MaxOutputTokens
+	if effective <= 0 || effective > int64(^uint(0)>>1) {
 		return "", 0, toolGenerationError(aitext.ErrorCodeUnsafeUpperBound, apperror.CategoryConflict, 409, "AI生成输出上限不安全", pricing.ErrUnsafeTokenUpperBound)
 	}
 	raw, err := aigateway.EncodePricingSnapshot(model, aigateway.PricingSnapshotInput{
 		TransportEngine: strings.TrimSpace(agent.EngineType), RequestedModelID: strings.TrimSpace(agent.ModelID),
-		EffectiveMaxOutputTokens: int(agent.MaxOutputTokens), MultiplierPPM: agent.BillingMultiplierPPM,
+		EffectiveMaxOutputTokens: int(effective), MultiplierPPM: agent.BillingMultiplierPPM,
 	})
 	if err != nil {
 		return "", 0, toolGenerationError(aitext.ErrorCodePriceUnavailable, apperror.CategoryInternal, 500, "生成AI模型价格快照失败", err)
 	}
-	return raw, agent.MaxOutputTokens, nil
+	return raw, effective, nil
 }
 
 func toolGenerationError(code string, category apperror.Category, status int, message string, cause error) *apperror.Error {

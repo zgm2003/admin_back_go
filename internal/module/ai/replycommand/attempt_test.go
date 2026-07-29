@@ -240,6 +240,58 @@ func TestPreparePaidAttemptUsesSuppliedTransactionWithoutNestedBegin(t *testing.
 	}
 }
 
+func TestPrepareStartedAtIsPersistedOnlyWithHeldAttempt(t *testing.T) {
+	repository, root, mock, closeDB := newAttemptMockRepository(t)
+	defer closeDB()
+	prepareStartedAt := time.Date(2026, 7, 28, 10, 0, 3, 123456000, time.UTC)
+	input := validPaidPrepareInput()
+	input.PrepareStartedAt = prepareStartedAt
+
+	mock.ExpectBegin()
+	tx := root.Begin()
+	if tx.Error != nil {
+		t.Fatal(tx.Error)
+	}
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `ai_provider_attempts` WHERE attempt_no = ? AND run_id = ? ORDER BY `ai_provider_attempts`.`id` LIMIT ?")).
+		WithArgs(uint(1), int64(44), 1).
+		WillReturnError(gorm.ErrRecordNotFound)
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT COALESCE(MAX(attempt_no), 0) FROM `ai_provider_attempts` WHERE run_id = ?")).
+		WithArgs(int64(44)).
+		WillReturnRows(sqlmock.NewRows([]string{"COALESCE(MAX(attempt_no), 0)"}).AddRow(0))
+	mock.ExpectExec("INSERT INTO `ai_provider_attempts`").WillReturnResult(sqlmock.NewResult(71, 1))
+
+	attempt, ok, err := repository.PreparePaidAttemptInTransaction(context.Background(), tx, input)
+	if err != nil || !ok || attempt == nil || attempt.PrepareStartedAt == nil || !attempt.PrepareStartedAt.Equal(prepareStartedAt) {
+		t.Fatalf("attempt=%+v ok=%v err=%v", attempt, ok, err)
+	}
+	mock.ExpectRollback()
+	if err := tx.Rollback().Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAttemptFirstDeltaUsesCompareAndSwap(t *testing.T) {
+	repository, _, mock, closeDB := newAttemptMockRepository(t)
+	defer closeDB()
+	now := time.Date(2026, 7, 28, 11, 0, 2, 123456000, time.UTC)
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `ai_provider_attempts` SET .* WHERE id = \\? AND first_delta_at IS NULL").
+		WithArgs(now, now, uint64(71)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	recorded, err := repository.MarkAttemptFirstDelta(context.Background(), 71, now)
+	if err != nil || !recorded {
+		t.Fatalf("recorded=%v err=%v", recorded, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestAttemptTransactionGuardRejectsTypedNilAndAcceptsSQLTransaction(t *testing.T) {
 	_, root, mock, closeDB := newAttemptMockRepository(t)
 	defer closeDB()
@@ -275,6 +327,7 @@ func validPaidPrepareInput() PrepareAttemptInput {
 		AttemptNo:             1,
 		Owner:                 "worker",
 		Token:                 1,
+		PrepareStartedAt:      time.Date(2026, 7, 28, 10, 0, 0, 0, time.UTC),
 		IdempotencyKey:        providerAttemptKey(44, 1),
 		PreparedRequestJSON:   request,
 		PreparedRequestSHA256: sha256.Sum256([]byte(request)),

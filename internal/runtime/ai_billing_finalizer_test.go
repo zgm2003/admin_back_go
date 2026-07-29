@@ -13,6 +13,7 @@ import (
 	"admin_back_go/internal/module/ai/aigateway"
 	"admin_back_go/internal/module/ai/billing"
 	aichat "admin_back_go/internal/module/ai/chat"
+	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/pricing"
 	"admin_back_go/internal/module/ai/replycommand"
 	airun "admin_back_go/internal/module/ai/run"
@@ -26,19 +27,19 @@ import (
 )
 
 func TestPersistedSettlementPricingSelectsFrozenTierPerAttempt(t *testing.T) {
-	model := pricing.ModelPrice{
-		Version: "catalog-v3", CatalogVersion: "catalog-v3", CatalogVendor: "openai", ModelID: "gpt-tiered",
-		MaxOutputTokens: 1000, ContextTierThresholdTokens: 50, PriceSource: "official",
-		SourceURL: "https://openai.com/pricing", RetrievedAt: "2026-07-27",
-		Rates: []pricing.Rate{
-			{Category: pricing.InputTokens, Unit: "token", TierKey: "short_context", PriceUnits: 1, UnitScale: 1},
-			{Category: pricing.InputTokens, Unit: "token", TierKey: "long_context", PriceUnits: 2, UnitScale: 1},
-			{Category: pricing.OutputTokens, Unit: "token", TierKey: "short_context", PriceUnits: 3, UnitScale: 1},
-			{Category: pricing.OutputTokens, Unit: "token", TierKey: "long_context", PriceUnits: 6, UnitScale: 1},
-		},
+	rates := []pricing.Rate{
+		{Category: pricing.InputTokens, Unit: "token", TierKey: "short_context", PriceUnits: 1, UnitScale: 1},
+		{Category: pricing.InputTokens, Unit: "token", TierKey: "long_context", PriceUnits: 2, UnitScale: 1},
+		{Category: pricing.OutputTokens, Unit: "token", TierKey: "short_context", PriceUnits: 3, UnitScale: 1},
+		{Category: pricing.OutputTokens, Unit: "token", TierKey: "long_context", PriceUnits: 6, UnitScale: 1},
+	}
+	model := officialmodel.ResolvedModel{
+		Model:          officialmodel.Model{CatalogVersion: "catalog-v3", CatalogVendor: "openai", ModelID: "gpt-tiered", ContextWindowTokens: 2000, MaxOutputTokens: 1000, ContextTierThresholdTokens: 50},
+		EffectivePrice: pricing.PriceBook{ModelID: "gpt-tiered", ContextTierThresholdTokens: 50, Rates: rates}, PriceSource: officialmodel.PriceSourceOfficial,
+		PriceSourceURL: "https://openai.com/pricing", PriceVerifiedAt: time.Date(2026, 7, 27, 0, 0, 0, 0, time.UTC),
 	}
 	raw, err := aigateway.EncodePricingSnapshot(model, aigateway.PricingSnapshotInput{
-		TransportEngine: "openai", RequestedModelID: model.ModelID, EffectiveMaxOutputTokens: 100, MultiplierPPM: 1_000_000,
+		TransportEngine: "openai", RequestedModelID: model.Model.ModelID, EffectiveMaxOutputTokens: 100, MultiplierPPM: 1_000_000,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -73,6 +74,49 @@ func TestPersistedSettlementPricingSelectsFrozenTierPerAttempt(t *testing.T) {
 			t.Fatalf("attempt %d tier = %q, want %q", item.AttemptID, item.TierKey, wantTier)
 		}
 	}
+}
+
+func TestFinalizationWritesSettledAtInTerminalTransaction(t *testing.T) {
+	db, mock, closeDB := newFinalizerMockDB(t)
+	defer closeDB()
+	now := time.Date(2026, 7, 28, 11, 0, 3, 123456000, time.UTC)
+	startedAt := now.Add(-time.Second)
+	mock.ExpectExec("UPDATE `ai_runs` SET .*`settled_at`=\\?.* WHERE id = \\? AND status = \\? AND billing_status IN \\(\\?,\\?\\)").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE `ai_usage_charges` SET").WillReturnResult(sqlmock.NewResult(0, 1))
+
+	err := finalizeChatRunAndCharge(context.Background(), db,
+		airun.Run{ID: 41, StartedAt: &startedAt},
+		billing.UsageCharge{ID: 51},
+		aigateway.FinalizationFacts{},
+		aigateway.SettlementDecision{RunStatus: enum.AIRunStatusFailed, BillingStatus: billing.BillingStatusReleased, BillingReason: billing.BillingReasonReleasedProviderFailed, ChargeStatus: billing.ChargeStatusReleased},
+		nil,
+		now,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func newFinalizerMockDB(t *testing.T) (*gorm.DB, sqlmock.Sqlmock, func()) {
+	t.Helper()
+	sqlDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := gorm.Open(mysql.New(mysql.Config{Conn: sqlDB, SkipInitializeWithVersion: true}), &gorm.Config{
+		DisableAutomaticPing:   true,
+		SkipDefaultTransaction: true,
+		Logger:                 logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		_ = sqlDB.Close()
+		t.Fatal(err)
+	}
+	return db, mock, func() { _ = sqlDB.Close() }
 }
 
 func TestDeriveChatFinalizationTriggerUsesOnlyPersistedFacts(t *testing.T) {

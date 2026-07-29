@@ -4,12 +4,16 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	infraai "admin_back_go/internal/infra/ai"
+	storagecos "admin_back_go/internal/infra/storage/cos"
 	"admin_back_go/internal/module/ai/aigateway"
-	"admin_back_go/internal/module/ai/modelpricing"
+	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/pricing"
 	"admin_back_go/internal/module/ai/replycommand"
 	"admin_back_go/internal/shared/enum"
@@ -22,21 +26,24 @@ import (
 
 func TestMessagePricingSnapshotUsesInjectedResolver(t *testing.T) {
 	resolverCalls := 0
-	service := NewService(&fakeRepository{}, WithPricingResolver(modelpricing.ResolverFunc(func(_ context.Context, modelID string) (pricing.ModelPrice, error) {
+	service := NewService(&fakeRepository{}, WithPricingResolver(officialmodel.ResolverFunc(func(_ context.Context, modelID string) (officialmodel.ResolvedModel, error) {
 		resolverCalls++
-		return pricing.ModelPrice{
-			Version: "catalog-v3", CatalogVersion: "catalog-v3", CatalogVendor: "openai", ModelID: modelID,
-			MaxOutputTokens: 4096, PriceSource: "official", SourceURL: "https://openai.com/pricing", RetrievedAt: "2026-07-27",
-			Rates: []pricing.Rate{
-				{Category: pricing.InputTokens, Unit: "token", PriceUnits: 1, UnitScale: 1_000_000},
-				{Category: pricing.OutputTokens, Unit: "token", PriceUnits: 2, UnitScale: 1_000_000},
-			},
+		rates := []pricing.Rate{
+			{Category: pricing.InputTokens, Unit: "token", PriceUnits: 1, UnitScale: 1_000_000},
+			{Category: pricing.OutputTokens, Unit: "token", PriceUnits: 2, UnitScale: 1_000_000},
+		}
+		return officialmodel.ResolvedModel{
+			Model:          officialmodel.Model{CatalogVersion: "catalog-v3", CatalogVendor: "openai", ModelID: modelID, ContextWindowTokens: 8192, MaxOutputTokens: 4096},
+			EffectivePrice: pricing.PriceBook{ModelID: modelID, Rates: rates}, PriceSource: officialmodel.PriceSourceOfficial,
+			PriceSourceURL: "https://openai.com/pricing", PriceVerifiedAt: time.Date(2026, 7, 27, 0, 0, 0, 0, time.UTC),
 		}, nil
 	})))
 	raw, effective, err := service.pricingSnapshotForSend(context.Background(), AgentRuntime{
-		ModelID: "injected-message-model", EngineType: "openai", BillingMultiplierPPM: 1_100_000, MaxOutputTokens: 2048,
-	}, map[string]float64{"max_tokens": 1024})
-	if err != nil || effective != 1024 || resolverCalls != 1 {
+		ModelID: "injected-message-model", EngineType: "openai", ProviderModelStatus: enum.CommonYes,
+		OfficialModelID: "injected-message-model", OfficialCatalogVersion: "catalog-v3", MappingStatus: officialmodel.MappingStatusMapped,
+		BillingMultiplierPPM: 1_100_000,
+	}, nil)
+	if err != nil || effective != 4096 || resolverCalls != 1 {
 		t.Fatalf("snapshot result = %q, %d, %v; calls=%d", raw, effective, err, resolverCalls)
 	}
 	snapshot, parseErr := aigateway.ParsePricingSnapshot(raw)
@@ -96,6 +103,45 @@ type fakeCancelPublisher struct {
 type fakeReplyWaker struct {
 	commandID uint64
 	err       error
+}
+
+type staticTransportCapabilityResolver struct {
+	metadata infraai.CapabilityMetadata
+	ok       bool
+}
+
+func (resolver staticTransportCapabilityResolver) ResolveCapabilities(infraai.EngineType) (infraai.CapabilityMetadata, bool) {
+	return resolver.metadata, resolver.ok
+}
+
+type fakeMessageObjectInspector struct {
+	mu        sync.Mutex
+	metadata  map[string]storagecos.ObjectMetadata
+	err       error
+	calls     []string
+	active    int
+	maxActive int
+	delay     time.Duration
+}
+
+func (inspector *fakeMessageObjectInspector) Head(_ context.Context, key string) (storagecos.ObjectMetadata, error) {
+	inspector.mu.Lock()
+	inspector.calls = append(inspector.calls, key)
+	inspector.active++
+	if inspector.active > inspector.maxActive {
+		inspector.maxActive = inspector.active
+	}
+	inspector.mu.Unlock()
+	if inspector.delay > 0 {
+		time.Sleep(inspector.delay)
+	}
+	inspector.mu.Lock()
+	inspector.active--
+	inspector.mu.Unlock()
+	if inspector.err != nil {
+		return storagecos.ObjectMetadata{}, inspector.err
+	}
+	return inspector.metadata[key], nil
 }
 
 func (f *fakeReplyWaker) WakeReply(_ context.Context, commandID uint64) error {
@@ -216,7 +262,7 @@ func TestSendCommitsTextUserMessageAndDurableReplyCommand(t *testing.T) {
 		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5},
 		agent:        validMessageAgent(),
 	}
-	res, appErr := NewService(repo).Send(context.Background(), 7, SendInput{ConversationID: 3, Content: " hello ", RequestID: "rid", RuntimeParams: map[string]float64{"max_tokens": 2048}})
+	res, appErr := NewService(repo, WithPricingResolver(testMessagePricingResolver())).Send(context.Background(), 7, SendInput{ConversationID: 3, Content: " hello ", RequestID: "rid", RuntimeParams: map[string]float64{"temperature": 0.7}})
 	if appErr != nil {
 		t.Fatalf("Send returned error: %v", appErr)
 	}
@@ -226,7 +272,7 @@ func TestSendCommitsTextUserMessageAndDurableReplyCommand(t *testing.T) {
 	if repo.replyInput.Content != "hello" || repo.replyInput.ConversationID != 3 || repo.replyInput.UserID != 7 || repo.replyInput.RequestID != "rid" {
 		t.Fatalf("unexpected durable reply input: %#v", repo.replyInput)
 	}
-	if repo.replyInput.MetaJSON == nil || !strings.Contains(*repo.replyInput.MetaJSON, "max_tokens") {
+	if repo.replyInput.MetaJSON == nil || !strings.Contains(*repo.replyInput.MetaJSON, "temperature") {
 		t.Fatalf("runtime parameters must be stored in metadata, got %#v", repo.replyInput.MetaJSON)
 	}
 	if repo.replyInput.RequestFingerprint == ([32]byte{}) || repo.replyInput.RequestIdentityStatus != "replayable" || repo.replyInput.RequestIdentityMarker != "" {
@@ -239,11 +285,65 @@ func TestSendCommitsTextUserMessageAndDurableReplyCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("invalid pricing snapshot: %v", err)
 	}
-	if snapshot.MultiplierPPM != 1_250_000 || snapshot.EffectiveMaxOutputTokens != 2048 || snapshot.TransportEngine != "openai" {
+	if snapshot.MultiplierPPM != 1_250_000 || snapshot.EffectiveMaxOutputTokens != 4096 || snapshot.TransportEngine != "openai" {
 		t.Fatalf("pricing snapshot=%+v", snapshot)
 	}
 	if strings.TrimSpace(repo.replyInput.InputSnapshot) == "" {
 		t.Fatal("input snapshot was not accepted with the paid run")
+	}
+}
+
+func TestSendPersistsReceivedAndAcceptedTimes(t *testing.T) {
+	receivedAt := time.Date(2026, 7, 28, 9, 30, 0, 123456000, time.UTC)
+	repo := &fakeRepository{
+		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5},
+		agent:        validMessageAgent(),
+	}
+
+	_, appErr := NewService(repo, WithPricingResolver(testMessagePricingResolver())).Send(
+		context.Background(),
+		7,
+		SendInput{ConversationID: 3, Content: "hello", RequestID: "latency-rid", RequestReceivedAt: receivedAt},
+	)
+	if appErr != nil {
+		t.Fatalf("Send returned error: %v", appErr)
+	}
+	if !repo.replyInput.RequestReceivedAt.Equal(receivedAt) {
+		t.Fatalf("request_received_at=%v want=%v", repo.replyInput.RequestReceivedAt, receivedAt)
+	}
+}
+
+func TestSendRejectsUserControlledMaxTokens(t *testing.T) {
+	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5}}
+	_, appErr := NewService(repo).Send(context.Background(), 7, SendInput{
+		ConversationID: 3,
+		Content:        "hello",
+		RequestID:      "rid",
+		RuntimeParams:  map[string]float64{"max_tokens": 2048},
+	})
+	if appErr == nil || appErr.HTTPStatus != 400 || !strings.Contains(appErr.Message, "官方模型上限") {
+		t.Fatalf("max_tokens error=%#v", appErr)
+	}
+}
+
+func TestLifecycleRetiredRejectsCallBeforeBilling(t *testing.T) {
+	repo := &fakeRepository{
+		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5},
+		agent:        validMessageAgent(),
+	}
+	resolver := officialmodel.ResolverFunc(func(_ context.Context, modelID string) (officialmodel.ResolvedModel, error) {
+		resolved, err := testMessagePricingResolver().Resolve(context.Background(), modelID)
+		resolved.Model.LifecycleStatus = officialmodel.LifecycleRetired
+		return resolved, err
+	})
+	_, appErr := NewService(repo, WithPricingResolver(resolver)).Send(context.Background(), 7, SendInput{
+		ConversationID: 3, Content: "hello", RequestID: "rid",
+	})
+	if appErr == nil || appErr.Code != "ai.official_model.retired" || appErr.HTTPStatus != 409 {
+		t.Fatalf("retired error=%#v", appErr)
+	}
+	if repo.replyInput.RequestID != "" {
+		t.Fatalf("retired route reached durable billing acceptance: %#v", repo.replyInput)
 	}
 }
 
@@ -253,7 +353,7 @@ func TestSendWakesCommittedCommandAndDoesNotFailWhenWakeupFails(t *testing.T) {
 		agent:        validMessageAgent(),
 	}
 	waker := &fakeReplyWaker{err: errors.New("redis unavailable")}
-	res, appErr := NewService(repo, WithReplyWaker(waker)).Send(context.Background(), 7, SendInput{ConversationID: 3, Content: "hello", RequestID: "rid"})
+	res, appErr := NewService(repo, WithReplyWaker(waker), WithPricingResolver(testMessagePricingResolver())).Send(context.Background(), 7, SendInput{ConversationID: 3, Content: "hello", RequestID: "rid"})
 	if appErr != nil {
 		t.Fatalf("durable send must survive best-effort wake failure: %v", appErr)
 	}
@@ -267,20 +367,200 @@ func TestSendKeepsImageAttachmentsInMetaJSON(t *testing.T) {
 		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5},
 		agent:        validMessageAgent(),
 	}
-	_, appErr := NewService(repo).Send(context.Background(), 7, SendInput{ConversationID: 3, Content: "看图", RequestID: "rid", Attachments: []Attachment{{Type: "image", URL: "https://example.test/a.png", Name: "a.png", Size: 10}}})
+	key := "ai_chat_images/2026/07/28/a.png"
+	inspector := &fakeMessageObjectInspector{metadata: map[string]storagecos.ObjectMetadata{
+		key: {Key: key, MIMEType: "image/png", Size: 10, TrustedURL: "https://trusted.test/a.png"},
+	}}
+	_, appErr := NewService(repo, WithPricingResolver(testMessagePricingResolver()), WithObjectInspector(inspector)).Send(context.Background(), 7, SendInput{
+		ConversationID: 3, Content: "看图", RequestID: "rid",
+		Attachments: []Attachment{{Type: "image", ObjectKey: key, MIMEType: "image/png", URL: "https://evil.test/a.png", Name: "a.png", Size: 1}},
+	})
 	if appErr != nil {
 		t.Fatalf("Send returned error: %v", appErr)
 	}
-	if repo.replyInput.MetaJSON == nil || !strings.Contains(*repo.replyInput.MetaJSON, "attachments") || !strings.Contains(*repo.replyInput.MetaJSON, "https://example.test/a.png") {
+	if repo.replyInput.MetaJSON == nil || !strings.Contains(*repo.replyInput.MetaJSON, "attachments") || !strings.Contains(*repo.replyInput.MetaJSON, "https://trusted.test/a.png") {
 		t.Fatalf("missing attachment meta json: %#v", repo.replyInput.MetaJSON)
+	}
+}
+
+func TestSendChecksAtMostFiveImagesConcurrently(t *testing.T) {
+	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5}, agent: validMessageAgent()}
+	inspector := &fakeMessageObjectInspector{metadata: map[string]storagecos.ObjectMetadata{}, delay: 20 * time.Millisecond}
+	attachments := make([]Attachment, 0, 5)
+	for index := 0; index < 5; index++ {
+		key := "ai_chat_images/2026/07/28/" + strconv.Itoa(index) + ".png"
+		attachments = append(attachments, Attachment{Type: "image", ObjectKey: key, MIMEType: "image/png"})
+		inspector.metadata[key] = storagecos.ObjectMetadata{Key: key, MIMEType: "image/png", Size: 10, TrustedURL: "https://trusted.test/" + strconv.Itoa(index) + ".png"}
+	}
+
+	_, appErr := NewService(repo, WithPricingResolver(testMessagePricingResolver()), WithObjectInspector(inspector)).Send(context.Background(), 7, SendInput{
+		ConversationID: 3, Content: "看图", RequestID: "rid", Attachments: attachments,
+	})
+	if appErr != nil {
+		t.Fatalf("Send: %v", appErr)
+	}
+	if inspector.maxActive <= 1 || inspector.maxActive > 5 {
+		t.Fatalf("image HEAD concurrency=%d", inspector.maxActive)
+	}
+}
+
+func TestSendRejectsUnsupportedTemperature(t *testing.T) {
+	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5}, agent: validMessageAgent()}
+	capabilities := officialmodel.Capabilities{
+		InputModalities: []string{officialmodel.ModalityText}, OutputModalities: []string{officialmodel.ModalityText}, SupportsStreaming: true,
+	}
+	service := NewService(
+		repo,
+		WithPricingResolver(testMessagePricingResolverWithCapabilities(capabilities)),
+		WithTransportCapabilityResolver(testMessageTransportCapabilities()),
+	)
+
+	_, appErr := service.Send(context.Background(), 7, SendInput{
+		ConversationID: 3, Content: "hello", RequestID: "rid", RuntimeParams: map[string]float64{"temperature": 0.7},
+	})
+	if appErr == nil || appErr.HTTPStatus != 400 || !strings.Contains(appErr.Message, "temperature") {
+		t.Fatalf("unsupported temperature error=%#v", appErr)
+	}
+	if repo.replyInput.RequestID != "" {
+		t.Fatalf("unsupported temperature reached durable acceptance: %#v", repo.replyInput)
+	}
+}
+
+func TestSendRejectsImageWithoutEffectiveImageCapability(t *testing.T) {
+	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5}, agent: validMessageAgent()}
+	inspector := &fakeMessageObjectInspector{}
+	capabilities := officialmodel.Capabilities{
+		InputModalities: []string{officialmodel.ModalityText}, OutputModalities: []string{officialmodel.ModalityText}, SupportsStreaming: true,
+	}
+	service := NewService(
+		repo,
+		WithPricingResolver(testMessagePricingResolverWithCapabilities(capabilities)),
+		WithTransportCapabilityResolver(testMessageTransportCapabilities()),
+		WithObjectInspector(inspector),
+	)
+
+	_, appErr := service.Send(context.Background(), 7, SendInput{
+		ConversationID: 3, Content: "看图", RequestID: "rid",
+		Attachments: []Attachment{{Type: "image", ObjectKey: "ai_chat_images/2026/07/28/a.png", MIMEType: "image/png", URL: "https://evil.test/a.png", Size: 1}},
+	})
+	if appErr == nil || appErr.HTTPStatus != 400 || !strings.Contains(appErr.Message, "图片") {
+		t.Fatalf("image capability error=%#v", appErr)
+	}
+	if len(inspector.calls) != 0 || repo.replyInput.RequestID != "" {
+		t.Fatalf("unsupported image reached inspector or durable acceptance: calls=%v input=%#v", inspector.calls, repo.replyInput)
+	}
+}
+
+func TestSendUsesTrustedObjectMetadataForMimeAndSize(t *testing.T) {
+	capabilities := officialmodel.Capabilities{
+		InputModalities:  []string{officialmodel.ModalityText, officialmodel.ModalityImage},
+		OutputModalities: []string{officialmodel.ModalityText}, SupportsStreaming: true,
+		ImageInput: &officialmodel.ImageInputCapability{MIMETypes: []string{"image/jpeg"}, MaxFiles: 5, MaxBytes: 1000},
+	}
+	key := "ai_chat_images/2026/07/28/a.jpg"
+
+	t.Run("rejects forged client facts", func(t *testing.T) {
+		repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5}, agent: validMessageAgent()}
+		inspector := &fakeMessageObjectInspector{metadata: map[string]storagecos.ObjectMetadata{
+			key: {Key: key, MIMEType: "image/png", Size: 2000, TrustedURL: "https://trusted.test/a.jpg"},
+		}}
+		service := NewService(repo,
+			WithPricingResolver(testMessagePricingResolverWithCapabilities(capabilities)),
+			WithTransportCapabilityResolver(testMessageTransportCapabilities()),
+			WithObjectInspector(inspector),
+		)
+
+		_, appErr := service.Send(context.Background(), 7, SendInput{
+			ConversationID: 3, Content: "看图", RequestID: "rid",
+			Attachments: []Attachment{{Type: "image", ObjectKey: key, MIMEType: "image/jpeg", URL: "https://evil.test/a.jpg", Size: 1}},
+		})
+		if appErr == nil || appErr.HTTPStatus != 400 {
+			t.Fatalf("forged metadata error=%#v", appErr)
+		}
+		if repo.replyInput.RequestID != "" {
+			t.Fatalf("forged metadata reached durable acceptance: %#v", repo.replyInput)
+		}
+	})
+
+	t.Run("persists trusted facts", func(t *testing.T) {
+		repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5}, agent: validMessageAgent()}
+		inspector := &fakeMessageObjectInspector{metadata: map[string]storagecos.ObjectMetadata{
+			key: {Key: key, MIMEType: "image/jpeg", Size: 500, TrustedURL: "https://trusted.test/a.jpg"},
+		}}
+		service := NewService(repo,
+			WithPricingResolver(testMessagePricingResolverWithCapabilities(capabilities)),
+			WithTransportCapabilityResolver(testMessageTransportCapabilities()),
+			WithObjectInspector(inspector),
+		)
+
+		_, appErr := service.Send(context.Background(), 7, SendInput{
+			ConversationID: 3, Content: "看图", RequestID: "rid",
+			Attachments: []Attachment{{Type: "image", ObjectKey: key, MIMEType: "image/png", URL: "https://evil.test/a.jpg", Size: 1}},
+		})
+		if appErr != nil {
+			t.Fatalf("trusted attachment rejected: %v", appErr)
+		}
+		if repo.replyInput.MetaJSON == nil {
+			t.Fatal("trusted attachment metadata missing")
+		}
+		for _, wanted := range []string{key, `"mime_type":"image/jpeg"`, `"size":500`, "https://trusted.test/a.jpg"} {
+			if !strings.Contains(*repo.replyInput.MetaJSON, wanted) {
+				t.Fatalf("trusted metadata missing %q in %s", wanted, *repo.replyInput.MetaJSON)
+			}
+		}
+		if strings.Contains(*repo.replyInput.MetaJSON, "evil.test") {
+			t.Fatalf("client URL survived trusted normalization: %s", *repo.replyInput.MetaJSON)
+		}
+	})
+}
+
+func TestSendNeverAcceptsNativeDocumentInThisRelease(t *testing.T) {
+	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5}, agent: validMessageAgent()}
+	_, appErr := NewService(repo).Send(context.Background(), 7, SendInput{
+		ConversationID: 3, RequestID: "rid",
+		Attachments: []Attachment{{Type: "file", ObjectKey: "ai_chat_images/2026/07/28/a.pdf", MIMEType: "application/pdf"}},
+	})
+	if appErr == nil || appErr.HTTPStatus != 400 {
+		t.Fatalf("native document error=%#v", appErr)
 	}
 }
 
 func validMessageAgent() *AgentRuntime {
 	return &AgentRuntime{
 		AgentID: 5, ProviderID: 9, ModelID: "gpt-4.1-mini", ModelDisplayName: "GPT-4.1 mini", EngineType: "openai",
-		BillingMultiplierPPM: 1_250_000, MaxOutputTokens: 4096, Status: enum.CommonYes, ScenesJSON: `["chat"]`,
+		ProviderModelStatus: enum.CommonYes, OfficialModelID: "gpt-4.1-mini", OfficialCatalogVersion: "catalog-v3", MappingStatus: officialmodel.MappingStatusMapped,
+		BillingMultiplierPPM: 1_250_000, Status: enum.CommonYes, ScenesJSON: `["chat"]`,
 	}
+}
+
+func testMessagePricingResolver() officialmodel.Resolver {
+	return testMessagePricingResolverWithCapabilities(officialmodel.Capabilities{
+		InputModalities:  []string{officialmodel.ModalityText, officialmodel.ModalityImage},
+		OutputModalities: []string{officialmodel.ModalityText}, SupportsStreaming: true, SupportsTools: true,
+		SupportedParameters: []string{officialmodel.ParameterTemperature},
+		ImageInput:          &officialmodel.ImageInputCapability{MIMETypes: []string{"image/jpeg", "image/png", "image/webp", "image/gif"}, MaxFiles: 5, MaxBytes: 10 << 20},
+	})
+}
+
+func testMessagePricingResolverWithCapabilities(capabilities officialmodel.Capabilities) officialmodel.Resolver {
+	return officialmodel.ResolverFunc(func(_ context.Context, modelID string) (officialmodel.ResolvedModel, error) {
+		rates := []pricing.Rate{
+			{Category: pricing.InputTokens, Unit: "token", PriceUnits: 1, UnitScale: 1_000_000},
+			{Category: pricing.OutputTokens, Unit: "token", PriceUnits: 2, UnitScale: 1_000_000},
+		}
+		return officialmodel.ResolvedModel{
+			Model:          officialmodel.Model{CatalogVersion: "catalog-v3", CatalogVendor: "openai", ModelID: modelID, ContextWindowTokens: 8192, MaxOutputTokens: 4096, Capabilities: capabilities},
+			EffectivePrice: pricing.PriceBook{ModelID: modelID, Rates: rates}, PriceSource: officialmodel.PriceSourceOfficial,
+			PriceSourceURL: "https://openai.com/pricing", PriceVerifiedAt: time.Date(2026, 7, 27, 0, 0, 0, 0, time.UTC),
+		}, nil
+	})
+}
+
+func testMessageTransportCapabilities() staticTransportCapabilityResolver {
+	return staticTransportCapabilityResolver{ok: true, metadata: infraai.CapabilityMetadata{
+		InputModalities: []string{officialmodel.ModalityText, officialmodel.ModalityImage}, OutputModalities: []string{officialmodel.ModalityText},
+		SupportedParameters: []string{officialmodel.ParameterTemperature}, SupportsStreaming: true, SupportsTools: true, SupportsStructuredOutput: true,
+	}}
 }
 
 func TestCancelRequiresOwnedConversation(t *testing.T) {

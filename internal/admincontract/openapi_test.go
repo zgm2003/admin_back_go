@@ -229,6 +229,7 @@ func TestWorkflowOperationsUseFieldCompleteContracts(t *testing.T) {
 		{method: "get", path: "/api/admin/v1/ai-runs/{id}", responseStatus: "200", responseSchema: "AIRunDetailSuccessEnvelope", positivePathIDs: []string{"id"}},
 		{method: "put", path: "/api/admin/v1/ai-runs/{id}/user-feedback", operationID: "put_api_admin_v1_ai_runs_id_user_feedback", responseStatus: "200", responseSchema: "AIRunUserFeedbackSuccessEnvelope", requestSchema: "AIRunUserFeedbackRequest", requestRequired: true, positivePathIDs: []string{"id"}},
 		{method: "get", path: "/api/admin/v1/ai-runs/stats", responseStatus: "200", responseSchema: "AIRunStatsSuccessEnvelope", queryParameters: []string{"agent_id", "date_end", "date_start", "platform", "provider_id", "user_id"}},
+		{method: "get", path: "/api/admin/v1/ai-runs/stats/latency", responseStatus: "200", responseSchema: "AIRunLatencyStatsSuccessEnvelope"},
 		{method: "get", path: "/api/admin/v1/ai-runs/stats/by-date", responseStatus: "200", responseSchema: "AIRunStatsByDateSuccessEnvelope", queryParameters: []string{"agent_id", "current_page", "date_end", "date_start", "page_size", "platform", "provider_id", "user_id"}},
 		{method: "get", path: "/api/admin/v1/ai-runs/stats/by-agent", responseStatus: "200", responseSchema: "AIRunStatsByAgentSuccessEnvelope", queryParameters: []string{"agent_id", "current_page", "date_end", "date_start", "page_size", "platform", "provider_id", "user_id"}},
 		{method: "get", path: "/api/admin/v1/ai-runs/stats/by-user", responseStatus: "200", responseSchema: "AIRunStatsByUserSuccessEnvelope", queryParameters: []string{"agent_id", "current_page", "date_end", "date_start", "page_size", "platform", "provider_id", "user_id"}},
@@ -271,7 +272,7 @@ func TestWorkflowSchemasCloseBusinessFieldsAndDeclareNullability(t *testing.T) {
 		"AIMessageRevisionRequest", "AIMessageRegenerationRequest", "AIMessageDeleteSuccessEnvelope",
 		"AIConversationReadCursorSuccessEnvelope", "AIRunUserFeedbackSuccessEnvelope",
 		"AIRunPageInitSuccessEnvelope", "AIRunListSuccessEnvelope", "AIRunDetailSuccessEnvelope",
-		"AIRunStatsSuccessEnvelope", "AIRunStatsByDateSuccessEnvelope",
+		"AIRunStatsSuccessEnvelope", "AIRunStatsByDateSuccessEnvelope", "AIRunLatencyStatsSuccessEnvelope",
 	} {
 		if document.Components.Schemas[name] == nil {
 			t.Fatalf("missing workflow schema %s", name)
@@ -325,16 +326,21 @@ func TestWorkflowSchemasCloseBusinessFieldsAndDeclareNullability(t *testing.T) {
 	assertNullableProperty(t, document.Components.Schemas["AIRunDetail"], "liked_at")
 	assertNullableProperty(t, document.Components.Schemas["AIRunDetail"], "user_message")
 	assertNullableProperty(t, document.Components.Schemas["AIRunDetail"], "assistant_message")
-	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIRunDetail", "billing_status", "billing_reason", "held_amount", "actual_amount", "pricing", "usage_items", "provider_attempts")
+	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIRunDetail", "billing_status", "billing_reason", "held_amount", "actual_amount", "pricing", "usage_items", "provider_attempts", "latency", "request_summary")
 	assertNullableProperty(t, document.Components.Schemas["AIRunDetail"], "pricing")
-	for _, name := range []string{"AIRunPricing", "AIRunPricingRate", "AIRunUsageItem", "AIRunProviderAttempt"} {
+	for _, name := range []string{"AIRunPricing", "AIRunPricingRate", "AIRunUsageItem", "AIRunProviderAttempt", "AIRunLatencyBreakdown", "AIRunRequestSummary", "AIRunLatencyDistribution", "AIRunLatencyStatsItem", "AIRunLatencyStatsResult"} {
 		assertClosedSchemaWithRequired(t, document.Components.Schemas, name)
 	}
 	for name, fields := range map[string][]string{
-		"AIRunPricing":         {"billing_multiplier", "catalog_vendor", "max_output_tokens", "model_id", "rates", "resolved_alias", "transport_engine", "version"},
-		"AIRunPricingRate":     {"category", "price", "tier_key", "unit", "unit_scale"},
-		"AIRunUsageItem":       {"amount", "attempt_no", "billable", "category", "quantity", "tier_key", "unit", "unit_price", "unit_scale"},
-		"AIRunProviderAttempt": {"attempt_no", "provider_request_id", "state", "usage_status"},
+		"AIRunPricing":             {"billing_multiplier", "catalog_vendor", "max_output_tokens", "model_id", "rates", "resolved_alias", "transport_engine", "version"},
+		"AIRunPricingRate":         {"category", "price", "tier_key", "unit", "unit_scale"},
+		"AIRunUsageItem":           {"amount", "attempt_no", "billable", "category", "quantity", "tier_key", "unit", "unit_price", "unit_scale"},
+		"AIRunProviderAttempt":     {"attempt_no", "provider_request_id", "state", "usage_status"},
+		"AIRunLatencyBreakdown":    {"accept_ms", "claim_source", "end_to_end_ms", "prepare_ms", "provider_total_ms", "queue_ms", "settlement_ms", "ttft_ms"},
+		"AIRunRequestSummary":      {"message_count", "prepared_request_bytes", "provider_attempt_count", "tool_call_count"},
+		"AIRunLatencyDistribution": {"insufficient_sample", "p50_ms", "p95_ms", "p99_ms", "sample_count"},
+		"AIRunLatencyStatsItem":    {"model_id", "provider_id", "provider_name", "provider_total", "ttft"},
+		"AIRunLatencyStatsResult":  {"list", "max_samples", "window_days"},
 	} {
 		properties := document.Components.Schemas[name]["properties"].(map[string]any)
 		if got := sortedMapKeys(properties); !reflect.DeepEqual(got, fields) {
@@ -344,6 +350,11 @@ func TestWorkflowSchemasCloseBusinessFieldsAndDeclareNullability(t *testing.T) {
 			t.Fatalf("%s required=%v want=%v", name, got, fields)
 		}
 	}
+	for _, field := range []string{"accept_ms", "queue_ms", "prepare_ms", "ttft_ms", "provider_total_ms", "settlement_ms", "end_to_end_ms"} {
+		assertNullableProperty(t, document.Components.Schemas["AIRunLatencyBreakdown"], field)
+	}
+	assertNullableProperty(t, document.Components.Schemas["AIRunRequestSummary"], "message_count")
+	assertSchemaPropertyStringEnum(t, document.Components.Schemas, "AIRunLatencyBreakdown", "claim_source", []string{"", "wake", "poll", "recovery"})
 	assertSchemaPropertyStringEnum(t, document.Components.Schemas, "AIRunDetail", "billing_status", []string{"pending", "held", "settled", "released", "unbilled"})
 	assertSchemaPropertyStringEnum(t, document.Components.Schemas, "AIRunDetail", "billing_reason", []string{"pending", "held", "settled_complete_usage", "released_before_dispatch", "released_insufficient_balance", "released_provider_failed", "released_outcome_unknown", "unbilled_usage_incomplete", "unbilled_over_hold", "legacy_unpriced"})
 	assertSchemaPropertyStringEnum(t, document.Components.Schemas, "AIRunProviderAttempt", "state", []string{"prepared", "dispatched", "succeeded", "failed", "canceled", "outcome_unknown"})
@@ -383,8 +394,13 @@ func TestWorkflowSchemasCloseBusinessFieldsAndDeclareNullability(t *testing.T) {
 		t.Fatalf("AIRuntimeParams additionalProperties=%#v", runtimeParams["additionalProperties"])
 	}
 	properties := runtimeParams["properties"].(map[string]any)
-	if got := sortedMapKeys(properties); !reflect.DeepEqual(got, []string{"max_history", "max_tokens", "temperature"}) {
+	if got := sortedMapKeys(properties); !reflect.DeepEqual(got, []string{"max_history", "temperature"}) {
 		t.Fatalf("AIRuntimeParams properties=%v", got)
+	}
+	attachment := document.Components.Schemas["AIAttachmentRequest"]
+	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIAttachmentRequest", "type", "object_key")
+	if got := sortedMapKeys(attachment["properties"].(map[string]any)); !reflect.DeepEqual(got, []string{"name", "object_key", "type"}) {
+		t.Fatalf("AIAttachmentRequest properties=%v", got)
 	}
 
 	sendRequest := document.Components.Schemas["AIMessageSendRequest"]

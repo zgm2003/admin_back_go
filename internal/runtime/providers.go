@@ -33,10 +33,11 @@ type Providers struct {
 	MailSender mail.Sender
 	SMSSender  sms.Sender
 
-	AIConnectionTester aiprovider.ProviderTester
-	AIChatFactory      aichat.EngineFactory
-	AIImageFactory     aiimage.ImageEngineFactory
-	AIToolFactory      aitool.EngineFactory
+	AIConnectionTester      aiprovider.ProviderTester
+	AIChatFactory           aichat.EngineFactory
+	AIImageFactory          aiimage.ImageEngineFactory
+	AIToolFactory           aitool.EngineFactory
+	AITransportCapabilities infraai.TransportCapabilityResolver
 
 	ObjectReader     storagecos.ObjectReader
 	ObjectWriter     storagecos.ObjectWriter
@@ -61,14 +62,17 @@ func BuildProviders(cfg config.Config, keys *secretkey.KeyRing, recorders ...tel
 		return Providers{}, fmt.Errorf("build mail diagnostic box: %w", err)
 	}
 	return Providers{
-		Secretbox:           box,
-		MailDiagnosticBox:   diagnosticBox,
-		MailSender:          newMailSender(),
-		SMSSender:           newSMSSender(),
-		AIConnectionTester:  aiConnectionTester{recorder: recorder},
-		AIChatFactory:       aiChatEngineFactory{streamIdleTimeout: positiveProviderDuration(cfg.AI.ChatStreamIdleTimeout, config.DefaultAIChatStreamIdleTimeout), recorder: recorder},
-		AIImageFactory:      aiImageEngineFactory{recorder: recorder},
-		AIToolFactory:       aiToolEngineFactory{recorder: recorder},
+		Secretbox:          box,
+		MailDiagnosticBox:  diagnosticBox,
+		MailSender:         newMailSender(),
+		SMSSender:          newSMSSender(),
+		AIConnectionTester: aiConnectionTester{recorder: recorder},
+		AIChatFactory:      aiChatEngineFactory{streamIdleTimeout: positiveProviderDuration(cfg.AI.ChatStreamIdleTimeout, config.DefaultAIChatStreamIdleTimeout), recorder: recorder},
+		AIImageFactory:     aiImageEngineFactory{recorder: recorder},
+		AIToolFactory:      aiToolEngineFactory{recorder: recorder},
+		AITransportCapabilities: infraai.TransportCapabilityResolverFunc(func(engineType infraai.EngineType) (infraai.CapabilityMetadata, bool) {
+			return infraai.DefaultTransportCapabilities(engineType)
+		}),
 		ObjectReader:        storagecos.NewObjectReader(storagecos.ObjectReaderConfig{Enabled: true}),
 		ObjectWriter:        storagecos.NewObjectWriter(storagecos.ObjectWriterConfig{Enabled: true}),
 		CredentialSigner:    storagecos.NewSigner(storagecos.Config{Enabled: true}),

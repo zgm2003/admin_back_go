@@ -97,6 +97,9 @@ func (managementRunHTTPService) Detail(context.Context, int64) (*airunmodule.Det
 func (managementRunHTTPService) Stats(context.Context, airunmodule.StatsFilter) (*airunmodule.StatsResponse, *apperror.Error) {
 	return &airunmodule.StatsResponse{}, nil
 }
+func (managementRunHTTPService) LatencyStats(context.Context) (*airunmodule.LatencyStatsResponse, *apperror.Error) {
+	return &airunmodule.LatencyStatsResponse{}, nil
+}
 func (managementRunHTTPService) StatsByDate(context.Context, airunmodule.StatsListQuery) (*airunmodule.StatsByDateResponse, *apperror.Error) {
 	return &airunmodule.StatsByDateResponse{}, nil
 }

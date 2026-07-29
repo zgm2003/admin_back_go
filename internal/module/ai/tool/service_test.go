@@ -3,12 +3,14 @@ package aitool
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"admin_back_go/internal/module/ai/aigateway"
-	"admin_back_go/internal/module/ai/modelpricing"
+	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/pricing"
 	"admin_back_go/internal/module/ai/requestidentity"
 	aitext "admin_back_go/internal/module/ai/text"
@@ -18,21 +20,24 @@ import (
 
 func TestToolDraftPricingSnapshotUsesInjectedResolver(t *testing.T) {
 	resolverCalls := 0
-	service := NewService(nil, nil, WithPricingResolver(modelpricing.ResolverFunc(func(_ context.Context, modelID string) (pricing.ModelPrice, error) {
+	service := NewService(nil, nil, WithPricingResolver(officialmodel.ResolverFunc(func(_ context.Context, modelID string) (officialmodel.ResolvedModel, error) {
 		resolverCalls++
-		return pricing.ModelPrice{
-			Version: "catalog-v3", CatalogVersion: "catalog-v3", CatalogVendor: "openai", ModelID: modelID,
-			MaxOutputTokens: 2048, PriceSource: "official", SourceURL: "https://openai.com/pricing", RetrievedAt: "2026-07-27",
-			Rates: []pricing.Rate{
-				{Category: pricing.InputTokens, Unit: "token", PriceUnits: 1, UnitScale: 1_000_000},
-				{Category: pricing.OutputTokens, Unit: "token", PriceUnits: 2, UnitScale: 1_000_000},
-			},
+		rates := []pricing.Rate{
+			{Category: pricing.InputTokens, Unit: "token", PriceUnits: 1, UnitScale: 1_000_000},
+			{Category: pricing.OutputTokens, Unit: "token", PriceUnits: 2, UnitScale: 1_000_000},
+		}
+		return officialmodel.ResolvedModel{
+			Model:          officialmodel.Model{CatalogVersion: "catalog-v3", CatalogVendor: "openai", ModelID: modelID, ContextWindowTokens: 8192, MaxOutputTokens: 2048},
+			EffectivePrice: pricing.PriceBook{ModelID: modelID, Rates: rates}, PriceSource: officialmodel.PriceSourceOfficial,
+			PriceSourceURL: "https://openai.com/pricing", PriceVerifiedAt: time.Date(2026, 7, 27, 0, 0, 0, 0, time.UTC),
 		}, nil
 	})))
 	raw, effective, appErr := service.toolDraftPricingSnapshot(context.Background(), GenerateAgentConfig{
-		ModelID: "injected-tool-model", EngineType: "openai", BillingMultiplierPPM: 1_000_000, MaxOutputTokens: 1024,
+		ModelID: "injected-tool-model", EngineType: "openai", ProviderModelStatus: enum.CommonYes,
+		OfficialModelID: "injected-tool-model", OfficialCatalogVersion: "catalog-v3", MappingStatus: officialmodel.MappingStatusMapped,
+		BillingMultiplierPPM: 1_000_000,
 	})
-	if appErr != nil || effective != 1024 || resolverCalls != 1 {
+	if appErr != nil || effective != 2048 || resolverCalls != 1 {
 		t.Fatalf("snapshot result = %q, %d, %#v; calls=%d", raw, effective, appErr, resolverCalls)
 	}
 	snapshot, err := aigateway.ParsePricingSnapshot(raw)
@@ -61,6 +66,8 @@ type fakeRepository struct {
 	userCounts       UserCount
 	started          *StartToolCallInput
 	finished         *FinishToolCallInput
+	finishCalls      []FinishToolCallInput
+	finishErr        error
 	generateLookups  int
 }
 
@@ -132,7 +139,8 @@ func (f *fakeRepository) StartToolCall(ctx context.Context, input StartToolCallI
 }
 func (f *fakeRepository) FinishToolCall(ctx context.Context, input FinishToolCallInput) error {
 	f.finished = &input
-	return nil
+	f.finishCalls = append(f.finishCalls, input)
+	return f.finishErr
 }
 func (f *fakeRepository) CountUsers(ctx context.Context) (UserCount, error) { return f.userCounts, nil }
 
@@ -195,8 +203,23 @@ func generateAgentConfig(t *testing.T) GenerateAgentConfig {
 	return GenerateAgentConfig{
 		AgentID: 5, AgentName: "工具生成", ModelID: "gpt-4.1", ModelDisplayName: "GPT-4.1",
 		SystemPrompt: "只输出工具草稿JSON", ProviderID: 2, EngineType: "openai",
-		BillingMultiplierPPM: 1_000_000, MaxOutputTokens: 1024,
+		ProviderModelStatus: enum.CommonYes, OfficialModelID: "gpt-4.1", OfficialCatalogVersion: "catalog-v3", MappingStatus: officialmodel.MappingStatusMapped,
+		BillingMultiplierPPM: 1_000_000,
 	}
+}
+
+func testToolPricingResolver() officialmodel.Resolver {
+	return officialmodel.ResolverFunc(func(_ context.Context, modelID string) (officialmodel.ResolvedModel, error) {
+		rates := []pricing.Rate{
+			{Category: pricing.InputTokens, Unit: "token", PriceUnits: 1, UnitScale: 1_000_000},
+			{Category: pricing.OutputTokens, Unit: "token", PriceUnits: 2, UnitScale: 1_000_000},
+		}
+		return officialmodel.ResolvedModel{
+			Model:          officialmodel.Model{CatalogVersion: "catalog-v3", CatalogVendor: "openai", ModelID: modelID, ContextWindowTokens: 8192, MaxOutputTokens: 2048},
+			EffectivePrice: pricing.PriceBook{ModelID: modelID, Rates: rates}, PriceSource: officialmodel.PriceSourceOfficial,
+			PriceSourceURL: "https://openai.com/pricing", PriceVerifiedAt: time.Date(2026, 7, 27, 0, 0, 0, 0, time.UTC),
+		}, nil
+	})
 }
 
 func TestCreateRejectsArrayStringOrNullSchemas(t *testing.T) {
@@ -304,7 +327,7 @@ func TestGenerateDraftParsesStrictJSONDraft(t *testing.T) {
 	agent := generateAgentConfig(t)
 	repo.generateAgent = &agent
 	tasks := &fakeDraftTaskService{result: &aitext.Result{TaskID: 41, RunID: 51, RequestID: "request-1", Kind: aitext.KindToolDraft, Answer: `{"ok":true,"draft":{"name":"查询当前用户量","code":"admin_user_count","description":"只返回后台用户数量统计，不返回个人信息。","parameters_json":{"type":"object","properties":{},"required":[],"additionalProperties":false},"result_schema_json":{"type":"object","properties":{"total_users":{"type":"integer"}},"required":["total_users"],"additionalProperties":false},"risk_level":"low","timeout_ms":3000,"status":1},"warnings":[],"clarifying_questions":[]}`, PromptTokens: 11, CompletionTokens: 7, TotalTokens: 18}}
-	got, appErr := NewService(repo, DefaultExecutors(repo), WithDraftTaskService(tasks)).GenerateDraft(context.Background(), GenerateDraftInput{RequestID: "request-1", AgentID: 5, UserID: 7, Requirement: "生成查询当前用户量工具", CodeHint: "admin_user_count"})
+	got, appErr := NewService(repo, DefaultExecutors(repo), WithDraftTaskService(tasks), WithPricingResolver(testToolPricingResolver())).GenerateDraft(context.Background(), GenerateDraftInput{RequestID: "request-1", AgentID: 5, UserID: 7, Requirement: "生成查询当前用户量工具", CodeHint: "admin_user_count"})
 	if appErr != nil {
 		t.Fatalf("GenerateDraft returned error: %v", appErr)
 	}
@@ -344,7 +367,7 @@ func TestGenerateDraftNormalizesSchemaWithoutRequired(t *testing.T) {
 	agent := generateAgentConfig(t)
 	repo.generateAgent = &agent
 	tasks := &fakeDraftTaskService{result: &aitext.Result{Answer: `{"ok":true,"draft":{"name":"查询当前用户量","code":"admin_user_count","description":"只返回数量统计。","parameters_json":{"type":"object","properties":{},"additionalProperties":false},"result_schema_json":{"type":"object","properties":{"total_users":{"type":"integer"}},"required":["total_users"],"additionalProperties":false},"risk_level":"low","timeout_ms":3000,"status":1},"warnings":[],"clarifying_questions":[]}`}}
-	got, appErr := NewService(repo, DefaultExecutors(repo), WithDraftTaskService(tasks)).GenerateDraft(context.Background(), GenerateDraftInput{RequestID: "request-1", AgentID: 5, UserID: 7, Requirement: "生成查询当前用户量工具"})
+	got, appErr := NewService(repo, DefaultExecutors(repo), WithDraftTaskService(tasks), WithPricingResolver(testToolPricingResolver())).GenerateDraft(context.Background(), GenerateDraftInput{RequestID: "request-1", AgentID: 5, UserID: 7, Requirement: "生成查询当前用户量工具"})
 	if appErr != nil {
 		t.Fatalf("GenerateDraft should accept JSON Schema without required: %v", appErr)
 	}
@@ -358,7 +381,7 @@ func TestGenerateDraftReturnsClarifyingQuestionsWhenModelSaysNotEnough(t *testin
 	agent := generateAgentConfig(t)
 	repo.generateAgent = &agent
 	tasks := &fakeDraftTaskService{result: &aitext.Result{Answer: `{"ok":false,"draft":null,"warnings":["需求不足，暂不生成工具草稿"],"clarifying_questions":["请说明入参和返回字段？"]}`}}
-	got, appErr := NewService(repo, DefaultExecutors(repo), WithDraftTaskService(tasks)).GenerateDraft(context.Background(), GenerateDraftInput{RequestID: "request-1", AgentID: 5, UserID: 7, Requirement: "做个工具"})
+	got, appErr := NewService(repo, DefaultExecutors(repo), WithDraftTaskService(tasks), WithPricingResolver(testToolPricingResolver())).GenerateDraft(context.Background(), GenerateDraftInput{RequestID: "request-1", AgentID: 5, UserID: 7, Requirement: "做个工具"})
 	if appErr != nil {
 		t.Fatalf("GenerateDraft returned error: %v", appErr)
 	}
@@ -372,7 +395,7 @@ func TestGenerateDraftForcesDisabledWhenExecutorMissing(t *testing.T) {
 	agent := generateAgentConfig(t)
 	repo.generateAgent = &agent
 	tasks := &fakeDraftTaskService{result: &aitext.Result{Answer: `{"ok":true,"draft":{"name":"未来工具","code":"future_tool","description":"未来服务端实现后才能启用。","parameters_json":{"type":"object","properties":{},"required":[],"additionalProperties":false},"result_schema_json":{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false},"risk_level":"low","timeout_ms":3000,"status":1},"warnings":[],"clarifying_questions":[]}`}}
-	got, appErr := NewService(repo, DefaultExecutors(repo), WithDraftTaskService(tasks)).GenerateDraft(context.Background(), GenerateDraftInput{RequestID: "request-1", AgentID: 5, UserID: 7, Requirement: "生成未来工具"})
+	got, appErr := NewService(repo, DefaultExecutors(repo), WithDraftTaskService(tasks), WithPricingResolver(testToolPricingResolver())).GenerateDraft(context.Background(), GenerateDraftInput{RequestID: "request-1", AgentID: 5, UserID: 7, Requirement: "生成未来工具"})
 	if appErr != nil {
 		t.Fatalf("GenerateDraft returned error: %v", appErr)
 	}
@@ -386,7 +409,7 @@ func TestGenerateDraftCanReturnEnabledWhenExecutorRegistered(t *testing.T) {
 	agent := generateAgentConfig(t)
 	repo.generateAgent = &agent
 	tasks := &fakeDraftTaskService{result: &aitext.Result{Answer: `{"ok":true,"draft":{"name":"查询当前用户量","code":"admin_user_count","description":"只返回数量统计。","parameters_json":{"type":"object","properties":{},"required":[],"additionalProperties":false},"result_schema_json":{"type":"object","properties":{"total_users":{"type":"integer"}},"required":["total_users"],"additionalProperties":false},"risk_level":"low","timeout_ms":3000,"status":1},"warnings":[],"clarifying_questions":[]}`}}
-	got, appErr := NewService(repo, DefaultExecutors(repo), WithDraftTaskService(tasks)).GenerateDraft(context.Background(), GenerateDraftInput{RequestID: "request-1", AgentID: 5, UserID: 7, Requirement: "生成已实现工具"})
+	got, appErr := NewService(repo, DefaultExecutors(repo), WithDraftTaskService(tasks), WithPricingResolver(testToolPricingResolver())).GenerateDraft(context.Background(), GenerateDraftInput{RequestID: "request-1", AgentID: 5, UserID: 7, Requirement: "生成已实现工具"})
 	if appErr != nil {
 		t.Fatalf("GenerateDraft returned error: %v", appErr)
 	}
@@ -400,7 +423,7 @@ func TestGenerateDraftNormalizesFingerprintAndConflictsBeforeSecondDispatch(t *t
 	agent := generateAgentConfig(t)
 	repo.generateAgent = &agent
 	tasks := &fakeDraftTaskService{}
-	service := NewService(repo, DefaultExecutors(repo), WithDraftTaskService(tasks))
+	service := NewService(repo, DefaultExecutors(repo), WithDraftTaskService(tasks), WithPricingResolver(testToolPricingResolver()))
 
 	_, firstErr := service.GenerateDraft(context.Background(), GenerateDraftInput{RequestID: "request-replay", AgentID: 5, UserID: 7, Requirement: "  查询用户数\r\n", CodeHint: " admin_user_count "})
 	_, replayErr := service.GenerateDraft(context.Background(), GenerateDraftInput{RequestID: "request-replay", AgentID: 5, UserID: 7, Requirement: "查询用户数\n", CodeHint: "admin_user_count"})
@@ -421,7 +444,7 @@ func TestGenerateDraftReplaysPersistedResultAfterAgentBecomesUnavailable(t *test
 	agent := generateAgentConfig(t)
 	repo.generateAgent = &agent
 	tasks := &fakeDraftTaskService{}
-	service := NewService(repo, DefaultExecutors(repo), WithDraftTaskService(tasks))
+	service := NewService(repo, DefaultExecutors(repo), WithDraftTaskService(tasks), WithPricingResolver(testToolPricingResolver()))
 	input := GenerateDraftInput{RequestID: "request-durable-replay", AgentID: 5, UserID: 7, Requirement: "查询用户数", CodeHint: "admin_user_count"}
 
 	first, firstErr := service.GenerateDraft(context.Background(), input)
@@ -447,7 +470,7 @@ func TestGenerateDraftRejectsPersistedFingerprintConflictBeforeUnavailableAgentL
 	agent := generateAgentConfig(t)
 	repo.generateAgent = &agent
 	tasks := &fakeDraftTaskService{}
-	service := NewService(repo, DefaultExecutors(repo), WithDraftTaskService(tasks))
+	service := NewService(repo, DefaultExecutors(repo), WithDraftTaskService(tasks), WithPricingResolver(testToolPricingResolver()))
 
 	_, firstErr := service.GenerateDraft(context.Background(), GenerateDraftInput{RequestID: "request-durable-conflict", AgentID: 5, UserID: 7, Requirement: "查询用户数"})
 	if firstErr != nil {
@@ -473,8 +496,12 @@ func TestGenerateDraftUsesDistinctStablePriceAndUpperBoundCodes(t *testing.T) {
 		mutate func(*GenerateAgentConfig)
 		code   string
 	}{
-		{name: "missing price", mutate: func(agent *GenerateAgentConfig) { agent.ModelID = "private-unpriced-model" }, code: aitext.ErrorCodePriceUnavailable},
-		{name: "unsafe output cap", mutate: func(agent *GenerateAgentConfig) { agent.MaxOutputTokens = 40_000 }, code: aitext.ErrorCodeUnsafeUpperBound},
+		{name: "missing price", mutate: func(agent *GenerateAgentConfig) {
+			agent.ModelID, agent.OfficialModelID = "private-unpriced-model", "private-unpriced-model"
+		}, code: aitext.ErrorCodePriceUnavailable},
+		{name: "unsafe official output cap", mutate: func(agent *GenerateAgentConfig) {
+			agent.ModelID, agent.OfficialModelID = "unsafe-official-cap", "unsafe-official-cap"
+		}, code: aitext.ErrorCodeUnsafeUpperBound},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := &fakeRepository{}
@@ -482,17 +509,22 @@ func TestGenerateDraftUsesDistinctStablePriceAndUpperBoundCodes(t *testing.T) {
 			tc.mutate(&agent)
 			repo.generateAgent = &agent
 			tasks := &fakeDraftTaskService{}
-			resolver := modelpricing.ResolverFunc(func(_ context.Context, modelID string) (pricing.ModelPrice, error) {
+			resolver := officialmodel.ResolverFunc(func(_ context.Context, modelID string) (officialmodel.ResolvedModel, error) {
 				if modelID == "private-unpriced-model" {
-					return pricing.ModelPrice{}, pricing.ErrPriceUnavailable
+					return officialmodel.ResolvedModel{}, officialmodel.ErrPriceUnavailable
 				}
-				return pricing.ModelPrice{
-					Version: "catalog-v3", CatalogVersion: "catalog-v3", CatalogVendor: "openai", ModelID: modelID,
-					MaxOutputTokens: 2048, PriceSource: "official", SourceURL: "https://openai.com/pricing", RetrievedAt: "2026-07-27",
-					Rates: []pricing.Rate{
-						{Category: pricing.InputTokens, Unit: "token", PriceUnits: 1, UnitScale: 1_000_000},
-						{Category: pricing.OutputTokens, Unit: "token", PriceUnits: 2, UnitScale: 1_000_000},
-					},
+				rates := []pricing.Rate{
+					{Category: pricing.InputTokens, Unit: "token", PriceUnits: 1, UnitScale: 1_000_000},
+					{Category: pricing.OutputTokens, Unit: "token", PriceUnits: 2, UnitScale: 1_000_000},
+				}
+				maxOutputTokens := int64(2048)
+				if modelID == "unsafe-official-cap" {
+					maxOutputTokens = 0
+				}
+				return officialmodel.ResolvedModel{
+					Model:          officialmodel.Model{CatalogVersion: "catalog-v3", CatalogVendor: "openai", ModelID: modelID, ContextWindowTokens: maxOutputTokens * 4, MaxOutputTokens: maxOutputTokens},
+					EffectivePrice: pricing.PriceBook{ModelID: modelID, Rates: rates}, PriceSource: officialmodel.PriceSourceOfficial,
+					PriceSourceURL: "https://openai.com/pricing", PriceVerifiedAt: time.Date(2026, 7, 27, 0, 0, 0, 0, time.UTC),
 				}, nil
 			})
 			_, appErr := NewService(repo, DefaultExecutors(repo), WithDraftTaskService(tasks), WithPricingResolver(resolver)).GenerateDraft(context.Background(), GenerateDraftInput{RequestID: "request-1", AgentID: 5, UserID: 7, Requirement: "生成工具"})
@@ -521,7 +553,13 @@ func TestChangeStatusRejectsEnableWhenCodeHasNoServerImplementation(t *testing.T
 }
 
 func TestUpdateAgentToolsReplacesBindings(t *testing.T) {
-	repo := &fakeRepository{allActiveToolIDs: []uint64{1, 2, 3}}
+	repo := &fakeRepository{
+		allActiveToolIDs: []uint64{1, 2, 3},
+		rawByID: map[uint64]Tool{
+			1: {ID: 1, Code: "admin_user_count", RiskLevel: RiskLow, Status: enum.CommonYes},
+			3: {ID: 3, Code: "admin_user_count", RiskLevel: RiskLow, Status: enum.CommonYes},
+		},
+	}
 	service := NewService(repo, DefaultExecutors(repo))
 	appErr := service.UpdateAgentTools(context.Background(), 3, UpdateAgentToolsInput{ToolIDs: []uint64{3, 1, 1}})
 	if appErr != nil {
@@ -532,18 +570,183 @@ func TestUpdateAgentToolsReplacesBindings(t *testing.T) {
 	}
 }
 
-func TestListRuntimeToolsFiltersDisabledBindingsAndTools(t *testing.T) {
-	repo := &fakeRepository{runtimeTools: []RuntimeToolRow{
-		{ToolID: 1, Name: "启用", Code: "enabled", ParametersJSON: `{"type":"object"}`, ResultSchemaJSON: `{"type":"object"}`, RiskLevel: RiskLow, TimeoutMS: 3000, ToolStatus: enum.CommonYes, BindingStatus: enum.CommonYes},
-		{ToolID: 2, Name: "禁用绑定", Code: "binding_disabled", ParametersJSON: `{"type":"object"}`, ResultSchemaJSON: `{"type":"object"}`, RiskLevel: RiskLow, TimeoutMS: 3000, ToolStatus: enum.CommonYes, BindingStatus: enum.CommonNo},
-		{ToolID: 3, Name: "禁用工具", Code: "tool_disabled", ParametersJSON: `{"type":"object"}`, ResultSchemaJSON: `{"type":"object"}`, RiskLevel: RiskLow, TimeoutMS: 3000, ToolStatus: enum.CommonNo, BindingStatus: enum.CommonYes},
-	}}
-	tools, appErr := NewService(repo, DefaultExecutors(repo)).ListRuntimeTools(context.Background(), 3)
-	if appErr != nil {
-		t.Fatalf("ListRuntimeTools returned error: %v", appErr)
+func TestListRuntimeToolsReturnsOnlyLowRiskRegisteredValidTools(t *testing.T) {
+	validSchema := `{"type":"object","properties":{},"additionalProperties":false}`
+	t.Run("filters unavailable tools", func(t *testing.T) {
+		repo := &fakeRepository{runtimeTools: []RuntimeToolRow{
+			{ToolID: 1, Name: "禁用绑定", Code: "admin_user_count", ParametersJSON: validSchema, ResultSchemaJSON: validSchema, RiskLevel: RiskLow, TimeoutMS: 3000, ToolStatus: enum.CommonYes, BindingStatus: enum.CommonNo},
+			{ToolID: 2, Name: "禁用工具", Code: "admin_user_count", ParametersJSON: validSchema, ResultSchemaJSON: validSchema, RiskLevel: RiskLow, TimeoutMS: 3000, ToolStatus: enum.CommonNo, BindingStatus: enum.CommonYes},
+			{ToolID: 3, Name: "中风险", Code: "admin_user_count", ParametersJSON: validSchema, ResultSchemaJSON: validSchema, RiskLevel: RiskMedium, TimeoutMS: 3000, ToolStatus: enum.CommonYes, BindingStatus: enum.CommonYes},
+			{ToolID: 4, Name: "未注册", Code: "future_tool", ParametersJSON: validSchema, ResultSchemaJSON: validSchema, RiskLevel: RiskLow, TimeoutMS: 3000, ToolStatus: enum.CommonYes, BindingStatus: enum.CommonYes},
+			{ToolID: 5, Name: "查询用户量", Code: "admin_user_count", ParametersJSON: validSchema, ResultSchemaJSON: validSchema, RiskLevel: RiskLow, TimeoutMS: 3000, ToolStatus: enum.CommonYes, BindingStatus: enum.CommonYes},
+		}}
+		tools, appErr := NewService(repo, DefaultExecutors(repo)).ListRuntimeTools(context.Background(), 3)
+		if appErr != nil {
+			t.Fatalf("ListRuntimeTools returned error: %v", appErr)
+		}
+		if len(tools) != 1 || tools[0].ID != 5 || tools[0].Code != "admin_user_count" {
+			t.Fatalf("runtime tools not filtered: %#v", tools)
+		}
+	})
+
+	for _, test := range []struct {
+		name       string
+		parameters string
+		result     string
+	}{
+		{name: "invalid parameters schema", parameters: "{", result: validSchema},
+		{name: "invalid result schema", parameters: validSchema, result: "[]"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repo := &fakeRepository{runtimeTools: []RuntimeToolRow{{
+				ToolID: 5, Name: "查询用户量", Code: "admin_user_count",
+				ParametersJSON: test.parameters, ResultSchemaJSON: test.result,
+				RiskLevel: RiskLow, TimeoutMS: 3000,
+				ToolStatus: enum.CommonYes, BindingStatus: enum.CommonYes,
+			}}}
+			tools, appErr := NewService(repo, DefaultExecutors(repo)).ListRuntimeTools(context.Background(), 3)
+			if tools != nil || appErr == nil || appErr.HTTPStatus != 500 {
+				t.Fatalf("tools=%#v err=%#v", tools, appErr)
+			}
+		})
 	}
-	if len(tools) != 1 || tools[0].Code != "enabled" || tools[0].ParametersJSON["type"] != "object" {
-		t.Fatalf("runtime tools not filtered/mapped: %#v", tools)
+}
+
+func TestUpdateAgentToolsRejectsNonLowRiskOrUnregisteredTools(t *testing.T) {
+	for _, tool := range []Tool{
+		{ID: 7, Code: "admin_user_count", RiskLevel: RiskHigh, Status: enum.CommonYes},
+		{ID: 8, Code: "future_tool", RiskLevel: RiskLow, Status: enum.CommonYes},
+	} {
+		t.Run(tool.Code+"_"+tool.RiskLevel, func(t *testing.T) {
+			repo := &fakeRepository{
+				allActiveToolIDs: []uint64{tool.ID},
+				rawByID:          map[uint64]Tool{tool.ID: tool},
+			}
+			appErr := NewService(repo, DefaultExecutors(repo)).UpdateAgentTools(context.Background(), 3, UpdateAgentToolsInput{ToolIDs: []uint64{tool.ID}})
+			if appErr == nil || appErr.HTTPStatus != 400 || repo.replaceAgentID != 0 {
+				t.Fatalf("error=%#v replacement=%d", appErr, repo.replaceAgentID)
+			}
+		})
+	}
+}
+
+type recordingExecutor struct {
+	calls          int
+	result         map[string]any
+	err            error
+	waitForContext bool
+}
+
+func (e *recordingExecutor) Execute(ctx context.Context, _ json.RawMessage) (map[string]any, error) {
+	e.calls++
+	if e.waitForContext {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	return e.result, e.err
+}
+
+func executableRuntimeTool() RuntimeTool {
+	return RuntimeTool{
+		ID: 5, Name: "查询用户量", Code: "admin_user_count", RiskLevel: RiskLow, TimeoutMS: 100,
+		ParametersJSON: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"scope": map[string]any{"type": "string"},
+			},
+			"additionalProperties": false,
+		},
+		ResultSchemaJSON: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"total_users": map[string]any{"type": "integer"},
+			},
+			"required":             []any{"total_users"},
+			"additionalProperties": false,
+		},
+	}
+}
+
+func TestExecuteRejectsInvalidJSONBeforeExecutorAndAuditsFailure(t *testing.T) {
+	repo := &fakeRepository{}
+	executor := &recordingExecutor{result: map[string]any{"total_users": 1}}
+	raw := json.RawMessage(`{"secret":"oops"`)
+
+	result, appErr := NewService(repo, map[string]Executor{"admin_user_count": executor}).Execute(context.Background(), ExecuteInput{
+		RunID: 9, Tool: executableRuntimeTool(), CallID: "call-1", Arguments: raw,
+	})
+
+	if result != nil || appErr == nil || executor.calls != 0 || repo.started == nil {
+		t.Fatalf("result=%#v err=%#v calls=%d started=%#v", result, appErr, executor.calls, repo.started)
+	}
+	var audit map[string]any
+	if err := json.Unmarshal(repo.started.ArgumentsJSON, &audit); err != nil {
+		t.Fatalf("audit arguments are not JSON: %s", repo.started.ArgumentsJSON)
+	}
+	if audit["invalid_json"] != true || audit["byte_length"] != float64(len(raw)) || len(audit["sha256"].(string)) != 64 || strings.Contains(string(repo.started.ArgumentsJSON), "secret") {
+		t.Fatalf("unsafe invalid JSON audit envelope: %s", repo.started.ArgumentsJSON)
+	}
+	if len(repo.finishCalls) != 1 || repo.finishCalls[0].Status != ToolCallFailed {
+		t.Fatalf("finish calls=%#v", repo.finishCalls)
+	}
+}
+
+func TestExecuteRejectsArgumentsOutsideSchema(t *testing.T) {
+	repo := &fakeRepository{}
+	executor := &recordingExecutor{result: map[string]any{"total_users": 1}}
+	result, appErr := NewService(repo, map[string]Executor{"admin_user_count": executor}).Execute(context.Background(), ExecuteInput{
+		RunID: 9, Tool: executableRuntimeTool(), Arguments: json.RawMessage(`{"scope":7}`),
+	})
+	if result != nil || appErr == nil || executor.calls != 0 || len(repo.finishCalls) != 1 || repo.finishCalls[0].Status != ToolCallFailed {
+		t.Fatalf("result=%#v err=%#v calls=%d finishes=%#v", result, appErr, executor.calls, repo.finishCalls)
+	}
+}
+
+func TestExecuteRejectsResultOutsideSchema(t *testing.T) {
+	repo := &fakeRepository{}
+	executor := &recordingExecutor{result: map[string]any{"total_users": "one"}}
+	result, appErr := NewService(repo, map[string]Executor{"admin_user_count": executor}).Execute(context.Background(), ExecuteInput{
+		RunID: 9, Tool: executableRuntimeTool(), Arguments: json.RawMessage(`{"scope":"all"}`),
+	})
+	if result != nil || appErr == nil || executor.calls != 1 || len(repo.finishCalls) != 1 || repo.finishCalls[0].Status != ToolCallFailed {
+		t.Fatalf("result=%#v err=%#v calls=%d finishes=%#v", result, appErr, executor.calls, repo.finishCalls)
+	}
+}
+
+func TestExecuteMarksTimeoutAndNeverReportsSuccess(t *testing.T) {
+	repo := &fakeRepository{}
+	executor := &recordingExecutor{waitForContext: true}
+	tool := executableRuntimeTool()
+	tool.TimeoutMS = 1
+	result, appErr := NewService(repo, map[string]Executor{"admin_user_count": executor}).Execute(context.Background(), ExecuteInput{
+		RunID: 9, Tool: tool, Arguments: json.RawMessage(`{"scope":"all"}`),
+	})
+	if result != nil || appErr == nil || executor.calls != 1 || len(repo.finishCalls) != 1 || repo.finishCalls[0].Status != ToolCallTimeout {
+		t.Fatalf("result=%#v err=%#v calls=%d finishes=%#v", result, appErr, executor.calls, repo.finishCalls)
+	}
+}
+
+func TestExecuteRejectsNonLowRiskToolAtRuntime(t *testing.T) {
+	repo := &fakeRepository{}
+	executor := &recordingExecutor{result: map[string]any{"total_users": 1}}
+	tool := executableRuntimeTool()
+	tool.RiskLevel = RiskMedium
+	result, appErr := NewService(repo, map[string]Executor{"admin_user_count": executor}).Execute(context.Background(), ExecuteInput{
+		RunID: 9, Tool: tool, Arguments: json.RawMessage(`{"scope":"all"}`),
+	})
+	if result != nil || appErr == nil || executor.calls != 0 || len(repo.finishCalls) != 1 || repo.finishCalls[0].Status != ToolCallFailed {
+		t.Fatalf("result=%#v err=%#v calls=%d finishes=%#v", result, appErr, executor.calls, repo.finishCalls)
+	}
+}
+
+func TestExecuteReturnsAuditFinalizationFailure(t *testing.T) {
+	repo := &fakeRepository{finishErr: errors.New("audit unavailable")}
+	executor := &recordingExecutor{result: map[string]any{"total_users": 1}}
+	result, appErr := NewService(repo, map[string]Executor{"admin_user_count": executor}).Execute(context.Background(), ExecuteInput{
+		RunID: 9, Tool: executableRuntimeTool(), Arguments: json.RawMessage(`{"scope":"all"}`),
+	})
+	if result != nil || appErr == nil || !strings.Contains(appErr.Error(), "更新AI工具调用记录失败") {
+		t.Fatalf("result=%#v err=%#v", result, appErr)
 	}
 }
 

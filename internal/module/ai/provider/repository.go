@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"admin_back_go/internal/infra/database"
+	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/shared/enum"
 
 	"gorm.io/gorm"
@@ -21,8 +22,42 @@ type Repository interface {
 	Update(ctx context.Context, id uint64, fields map[string]any) error
 	ChangeStatus(ctx context.Context, id uint64, status int) error
 	ListModels(ctx context.Context, providerID uint64) ([]ProviderModel, error)
+	ListAllModels(ctx context.Context) ([]ProviderModel, error)
+	UpdateModelMapping(ctx context.Context, id uint64, mapping officialmodel.IdentityMapping) error
 	ReplaceModels(ctx context.Context, providerID uint64, models []ProviderModel) error
 	Delete(ctx context.Context, id uint64) error
+}
+
+func (r *GormRepository) ListAllModels(ctx context.Context) ([]ProviderModel, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	var rows []ProviderModel
+	if err := r.db.WithContext(ctx).Order("id ASC").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func (r *GormRepository) UpdateModelMapping(ctx context.Context, id uint64, mapping officialmodel.IdentityMapping) error {
+	if r == nil || r.db == nil {
+		return ErrRepositoryNotConfigured
+	}
+	fields := map[string]any{
+		"official_model_id":        nil,
+		"official_catalog_version": nil,
+		"mapping_status":           mapping.Status,
+		"mapped_at":                nil,
+	}
+	if mapping.Status == officialmodel.MappingStatusMapped {
+		fields["official_model_id"] = mapping.OfficialModelID
+		fields["official_catalog_version"] = mapping.CatalogVersion
+		fields["mapped_at"] = mapping.MappedAt
+	}
+	return r.db.WithContext(ctx).
+		Model(&ProviderModel{}).
+		Where("id = ?", id).
+		UpdateColumns(fields).Error
 }
 
 type GormRepository struct{ db *gorm.DB }

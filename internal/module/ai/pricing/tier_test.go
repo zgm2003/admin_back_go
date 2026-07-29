@@ -12,7 +12,7 @@ func tierLine(key, attempt string, category billing.UsageCategory, tier string, 
 }
 
 func TestUpperBoundLinesChoosesMostExpensiveCompatibleTier(t *testing.T) {
-	price := ModelPrice{ModelID: "m", Rates: []Rate{
+	price := PriceBook{ModelID: "m", Rates: []Rate{
 		{Category: InputTokens, Unit: "token", TierKey: "short_context", PriceUnits: 2, UnitScale: 1},
 		{Category: InputTokens, Unit: "token", TierKey: "long_context", PriceUnits: 5, UnitScale: 1},
 		{Category: CacheWrite, Unit: "token", TierKey: "5m", PriceUnits: 3, UnitScale: 1},
@@ -25,7 +25,7 @@ func TestUpperBoundLinesChoosesMostExpensiveCompatibleTier(t *testing.T) {
 }
 
 func TestUpperBoundLinesPricesAggregateInputAtMostExpensiveInputFamilyRate(t *testing.T) {
-	price := ModelPrice{ModelID: "claude", Rates: []Rate{
+	price := PriceBook{ModelID: "claude", Rates: []Rate{
 		{Category: InputTokens, Unit: "token", PriceUnits: 3, UnitScale: 1},
 		{Category: CacheRead, Unit: "token", PriceUnits: 1, UnitScale: 1},
 		{Category: CacheWrite, Unit: "token", TierKey: "5m", PriceUnits: 4, UnitScale: 1},
@@ -41,7 +41,7 @@ func TestUpperBoundLinesPricesAggregateInputAtMostExpensiveInputFamilyRate(t *te
 }
 
 func TestUpperBoundLinesUsesCatalogContextTierForProviderCacheDetail(t *testing.T) {
-	price := ModelPrice{ModelID: "m", Rates: []Rate{
+	price := PriceBook{ModelID: "m", Rates: []Rate{
 		{Category: CacheWrite, Unit: "token", TierKey: "short_context", PriceUnits: 6, UnitScale: 1},
 		{Category: CacheWrite, Unit: "token", TierKey: "long_context", PriceUnits: 10, UnitScale: 1},
 	}}
@@ -52,7 +52,7 @@ func TestUpperBoundLinesUsesCatalogContextTierForProviderCacheDetail(t *testing.
 }
 
 func TestSettlementLinesAppliesLongContextPerAttemptOnlyAboveThreshold(t *testing.T) {
-	price := ModelPrice{ModelID: "m", ContextTierThresholdTokens: 272000, Rates: []Rate{
+	price := PriceBook{ModelID: "m", ContextTierThresholdTokens: 272000, Rates: []Rate{
 		{Category: InputTokens, Unit: "token", TierKey: "short_context", PriceUnits: 2, UnitScale: 1},
 		{Category: InputTokens, Unit: "token", TierKey: "long_context", PriceUnits: 5, UnitScale: 1},
 		{Category: CacheRead, Unit: "token", TierKey: "short_context", PriceUnits: 1, UnitScale: 1},
@@ -76,7 +76,7 @@ func TestSettlementLinesAppliesLongContextPerAttemptOnlyAboveThreshold(t *testin
 }
 
 func TestSettlementLinesFailsClosedForUntieredAmbiguousCacheWrite(t *testing.T) {
-	price := ModelPrice{ModelID: "m", Rates: []Rate{
+	price := PriceBook{ModelID: "m", Rates: []Rate{
 		{Category: CacheWrite, Unit: "token", TierKey: "5m", PriceUnits: 1, UnitScale: 1},
 		{Category: CacheWrite, Unit: "token", TierKey: "1h", PriceUnits: 2, UnitScale: 1},
 	}}

@@ -35,7 +35,7 @@ func TestPermissionsCatalogAndOperationPoliciesAreComplete(t *testing.T) {
 			t.Fatalf("retired client-version permission %q remains published", code)
 		}
 	}
-	for _, required := range []string{"ai_agent_add", "ai_run_list", "ai_model_pricing_list", "ai_model_pricing_edit", "payment_recharge_add", "payment_recharge_list", "system_mail", "system_mail_logView", "devTools_queueMonitor_list"} {
+	for _, required := range []string{"ai_agent_add", "ai_run_list", "ai_official_model_list", "ai_official_model_price_sync", "payment_recharge_add", "payment_recharge_list", "system_mail", "system_mail_logView", "devTools_queueMonitor_list"} {
 		if _, exists := catalog[required]; !exists {
 			t.Fatalf("missing active permission code %q", required)
 		}
@@ -106,6 +106,7 @@ func TestPermissionsProtectAIRunMonitoringOperations(t *testing.T) {
 		"/api/admin/v1/ai-runs",
 		"/api/admin/v1/ai-runs/:id",
 		"/api/admin/v1/ai-runs/stats",
+		"/api/admin/v1/ai-runs/stats/latency",
 		"/api/admin/v1/ai-runs/stats/by-date",
 		"/api/admin/v1/ai-runs/stats/by-agent",
 		"/api/admin/v1/ai-runs/stats/by-user",

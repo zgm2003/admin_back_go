@@ -5,6 +5,7 @@ import (
 	"time"
 
 	infraai "admin_back_go/internal/infra/ai"
+	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/requestidentity"
 	airun "admin_back_go/internal/module/ai/run"
 	aitext "admin_back_go/internal/module/ai/text"
@@ -17,6 +18,7 @@ type ConversationReplyInput struct {
 	LeaseOwner         string
 	LeaseToken         uint64
 	DeliveryContext    context.Context
+	PrepareStartedAt   time.Time
 	ConversationID     int64
 	UserID             int64
 	AgentID            int64
@@ -163,6 +165,7 @@ type PaidChatAttemptInput struct {
 	RequestID          string
 	RequestIdentity    requestidentity.Input
 	DeliveryContext    context.Context
+	PrepareStartedAt   time.Time
 	CommandAttempt     uint
 	CommandMaxAttempts uint
 	Engine             infraai.Engine
@@ -205,20 +208,23 @@ type EngineFactory interface {
 }
 
 type AgentEngineConfig struct {
-	AgentID              uint64
-	AgentName            string
-	ModelID              string
-	ModelDisplayName     string
-	SystemPrompt         string
-	ScenesJSON           string
-	ProviderID           uint64
-	EngineType           string
-	EngineBaseURL        string
-	EngineAPIKeyEnc      string
-	AgentStatus          int
-	EngineStatus         int
-	BillingMultiplierPPM int64
-	MaxOutputTokens      uint
+	AgentID                uint64
+	AgentName              string
+	ModelID                string
+	ModelDisplayName       string
+	SystemPrompt           string
+	ScenesJSON             string
+	ProviderID             uint64
+	EngineType             string
+	EngineBaseURL          string
+	EngineAPIKeyEnc        string
+	AgentStatus            int
+	EngineStatus           int
+	ProviderModelStatus    int
+	OfficialModelID        string
+	OfficialCatalogVersion string
+	MappingStatus          officialmodel.MappingStatus
+	BillingMultiplierPPM   int64
 }
 
 type MessageHistory struct {

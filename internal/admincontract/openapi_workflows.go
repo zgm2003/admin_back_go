@@ -124,6 +124,7 @@ func buildWorkflowOperationContracts() map[workflowOperationKey]workflowOperatio
 		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs"):                   workflowContract("AIRunListSuccessEnvelope", nil, aiRunListQueryParameters(), noID),
 		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/:id"):               workflowContract("AIRunDetailSuccessEnvelope", nil, nil, positiveID),
 		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/stats"):             workflowContract("AIRunStatsSuccessEnvelope", nil, aiRunStatsQueryParameters(false), noID),
+		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/stats/latency"):     workflowContract("AIRunLatencyStatsSuccessEnvelope", nil, nil, noID),
 		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/stats/by-date"):     workflowContract("AIRunStatsByDateSuccessEnvelope", nil, aiRunStatsQueryParameters(true), noID),
 		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/stats/by-agent"):    workflowContract("AIRunStatsByAgentSuccessEnvelope", nil, aiRunStatsQueryParameters(true), noID),
 		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/stats/by-user"):     workflowContract("AIRunStatsByUserSuccessEnvelope", nil, aiRunStatsQueryParameters(true), noID),

@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/infra/database"
-	"admin_back_go/internal/module/ai/modelpricing"
+	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/replycommand"
 	"admin_back_go/internal/shared/enum"
 
@@ -19,13 +19,13 @@ type GormRepository struct {
 	db      *gorm.DB
 	replies replycommand.Repository
 	history replycommand.HistoryTransactionParticipant
-	pricing modelpricing.Resolver
+	pricing officialmodel.Resolver
 	now     func() time.Time
 }
 
 type RepositoryOption func(*GormRepository)
 
-func WithRepositoryPricingResolver(resolver modelpricing.Resolver) RepositoryOption {
+func WithRepositoryPricingResolver(resolver officialmodel.Resolver) RepositoryOption {
 	return func(repository *GormRepository) { repository.pricing = resolver }
 }
 
@@ -76,10 +76,13 @@ func (r *GormRepository) AgentForConversation(ctx context.Context, conversationI
 	err := r.db.WithContext(ctx).Table("ai_conversations c").
 		Select(`a.id AS agent_id, a.provider_id AS provider_id, a.model_id AS model_id,
 			a.model_display_name AS model_display_name, e.engine_type AS engine_type,
-			a.billing_multiplier_ppm AS billing_multiplier_ppm, a.max_output_tokens AS max_output_tokens,
-			a.status AS status, a.scenes_json AS scenes_json`).
+			a.billing_multiplier_ppm AS billing_multiplier_ppm,
+			a.status AS status, a.scenes_json AS scenes_json,
+			pm.status AS provider_model_status, pm.official_model_id AS official_model_id,
+			pm.official_catalog_version AS official_catalog_version, pm.mapping_status AS mapping_status`).
 		Joins("JOIN ai_agents a ON a.id = c.agent_id AND a.is_del = ?", enum.CommonNo).
 		Joins("JOIN ai_providers e ON e.id = a.provider_id AND e.is_del = ? AND e.status = ?", enum.CommonNo, enum.CommonYes).
+		Joins("JOIN ai_provider_models pm ON pm.provider_id = a.provider_id AND pm.model_id = a.model_id AND pm.status = ? AND pm.mapping_status = ?", enum.CommonYes, officialmodel.MappingStatusMapped).
 		Where("c.id = ? AND c.user_id = ? AND c.is_del = ?", conversationID, userID, enum.CommonNo).
 		Limit(1).
 		Scan(&row).Error

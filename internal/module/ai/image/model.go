@@ -1,6 +1,10 @@
 package aiimage
 
-import "time"
+import (
+	"time"
+
+	"admin_back_go/internal/module/ai/officialmodel"
+)
 
 type ImageTask struct {
 	ID                       uint64     `gorm:"column:id"`
@@ -73,21 +77,23 @@ type MaskImageFile struct {
 }
 
 type AgentRuntime struct {
-	AgentID              uint64 `gorm:"column:agent_id"`
-	AgentName            string `gorm:"column:agent_name"`
-	ScenesJSON           string `gorm:"column:scenes_json"`
-	AgentStatus          int    `gorm:"column:agent_status"`
-	ProviderID           uint64 `gorm:"column:provider_id"`
-	ProviderName         string `gorm:"column:provider_name"`
-	EngineType           string `gorm:"column:engine_type"`
-	BaseURL              string `gorm:"column:base_url"`
-	APIKeyEnc            string `gorm:"column:api_key_enc"`
-	ProviderStatus       int    `gorm:"column:provider_status"`
-	ModelID              string `gorm:"column:model_id"`
-	ModelDisplayName     string `gorm:"column:model_display_name"`
-	ModelStatus          int    `gorm:"column:model_status"`
-	BillingMultiplierPPM int64  `gorm:"column:billing_multiplier_ppm"`
-	MaxOutputTokens      uint   `gorm:"column:max_output_tokens"`
+	AgentID                uint64                      `gorm:"column:agent_id"`
+	AgentName              string                      `gorm:"column:agent_name"`
+	ScenesJSON             string                      `gorm:"column:scenes_json"`
+	AgentStatus            int                         `gorm:"column:agent_status"`
+	ProviderID             uint64                      `gorm:"column:provider_id"`
+	ProviderName           string                      `gorm:"column:provider_name"`
+	EngineType             string                      `gorm:"column:engine_type"`
+	BaseURL                string                      `gorm:"column:base_url"`
+	APIKeyEnc              string                      `gorm:"column:api_key_enc"`
+	ProviderStatus         int                         `gorm:"column:provider_status"`
+	ModelID                string                      `gorm:"column:model_id"`
+	ModelDisplayName       string                      `gorm:"column:model_display_name"`
+	ModelStatus            int                         `gorm:"column:model_status"`
+	OfficialModelID        string                      `gorm:"column:official_model_id"`
+	OfficialCatalogVersion string                      `gorm:"column:official_catalog_version"`
+	MappingStatus          officialmodel.MappingStatus `gorm:"column:mapping_status"`
+	BillingMultiplierPPM   int64                       `gorm:"column:billing_multiplier_ppm"`
 }
 
 type UploadConfig struct {

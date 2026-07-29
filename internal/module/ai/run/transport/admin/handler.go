@@ -73,6 +73,11 @@ func (h *Handler) Stats(c *gin.Context) {
 	writeResult(c, res, appErr)
 }
 
+func (h *Handler) LatencyStats(c *gin.Context) {
+	res, appErr := h.requireService().LatencyStats(c.Request.Context())
+	writeResult(c, res, appErr)
+}
+
 func (h *Handler) StatsByDate(c *gin.Context) {
 	query, ok := bindStatsList(c)
 	if !ok {
@@ -154,6 +159,9 @@ func (nilHTTPService) Detail(ctx context.Context, id int64) (*airunmodule.Detail
 	return nil, apperror.Internal("AI运行服务未配置")
 }
 func (nilHTTPService) Stats(ctx context.Context, query airunmodule.StatsFilter) (*airunmodule.StatsResponse, *apperror.Error) {
+	return nil, apperror.Internal("AI运行服务未配置")
+}
+func (nilHTTPService) LatencyStats(context.Context) (*airunmodule.LatencyStatsResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI运行服务未配置")
 }
 func (nilHTTPService) StatsByDate(ctx context.Context, query airunmodule.StatsListQuery) (*airunmodule.StatsByDateResponse, *apperror.Error) {

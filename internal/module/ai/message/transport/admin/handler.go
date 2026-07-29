@@ -2,7 +2,11 @@ package admin
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"io"
 	"strconv"
+	"time"
 
 	"admin_back_go/internal/middleware"
 	aimessagemodule "admin_back_go/internal/module/ai/message"
@@ -10,6 +14,7 @@ import (
 	"admin_back_go/internal/shared/response"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
 )
 
 type Handler struct {
@@ -41,6 +46,7 @@ func (h *Handler) List(c *gin.Context) {
 }
 
 func (h *Handler) Send(c *gin.Context) {
+	requestReceivedAt := time.Now().UTC()
 	identity, ok := authIdentity(c)
 	if !ok {
 		return
@@ -50,12 +56,31 @@ func (h *Handler) Send(c *gin.Context) {
 		return
 	}
 	var req sendRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindStrictJSON(c, &req); err != nil {
 		response.Error(c, apperror.BadRequest("AI消息参数错误"))
 		return
 	}
-	res, appErr := h.requireService().Send(c.Request.Context(), identity.UserID, aimessagemodule.SendInput{ConversationID: conversationID, Content: req.Content, RequestID: req.RequestID, Attachments: req.Attachments, RuntimeParams: req.RuntimeParams})
+	attachments := make([]aimessagemodule.Attachment, len(req.Attachments))
+	for index, attachment := range req.Attachments {
+		attachments[index] = aimessagemodule.Attachment{Type: attachment.Type, ObjectKey: attachment.ObjectKey, Name: attachment.Name}
+	}
+	res, appErr := h.requireService().Send(c.Request.Context(), identity.UserID, aimessagemodule.SendInput{ConversationID: conversationID, Content: req.Content, RequestID: req.RequestID, RequestReceivedAt: requestReceivedAt, Attachments: attachments, RuntimeParams: req.RuntimeParams})
 	writeAcceptedResult(c, res, appErr)
+}
+
+func bindStrictJSON(c *gin.Context, target any) error {
+	decoder := json.NewDecoder(c.Request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		if err == nil {
+			return errors.New("multiple JSON values are not allowed")
+		}
+		return err
+	}
+	return binding.Validator.ValidateStruct(target)
 }
 
 func (h *Handler) Cancel(c *gin.Context) {

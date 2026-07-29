@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/replycommand"
 	"admin_back_go/internal/module/ai/requestidentity"
 	"admin_back_go/internal/shared/enum"
@@ -219,11 +220,18 @@ func (r *GormRepository) historyReplayRequest(operation string, userID, conversa
 			if err != nil {
 				return requestidentity.Input{}, err
 			}
+			if r.pricing == nil {
+				return requestidentity.Input{}, ErrHistoryAgentUnavailable
+			}
+			model, err := r.pricing.Resolve(resolveCtx, strings.TrimSpace(runtime.ModelID))
+			if err != nil || model.Model.MaxOutputTokens <= 0 {
+				return requestidentity.Input{}, ErrHistoryAgentUnavailable
+			}
 			source, err := r.historySource(resolveCtx, db, operation, userID, conversationID, sourceMessageID, false)
 			if err != nil {
 				return requestidentity.Input{}, err
 			}
-			facts, err := buildHistoryRequestFacts(operation, userID, conversationID, replacementContent, source, runtime)
+			facts, err := buildHistoryRequestFacts(operation, userID, conversationID, replacementContent, source, runtime, model.Model.MaxOutputTokens)
 			if err != nil {
 				return requestidentity.Input{}, err
 			}
@@ -235,7 +243,7 @@ func (r *GormRepository) historyReplayRequest(operation string, userID, conversa
 func (r *GormRepository) historyIdentityRuntime(ctx context.Context, db *gorm.DB, userID, conversationID int64) (AgentRuntime, error) {
 	var runtime AgentRuntime
 	err := db.WithContext(ctx).Table("ai_conversations").
-		Select("ai_agents.id AS agent_id, ai_agents.model_id AS model_id, ai_agents.max_output_tokens AS max_output_tokens").
+		Select("ai_agents.id AS agent_id, ai_agents.model_id AS model_id").
 		Joins("JOIN ai_agents ON ai_agents.id = ai_conversations.agent_id").
 		Where("ai_conversations.id = ? AND ai_conversations.user_id = ? AND ai_conversations.is_del = ?", conversationID, userID, enum.CommonNo).
 		Take(&runtime).Error
@@ -245,7 +253,7 @@ func (r *GormRepository) historyIdentityRuntime(ctx context.Context, db *gorm.DB
 	if err != nil {
 		return AgentRuntime{}, err
 	}
-	if runtime.AgentID <= 0 || strings.TrimSpace(runtime.ModelID) == "" || runtime.MaxOutputTokens <= 0 {
+	if runtime.AgentID <= 0 || strings.TrimSpace(runtime.ModelID) == "" {
 		return AgentRuntime{}, ErrHistorySourceInvalid
 	}
 	return runtime, nil
@@ -255,10 +263,15 @@ func (r *GormRepository) historyRuntime(ctx context.Context, db *gorm.DB, userID
 	query := db.WithContext(ctx).Table("ai_conversations").
 		Select(`ai_agents.id AS agent_id, ai_agents.provider_id AS provider_id, ai_agents.model_id AS model_id,
 			ai_agents.model_display_name AS model_display_name, ai_providers.engine_type AS engine_type,
-			ai_agents.billing_multiplier_ppm AS billing_multiplier_ppm, ai_agents.max_output_tokens AS max_output_tokens,
-			ai_agents.status AS status, ai_agents.scenes_json AS scenes_json`).
+			ai_agents.billing_multiplier_ppm AS billing_multiplier_ppm,
+			ai_agents.status AS status, ai_agents.scenes_json AS scenes_json,
+			ai_provider_models.status AS provider_model_status,
+			ai_provider_models.official_model_id AS official_model_id,
+			ai_provider_models.official_catalog_version AS official_catalog_version,
+			ai_provider_models.mapping_status AS mapping_status`).
 		Joins("JOIN ai_agents ON ai_agents.id = ai_conversations.agent_id AND ai_agents.is_del = ?", enum.CommonNo).
 		Joins("JOIN ai_providers ON ai_providers.id = ai_agents.provider_id AND ai_providers.is_del = ? AND ai_providers.status = ?", enum.CommonNo, enum.CommonYes).
+		Joins("JOIN ai_provider_models ON ai_provider_models.provider_id = ai_agents.provider_id AND ai_provider_models.model_id = ai_agents.model_id AND ai_provider_models.status = ? AND ai_provider_models.mapping_status = ?", enum.CommonYes, officialmodel.MappingStatusMapped).
 		Where("ai_conversations.id = ? AND ai_conversations.user_id = ? AND ai_conversations.is_del = ?", conversationID, userID, enum.CommonNo)
 	if locked {
 		query = query.Clauses(clause.Locking{Strength: "UPDATE"})
@@ -272,7 +285,7 @@ func (r *GormRepository) historyRuntime(ctx context.Context, db *gorm.DB, userID
 		return AgentRuntime{}, err
 	}
 	if runtime.AgentID <= 0 || runtime.ProviderID <= 0 || strings.TrimSpace(runtime.ModelID) == "" ||
-		runtime.Status != enum.CommonYes || runtime.BillingMultiplierPPM <= 0 || runtime.MaxOutputTokens <= 0 || !agentSupportsChat(runtime.ScenesJSON) {
+		runtime.Status != enum.CommonYes || runtime.ProviderModelStatus != enum.CommonYes || runtime.BillingMultiplierPPM <= 0 || !agentSupportsChat(runtime.ScenesJSON) {
 		return AgentRuntime{}, ErrHistoryAgentUnavailable
 	}
 	return runtime, nil
@@ -332,7 +345,14 @@ func historyMessageByID(ctx context.Context, db *gorm.DB, conversationID, messag
 }
 
 func (r *GormRepository) buildHistoryCreateInput(ctx context.Context, operation string, userID, conversationID int64, replacementContent, requestID string, source historySourceSnapshot, runtime AgentRuntime) (replycommand.HistoryCreateInput, error) {
-	facts, err := buildHistoryRequestFacts(operation, userID, conversationID, replacementContent, source, runtime)
+	if r.pricing == nil {
+		return replycommand.HistoryCreateInput{}, ErrHistoryAgentUnavailable
+	}
+	model, err := r.pricing.Resolve(ctx, strings.TrimSpace(runtime.ModelID))
+	if err != nil || model.Model.MaxOutputTokens <= 0 {
+		return replycommand.HistoryCreateInput{}, ErrHistoryAgentUnavailable
+	}
+	facts, err := buildHistoryRequestFacts(operation, userID, conversationID, replacementContent, source, runtime, model.Model.MaxOutputTokens)
 	if err != nil {
 		return replycommand.HistoryCreateInput{}, err
 	}
@@ -353,7 +373,7 @@ func (r *GormRepository) buildHistoryCreateInput(ctx context.Context, operation 
 	}, nil
 }
 
-func buildHistoryRequestFacts(operation string, userID, conversationID int64, replacementContent string, source historySourceSnapshot, runtime AgentRuntime) (historyRequestFacts, error) {
+func buildHistoryRequestFacts(operation string, userID, conversationID int64, replacementContent string, source historySourceSnapshot, runtime AgentRuntime, effectiveMaxOutputTokens int64) (historyRequestFacts, error) {
 	content := source.user.Content
 	if operation == HistoryOperationRevision {
 		content = strings.TrimSpace(replacementContent)
@@ -368,24 +388,20 @@ func buildHistoryRequestFacts(operation string, userID, conversationID int64, re
 	if strings.TrimSpace(content) == "" && len(attachments) == 0 {
 		return historyRequestFacts{}, ErrHistorySourceInvalid
 	}
-	identity := historyRequestIdentity(operation, userID, conversationID, source.target.ID, content, attachments, runtimeParams, runtime)
+	identity := historyRequestIdentity(operation, userID, conversationID, source.target.ID, content, attachments, runtimeParams, runtime, effectiveMaxOutputTokens)
 	if _, err := requestidentity.BuildFingerprint(identity); err != nil {
 		return historyRequestFacts{}, ErrHistorySourceInvalid
 	}
 	return historyRequestFacts{content: content, attachments: attachments, runtimeParams: runtimeParams, identity: identity}, nil
 }
 
-func historyRequestIdentity(operation string, userID, conversationID, sourceMessageID int64, content string, attachments []Attachment, runtimeParams map[string]float64, runtime AgentRuntime) requestidentity.Input {
+func historyRequestIdentity(operation string, userID, conversationID, sourceMessageID int64, content string, attachments []Attachment, runtimeParams map[string]float64, runtime AgentRuntime, effectiveMaxOutputTokens int64) requestidentity.Input {
 	attachmentIdentities := make([]requestidentity.AttachmentIdentity, 0, len(attachments))
 	for _, attachment := range attachments {
-		attachmentIdentities = append(attachmentIdentities, requestidentity.AttachmentIdentity{StorageProvider: "url", StorageKey: attachment.URL})
+		attachmentIdentities = append(attachmentIdentities, requestidentity.AttachmentIdentity{StorageProvider: "cos", StorageKey: attachment.ObjectKey})
 	}
-	options := requestidentity.GenerationOptions{MaxOutputTokens: runtime.MaxOutputTokens, Extra: map[string]string{}}
+	options := requestidentity.GenerationOptions{MaxOutputTokens: effectiveMaxOutputTokens, Extra: map[string]string{}}
 	for key, value := range runtimeParams {
-		if key == "max_tokens" {
-			options.MaxOutputTokens = int64(value)
-			continue
-		}
 		options.Extra[key] = strconv.FormatFloat(value, 'f', -1, 64)
 	}
 	if len(options.Extra) == 0 {
@@ -409,6 +425,9 @@ func historyMetaInputs(raw *string) ([]Attachment, map[string]float64, error) {
 	if err := json.Unmarshal([]byte(*raw), &meta); err != nil {
 		return nil, nil, ErrHistorySourceInvalid
 	}
+	// Legacy messages may contain the former user-controlled output cap. It is
+	// read for display elsewhere but never carried into a new history request.
+	delete(meta.RuntimeParams, "max_tokens")
 	attachments, appErr := normalizeAttachments(meta.Attachments)
 	if appErr != nil {
 		return nil, nil, ErrHistorySourceInvalid

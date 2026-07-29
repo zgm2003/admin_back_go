@@ -266,22 +266,39 @@ func TestWorkerReplyRepositoryUsesDurableRealtimeSink(t *testing.T) {
 	}
 }
 
-func TestWorkerWiresOneAuthoritativeAIModelPricingResolver(t *testing.T) {
+func TestWorkerWiresOneAuthoritativeOfficialModelResolver(t *testing.T) {
 	body, err := os.ReadFile("worker.go")
 	if err != nil {
 		t.Fatalf("read worker composition: %v", err)
 	}
 	compact := strings.Join(strings.Fields(string(body)), " ")
 	for _, want := range []string{
-		"aiModelPricingResolver := modelpricing.NewService(modelpricing.NewGormRepository(resources.DB))",
-		"PricingResolver: aiModelPricingResolver",
+		"aiOfficialModelResolver := officialmodel.NewService(officialmodel.NewGormRepository(resources.DB))",
+		"PricingResolver: aiOfficialModelResolver",
 	} {
 		if !strings.Contains(compact, want) {
 			t.Fatalf("worker AI pricing composition missing %q", want)
 		}
 	}
-	if strings.Count(compact, "modelpricing.NewService(modelpricing.NewGormRepository(resources.DB))") != 1 {
-		t.Fatal("worker must instantiate exactly one authoritative model pricing resolver")
+	if strings.Count(compact, "officialmodel.NewService(officialmodel.NewGormRepository(resources.DB))") != 1 {
+		t.Fatal("worker must instantiate exactly one authoritative official model resolver")
+	}
+}
+
+func TestWorkerUsesRuntimeChatConstructorWithDefaultToolRuntime(t *testing.T) {
+	body, err := os.ReadFile("worker.go")
+	if err != nil {
+		t.Fatalf("read worker composition: %v", err)
+	}
+	compact := strings.Join(strings.Fields(string(body)), " ")
+	for _, want := range []string{
+		"aiToolRepository := aitool.NewGormRepository(resources.DB)",
+		"aitool.DefaultExecutors(aiToolRepository)",
+		"aiChatService, err := aichat.NewRuntimeService(aichat.Dependencies{",
+	} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("worker AI tool composition missing %q", want)
+		}
 	}
 }
 

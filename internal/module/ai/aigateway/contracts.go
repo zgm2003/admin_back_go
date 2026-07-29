@@ -46,6 +46,7 @@ type ReserveAndPrepareInput struct {
 }
 
 type ProviderAttempt struct {
+	AttemptID       uint64
 	RunID           int64
 	AttemptNo       uint32
 	IdempotencyKey  string

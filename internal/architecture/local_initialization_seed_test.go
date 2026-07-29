@@ -110,17 +110,17 @@ func TestLocalPermissionSeed(t *testing.T) {
 		t.Fatalf("permission seed code count=%d want 108", len(codes))
 	}
 
-	modelPricing := map[int64]permissionSeedRow{
-		921: {id: 921, name: "模型定价", path: "/ai/model-pricing", icon: "", parentID: 5, component: "ai/model-pricing", platform: "admin", typeID: 2, sort: 7, code: "ai_model_pricing_list", i18nKey: "menu.ai_model_pricing", showMenu: 1, status: 1, isDel: 2},
-		922: {id: 922, name: "编辑模型定价", path: "", icon: "", parentID: 921, component: "", platform: "admin", typeID: 3, sort: 1, code: "ai_model_pricing_edit", i18nKey: "", showMenu: 2, status: 1, isDel: 2},
+	officialModels := map[int64]permissionSeedRow{
+		921: {id: 921, name: "官方模型", path: "/ai/official-models", icon: "", parentID: 5, component: "ai/official-models", platform: "admin", typeID: 2, sort: 7, code: "ai_official_model_list", i18nKey: "menu.ai_official_models", showMenu: 1, status: 1, isDel: 2},
+		922: {id: 922, name: "同步官方模型价格", path: "", icon: "", parentID: 921, component: "", platform: "admin", typeID: 3, sort: 1, code: "ai_official_model_price_sync", i18nKey: "", showMenu: 2, status: 1, isDel: 2},
 	}
-	for id, want := range modelPricing {
+	for id, want := range officialModels {
 		got, ok := rowsByID[id]
 		if !ok {
-			t.Fatalf("AI model pricing permission %d is missing", id)
+			t.Fatalf("AI official model permission %d is missing", id)
 		}
 		if got != want {
-			t.Fatalf("AI model pricing permission %d=%+v want %+v", id, got, want)
+			t.Fatalf("AI official model permission %d=%+v want %+v", id, got, want)
 		}
 	}
 

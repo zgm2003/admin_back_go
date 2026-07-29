@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,8 +18,7 @@ import (
 	"admin_back_go/internal/infra/secretbox"
 	"admin_back_go/internal/module/ai/aigateway"
 	"admin_back_go/internal/module/ai/capability"
-	"admin_back_go/internal/module/ai/modelpricing"
-	"admin_back_go/internal/module/ai/pricing"
+	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/requestidentity"
 	airun "admin_back_go/internal/module/ai/run"
 	aitext "admin_back_go/internal/module/ai/text"
@@ -33,11 +31,13 @@ const defaultRunStaleTimeout = 15 * time.Minute
 const maxHistoryLimit = 50
 
 var (
-	ErrAssistantPublisherNotConfigured = errors.New("assistant publisher is not configured")
-	ErrAssistantPublicationRejected    = errors.New("assistant publication rejected by reply command lease")
-	ErrProviderAttemptRecorderMissing  = errors.New("provider attempt recorder is not configured")
-	ErrProviderAttemptInvalid          = errors.New("provider attempt identity is invalid")
-	ErrPaidFinalizationRetry           = errors.New("paid AI finalization must be retried")
+	ErrAssistantPublisherNotConfigured    = errors.New("assistant publisher is not configured")
+	ErrAssistantPublicationRejected       = errors.New("assistant publication rejected by reply command lease")
+	ErrProviderAttemptRecorderMissing     = errors.New("provider attempt recorder is not configured")
+	ErrProviderAttemptInvalid             = errors.New("provider attempt identity is invalid")
+	ErrPaidFinalizationRetry              = errors.New("paid AI finalization must be retried")
+	ErrToolRuntimeNotConfigured           = errors.New("AI tool runtime is not configured")
+	ErrOfficialModelResolverNotConfigured = errors.New("official model resolver is not configured")
 )
 
 type Dependencies struct {
@@ -52,7 +52,7 @@ type Dependencies struct {
 	KnowledgeRuntime    KnowledgeRuntime
 	RunRecorder         RunRecorder
 	TextGeneration      TextGeneration
-	PricingResolver     modelpricing.Resolver
+	PricingResolver     officialmodel.Resolver
 	RunStaleTimeout     time.Duration
 	Now                 func() time.Time
 	Logger              *slog.Logger
@@ -70,7 +70,7 @@ type Service struct {
 	knowledgeRuntime    KnowledgeRuntime
 	runRecorder         RunRecorder
 	textGeneration      TextGeneration
-	pricingResolver     modelpricing.Resolver
+	pricingResolver     officialmodel.Resolver
 	runStaleTimeout     time.Duration
 	now                 func() time.Time
 	logger              *slog.Logger
@@ -92,6 +92,16 @@ func NewService(deps Dependencies) *Service {
 	return &Service{repository: deps.Repository, assistantPublisher: deps.AssistantPublisher, attemptRecorder: deps.AttemptRecorder, paidAttemptExecutor: deps.PaidAttemptExecutor, publisher: deps.Publisher, engineFactory: deps.EngineFactory, secretbox: deps.Secretbox, toolRuntime: deps.ToolRuntime, knowledgeRuntime: deps.KnowledgeRuntime, runRecorder: deps.RunRecorder, textGeneration: deps.TextGeneration, pricingResolver: deps.PricingResolver, runStaleTimeout: runStaleTimeout, now: now, logger: logger}
 }
 
+func NewRuntimeService(deps Dependencies) (*Service, error) {
+	if deps.ToolRuntime == nil {
+		return nil, ErrToolRuntimeNotConfigured
+	}
+	if deps.PricingResolver == nil {
+		return nil, ErrOfficialModelResolverNotConfigured
+	}
+	return NewService(deps), nil
+}
+
 func (s *Service) ExecuteConversationReply(ctx context.Context, input ConversationReplyInput) (*ConversationReplyResult, error) {
 	if input.ConversationID <= 0 || input.UserID <= 0 || input.UserMessageID <= 0 || strings.TrimSpace(input.RequestID) == "" {
 		return nil, apperror.BadRequest("AI对话回复任务参数错误")
@@ -99,6 +109,7 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	if input.DeliveryContext == nil {
 		input.DeliveryContext = ctx
 	}
+	input.PrepareStartedAt = s.now()
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
 		return nil, appErr
@@ -134,9 +145,12 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	if err != nil {
 		return nil, err
 	}
-	if agent == nil || agent.AgentStatus != enum.CommonYes || agent.EngineStatus != enum.CommonYes || !agentSupportsChat(agent.ScenesJSON) {
+	if agent == nil || agent.AgentStatus != enum.CommonYes || agent.EngineStatus != enum.CommonYes || agent.ProviderModelStatus != enum.CommonYes || !agentSupportsChat(agent.ScenesJSON) {
 		msg := "该智能体不支持对话场景"
 		return nil, apperror.BadRequest(msg)
+	}
+	if _, modelErr := resolveCallableAgentModel(ctx, s.pricingResolver, *agent); modelErr != nil {
+		return nil, callableModelError(modelErr)
 	}
 	if paidReply && (int64(agent.ProviderID) != acceptedRun.ProviderID || strings.TrimSpace(agent.ModelID) != strings.TrimSpace(acceptedRun.ModelID)) {
 		return nil, apperror.Internal("AI运行配置与接受快照不一致")
@@ -262,6 +276,7 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 			return nil, appErr
 		}
 		firstUsage := resultTokens(result)
+		input.PrepareStartedAt = s.now()
 		outputs, toolErr := s.executeToolCalls(ctx, uint64(runID), runtimeTools, toolCalls)
 		if toolErr != nil {
 			if paidReply {
@@ -425,7 +440,7 @@ func (s *Service) CompleteText(ctx context.Context, input TextCompletionInput) (
 	if agent == nil || agent.AgentID == 0 {
 		return nil, apperror.NotFoundKey("aitext.agent_not_found", nil, "文本智能体不存在")
 	}
-	if agent.AgentStatus != enum.CommonYes || agent.EngineStatus != enum.CommonYes || !agentSupportsTextGeneration(agent.ScenesJSON) {
+	if agent.AgentStatus != enum.CommonYes || agent.EngineStatus != enum.CommonYes || agent.ProviderModelStatus != enum.CommonYes || !agentSupportsTextGeneration(agent.ScenesJSON) {
 		return nil, apperror.BadRequestKey("aitext.agent_unavailable", nil, "该智能体不支持文本生成")
 	}
 	pricingSnapshotJSON, effectiveMaxOutputTokens, appErr := s.textCompletionPricingSnapshot(ctx, *agent)
@@ -470,19 +485,19 @@ func textCompletionResult(result *aitext.Result) (*TextCompletionResponse, *appe
 
 func (s *Service) textCompletionPricingSnapshot(ctx context.Context, agent AgentEngineConfig) (string, int64, *apperror.Error) {
 	if s == nil || s.pricingResolver == nil {
-		return "", 0, apperror.Wrap(aitext.ErrorCodePriceUnavailable, apperror.CategoryInternal, 500, apperror.Permanent, "", nil, "AI模型价格服务未配置", modelpricing.ErrRepositoryNotConfigured)
+		return "", 0, apperror.Wrap(aitext.ErrorCodePriceUnavailable, apperror.CategoryInternal, 500, apperror.Permanent, "", nil, "AI模型价格服务未配置", officialmodel.ErrRepositoryNotConfigured)
 	}
-	model, err := s.pricingResolver.Resolve(ctx, strings.TrimSpace(agent.ModelID))
+	model, err := resolveCallableAgentModel(ctx, s.pricingResolver, agent)
 	if err != nil {
 		return "", 0, apperror.Wrap(aitext.ErrorCodePriceUnavailable, apperror.CategoryConflict, 409, apperror.Permanent, "", nil, "该智能体缺少可用的模型价格", err)
 	}
 	if agent.BillingMultiplierPPM <= 0 || strings.TrimSpace(agent.EngineType) == "" {
 		return "", 0, apperror.New(aitext.ErrorCodeConfiguration, apperror.CategoryValidation, 400, apperror.Permanent, "", nil, "AI文本计费配置无效")
 	}
-	if agent.MaxOutputTokens == 0 || uint64(agent.MaxOutputTokens) > uint64(math.MaxInt64) || int64(agent.MaxOutputTokens) > model.MaxOutputTokens {
-		return "", 0, apperror.Wrap(aitext.ErrorCodeUnsafeUpperBound, apperror.CategoryConflict, 409, apperror.Permanent, "", nil, "AI文本输出上限不安全", pricing.ErrUnsafeTokenUpperBound)
+	effective := model.Model.MaxOutputTokens
+	if effective <= 0 || effective > int64(^uint(0)>>1) {
+		return "", 0, apperror.Wrap(aitext.ErrorCodeUnsafeUpperBound, apperror.CategoryConflict, 409, apperror.Permanent, "", nil, "AI文本输出上限不安全", officialmodel.ErrInvalidCatalog)
 	}
-	effective := int64(agent.MaxOutputTokens)
 	raw, err := aigateway.EncodePricingSnapshot(model, aigateway.PricingSnapshotInput{
 		TransportEngine: strings.TrimSpace(agent.EngineType), RequestedModelID: strings.TrimSpace(agent.ModelID),
 		EffectiveMaxOutputTokens: int(effective), MultiplierPPM: agent.BillingMultiplierPPM,
@@ -491,6 +506,17 @@ func (s *Service) textCompletionPricingSnapshot(ctx context.Context, agent Agent
 		return "", 0, apperror.Wrap(aitext.ErrorCodePriceUnavailable, apperror.CategoryInternal, 500, apperror.Permanent, "", nil, "生成AI模型价格快照失败", err)
 	}
 	return raw, effective, nil
+}
+
+func resolveCallableAgentModel(ctx context.Context, resolver officialmodel.Resolver, agent AgentEngineConfig) (officialmodel.ResolvedModel, error) {
+	return officialmodel.ResolveMappedRoute(ctx, resolver, agent.ModelID, agent.OfficialModelID, agent.OfficialCatalogVersion, agent.MappingStatus)
+}
+
+func callableModelError(err error) *apperror.Error {
+	if errors.Is(err, officialmodel.ErrModelRetired) {
+		return apperror.Wrap("ai.official_model.retired", apperror.CategoryConflict, 409, apperror.Permanent, "", nil, "该官方模型已退役", err)
+	}
+	return apperror.Wrap("ai.official_model.unavailable", apperror.CategoryConflict, 409, apperror.Permanent, "", nil, "该供应商模型未映射到当前官方模型目录", err)
 }
 
 func finalizedConversationReply(input ConversationReplyInput, result *PaidChatAttemptResult) *ConversationReplyResult {
@@ -545,6 +571,7 @@ func (s *Service) streamChatWithAttempt(ctx context.Context, runID int64, input 
 			RequestID:          input.RequestID,
 			RequestIdentity:    input.RequestIdentity,
 			DeliveryContext:    input.DeliveryContext,
+			PrepareStartedAt:   input.PrepareStartedAt,
 			CommandAttempt:     input.CommandAttempt,
 			CommandMaxAttempts: input.CommandMaxAttempts,
 			Engine:             engine,

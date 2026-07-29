@@ -13,6 +13,7 @@ import (
 	"admin_back_go/internal/module/ai/aigateway"
 	"admin_back_go/internal/module/ai/billing"
 	aichat "admin_back_go/internal/module/ai/chat"
+	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/pricing"
 	"admin_back_go/internal/module/ai/replycommand"
 	airun "admin_back_go/internal/module/ai/run"
@@ -33,19 +34,19 @@ type fakeTextGateway struct {
 }
 
 func TestPricingSnapshotHoldUsesMostExpensiveFrozenTier(t *testing.T) {
-	model := pricing.ModelPrice{
-		Version: "catalog-v3", CatalogVersion: "catalog-v3", CatalogVendor: "openai", ModelID: "gpt-tiered",
-		MaxOutputTokens: 100, ContextTierThresholdTokens: 50, PriceSource: "official",
-		SourceURL: "https://openai.com/pricing", RetrievedAt: "2026-07-27",
-		Rates: []pricing.Rate{
-			{Category: pricing.InputTokens, Unit: "token", TierKey: "short_context", PriceUnits: 1, UnitScale: 1},
-			{Category: pricing.InputTokens, Unit: "token", TierKey: "long_context", PriceUnits: 2, UnitScale: 1},
-			{Category: pricing.OutputTokens, Unit: "token", TierKey: "short_context", PriceUnits: 3, UnitScale: 1},
-			{Category: pricing.OutputTokens, Unit: "token", TierKey: "long_context", PriceUnits: 6, UnitScale: 1},
-		},
+	rates := []pricing.Rate{
+		{Category: pricing.InputTokens, Unit: "token", TierKey: "short_context", PriceUnits: 1, UnitScale: 1},
+		{Category: pricing.InputTokens, Unit: "token", TierKey: "long_context", PriceUnits: 2, UnitScale: 1},
+		{Category: pricing.OutputTokens, Unit: "token", TierKey: "short_context", PriceUnits: 3, UnitScale: 1},
+		{Category: pricing.OutputTokens, Unit: "token", TierKey: "long_context", PriceUnits: 6, UnitScale: 1},
+	}
+	model := officialmodel.ResolvedModel{
+		Model:          officialmodel.Model{CatalogVersion: "catalog-v3", CatalogVendor: "openai", ModelID: "gpt-tiered", ContextWindowTokens: 200, MaxOutputTokens: 100, ContextTierThresholdTokens: 50},
+		EffectivePrice: pricing.PriceBook{ModelID: "gpt-tiered", ContextTierThresholdTokens: 50, Rates: rates}, PriceSource: officialmodel.PriceSourceOfficial,
+		PriceSourceURL: "https://openai.com/pricing", PriceVerifiedAt: time.Date(2026, 7, 27, 0, 0, 0, 0, time.UTC),
 	}
 	raw, err := aigateway.EncodePricingSnapshot(model, aigateway.PricingSnapshotInput{
-		TransportEngine: "openai", RequestedModelID: model.ModelID, EffectiveMaxOutputTokens: 10, MultiplierPPM: 1_000_000,
+		TransportEngine: "openai", RequestedModelID: model.Model.ModelID, EffectiveMaxOutputTokens: 10, MultiplierPPM: 1_000_000,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -64,20 +65,20 @@ func TestPricingSnapshotHoldUsesMostExpensiveFrozenTier(t *testing.T) {
 }
 
 func TestPricingSnapshotHoldCoversClaudeCacheWriteUpperBound(t *testing.T) {
-	model := pricing.ModelPrice{
-		Version: "catalog-v3", CatalogVersion: "catalog-v3", CatalogVendor: "anthropic", ModelID: "claude-tiered",
-		MaxOutputTokens: 100, PriceSource: "official",
-		SourceURL: "https://anthropic.com/pricing", RetrievedAt: "2026-07-27",
-		Rates: []pricing.Rate{
-			{Category: pricing.InputTokens, Unit: "token", PriceUnits: 3, UnitScale: 1},
-			{Category: pricing.CacheRead, Unit: "token", PriceUnits: 1, UnitScale: 1},
-			{Category: pricing.CacheWrite, Unit: "token", TierKey: "5m", PriceUnits: 4, UnitScale: 1},
-			{Category: pricing.CacheWrite, Unit: "token", TierKey: "1h", PriceUnits: 6, UnitScale: 1},
-			{Category: pricing.OutputTokens, Unit: "token", PriceUnits: 8, UnitScale: 1},
-		},
+	rates := []pricing.Rate{
+		{Category: pricing.InputTokens, Unit: "token", PriceUnits: 3, UnitScale: 1},
+		{Category: pricing.CacheRead, Unit: "token", PriceUnits: 1, UnitScale: 1},
+		{Category: pricing.CacheWrite, Unit: "token", TierKey: "5m", PriceUnits: 4, UnitScale: 1},
+		{Category: pricing.CacheWrite, Unit: "token", TierKey: "1h", PriceUnits: 6, UnitScale: 1},
+		{Category: pricing.OutputTokens, Unit: "token", PriceUnits: 8, UnitScale: 1},
+	}
+	model := officialmodel.ResolvedModel{
+		Model:          officialmodel.Model{CatalogVersion: "catalog-v3", CatalogVendor: "anthropic", ModelID: "claude-tiered", ContextWindowTokens: 200, MaxOutputTokens: 100},
+		EffectivePrice: pricing.PriceBook{ModelID: "claude-tiered", Rates: rates}, PriceSource: officialmodel.PriceSourceOfficial,
+		PriceSourceURL: "https://anthropic.com/pricing", PriceVerifiedAt: time.Date(2026, 7, 27, 0, 0, 0, 0, time.UTC),
 	}
 	raw, err := aigateway.EncodePricingSnapshot(model, aigateway.PricingSnapshotInput{
-		TransportEngine: "anthropic", RequestedModelID: model.ModelID, EffectiveMaxOutputTokens: 10, MultiplierPPM: 1_000_000,
+		TransportEngine: "anthropic", RequestedModelID: model.Model.ModelID, EffectiveMaxOutputTokens: 10, MultiplierPPM: 1_000_000,
 	})
 	if err != nil {
 		t.Fatal(err)

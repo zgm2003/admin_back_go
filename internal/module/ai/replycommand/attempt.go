@@ -46,7 +46,9 @@ type Attempt struct {
 	ProviderRequestID     string       `gorm:"column:provider_request_id"`
 	ResponseSHA256        string       `gorm:"column:response_sha256"`
 	ErrorCode             string       `gorm:"column:error_code"`
+	PrepareStartedAt      *time.Time   `gorm:"column:prepare_started_at"`
 	DispatchedAt          *time.Time   `gorm:"column:dispatched_at"`
+	FirstDeltaAt          *time.Time   `gorm:"column:first_delta_at"`
 	FinishedAt            *time.Time   `gorm:"column:finished_at"`
 	CreatedAt             time.Time    `gorm:"column:created_at"`
 	UpdatedAt             time.Time    `gorm:"column:updated_at"`
@@ -61,6 +63,7 @@ type PrepareAttemptInput struct {
 	Owner                 string
 	Token                 uint64
 	Now                   time.Time
+	PrepareStartedAt      time.Time
 	IdempotencyKey        string
 	PreparedRequestJSON   string
 	PreparedRequestSHA256 [32]byte
@@ -128,7 +131,7 @@ func (r *GormRepository) prepareAttempt(ctx context.Context, input PrepareAttemp
 	if input.Now.IsZero() {
 		input.Now = time.Now()
 	}
-	if !legacy && (input.AttemptNo == 0 || input.PreparedRequestJSON == "" || input.PreparedRequestSHA256 == ([32]byte{}) || strings.TrimSpace(input.QuoteJSON) == "" || strings.TrimSpace(input.IdempotencyKey) == "") {
+	if !legacy && (input.AttemptNo == 0 || input.PrepareStartedAt.IsZero() || input.PreparedRequestJSON == "" || input.PreparedRequestSHA256 == ([32]byte{}) || strings.TrimSpace(input.QuoteJSON) == "" || strings.TrimSpace(input.IdempotencyKey) == "") {
 		return nil, false, errors.New("paid attempt requires exact prepared request, hash, quote, and attempt number")
 	}
 	if legacy {
@@ -249,6 +252,7 @@ func (r *GormRepository) prepareAttempt(ctx context.Context, input PrepareAttemp
 			UsageJSON:             `{"status":"unavailable"}`,
 			UsageStatus:           "unavailable",
 			DispatchState:         infraai.DispatchStateNotDispatched,
+			PrepareStartedAt:      optionalAttemptTime(input.PrepareStartedAt),
 			CreatedAt:             input.Now,
 			UpdatedAt:             input.Now,
 		}
@@ -268,6 +272,13 @@ func (r *GormRepository) prepareAttempt(ctx context.Context, input PrepareAttemp
 		return nil, false, err
 	}
 	return attempt, attempt != nil, nil
+}
+
+func optionalAttemptTime(value time.Time) *time.Time {
+	if value.IsZero() {
+		return nil
+	}
+	return &value
 }
 
 func requireAttemptTransaction(tx *gorm.DB) error {
@@ -400,6 +411,19 @@ func (r *GormRepository) FinishAttempt(ctx context.Context, input FinishAttemptI
 		return false, ErrAttemptTerminalConflict
 	}
 	return true, nil
+}
+
+func (r *GormRepository) MarkAttemptFirstDelta(ctx context.Context, attemptID uint64, at time.Time) (bool, error) {
+	if r == nil || r.db == nil {
+		return false, ErrRepositoryNotConfigured
+	}
+	if attemptID == 0 || at.IsZero() {
+		return false, ErrCreateInputInvalid
+	}
+	result := r.db.WithContext(ctx).Model(&Attempt{}).
+		Where("id = ? AND first_delta_at IS NULL", attemptID).
+		Updates(map[string]any{"first_delta_at": at, "updated_at": at})
+	return result.RowsAffected == 1, result.Error
 }
 
 func normalizeFinishAttemptEvidence(input *FinishAttemptInput) error {

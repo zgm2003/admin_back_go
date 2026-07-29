@@ -120,6 +120,25 @@ func TestSendReturnsAcceptedDurableCommand(t *testing.T) {
 	}
 }
 
+func TestSendRejectsMaxTokensEvenWhenJSONIsForged(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	handler := NewHandler(acceptedMessageService{})
+	router.POST("/api/admin/v1/ai-conversations/:id/messages", func(c *gin.Context) {
+		c.Set(middleware.ContextAuthIdentity, &middleware.AuthIdentity{UserID: 7, Platform: "admin"})
+		handler.Send(c)
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-conversations/3/messages", strings.NewReader(`{"content":"hello","request_id":"request-1","max_tokens":4096}`))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestCancelReturnsStoppingIntentInsteadOfTerminalState(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()

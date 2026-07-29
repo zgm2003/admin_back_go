@@ -9,6 +9,7 @@ import (
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/infra/ai/provider"
 	"admin_back_go/internal/infra/secretbox"
+	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/dict"
 	"admin_back_go/internal/shared/enum"
@@ -38,14 +39,43 @@ type Service struct {
 	secretbox  secretbox.Box
 	tester     ProviderTester
 	driver     ModelDriver
+	matcher    officialmodel.IdentityMatcher
+	now        func() time.Time
 }
 
-func NewService(repository Repository, box secretbox.Box, tester ProviderTester) *Service {
-	return &Service{repository: repository, secretbox: box, tester: tester, driver: provider.NewOpenAIDriver(nil)}
+type Option func(*Service)
+
+func WithOfficialModelMatcher(matcher officialmodel.IdentityMatcher) Option {
+	return func(service *Service) {
+		if matcher != nil {
+			service.matcher = matcher
+		}
+	}
 }
 
-func NewServiceWithDriver(repository Repository, box secretbox.Box, tester ProviderTester, driver ModelDriver) *Service {
-	service := NewService(repository, box, tester)
+func WithNow(now func() time.Time) Option {
+	return func(service *Service) {
+		if now != nil {
+			service.now = now
+		}
+	}
+}
+
+func NewService(repository Repository, box secretbox.Box, tester ProviderTester, options ...Option) *Service {
+	service := &Service{
+		repository: repository, secretbox: box, tester: tester, driver: provider.NewOpenAIDriver(nil),
+		matcher: officialmodel.NewIdentityMatcher(officialmodel.Default), now: time.Now,
+	}
+	for _, option := range options {
+		if option != nil {
+			option(service)
+		}
+	}
+	return service
+}
+
+func NewServiceWithDriver(repository Repository, box secretbox.Box, tester ProviderTester, driver ModelDriver, options ...Option) *Service {
+	service := NewService(repository, box, tester, options...)
 	if driver != nil {
 		service.driver = driver
 	}
@@ -94,6 +124,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (uint64, *apper
 	if appErr != nil {
 		return 0, appErr
 	}
+	models = s.mapProviderModels(models)
 	exists, err := repo.ExistsByTypeName(ctx, row.EngineType, row.Name, 0)
 	if err != nil {
 		return 0, apperror.LegacyWrap(apperror.CodeInternal, 500, "校验AI供应商失败", err)
@@ -136,6 +167,7 @@ func (s *Service) Update(ctx context.Context, id uint64, input UpdateInput) *app
 	if appErr != nil {
 		return appErr
 	}
+	models = s.mapProviderModels(models)
 	exists, err := repo.ExistsByTypeName(ctx, strings.TrimSpace(input.EngineType), strings.TrimSpace(input.Name), id)
 	if err != nil {
 		return apperror.LegacyWrap(apperror.CodeInternal, 500, "校验AI供应商失败", err)
@@ -305,6 +337,19 @@ func (s *Service) SyncModels(ctx context.Context, id uint64) (*ModelOptionsRespo
 	}
 	fields["last_model_sync_status"] = provider.HealthOK
 	fields["last_model_sync_error"] = ""
+	providerModels, appErr := s.providerModelsFromSync(ctx, repo, id, models)
+	if appErr != nil {
+		fields["last_model_sync_status"] = provider.HealthFailed
+		fields["last_model_sync_error"] = truncateErrorString(appErr.Message)
+		_ = repo.Update(ctx, id, fields)
+		return nil, appErr
+	}
+	if err := repo.ReplaceModels(ctx, id, providerModels); err != nil {
+		fields["last_model_sync_status"] = provider.HealthFailed
+		fields["last_model_sync_error"] = truncateErrorString(err.Error())
+		_ = repo.Update(ctx, id, fields)
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "保存AI供应商模型失败", err)
+	}
 	if err := repo.Update(ctx, id, fields); err != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "更新AI供应商模型同步状态失败", err)
 	}
@@ -349,8 +394,37 @@ func (s *Service) UpdateProviderModels(ctx context.Context, id uint64, input Upd
 	if appErr != nil {
 		return appErr
 	}
+	models = s.mapProviderModels(models)
 	if err := repo.ReplaceModels(ctx, id, models); err != nil {
 		return apperror.LegacyWrap(apperror.CodeInternal, 500, "保存AI供应商模型失败", err)
+	}
+	return nil
+}
+
+func (s *Service) ReconcileOfficialModelMappings(ctx context.Context) error {
+	if s == nil || s.repository == nil {
+		return ErrRepositoryNotConfigured
+	}
+	rows, err := s.repository.ListAllModels(ctx)
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	if s.now != nil {
+		now = s.now()
+	}
+	matcher := s.matcher
+	if matcher == nil {
+		matcher = officialmodel.NewIdentityMatcher(officialmodel.Default)
+	}
+	for _, row := range rows {
+		mapping := matcher.MatchIdentity(row.ModelID, now)
+		if providerModelMappingEqual(row, mapping) {
+			continue
+		}
+		if err := s.repository.UpdateModelMapping(ctx, row.ID, mapping); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -548,12 +622,99 @@ func providerDTO(row Provider, models []ProviderModel) (ProviderDTO, *apperror.E
 func providerModelDTOs(rows []ProviderModel) ([]ProviderModelDTO, *apperror.Error) {
 	list := make([]ProviderModelDTO, 0, len(rows))
 	for _, row := range rows {
-		if !enum.IsCommonStatus(row.Status) {
+		if !enum.IsCommonStatus(row.Status) || !validStoredMapping(row) {
 			return nil, apperror.InternalKey("aiprovider.model.data_invalid", nil, "AI供应商模型数据异常")
 		}
-		list = append(list, ProviderModelDTO{ID: row.ID, ProviderID: row.ProviderID, ModelID: row.ModelID, DisplayName: row.DisplayName, Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt)})
+		list = append(list, ProviderModelDTO{
+			ID: row.ID, ProviderID: row.ProviderID, ModelID: row.ModelID, DisplayName: row.DisplayName,
+			OfficialModelID: valueOrEmpty(row.OfficialModelID), OfficialCatalogVersion: valueOrEmpty(row.OfficialCatalogVersion),
+			MappingStatus: row.MappingStatus, MappedAt: formatPtrTime(row.MappedAt),
+			Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt),
+		})
 	}
 	return list, nil
+}
+
+func (s *Service) mapProviderModels(models []ProviderModel) []ProviderModel {
+	mapped := append([]ProviderModel(nil), models...)
+	now := time.Now()
+	if s != nil && s.now != nil {
+		now = s.now()
+	}
+	matcher := officialmodel.IdentityMatcher(officialmodel.NewIdentityMatcher(officialmodel.Default))
+	if s != nil && s.matcher != nil {
+		matcher = s.matcher
+	}
+	for index := range mapped {
+		mapping := matcher.MatchIdentity(mapped[index].ModelID, now)
+		mapped[index].OfficialModelID = nil
+		mapped[index].OfficialCatalogVersion = nil
+		mapped[index].MappedAt = nil
+		mapped[index].MappingStatus = mapping.Status
+		if mapping.Status == officialmodel.MappingStatusMapped {
+			officialID, catalogVersion := mapping.OfficialModelID, mapping.CatalogVersion
+			mapped[index].OfficialModelID = &officialID
+			mapped[index].OfficialCatalogVersion = &catalogVersion
+			mapped[index].MappedAt = mapping.MappedAt
+		}
+	}
+	return mapped
+}
+
+func (s *Service) providerModelsFromSync(ctx context.Context, repo Repository, providerID uint64, upstream []provider.Model) ([]ProviderModel, *apperror.Error) {
+	existing, err := repo.ListModels(ctx, providerID)
+	if err != nil {
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI供应商模型失败", err)
+	}
+	displayNames := make(map[string]string, len(upstream))
+	statuses := make(map[string]int, len(existing))
+	for _, model := range existing {
+		displayNames[model.ModelID] = model.DisplayName
+		statuses[model.ModelID] = model.Status
+	}
+	modelIDs := make([]string, 0, len(upstream))
+	for _, model := range upstream {
+		modelIDs = append(modelIDs, model.ID)
+		if strings.TrimSpace(displayNames[model.ID]) == "" {
+			displayNames[model.ID] = model.ID
+		}
+	}
+	models, appErr := buildProviderModels(modelIDs, displayNames, statuses)
+	if appErr != nil {
+		return nil, appErr
+	}
+	return s.mapProviderModels(models), nil
+}
+
+func validStoredMapping(row ProviderModel) bool {
+	switch row.MappingStatus {
+	case officialmodel.MappingStatusMapped:
+		return row.OfficialModelID != nil && strings.TrimSpace(*row.OfficialModelID) != "" &&
+			row.OfficialCatalogVersion != nil && strings.TrimSpace(*row.OfficialCatalogVersion) != "" && row.MappedAt != nil
+	case officialmodel.MappingStatusUnmapped:
+		return row.OfficialModelID == nil && row.OfficialCatalogVersion == nil && row.MappedAt == nil
+	default:
+		return false
+	}
+}
+
+func providerModelMappingEqual(row ProviderModel, mapping officialmodel.IdentityMapping) bool {
+	if row.MappingStatus != mapping.Status {
+		return false
+	}
+	if mapping.Status == officialmodel.MappingStatusUnmapped {
+		return row.OfficialModelID == nil && row.OfficialCatalogVersion == nil && row.MappedAt == nil
+	}
+	return row.OfficialModelID != nil && *row.OfficialModelID == mapping.OfficialModelID &&
+		row.OfficialCatalogVersion != nil && *row.OfficialCatalogVersion == mapping.CatalogVersion &&
+		row.MappedAt != nil
+}
+
+func valueOrEmpty(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func modelOptionsDTO(models []provider.Model) []ModelOptionDTO {

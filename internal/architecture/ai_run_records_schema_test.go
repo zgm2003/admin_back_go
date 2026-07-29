@@ -2,6 +2,7 @@ package architecture
 
 import (
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -112,12 +113,14 @@ func TestWorkerWiresPaidImageExecutorAndRecoveryReconciler(t *testing.T) {
 	source := string(body)
 	for _, required := range []string{
 		"paidImageExecutor := newPaidImageTaskExecutor",
-		"Executor:      paidImageExecutor",
 		"imageReconciler",
 		"aiimage.NewReconciler",
 	} {
 		if !strings.Contains(source, required) {
 			t.Fatalf("worker missing paid image runtime wiring %q", required)
 		}
+	}
+	if !regexp.MustCompile(`Executor:\s+paidImageExecutor`).MatchString(source) {
+		t.Fatal("worker does not wire the paid image executor")
 	}
 }

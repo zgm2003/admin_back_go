@@ -41,6 +41,40 @@ func TestRunnerClaimsTransitionsAndCompletesCommand(t *testing.T) {
 	}
 }
 
+func TestRunCommandMarksWakeClaimSource(t *testing.T) {
+	now := time.Date(2026, 7, 28, 10, 0, 0, 0, time.UTC)
+	repository := &fakeRunnerRepository{claim: &Claim{
+		Command: Command{ID: 51, ConversationID: 3, UserID: 7, UserMessageID: 9, RequestID: "wake", State: StateClaimed},
+		Owner:   "worker", FencingToken: 1,
+	}, renewal: Renewal{Alive: true}}
+	runner := NewRunner(RunnerOptions{Repository: repository, Executor: &fakeReplyExecutor{result: &aichat.ConversationReplyResult{ConversationID: 3, AssistantMessageID: 21}}, Now: func() time.Time { return now }})
+
+	worked, err := runner.RunCommand(context.Background(), 51)
+	if err != nil || !worked {
+		t.Fatalf("RunCommand worked=%v err=%v", worked, err)
+	}
+	if repository.claimByIDSource != ClaimSourceWake {
+		t.Fatalf("claim source=%q", repository.claimByIDSource)
+	}
+}
+
+func TestRunOnceMarksPollClaimSource(t *testing.T) {
+	now := time.Date(2026, 7, 28, 10, 0, 1, 0, time.UTC)
+	repository := &fakeRunnerRepository{claim: &Claim{
+		Command: Command{ID: 52, ConversationID: 3, UserID: 7, UserMessageID: 9, RequestID: "poll", State: StateClaimed},
+		Owner:   "worker", FencingToken: 1,
+	}, renewal: Renewal{Alive: true}}
+	runner := NewRunner(RunnerOptions{Repository: repository, Executor: &fakeReplyExecutor{result: &aichat.ConversationReplyResult{ConversationID: 3, AssistantMessageID: 22}}, Now: func() time.Time { return now }})
+
+	worked, err := runner.RunOnce(context.Background())
+	if err != nil || !worked {
+		t.Fatalf("RunOnce worked=%v err=%v", worked, err)
+	}
+	if repository.claimNextSource != ClaimSourcePoll {
+		t.Fatalf("claim source=%q", repository.claimNextSource)
+	}
+}
+
 func TestRunnerCancelsExecutionAndDoesNotTerminalizeAfterLeaseLoss(t *testing.T) {
 	now := time.Now()
 	repository := &fakeRunnerRepository{claim: &Claim{
@@ -307,13 +341,15 @@ type stateTransition struct {
 }
 
 type fakeRunnerRepository struct {
-	mu          sync.Mutex
-	claim       *Claim
-	renewal     Renewal
-	renewals    []Renewal
-	renewIndex  int
-	renewed     chan int
-	transitions []stateTransition
+	mu              sync.Mutex
+	claim           *Claim
+	renewal         Renewal
+	renewals        []Renewal
+	renewIndex      int
+	renewed         chan int
+	transitions     []stateTransition
+	claimNextSource ClaimSource
+	claimByIDSource ClaimSource
 }
 
 type retryRunnerRepository struct {
@@ -339,10 +375,12 @@ func (r *retryRunnerRepository) ScheduleRetry(_ context.Context, commandID uint6
 	return true, nil
 }
 
-func (f *fakeRunnerRepository) ClaimNext(context.Context, string, time.Time, time.Duration) (*Claim, error) {
+func (f *fakeRunnerRepository) ClaimNext(_ context.Context, source ClaimSource, _ string, _ time.Time, _ time.Duration) (*Claim, error) {
+	f.claimNextSource = source
 	return f.claim, nil
 }
-func (f *fakeRunnerRepository) ClaimByID(context.Context, uint64, string, time.Time, time.Duration) (*Claim, error) {
+func (f *fakeRunnerRepository) ClaimByID(_ context.Context, _ uint64, source ClaimSource, _ string, _ time.Time, _ time.Duration) (*Claim, error) {
+	f.claimByIDSource = source
 	return f.claim, nil
 }
 func (f *fakeRunnerRepository) Renew(context.Context, uint64, string, uint64, time.Time) (Renewal, error) {

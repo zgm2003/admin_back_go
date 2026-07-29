@@ -13,7 +13,7 @@ import (
 	infrarealtime "admin_back_go/internal/infra/realtime"
 	"admin_back_go/internal/infra/secretbox"
 	"admin_back_go/internal/module/ai/aigateway"
-	"admin_back_go/internal/module/ai/modelpricing"
+	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/pricing"
 	"admin_back_go/internal/module/ai/requestidentity"
 	airun "admin_back_go/internal/module/ai/run"
@@ -22,9 +22,23 @@ import (
 	"admin_back_go/internal/shared/enum"
 )
 
+func TestNewRuntimeServiceRejectsMissingToolRuntime(t *testing.T) {
+	service, err := NewRuntimeService(Dependencies{})
+	if service != nil || !errors.Is(err, ErrToolRuntimeNotConfigured) {
+		t.Fatalf("service=%#v err=%v", service, err)
+	}
+}
+
+func TestNewRuntimeServiceRejectsMissingOfficialModelResolver(t *testing.T) {
+	service, err := NewRuntimeService(Dependencies{ToolRuntime: &fakeToolRuntime{}})
+	if service != nil || !errors.Is(err, ErrOfficialModelResolverNotConfigured) {
+		t.Fatalf("service=%#v err=%v", service, err)
+	}
+}
+
 func TestTextCompletionPricingSnapshotUsesInjectedResolver(t *testing.T) {
 	resolverCalls := 0
-	service := NewService(Dependencies{PricingResolver: modelpricing.ResolverFunc(func(_ context.Context, modelID string) (pricing.ModelPrice, error) {
+	service := newTestChatService(Dependencies{PricingResolver: officialmodel.ResolverFunc(func(_ context.Context, modelID string) (officialmodel.ResolvedModel, error) {
 		resolverCalls++
 		if modelID != "injected-chat-model" {
 			t.Fatalf("resolver model = %q", modelID)
@@ -32,9 +46,11 @@ func TestTextCompletionPricingSnapshotUsesInjectedResolver(t *testing.T) {
 		return testCurrentModelPrice(modelID, 2048), nil
 	})})
 	raw, effective, appErr := service.textCompletionPricingSnapshot(context.Background(), AgentEngineConfig{
-		ModelID: "injected-chat-model", EngineType: "openai", BillingMultiplierPPM: 1_250_000, MaxOutputTokens: 1024,
+		ModelID: "injected-chat-model", EngineType: "openai", ProviderModelStatus: enum.CommonYes,
+		OfficialModelID: "injected-chat-model", OfficialCatalogVersion: "catalog-v3", MappingStatus: officialmodel.MappingStatusMapped,
+		BillingMultiplierPPM: 1_250_000,
 	})
-	if appErr != nil || effective != 1024 || resolverCalls != 1 {
+	if appErr != nil || effective != 2048 || resolverCalls != 1 {
 		t.Fatalf("snapshot result = %q, %d, %#v; calls=%d", raw, effective, appErr, resolverCalls)
 	}
 	snapshot, err := aigateway.ParsePricingSnapshot(raw)
@@ -43,16 +59,32 @@ func TestTextCompletionPricingSnapshotUsesInjectedResolver(t *testing.T) {
 	}
 }
 
-func testCurrentModelPrice(modelID string, maxOutput int64) pricing.ModelPrice {
-	return pricing.ModelPrice{
-		Version: "catalog-v3:override:3", CatalogVersion: "catalog-v3", OverrideVersion: 3,
-		CatalogVendor: "openai", ModelFamily: "gpt", ModelID: modelID, PricingProfile: "standard_global",
-		MaxOutputTokens: maxOutput, PriceSource: "override", SourceURL: "https://openai.com/pricing", RetrievedAt: "2026-07-27",
-		Rates: []pricing.Rate{
-			{Category: pricing.InputTokens, Unit: "token", PriceUnits: 1, UnitScale: 1_000_000},
-			{Category: pricing.OutputTokens, Unit: "token", PriceUnits: 2, UnitScale: 1_000_000},
-		},
+func testCurrentModelPrice(modelID string, maxOutput int64) officialmodel.ResolvedModel {
+	rates := []pricing.Rate{
+		{Category: pricing.InputTokens, Unit: "token", PriceUnits: 1, UnitScale: 1_000_000},
+		{Category: pricing.OutputTokens, Unit: "token", PriceUnits: 2, UnitScale: 1_000_000},
 	}
+	return officialmodel.ResolvedModel{
+		Model: officialmodel.Model{
+			CatalogVersion: "catalog-v3", CatalogVendor: "openai", ModelFamily: "gpt", ModelID: modelID,
+			ContextWindowTokens: maxOutput * 4, MaxOutputTokens: maxOutput, OfficialPrice: pricing.PriceBook{ModelID: modelID, Rates: rates},
+		},
+		EffectivePrice: pricing.PriceBook{ModelID: modelID, Rates: rates}, PriceSource: officialmodel.PriceSourceOverride,
+		OverrideVersion: 3, PriceSourceURL: "https://openai.com/pricing", PriceVerifiedAt: time.Date(2026, 7, 27, 0, 0, 0, 0, time.UTC),
+	}
+}
+
+func testCurrentPricingResolver() officialmodel.Resolver {
+	return officialmodel.ResolverFunc(func(_ context.Context, modelID string) (officialmodel.ResolvedModel, error) {
+		return testCurrentModelPrice(modelID, 2048), nil
+	})
+}
+
+func newTestChatService(deps Dependencies) *Service {
+	if deps.PricingResolver == nil {
+		deps.PricingResolver = testCurrentPricingResolver()
+	}
+	return NewService(deps)
 }
 
 type fakeRepository struct {
@@ -427,17 +459,21 @@ func validAgentConfig(t *testing.T) (*AgentEngineConfig, secretbox.Box) {
 		t.Fatalf("encrypt fixture: %v", err)
 	}
 	return &AgentEngineConfig{
-		AgentID:          5,
-		AgentName:        "客服",
-		ProviderID:       2,
-		ModelID:          "gpt-5.4",
-		ModelDisplayName: "GPT-5.4",
-		ScenesJSON:       `["chat"]`,
-		EngineType:       string(infraai.EngineTypeOpenAI),
-		EngineBaseURL:    "https://api.openai.test/v1",
-		EngineAPIKeyEnc:  cipher,
-		AgentStatus:      enum.CommonYes,
-		EngineStatus:     enum.CommonYes,
+		AgentID:                5,
+		AgentName:              "客服",
+		ProviderID:             2,
+		ModelID:                "gpt-5.4",
+		ModelDisplayName:       "GPT-5.4",
+		ScenesJSON:             `["chat"]`,
+		EngineType:             string(infraai.EngineTypeOpenAI),
+		EngineBaseURL:          "https://api.openai.test/v1",
+		EngineAPIKeyEnc:        cipher,
+		AgentStatus:            enum.CommonYes,
+		EngineStatus:           enum.CommonYes,
+		ProviderModelStatus:    enum.CommonYes,
+		OfficialModelID:        "gpt-5.4",
+		OfficialCatalogVersion: "catalog-v3",
+		MappingStatus:          officialmodel.MappingStatusMapped,
 	}, box
 }
 
@@ -449,20 +485,23 @@ func validGenerationTextAgentConfig(t *testing.T) (*AgentEngineConfig, secretbox
 		t.Fatalf("encrypt fixture: %v", err)
 	}
 	return &AgentEngineConfig{
-		AgentID:              8,
-		AgentName:            "Generation文本助手",
-		ProviderID:           2,
-		ModelID:              "gpt-4.1-mini",
-		ModelDisplayName:     "GPT 4.1 Mini",
-		SystemPrompt:         "用中文回答",
-		ScenesJSON:           `["text_generate"]`,
-		EngineType:           string(infraai.EngineTypeOpenAI),
-		EngineBaseURL:        "https://api.openai.test/v1",
-		EngineAPIKeyEnc:      cipher,
-		AgentStatus:          enum.CommonYes,
-		EngineStatus:         enum.CommonYes,
-		BillingMultiplierPPM: 1_000_000,
-		MaxOutputTokens:      1024,
+		AgentID:                8,
+		AgentName:              "Generation文本助手",
+		ProviderID:             2,
+		ModelID:                "gpt-4.1-mini",
+		ModelDisplayName:       "GPT 4.1 Mini",
+		SystemPrompt:           "用中文回答",
+		ScenesJSON:             `["text_generate"]`,
+		EngineType:             string(infraai.EngineTypeOpenAI),
+		EngineBaseURL:          "https://api.openai.test/v1",
+		EngineAPIKeyEnc:        cipher,
+		AgentStatus:            enum.CommonYes,
+		EngineStatus:           enum.CommonYes,
+		ProviderModelStatus:    enum.CommonYes,
+		OfficialModelID:        "gpt-4.1-mini",
+		OfficialCatalogVersion: "catalog-v3",
+		MappingStatus:          officialmodel.MappingStatusMapped,
+		BillingMultiplierPPM:   1_000_000,
 	}, box
 }
 
@@ -473,12 +512,13 @@ func TestCompleteTextSubmitsDurableGatewayTaskWithoutDirectProviderCall(t *testi
 	factory := &fakeEngineFactory{engine: &captureEngine{}}
 	pub := &fakePublisher{}
 
-	res, appErr := NewService(Dependencies{
+	res, appErr := newTestChatService(Dependencies{
 		Repository:         repo,
 		AssistantPublisher: repo,
 		Publisher:          pub,
 		TextGeneration:     textService,
 		EngineFactory:      factory,
+		PricingResolver:    testCurrentPricingResolver(),
 	}).CompleteText(context.Background(), TextCompletionInput{Platform: enum.PlatformAdmin, RequestID: "request-1", UserID: 7, AgentID: 8, ModelID: "client-model", Message: " hello text "})
 
 	if appErr != nil {
@@ -511,7 +551,7 @@ func TestCompleteTextReplaysBeforeCurrentAgentLookup(t *testing.T) {
 	}
 	repo := &fakeRepository{}
 
-	res, appErr := NewService(Dependencies{Repository: repo, TextGeneration: textService}).CompleteText(
+	res, appErr := newTestChatService(Dependencies{Repository: repo, TextGeneration: textService}).CompleteText(
 		context.Background(),
 		TextCompletionInput{Platform: enum.PlatformAdmin, RequestID: "request-replay", UserID: 7, AgentID: 8, Message: "same input"},
 	)
@@ -527,7 +567,7 @@ func TestCompleteTextReplaysBeforeCurrentAgentLookup(t *testing.T) {
 func TestCompleteTextRejectsMissingOrUnregisteredPlatformBeforeRepository(t *testing.T) {
 	for _, platform := range []string{"", "partner_portal"} {
 		repo := &fakeRepository{}
-		_, appErr := NewService(Dependencies{Repository: repo}).CompleteText(context.Background(), TextCompletionInput{Platform: platform, RequestID: "request-1", UserID: 7, AgentID: 8, Message: "hello"})
+		_, appErr := newTestChatService(Dependencies{Repository: repo}).CompleteText(context.Background(), TextCompletionInput{Platform: platform, RequestID: "request-1", UserID: 7, AgentID: 8, Message: "hello"})
 		if appErr == nil || appErr.MessageID != "aitext.platform.invalid" {
 			t.Fatalf("expected platform %q to be rejected, got %#v", platform, appErr)
 		}
@@ -539,7 +579,7 @@ func TestCompleteTextRejectsMissingOrUnregisteredPlatformBeforeRepository(t *tes
 
 func TestCompleteTextRejectsNonGenerationTextScene(t *testing.T) {
 	agent, _ := validAgentConfig(t)
-	_, appErr := NewService(Dependencies{
+	_, appErr := newTestChatService(Dependencies{
 		Repository:     &fakeRepository{agent: agent},
 		TextGeneration: &fakeDurableTextService{},
 	}).CompleteText(context.Background(), TextCompletionInput{Platform: enum.PlatformAdmin, RequestID: "request-1", UserID: 7, AgentID: 5, Message: "hi"})
@@ -550,8 +590,9 @@ func TestCompleteTextRejectsNonGenerationTextScene(t *testing.T) {
 
 func TestCompleteTextRejectsEmptySettledAnswer(t *testing.T) {
 	agent, _ := validGenerationTextAgentConfig(t)
-	_, appErr := NewService(Dependencies{
-		Repository: &fakeRepository{agent: agent},
+	_, appErr := newTestChatService(Dependencies{
+		Repository:      &fakeRepository{agent: agent},
+		PricingResolver: testCurrentPricingResolver(),
 		TextGeneration: &fakeDurableTextService{submitResult: &aitext.Result{
 			TaskID: 77, RunID: 99, RequestID: "request-1", Kind: aitext.KindText,
 		}},
@@ -574,7 +615,7 @@ func TestExecuteDurableConversationReplyPublishesOnlyEphemeralEventsAndPersistsA
 	factory := &fakeEngineFactory{engine: infraai.NewFakeEngine("ok")}
 	recorder := &fakeRunRecorder{nextID: 100}
 	attempts := &fakeProviderAttemptRecorder{}
-	res, err := NewService(Dependencies{Repository: repo, AssistantPublisher: repo, AttemptRecorder: attempts, Publisher: pub, RunRecorder: recorder, EngineFactory: factory, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{CommandID: 41, LeaseOwner: "worker-a", LeaseToken: 2, ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
+	res, err := newTestChatService(Dependencies{Repository: repo, AssistantPublisher: repo, AttemptRecorder: attempts, Publisher: pub, RunRecorder: recorder, EngineFactory: factory, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{CommandID: 41, LeaseOwner: "worker-a", LeaseToken: 2, ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
 	if err != nil {
 		t.Fatalf("ExecuteConversationReply returned error: %v", err)
 	}
@@ -611,7 +652,7 @@ func TestExecuteDurableConversationReplyDoesNotReportFailureAfterTerminalCommit(
 		history:      []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, ContentType: "text", Content: "hi"}},
 	}
 	recorder := &fakeRunRecorder{nextID: 100, completeErr: errors.New("run recorder unavailable after commit")}
-	res, err := NewService(Dependencies{
+	res, err := newTestChatService(Dependencies{
 		Repository: repo, AssistantPublisher: repo, AttemptRecorder: &fakeProviderAttemptRecorder{},
 		Publisher: &fakePublisher{}, RunRecorder: recorder,
 		EngineFactory: &fakeEngineFactory{engine: infraai.NewFakeEngine("ok")}, Secretbox: box,
@@ -632,7 +673,7 @@ func TestExecuteConversationReplyPublishesAssistantThroughFencedBoundary(t *test
 		history:      []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, ContentType: "text", Content: "hi"}},
 	}
 	assistantPublisher := &fakeAssistantPublisher{}
-	res, err := NewService(Dependencies{
+	res, err := newTestChatService(Dependencies{
 		Repository:         repo,
 		AssistantPublisher: assistantPublisher,
 		AttemptRecorder:    &fakeProviderAttemptRecorder{},
@@ -661,7 +702,7 @@ func TestExecuteConversationReplyPersistsProviderAttemptAroundNetworkCall(t *tes
 	}
 	attempts := &fakeProviderAttemptRecorder{}
 	engine := &attemptCaptureEngine{}
-	_, err := NewService(Dependencies{
+	_, err := newTestChatService(Dependencies{
 		Repository:         repo,
 		AssistantPublisher: repo,
 		AttemptRecorder:    attempts,
@@ -695,7 +736,7 @@ func TestExecuteConversationReplyDoesNotCompleteIncompleteReportedUsage(t *testi
 		history:      []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, ContentType: "text", Content: "hi"}},
 	}
 	attempts := &fakeProviderAttemptRecorder{}
-	_, err := NewService(Dependencies{
+	_, err := newTestChatService(Dependencies{
 		Repository: repo, AssistantPublisher: repo, AttemptRecorder: attempts,
 		Publisher: &fakePublisher{}, RunRecorder: &fakeRunRecorder{nextID: 100},
 		EngineFactory: &fakeEngineFactory{engine: &fakeEngine{result: &infraai.ChatResult{Answer: "ok", UsageStatus: infraai.UsageStatusReported}}}, Secretbox: box,
@@ -720,7 +761,7 @@ func TestExecuteConversationReplyRecordsAmbiguousProviderOutcome(t *testing.T) {
 	}
 	attempts := &fakeProviderAttemptRecorder{}
 	providerErr := infraai.NewProviderError(infraai.ProviderOutcomeUnknown, "provider-request-2", errors.New("stream disconnected"))
-	_, err := NewService(Dependencies{
+	_, err := newTestChatService(Dependencies{
 		Repository:         repo,
 		AssistantPublisher: repo,
 		AttemptRecorder:    attempts,
@@ -830,7 +871,7 @@ func TestExecuteConversationReplyDerivesAgentFromOwnedConversation(t *testing.T)
 		agent:        agent,
 		history:      []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, ContentType: "text", Content: "hi"}},
 	}
-	_, err := NewService(Dependencies{
+	_, err := newTestChatService(Dependencies{
 		Repository:         repo,
 		AssistantPublisher: repo,
 		Publisher:          &fakePublisher{},
@@ -855,7 +896,7 @@ func TestExecuteConversationReplyPreservesStreamingDeltasFromEngine(t *testing.T
 	}
 	pub := &fakePublisher{}
 	recorder := &fakeRunRecorder{nextID: 100}
-	res, err := NewService(Dependencies{Repository: repo, AssistantPublisher: repo, Publisher: pub, RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: splitDeltaEngine{}}, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
+	res, err := newTestChatService(Dependencies{Repository: repo, AssistantPublisher: repo, Publisher: pub, RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: splitDeltaEngine{}}, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
 	if err != nil {
 		t.Fatalf("ExecuteConversationReply returned error: %v", err)
 	}
@@ -894,7 +935,7 @@ func TestExecuteConversationReplyStopsDeliveryButDrainsUsageAndCandidate(t *test
 	publisher := &fakePublisher{}
 	recorder := &fakeRunRecorder{nextID: 100}
 
-	result, err := NewService(Dependencies{
+	result, err := newTestChatService(Dependencies{
 		Repository: repo, AssistantPublisher: repo, AttemptRecorder: attempts, Publisher: publisher,
 		RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box,
 	}).ExecuteConversationReply(context.Background(), ConversationReplyInput{
@@ -959,7 +1000,7 @@ func TestExecuteConversationReplyAllowsImageOnlyUserMessage(t *testing.T) {
 	}
 	recorder := &fakeRunRecorder{nextID: 100}
 
-	res, err := NewService(Dependencies{Repository: repo, AssistantPublisher: repo, Publisher: &fakePublisher{}, RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
+	res, err := newTestChatService(Dependencies{Repository: repo, AssistantPublisher: repo, Publisher: &fakePublisher{}, RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
 
 	if err != nil {
 		t.Fatalf("image-only user message must not be treated as missing: %v", err)
@@ -991,7 +1032,7 @@ func TestExecuteDurableConversationReplyDoesNotPublishUncommittedFailure(t *test
 	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5}, agent: agent, history: []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, Content: "hi"}}}
 	pub := &fakePublisher{}
 	recorder := &fakeRunRecorder{nextID: 100}
-	_, err := NewService(Dependencies{Repository: repo, AssistantPublisher: repo, AttemptRecorder: &fakeProviderAttemptRecorder{}, Publisher: pub, RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: &infraai.FakeEngine{Err: errors.New("engine down")}}, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{CommandID: 41, LeaseOwner: "worker-a", LeaseToken: 2, ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
+	_, err := newTestChatService(Dependencies{Repository: repo, AssistantPublisher: repo, AttemptRecorder: &fakeProviderAttemptRecorder{}, Publisher: pub, RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: &infraai.FakeEngine{Err: errors.New("engine down")}}, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{CommandID: 41, LeaseOwner: "worker-a", LeaseToken: 2, ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
 	if err == nil {
 		t.Fatal("expected engine error")
 	}
@@ -1010,7 +1051,7 @@ func TestExecuteConversationReplyMarksRunCanceledForCanceledContext(t *testing.T
 	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5}, agent: agent, history: []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, Content: "hi"}}}
 	pub := &fakePublisher{}
 	recorder := &fakeRunRecorder{nextID: 100}
-	_, err := NewService(Dependencies{Repository: repo, AssistantPublisher: repo, Publisher: pub, RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: canceledEngine{}}, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
+	_, err := newTestChatService(Dependencies{Repository: repo, AssistantPublisher: repo, Publisher: pub, RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: canceledEngine{}}, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
 	if err == nil {
 		t.Fatal("expected canceled error")
 	}
@@ -1026,7 +1067,7 @@ func TestExecuteConversationReplyPublishesFallbackDeltaWhenEngineReturnsBlank(t 
 		history:      []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, Content: "hi"}},
 	}
 	pub := &fakePublisher{}
-	res, err := NewService(Dependencies{
+	res, err := newTestChatService(Dependencies{
 		Repository:         repo,
 		AssistantPublisher: repo,
 		Publisher:          pub,
@@ -1053,7 +1094,7 @@ func TestExecuteConversationReplyPublishesFallbackDeltaWhenEngineReturnsBlank(t 
 func TestTimeoutRunsMarksOldRunsFailed(t *testing.T) {
 	repo := &fakeRepository{}
 	now := time.Date(2026, 5, 10, 12, 0, 0, 0, time.UTC)
-	res, err := NewService(Dependencies{Repository: repo, AssistantPublisher: repo, RunStaleTimeout: 20 * time.Minute, Now: func() time.Time { return now }}).TimeoutRuns(context.Background(), RunTimeoutInput{Limit: 5})
+	res, err := newTestChatService(Dependencies{Repository: repo, AssistantPublisher: repo, RunStaleTimeout: 20 * time.Minute, Now: func() time.Time { return now }}).TimeoutRuns(context.Background(), RunTimeoutInput{Limit: 5})
 	if err != nil {
 		t.Fatalf("TimeoutRuns returned error: %v", err)
 	}
@@ -1068,7 +1109,7 @@ func TestTimeoutRunsMarksOldRunsFailed(t *testing.T) {
 func TestTimeoutRunsAllowsInputStaleTimeoutOverride(t *testing.T) {
 	repo := &fakeRepository{}
 	now := time.Date(2026, 5, 10, 12, 0, 0, 0, time.UTC)
-	_, err := NewService(Dependencies{Repository: repo, AssistantPublisher: repo, RunStaleTimeout: 20 * time.Minute, Now: func() time.Time { return now }}).
+	_, err := newTestChatService(Dependencies{Repository: repo, AssistantPublisher: repo, RunStaleTimeout: 20 * time.Minute, Now: func() time.Time { return now }}).
 		TimeoutRuns(context.Background(), RunTimeoutInput{Limit: 5, StaleTimeout: 7 * time.Minute})
 	if err != nil {
 		t.Fatalf("TimeoutRuns returned error: %v", err)
@@ -1169,7 +1210,7 @@ func TestExecuteConversationReplyInjectsKnowledgeContext(t *testing.T) {
 		history:      []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, Content: "这个项目后端架构是什么？"}},
 	}
 	knowledge := &fakeKnowledgeRuntime{result: &KnowledgeContextResult{RetrievalID: 88, Context: "[K1] 知识库：架构库；文档：Go 后端架构\nGin modular monolith"}}
-	_, err := NewService(Dependencies{Repository: repo, AssistantPublisher: repo, Publisher: &fakePublisher{}, RunRecorder: &fakeRunRecorder{nextID: 100}, EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box, KnowledgeRuntime: knowledge}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
+	_, err := newTestChatService(Dependencies{Repository: repo, AssistantPublisher: repo, Publisher: &fakePublisher{}, RunRecorder: &fakeRunRecorder{nextID: 100}, EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box, KnowledgeRuntime: knowledge}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
 	if err != nil {
 		t.Fatalf("ExecuteConversationReply returned error: %v", err)
 	}
@@ -1190,7 +1231,7 @@ func TestExecuteConversationReplyContinuesWhenKnowledgeRetrievalFails(t *testing
 		history:      []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, Content: "hi"}},
 	}
 	knowledge := &fakeKnowledgeRuntime{err: apperror.Internal("知识库检索失败")}
-	res, err := NewService(Dependencies{Repository: repo, AssistantPublisher: repo, Publisher: &fakePublisher{}, RunRecorder: &fakeRunRecorder{nextID: 100}, EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box, KnowledgeRuntime: knowledge}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
+	res, err := newTestChatService(Dependencies{Repository: repo, AssistantPublisher: repo, Publisher: &fakePublisher{}, RunRecorder: &fakeRunRecorder{nextID: 100}, EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box, KnowledgeRuntime: knowledge}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
 	if err != nil {
 		t.Fatalf("knowledge failure must not block chat: %v", err)
 	}
@@ -1242,7 +1283,7 @@ func TestExecuteConversationReplySupportsSingleToolRound(t *testing.T) {
 	runtime := &fakeToolRuntime{runtimeTools: []RuntimeTool{{ID: 1, Name: "查询当前用户量", Code: "admin_user_count", Description: "查询后台当前用户数量，只返回数量。", ParametersJSON: map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}, RiskLevel: "low", TimeoutMS: 3000}}}
 	engine := &toolCallEngine{}
 	recorder := &fakeRunRecorder{nextID: 100}
-	res, err := NewService(Dependencies{Repository: repo, AssistantPublisher: repo, Publisher: pub, RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box, ToolRuntime: runtime}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
+	res, err := newTestChatService(Dependencies{Repository: repo, AssistantPublisher: repo, Publisher: pub, RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box, ToolRuntime: runtime}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
 	if err != nil {
 		t.Fatalf("ExecuteConversationReply returned error: %v", err)
 	}
@@ -1269,7 +1310,7 @@ func TestExecuteConversationReplySupportsSingleToolRound(t *testing.T) {
 	}
 }
 
-func TestExecuteConversationReplyRunsRecoveredToolCandidateAfterUsageValidation(t *testing.T) {
+func TestPaidConversationReplyCarriesToolsAcrossTwoPreparedAttempts(t *testing.T) {
 	agent, box := validAgentConfig(t)
 	identity := requestidentity.Input{
 		UserID: 7, Operation: "chat.reply", Modality: "chat", AgentID: 5, ModelID: "gpt-5.4",
@@ -1293,22 +1334,29 @@ func TestExecuteConversationReplyRunsRecoveredToolCandidateAfterUsageValidation(
 			Status:              enum.AIRunStatusRunning, BillingStatus: "pending", BillingReason: "pending",
 		},
 	}
-	usage, err := infraai.NewUsageSnapshot(infraai.UsageStatusReported, []byte(`{"usage":"complete"}`), []infraai.UsageItem{{Category: infraai.UsageCategoryInput, Unit: "token", Quantity: 2}})
+	firstUsage, err := infraai.NewUsageSnapshot(infraai.UsageStatusReported, []byte(`{"usage":{"prompt_tokens":2}}`), []infraai.UsageItem{{Category: infraai.UsageCategoryInput, Unit: "token", Quantity: 2}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	recovered := &infraai.ChatResult{ToolCalls: []infraai.ToolCall{{ID: "call-1", Name: "admin_user_count", Arguments: "{}"}}, Usage: usage, UsageStatus: infraai.UsageStatusReported, PromptTokens: 2, TotalTokens: 2}
-	continuation := &infraai.ChatResult{Answer: "当前用户量1015", UsageStatus: infraai.UsageStatusReported, Usage: usage, PromptTokens: 2, TotalTokens: 2}
+	secondUsage, err := infraai.NewUsageSnapshot(infraai.UsageStatusReported, []byte(`{"usage":{"completion_tokens":3}}`), []infraai.UsageItem{{Category: infraai.UsageCategoryOutput, Unit: "token", Quantity: 3}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovered := &infraai.ChatResult{ToolCalls: []infraai.ToolCall{{ID: "call-1", Name: "admin_user_count", Arguments: "{}"}}, Usage: firstUsage, UsageStatus: infraai.UsageStatusReported, PromptTokens: 2, TotalTokens: 2}
+	continuation := &infraai.ChatResult{Answer: "当前用户量1015", UsageStatus: infraai.UsageStatusReported, Usage: secondUsage, CompletionTokens: 3, TotalTokens: 3}
 	paid := &sequencePaidAttemptExecutor{results: []*PaidChatAttemptResult{{ChatResult: recovered}, {ChatResult: continuation}}}
 	runtime := &fakeToolRuntime{runtimeTools: []RuntimeTool{{ID: 1, Name: "查询当前用户量", Code: "admin_user_count", Description: "查询后台当前用户数量，只返回数量。", ParametersJSON: map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}, RiskLevel: "low", TimeoutMS: 3000}}}
-	service := NewService(Dependencies{Repository: repo, AssistantPublisher: repo, PaidAttemptExecutor: paid, Publisher: &fakePublisher{}, RunRecorder: &fakeRunRecorder{nextID: 100}, EngineFactory: &fakeEngineFactory{engine: infraai.NewFakeEngine("unused")}, Secretbox: box, ToolRuntime: runtime})
+	service := newTestChatService(Dependencies{Repository: repo, AssistantPublisher: repo, PaidAttemptExecutor: paid, Publisher: &fakePublisher{}, RunRecorder: &fakeRunRecorder{nextID: 100}, EngineFactory: &fakeEngineFactory{engine: infraai.NewFakeEngine("unused")}, Secretbox: box, ToolRuntime: runtime})
 
 	result, err := service.ExecuteConversationReply(context.Background(), ConversationReplyInput{CommandID: 41, LeaseOwner: "worker-a", LeaseToken: 1, ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
 	if err != nil || result == nil || result.AssistantMessageID != 22 {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
-	if len(runtime.executeInput) != 1 || len(paid.inputs) != 2 || len(paid.inputs[0].ChatInput.ToolOutputs) != 0 || len(paid.inputs[1].ChatInput.ToolCalls) != 1 || len(paid.inputs[1].ChatInput.ToolOutputs) != 1 {
+	if len(runtime.executeInput) != 1 || len(paid.inputs) != 2 || len(paid.inputs[0].ChatInput.Tools) != 1 || len(paid.inputs[0].ChatInput.ToolOutputs) != 0 || len(paid.inputs[1].ChatInput.Tools) != 1 || len(paid.inputs[1].ChatInput.ToolCalls) != 1 || len(paid.inputs[1].ChatInput.ToolOutputs) != 1 {
 		t.Fatalf("tool executions=%+v paid inputs=%+v", runtime.executeInput, paid.inputs)
+	}
+	if !firstUsage.Complete() || !secondUsage.Complete() || recovered.Usage.RawProviderJSON == nil || continuation.Usage.RawProviderJSON == nil {
+		t.Fatalf("both provider attempts must carry complete reported usage: first=%+v second=%+v", recovered.Usage, continuation.Usage)
 	}
 }
 
@@ -1322,7 +1370,7 @@ func TestExecuteConversationReplyRejectsMissingToolRoundUsageStatus(t *testing.T
 	runtime := &fakeToolRuntime{runtimeTools: []RuntimeTool{{ID: 1, Name: "查询当前用户量", Code: "admin_user_count", Description: "查询后台当前用户数量，只返回数量。", ParametersJSON: map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}, RiskLevel: "low", TimeoutMS: 3000}}}
 	recorder := &fakeRunRecorder{nextID: 100}
 
-	_, err := NewService(Dependencies{Repository: repo, AssistantPublisher: repo, Publisher: &fakePublisher{}, RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: &missingFirstToolUsageEngine{}}, Secretbox: box, ToolRuntime: runtime}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
+	_, err := newTestChatService(Dependencies{Repository: repo, AssistantPublisher: repo, Publisher: &fakePublisher{}, RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: &missingFirstToolUsageEngine{}}, Secretbox: box, ToolRuntime: runtime}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
 
 	if err == nil || !strings.Contains(err.Error(), "用量状态缺失") {
 		t.Fatalf("expected missing usage status error, got %v", err)
@@ -1339,7 +1387,7 @@ func TestExecuteConversationReplyRejectsSecondToolRound(t *testing.T) {
 	agent, box := validAgentConfig(t)
 	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5, IsDel: enum.CommonNo}, agent: agent, history: []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, Content: "查用户量"}}}
 	runtime := &fakeToolRuntime{runtimeTools: []RuntimeTool{{ID: 1, Name: "查询当前用户量", Code: "admin_user_count", Description: "查询后台当前用户数量，只返回数量。", ParametersJSON: map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}, RiskLevel: "low", TimeoutMS: 3000}}}
-	service := NewService(Dependencies{Repository: repo, AssistantPublisher: repo, Publisher: &fakePublisher{}, RunRecorder: &fakeRunRecorder{nextID: 100}, EngineFactory: &fakeEngineFactory{engine: &doubleToolRoundEngine{}}, Secretbox: box, ToolRuntime: runtime})
+	service := newTestChatService(Dependencies{Repository: repo, AssistantPublisher: repo, Publisher: &fakePublisher{}, RunRecorder: &fakeRunRecorder{nextID: 100}, EngineFactory: &fakeEngineFactory{engine: &doubleToolRoundEngine{}}, Secretbox: box, ToolRuntime: runtime})
 	_, err := service.ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
 	if err == nil {
 		t.Fatal("expected second round error")

@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/replycommand"
 	"admin_back_go/internal/shared/apperror"
 )
@@ -16,11 +17,12 @@ type ListQuery struct {
 }
 
 type SendInput struct {
-	ConversationID int64
-	Content        string
-	RequestID      string
-	Attachments    []Attachment
-	RuntimeParams  map[string]float64
+	ConversationID    int64
+	Content           string
+	RequestID         string
+	RequestReceivedAt time.Time
+	Attachments       []Attachment
+	RuntimeParams     map[string]float64
 }
 
 type CancelInput struct {
@@ -50,10 +52,12 @@ type DeleteInput struct {
 }
 
 type Attachment struct {
-	Type string `json:"type"`
-	URL  string `json:"url"`
-	Name string `json:"name"`
-	Size int64  `json:"size"`
+	Type      string `json:"type"`
+	ObjectKey string `json:"object_key"`
+	MIMEType  string `json:"mime_type"`
+	URL       string `json:"url"`
+	Name      string `json:"name"`
+	Size      int64  `json:"size"`
 }
 
 type ReplyWaker interface {
@@ -114,15 +118,18 @@ type HistoryAccepted struct {
 }
 
 type AgentRuntime struct {
-	AgentID              int64
-	ProviderID           int64
-	ModelID              string
-	ModelDisplayName     string
-	EngineType           string
-	BillingMultiplierPPM int64
-	MaxOutputTokens      int64
-	Status               int
-	ScenesJSON           string
+	AgentID                int64
+	ProviderID             int64
+	ModelID                string
+	ModelDisplayName       string
+	EngineType             string
+	ProviderModelStatus    int
+	OfficialModelID        string
+	OfficialCatalogVersion string
+	MappingStatus          officialmodel.MappingStatus
+	BillingMultiplierPPM   int64
+	Status                 int
+	ScenesJSON             string
 }
 
 type Repository interface {

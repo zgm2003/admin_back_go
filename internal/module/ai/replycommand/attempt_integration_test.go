@@ -19,7 +19,7 @@ func TestProviderAttemptPersistsBeforeDispatchAndRequiresCurrentFence(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	claim, err := repository.ClaimByID(ctx, created.CommandID, "worker-a", now, time.Minute)
+	claim, err := repository.ClaimByID(ctx, created.CommandID, ClaimSourcePoll, "worker-a", now, time.Minute)
 	if err != nil || claim == nil {
 		t.Fatalf("claim=%+v err=%v", claim, err)
 	}
@@ -64,7 +64,7 @@ func TestPreparePaidAttemptRejectsLegacyFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	claim, err := repository.ClaimByID(context.Background(), created.CommandID, "worker", now, time.Minute)
+	claim, err := repository.ClaimByID(context.Background(), created.CommandID, ClaimSourcePoll, "worker", now, time.Minute)
 	if err != nil || claim == nil {
 		t.Fatalf("claim=%+v err=%v", claim, err)
 	}
@@ -94,7 +94,7 @@ func TestExpiredDispatchedAttemptBecomesOutcomeUnknownInsteadOfBlindRetry(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	claim, err := repository.ClaimByID(ctx, created.CommandID, "worker-a", now, time.Second)
+	claim, err := repository.ClaimByID(ctx, created.CommandID, ClaimSourcePoll, "worker-a", now, time.Second)
 	if err != nil || claim == nil {
 		t.Fatalf("claim=%+v err=%v", claim, err)
 	}
@@ -108,7 +108,7 @@ func TestExpiredDispatchedAttemptBecomesOutcomeUnknownInsteadOfBlindRetry(t *tes
 	if ok, err := repository.MarkAttemptDispatched(ctx, attempt.ID, created.CommandID, claim.Owner, claim.FencingToken, now); err != nil || !ok {
 		t.Fatalf("dispatched ok=%v err=%v", ok, err)
 	}
-	if reclaimed, err := repository.ClaimByID(ctx, created.CommandID, "worker-b", now.Add(2*time.Second), time.Second); err != nil || reclaimed != nil {
+	if reclaimed, err := repository.ClaimByID(ctx, created.CommandID, ClaimSourcePoll, "worker-b", now.Add(2*time.Second), time.Second); err != nil || reclaimed != nil {
 		t.Fatalf("dispatched request was blindly reclaimed: claim=%+v err=%v", reclaimed, err)
 	}
 	var state string

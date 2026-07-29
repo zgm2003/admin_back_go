@@ -530,7 +530,7 @@ func finalizeChatRunAndCharge(ctx context.Context, tx *gorm.DB, run airun.Run, c
 	updates := map[string]any{
 		"status": decision.RunStatus, "billing_status": decision.BillingStatus, "billing_reason": decision.BillingReason,
 		"prompt_tokens": prompt, "completion_tokens": completion, "total_tokens": total,
-		"finished_at": now, "duration_ms": finalizationDurationMS(run.StartedAt, now), "updated_at": now,
+		"finished_at": now, "settled_at": now, "duration_ms": finalizationDurationMS(run.StartedAt, now), "updated_at": now,
 	}
 	if decision.RunStatus == enum.AIRunStatusSuccess {
 		if commandResult == nil || commandResult.AssistantMessageID <= 0 {

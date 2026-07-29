@@ -114,6 +114,7 @@ func (executor *paidChatAttemptExecutor) ExecutePaidChatAttempt(ctx context.Cont
 	attempts := gormGatewayAttemptStore{
 		db: executor.db, repository: executor.replies,
 		commandID: input.CommandID, owner: input.LeaseOwner, token: input.LeaseToken,
+		prepareStartedAt: input.PrepareStartedAt,
 	}
 	dependencies := aigateway.Dependencies{
 		Assembler:    paidChatAssembler{transport: transport, input: input.ChatInput},
@@ -154,6 +155,10 @@ func (executor *paidChatAttemptExecutor) ExecutePaidChatAttempt(ctx context.Cont
 		}
 		return nil, mapPaidGatewayError(err)
 	}
+	if attempt.AttemptID == 0 {
+		return nil, errors.New("paid AI Gateway returned no durable attempt identity")
+	}
+	provider.SetSink(newFirstDeliverableSink(input.Sink, executor.replies, attempt.AttemptID, time.Now))
 	if userStopped(input.DeliveryContext) {
 		return executor.finalizePaidAttempt(context.WithoutCancel(ctx), input, nil)
 	}
@@ -503,6 +508,10 @@ type paidChatAssembler struct {
 	input     infraai.ChatInput
 }
 
+var errPaidChatOutputBoundNotConverged = errors.New("paid chat prepared request and output bound did not converge")
+
+const paidChatAssemblerMaxIterations = 4
+
 func (assembler paidChatAssembler) AssembleAndQuote(ctx context.Context, run aigateway.RunSnapshot, _ aigateway.RunRequest) (aigateway.PreparedCall, error) {
 	if assembler.transport == nil {
 		return aigateway.PreparedCall{}, aigateway.ErrNotConfigured
@@ -516,18 +525,14 @@ func (assembler paidChatAssembler) AssembleAndQuote(ctx context.Context, run aig
 		chatInput.Inputs = map[string]any{}
 	}
 	chatInput.Inputs["model_id"] = snapshot.RequestedModelID
-	chatInput.Inputs["max_tokens"] = snapshot.EffectiveMaxOutputTokens
-	body, err := assembler.transport.PrepareChat(ctx, chatInput)
-	if err != nil {
-		return aigateway.PreparedCall{}, err
-	}
-	inputBound, err := infraai.SafeInputUpperBoundFromRequest(body)
+	delete(chatInput.Inputs, "max_tokens")
+	body, inputBound, outputBound, err := assembler.prepareConverged(ctx, snapshot, chatInput)
 	if err != nil {
 		return aigateway.PreparedCall{}, err
 	}
 	items := []billing.UsageItem{
 		{Category: billing.UsageCategoryInputText, Unit: "token", Quantity: inputBound},
-		{Category: billing.UsageCategoryOutputText, Unit: "token", Quantity: int64(snapshot.EffectiveMaxOutputTokens)},
+		{Category: billing.UsageCategoryOutputText, Unit: "token", Quantity: int64(outputBound)},
 	}
 	quoted, err := quotePricingSnapshot(snapshot, items, "upper-bound")
 	if err != nil {
@@ -540,10 +545,58 @@ func (assembler paidChatAssembler) AssembleAndQuote(ctx context.Context, run aig
 		RequestBody:   append([]byte(nil), body...),
 		RequestSHA256: sha256.Sum256(body),
 		Quote: aigateway.QuoteEvidence{
-			PricingVersion: snapshot.Version, EffectiveMaxOutputTokens: snapshot.EffectiveMaxOutputTokens,
+			PricingVersion: snapshot.Version, PreparedRequestSHA256: sha256.Sum256(body), EffectiveMaxOutputTokens: outputBound,
 			UpperBoundItems: items, CurrentCallMaxUnits: quoted.AmountUnits, TargetHoldUnits: quoted.AmountUnits,
 		},
 	}, nil
+}
+
+func (assembler paidChatAssembler) prepareConverged(ctx context.Context, snapshot aigateway.PricingSnapshot, input infraai.ChatInput) ([]byte, int64, int, error) {
+	cap := snapshot.EffectiveMaxOutputTokens
+	if cap <= 0 {
+		return nil, 0, 0, pricing.ErrUnsafeTokenUpperBound
+	}
+	if snapshot.ContextWindowTokens <= 0 {
+		input.EffectiveMaxOutputTokens = cap
+		body, err := assembler.transport.PrepareChat(ctx, input)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+		inputBound, err := infraai.SafeInputUpperBoundFromRequest(body)
+		return body, inputBound, cap, err
+	}
+	var previousHash [32]byte
+	previousBound := 0
+	for iteration := 0; iteration < paidChatAssemblerMaxIterations; iteration++ {
+		input.EffectiveMaxOutputTokens = cap
+		body, err := assembler.transport.PrepareChat(ctx, input)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+		inputBound, err := infraai.SafeInputUpperBoundFromRequest(body)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+		remaining := snapshot.ContextWindowTokens - inputBound
+		if remaining <= 0 {
+			return nil, 0, 0, pricing.ErrUnsafeTokenUpperBound
+		}
+		next := int64(snapshot.EffectiveMaxOutputTokens)
+		if remaining < next {
+			next = remaining
+		}
+		if next <= 0 || next > int64(^uint(0)>>1) {
+			return nil, 0, 0, pricing.ErrUnsafeTokenUpperBound
+		}
+		hash := sha256.Sum256(body)
+		if iteration > 0 && cap == int(next) && previousBound == int(next) && previousHash == hash {
+			return body, inputBound, int(next), nil
+		}
+		previousHash = hash
+		previousBound = int(next)
+		cap = int(next)
+	}
+	return nil, 0, 0, errPaidChatOutputBoundNotConverged
 }
 
 func clonePaidChatInput(input infraai.ChatInput) infraai.ChatInput {
@@ -558,16 +611,9 @@ func clonePaidChatInput(input infraai.ChatInput) infraai.ChatInput {
 	return copy
 }
 
-func pricingModelFromSnapshot(snapshot aigateway.PricingSnapshot) pricing.ModelPrice {
-	aliases := []string(nil)
-	if snapshot.RequestedModelID != snapshot.CanonicalModelID {
-		aliases = []string{snapshot.RequestedModelID}
-	}
-	return pricing.ModelPrice{
-		Version: snapshot.Version, CatalogVersion: snapshot.CatalogVersion, OverrideVersion: snapshot.OverrideVersion,
-		CatalogVendor: snapshot.CatalogVendor, ModelID: snapshot.CanonicalModelID, Aliases: aliases,
-		MaxOutputTokens: snapshot.CatalogMaxOutputTokens, ContextTierThresholdTokens: snapshot.ContextTierThresholdTokens,
-		PriceSource: snapshot.PriceSource, SourceURL: snapshot.SourceURL, RetrievedAt: snapshot.RetrievedAt,
+func pricingBookFromSnapshot(snapshot aigateway.PricingSnapshot) pricing.PriceBook {
+	return pricing.PriceBook{
+		ModelID: snapshot.CanonicalModelID, ContextTierThresholdTokens: snapshot.ContextTierThresholdTokens,
 		Rates: append([]pricing.Rate(nil), snapshot.Rates...),
 	}
 }
@@ -577,12 +623,12 @@ func quotePricingSnapshot(snapshot aigateway.PricingSnapshot, items []billing.Us
 	for index, item := range items {
 		lines[index] = pricing.QuoteLine{Key: keyPrefix + "-" + strconv.Itoa(index), Item: item}
 	}
-	model := pricingModelFromSnapshot(snapshot)
-	selected, err := pricing.UpperBoundLines(model, lines)
+	book := pricingBookFromSnapshot(snapshot)
+	selected, err := pricing.UpperBoundLines(book, lines)
 	if err != nil {
 		return pricing.QuoteResult{}, err
 	}
-	return pricing.Quote(model, selected, snapshot.MultiplierPPM)
+	return pricing.Quote(book, selected, snapshot.MultiplierPPM)
 }
 
 type gormGatewayRunStore struct{ db *gorm.DB }
@@ -678,12 +724,12 @@ func (gormGatewayPriorUsagePricer) PricePriorSucceededUsage(ctx context.Context,
 			})
 		}
 	}
-	model := pricingModelFromSnapshot(snapshot)
-	selected, err := pricing.SettlementLines(model, lines)
+	book := pricingBookFromSnapshot(snapshot)
+	selected, err := pricing.SettlementLines(book, lines)
 	if err != nil {
 		return 0, errors.Join(aigateway.ErrUsageIncomplete, err)
 	}
-	quote, err := pricing.Quote(model, selected, snapshot.MultiplierPPM)
+	quote, err := pricing.Quote(book, selected, snapshot.MultiplierPPM)
 	if err != nil {
 		return 0, errors.Join(aigateway.ErrUsageIncomplete, err)
 	}
@@ -721,12 +767,12 @@ func (persistedSettlementPricer) PriceSettlement(ctx context.Context, input aiga
 			identities[key] = itemIdentity{attemptID: attempt.ID, item: item}
 		}
 	}
-	model := pricingModelFromSnapshot(snapshot)
-	selected, err := pricing.SettlementLines(model, lines)
+	book := pricingBookFromSnapshot(snapshot)
+	selected, err := pricing.SettlementLines(book, lines)
 	if err != nil {
 		return aigateway.SettlementQuote{}, errors.Join(aigateway.ErrUsageIncomplete, err)
 	}
-	quote, err := pricing.Quote(model, selected, snapshot.MultiplierPPM)
+	quote, err := pricing.Quote(book, selected, snapshot.MultiplierPPM)
 	if err != nil {
 		return aigateway.SettlementQuote{}, errors.Join(aigateway.ErrUsageIncomplete, err)
 	}
@@ -893,12 +939,13 @@ func (g gormGatewayReserveFailureRecorder) RecordReserveFailure(ctx context.Cont
 }
 
 type gormGatewayAttemptStore struct {
-	db         *gorm.DB
-	repository *replycommand.GormRepository
-	commandID  uint64
-	textTaskID uint64
-	owner      string
-	token      uint64
+	db               *gorm.DB
+	repository       *replycommand.GormRepository
+	commandID        uint64
+	textTaskID       uint64
+	owner            string
+	token            uint64
+	prepareStartedAt time.Time
 }
 
 func (store gormGatewayAttemptStore) PutPrepared(ctx context.Context, transaction aigateway.Transaction, attempt aigateway.ProviderAttempt) (aigateway.PreparedWriteResult, error) {
@@ -917,7 +964,7 @@ func (store gormGatewayAttemptStore) PutPrepared(ctx context.Context, transactio
 		}
 		prepared, ok, prepareErr := store.repository.PreparePaidAttemptInTransaction(ctx, tx, replycommand.PrepareAttemptInput{
 			RunID: attempt.RunID, CommandID: store.commandID, AttemptNo: uint(attempt.AttemptNo),
-			Owner: store.owner, Token: store.token, Now: time.Now(), IdempotencyKey: attempt.IdempotencyKey,
+			Owner: store.owner, Token: store.token, Now: time.Now(), PrepareStartedAt: store.prepareStartedAt, IdempotencyKey: attempt.IdempotencyKey,
 			PreparedRequestJSON: string(attempt.PreparedRequest), PreparedRequestSHA256: attempt.RequestSHA256, QuoteJSON: string(quoteJSON),
 		})
 		if prepareErr != nil {
@@ -1101,7 +1148,7 @@ func gatewayAttemptFromRow(row replycommand.Attempt) (aigateway.ProviderAttempt,
 	var requestHash [sha256.Size]byte
 	copy(requestHash[:], row.PreparedRequestSHA256)
 	return aigateway.ProviderAttempt{
-		RunID: row.RunID, AttemptNo: uint32(row.AttemptNo), IdempotencyKey: strings.TrimSpace(row.IdempotencyKey),
+		AttemptID: row.ID, RunID: row.RunID, AttemptNo: uint32(row.AttemptNo), IdempotencyKey: strings.TrimSpace(row.IdempotencyKey),
 		PreparedRequest: []byte(row.PreparedRequestJSON), RequestSHA256: requestHash, Quote: quote,
 	}, nil
 }

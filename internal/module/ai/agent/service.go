@@ -14,7 +14,7 @@ import (
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/infra/secretbox"
 	"admin_back_go/internal/module/ai/capability"
-	"admin_back_go/internal/module/ai/modelpricing"
+	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/pricing"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/dict"
@@ -39,17 +39,25 @@ type Service struct {
 	repository      Repository
 	secretbox       secretbox.Box
 	tester          ConnectionTester
-	pricingResolver modelpricing.Resolver
+	pricingResolver officialmodel.Resolver
+	capabilities    infraai.TransportCapabilityResolver
 }
 
 type Option func(*Service)
 
-func WithPricingResolver(resolver modelpricing.Resolver) Option {
+func WithPricingResolver(resolver officialmodel.Resolver) Option {
 	return func(service *Service) { service.pricingResolver = resolver }
 }
 
+func WithTransportCapabilityResolver(resolver infraai.TransportCapabilityResolver) Option {
+	return func(service *Service) { service.capabilities = resolver }
+}
+
 func NewService(repository Repository, box secretbox.Box, tester ConnectionTester, options ...Option) *Service {
-	service := &Service{repository: repository, secretbox: box, tester: tester}
+	service := &Service{
+		repository: repository, secretbox: box, tester: tester,
+		capabilities: infraai.TransportCapabilityResolverFunc(infraai.DefaultTransportCapabilities),
+	}
 	for _, option := range options {
 		if option != nil {
 			option(service)
@@ -76,23 +84,24 @@ func (s *Service) PageInit(ctx context.Context) (*InitResponse, *apperror.Error)
 			return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI供应商模型失败", err)
 		}
 		for _, model := range models {
-			if model.Status != enum.CommonYes {
+			resolved, resolveErr := s.resolveMappedProviderModel(ctx, model)
+			if resolveErr != nil || resolved.Model.LifecycleStatus != officialmodel.LifecycleActive {
 				continue
 			}
 			label := strings.TrimSpace(model.DisplayName)
 			if label == "" {
 				label = model.ModelID
 			}
-			option := ModelOption{Label: label, Value: model.ModelID, ProviderID: row.ID, ModelID: model.ModelID, DisplayName: model.DisplayName, BillingMultiplier: "1", MaxOutputTokens: 4096}
-			if catalogModel, resolveErr := s.resolveModelPrice(ctx, model.ModelID); resolveErr == nil {
-				applyModelPriceToOption(&option, catalogModel)
-			} else if !errors.Is(resolveErr, pricing.ErrPriceUnavailable) {
-				return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询当前模型价格失败", resolveErr)
+			option := ModelOption{Label: label, Value: model.ModelID, ProviderID: row.ID, ModelID: model.ModelID, DisplayName: model.DisplayName, BillingMultiplier: "1"}
+			effective, capabilityErr := s.effectiveCapabilities(row.EngineType, resolved.Model.Capabilities, true)
+			if capabilityErr != nil {
+				continue
 			}
+			applyModelPriceToOption(&option, resolved, effective)
 			modelOptions = append(modelOptions, option)
 		}
 	}
-	return &InitResponse{Dict: InitDict{SceneArr: sceneOptions(), CommonStatusArr: dict.CommonStatusOptions(), ProviderOptions: options, ModelOptions: modelOptions, BillingMultiplierDefault: "1", MaxOutputTokensDefault: 4096}}, nil
+	return &InitResponse{Dict: InitDict{SceneArr: sceneOptions(), CommonStatusArr: dict.CommonStatusOptions(), ProviderOptions: options, ModelOptions: modelOptions, BillingMultiplierDefault: "1"}}, nil
 }
 
 func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
@@ -136,7 +145,8 @@ func (s *Service) ProviderModels(ctx context.Context, providerID uint64) (*Provi
 	}
 	list := make([]ProviderModelDTO, 0, len(rows))
 	for _, row := range rows {
-		if row.Status != enum.CommonYes {
+		resolved, resolveErr := s.resolveMappedProviderModel(ctx, row)
+		if resolveErr != nil || resolved.Model.LifecycleStatus != officialmodel.LifecycleActive {
 			continue
 		}
 		list = append(list, providerModelDTO(row))
@@ -183,7 +193,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (uint64, *apper
 		return 0, appErr
 	}
 	row.ModelDisplayName = model.DisplayName
-	if appErr := s.validateCatalogOutput(ctx, row.ModelID, row.MaxOutputTokens); appErr != nil {
+	if appErr := s.ensureOfficialModelSelectable(ctx, *model); appErr != nil {
 		return 0, appErr
 	}
 	id, err := repo.Create(ctx, row)
@@ -211,9 +221,6 @@ func (s *Service) Update(ctx context.Context, id uint64, input UpdateInput) *app
 	if strings.TrimSpace(input.BillingMultiplier) == "" {
 		input.BillingMultiplier = formatMultiplier(defaultMultiplier(row.BillingMultiplierPPM))
 	}
-	if input.MaxOutputTokens == 0 {
-		input.MaxOutputTokens = int(defaultMaxOutput(row.MaxOutputTokens))
-	}
 	fields, appErr := normalizeMutationFields(input)
 	if appErr != nil {
 		return appErr
@@ -226,7 +233,11 @@ func (s *Service) Update(ctx context.Context, id uint64, input UpdateInput) *app
 		return appErr
 	}
 	fields.modelDisplayName = model.DisplayName
-	if appErr := s.validateCatalogOutput(ctx, fields.modelID, fields.maxOutputTokens); appErr != nil {
+	if row.ProviderID != fields.providerID || strings.TrimSpace(row.ModelID) != fields.modelID {
+		if appErr := s.ensureOfficialModelSelectable(ctx, *model); appErr != nil {
+			return appErr
+		}
+	} else if appErr := s.ensureOfficialModelCallable(ctx, *model); appErr != nil {
 		return appErr
 	}
 	updateFields := updateFieldsMap(fields)
@@ -277,6 +288,13 @@ func (s *Service) Test(ctx context.Context, id uint64) (*infraai.TestConnectionR
 	}
 	if row.Status != enum.CommonYes {
 		return nil, apperror.BadRequest("AI智能体已禁用")
+	}
+	model, appErr := s.ensureProviderModel(ctx, repo, row.ProviderID, row.ModelID)
+	if appErr != nil {
+		return nil, appErr
+	}
+	if appErr := s.ensureOfficialModelCallable(ctx, *model); appErr != nil {
+		return nil, appErr
 	}
 	connection, err := repo.GetActiveProvider(ctx, row.ProviderID)
 	if err != nil {
@@ -349,7 +367,19 @@ func (s *Service) Options(ctx context.Context, query OptionQuery) (*AgentOptions
 		if row.Status != enum.CommonYes || row.IsDel == enum.CommonYes {
 			continue
 		}
-		list = append(list, AgentOption{ID: row.ID, Name: row.Name, Avatar: row.Avatar, SystemPrompt: row.SystemPrompt})
+		model, err := s.resolveModelPrice(ctx, row.ModelID)
+		if err != nil || model.Model.LifecycleStatus == officialmodel.LifecycleRetired {
+			continue
+		}
+		effective, capabilityErr := s.effectiveCapabilities(row.EngineType, model.Model.Capabilities, row.providerRouteEnabled())
+		if capabilityErr != nil {
+			continue
+		}
+		list = append(list, AgentOption{
+			ID: row.ID, Name: row.Name, Avatar: row.Avatar, SystemPrompt: row.SystemPrompt,
+			ProviderModelID: row.ProviderModelID, OfficialModel: officialModelSummary(model.Model),
+			Capabilities: effectiveCapabilityDTO(effective),
+		})
 	}
 	return &AgentOptionsResponse{List: list}, nil
 }
@@ -383,6 +413,9 @@ func (s *Service) ensureProviderModel(ctx context.Context, repo Repository, prov
 	}
 	for _, model := range models {
 		if model.Status == enum.CommonYes && strings.TrimSpace(model.ModelID) == modelID {
+			if model.MappingStatus != officialmodel.MappingStatusMapped || model.OfficialModelID == nil || model.OfficialCatalogVersion == nil || model.MappedAt == nil {
+				return nil, apperror.Wrap("ai.official_model.unmapped", apperror.CategoryConflict, 409, apperror.Permanent, "", nil, "该供应商模型未映射到官方模型", nil)
+			}
 			return &model, nil
 		}
 	}
@@ -419,7 +452,6 @@ func normalizeCreateInput(input CreateInput) (Agent, *apperror.Error) {
 		Status:               fields.status,
 		IsDel:                enum.CommonNo,
 		BillingMultiplierPPM: fields.billingMultiplierPPM,
-		MaxOutputTokens:      fields.maxOutputTokens,
 	}, nil
 }
 
@@ -433,7 +465,6 @@ func updateFieldsMap(fields normalizedFields) map[string]any {
 		"avatar":                 fields.avatar,
 		"status":                 fields.status,
 		"billing_multiplier_ppm": fields.billingMultiplierPPM,
-		"max_output_tokens":      fields.maxOutputTokens,
 	}
 	if fields.modelDisplayName != "" {
 		out["model_display_name"] = fields.modelDisplayName
@@ -451,7 +482,6 @@ type normalizedFields struct {
 	avatar               string
 	status               int
 	billingMultiplierPPM int64
-	maxOutputTokens      int64
 }
 
 func normalizeMutationFields(input CreateInput) (normalizedFields, *apperror.Error) {
@@ -495,50 +525,103 @@ func normalizeMutationFields(input CreateInput) (normalizedFields, *apperror.Err
 	if err != nil {
 		return normalizedFields{}, apperror.BadRequest("billing_multiplier必须是大于0且最多6位小数的十进制数")
 	}
-	maxOutput := int64(input.MaxOutputTokens)
-	if input.MaxOutputTokens == 0 {
-		maxOutput = 4096
-	}
-	if input.MaxOutputTokens < 0 || maxOutput <= 0 {
-		return normalizedFields{}, apperror.BadRequest("max_output_tokens必须为正数")
-	}
-	if maxOutput > pricing.MaxSafeOutputTokens {
-		return normalizedFields{}, apperror.BadRequest("max_output_tokens超过安全上限")
-	}
-	return normalizedFields{providerID: input.ProviderID, name: name, modelID: modelID, scenesJSON: scenesJSON, systemPrompt: systemPrompt, avatar: avatar, status: status, billingMultiplierPPM: multiplier, maxOutputTokens: maxOutput}, nil
+	return normalizedFields{providerID: input.ProviderID, name: name, modelID: modelID, scenesJSON: scenesJSON, systemPrompt: systemPrompt, avatar: avatar, status: status, billingMultiplierPPM: multiplier}, nil
 }
 
 func (s *Service) agentDTO(ctx context.Context, row AgentWithProvider) (AgentDTO, error) {
 	scenes := decodeScenes(row.ScenesJSON)
 	multiplier := defaultMultiplier(row.BillingMultiplierPPM)
-	maxOutput := defaultMaxOutput(row.MaxOutputTokens)
-	dto := AgentDTO{ID: row.ID, ProviderID: row.ProviderID, ProviderName: row.ProviderName, EngineType: row.EngineType, Name: row.Name, ModelID: row.ModelID, ModelDisplayName: row.ModelDisplayName, Scenes: scenes, SceneNames: sceneNames(scenes), SystemPrompt: row.SystemPrompt, Avatar: row.Avatar, Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt), BillingMultiplier: formatMultiplier(multiplier), MaxOutputTokens: int(maxOutput)}
+	dto := AgentDTO{ID: row.ID, ProviderID: row.ProviderID, ProviderName: row.ProviderName, EngineType: row.EngineType, Name: row.Name, ModelID: row.ModelID, ModelDisplayName: row.ModelDisplayName, Scenes: scenes, SceneNames: sceneNames(scenes), SystemPrompt: row.SystemPrompt, Avatar: row.Avatar, Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt), BillingMultiplier: formatMultiplier(multiplier)}
 	model, err := s.resolveModelPrice(ctx, row.ModelID)
 	if err == nil {
-		applyModelPriceToAgent(&dto, model)
+		effective, capabilityErr := s.effectiveCapabilities(row.EngineType, model.Model.Capabilities, row.providerRouteEnabled())
+		if capabilityErr != nil {
+			return AgentDTO{}, capabilityErr
+		}
+		dto.ProviderModelID = row.ProviderModelID
+		applyModelPriceToAgent(&dto, model, effective)
 	} else if !errors.Is(err, pricing.ErrPriceUnavailable) {
 		return AgentDTO{}, err
 	}
 	return dto, nil
 }
 
-func applyModelPriceToOption(option *ModelOption, model pricing.ModelPrice) {
-	option.PricingVersion, option.CatalogVersion = model.Version, model.CatalogVersion
-	option.CatalogVendor, option.CatalogModelID = model.CatalogVendor, model.ModelID
+func applyModelPriceToOption(option *ModelOption, model officialmodel.ResolvedModel, effective officialmodel.Capabilities) {
+	option.OfficialModel = officialModelSummary(model.Model)
+	option.Capabilities = effectiveCapabilityDTO(effective)
+	option.PricingVersion, option.CatalogVersion = model.PricingVersion(), model.Model.CatalogVersion
+	option.CatalogVendor, option.CatalogModelID = model.Model.CatalogVendor, model.Model.ModelID
 	option.PriceSource, option.OverrideVersion = model.PriceSource, model.OverrideVersion
-	option.PriceSourceURL, option.PriceVerifiedAt = model.SourceURL, model.RetrievedAt
-	option.ContextTierThresholdTokens, option.CatalogRates = model.ContextTierThresholdTokens, catalogRates(model)
+	option.PriceSourceURL, option.PriceVerifiedAt = model.PriceSourceURL, model.PriceVerifiedAt.UTC().Format(time.DateOnly)
+	option.ContextTierThresholdTokens, option.CatalogRates = model.Model.ContextTierThresholdTokens, catalogRates(model.EffectivePrice)
 }
 
-func applyModelPriceToAgent(dto *AgentDTO, model pricing.ModelPrice) {
-	dto.PricingVersion, dto.CatalogVersion = model.Version, model.CatalogVersion
-	dto.CatalogVendor, dto.CatalogModelID = model.CatalogVendor, model.ModelID
+func applyModelPriceToAgent(dto *AgentDTO, model officialmodel.ResolvedModel, effective officialmodel.Capabilities) {
+	dto.OfficialModel = officialModelSummary(model.Model)
+	dto.Capabilities = effectiveCapabilityDTO(effective)
+	dto.PricingVersion, dto.CatalogVersion = model.PricingVersion(), model.Model.CatalogVersion
+	dto.CatalogVendor, dto.CatalogModelID = model.Model.CatalogVendor, model.Model.ModelID
 	dto.PriceSource, dto.OverrideVersion = model.PriceSource, model.OverrideVersion
-	dto.PriceSourceURL, dto.PriceVerifiedAt = model.SourceURL, model.RetrievedAt
-	dto.ContextTierThresholdTokens, dto.CatalogRates = model.ContextTierThresholdTokens, catalogRates(model)
+	dto.PriceSourceURL, dto.PriceVerifiedAt = model.PriceSourceURL, model.PriceVerifiedAt.UTC().Format(time.DateOnly)
+	dto.ContextTierThresholdTokens, dto.CatalogRates = model.Model.ContextTierThresholdTokens, catalogRates(model.EffectivePrice)
 }
 
-func catalogRates(model pricing.ModelPrice) []CatalogRateDTO {
+func officialModelSummary(model officialmodel.Model) *OfficialModelSummaryDTO {
+	return &OfficialModelSummaryDTO{
+		ModelID: model.ModelID, CatalogVersion: model.CatalogVersion, CatalogVendor: model.CatalogVendor, ModelFamily: model.ModelFamily,
+		LifecycleStatus: model.LifecycleStatus, ContextWindowTokens: model.ContextWindowTokens, MaxOutputTokens: model.MaxOutputTokens,
+	}
+}
+
+func (s *Service) effectiveCapabilities(engineType string, official officialmodel.Capabilities, routeEnabled bool) (officialmodel.Capabilities, error) {
+	if s == nil || s.capabilities == nil {
+		return officialmodel.Capabilities{}, capability.ErrTransportCapabilitiesUnavailable
+	}
+	metadata, ok := s.capabilities.ResolveCapabilities(infraai.EngineType(strings.TrimSpace(engineType)))
+	if !ok {
+		return officialmodel.Capabilities{}, capability.ErrTransportCapabilitiesUnavailable
+	}
+	return capability.EffectiveChatCapabilities(official, metadata, routeEnabled)
+}
+
+func effectiveCapabilityDTO(value officialmodel.Capabilities) *EffectiveCapabilitiesDTO {
+	image := ImageAttachmentCapability{MIMETypes: []string{}}
+	if value.ImageInput != nil && containsString(value.InputModalities, officialmodel.ModalityImage) {
+		image = ImageAttachmentCapability{
+			Enabled: true, MIMETypes: append([]string(nil), value.ImageInput.MIMETypes...),
+			MaxFiles: value.ImageInput.MaxFiles, MaxFileBytes: value.ImageInput.MaxBytes,
+		}
+	}
+	return &EffectiveCapabilitiesDTO{
+		InputModalities: append([]string(nil), value.InputModalities...), OutputModalities: append([]string(nil), value.OutputModalities...),
+		SupportsTools: value.SupportsTools, SupportsStreaming: value.SupportsStreaming,
+		SupportsStructuredOutput: value.SupportsStructuredOutput,
+		RuntimeParameters: RuntimeParameterCapabilities{
+			Temperature: TemperatureParameterCapability{
+				Supported: containsString(value.SupportedParameters, officialmodel.ParameterTemperature), Default: 1, Min: 0, Max: 2,
+			},
+			MaxHistory: MaxHistoryParameterCapability{Supported: true, Default: 20, Min: 1, Max: 50, Transitional: true},
+		},
+		Attachments: AttachmentCapabilities{Image: image, NativeFile: NativeFileAttachmentCapability{Enabled: false}},
+	}
+}
+
+func containsString(values []string, wanted string) bool {
+	for _, value := range values {
+		if value == wanted {
+			return true
+		}
+	}
+	return false
+}
+
+func (row AgentWithProvider) providerRouteEnabled() bool {
+	return row.ProviderStatus == enum.CommonYes && row.ProviderModelStatus == enum.CommonYes &&
+		row.ProviderModelID > 0 && row.MappingStatus == officialmodel.MappingStatusMapped &&
+		strings.TrimSpace(row.OfficialModelID) != "" && strings.TrimSpace(row.OfficialCatalogVersion) != ""
+}
+
+func catalogRates(model pricing.PriceBook) []CatalogRateDTO {
 	rates := make([]CatalogRateDTO, 0, len(model.Rates))
 	for _, rate := range model.Rates {
 		formatted, formatErr := sharedmoney.FormatRMBUnits(rate.PriceUnits)
@@ -549,20 +632,52 @@ func catalogRates(model pricing.ModelPrice) []CatalogRateDTO {
 	return rates
 }
 
-func (s *Service) validateCatalogOutput(ctx context.Context, modelID string, maxOutput int64) *apperror.Error {
-	model, err := s.resolveModelPrice(ctx, modelID)
+func (s *Service) ensureOfficialModelSelectable(ctx context.Context, route ProviderModel) *apperror.Error {
+	model, err := s.resolveMappedProviderModel(ctx, route)
 	if err != nil {
+		if errors.Is(err, officialmodel.ErrModelRetired) {
+			return apperror.Wrap("ai.official_model.not_selectable", apperror.CategoryConflict, 409, apperror.Permanent, "", nil, "该官方模型不允许新建或切换智能体", nil)
+		}
 		return apperror.Wrap("ai.billing.price_unavailable", apperror.CategoryConflict, 409, apperror.Permanent, "", nil, "该智能体缺少可用的模型价格", err)
 	}
-	if model.MaxOutputTokens > 0 && maxOutput > model.MaxOutputTokens {
-		return apperror.BadRequest("max_output_tokens超过官方模型上限")
+	if model.Model.LifecycleStatus != officialmodel.LifecycleActive {
+		return apperror.Wrap("ai.official_model.not_selectable", apperror.CategoryConflict, 409, apperror.Permanent, "", nil, "该官方模型不允许新建或切换智能体", nil)
 	}
 	return nil
 }
 
-func (s *Service) resolveModelPrice(ctx context.Context, modelID string) (pricing.ModelPrice, error) {
+func (s *Service) ensureOfficialModelCallable(ctx context.Context, route ProviderModel) *apperror.Error {
+	model, err := s.resolveMappedProviderModel(ctx, route)
+	if err != nil {
+		if errors.Is(err, officialmodel.ErrModelRetired) {
+			return apperror.Wrap("ai.official_model.retired", apperror.CategoryConflict, 409, apperror.Permanent, "", nil, "该官方模型已退役", nil)
+		}
+		return apperror.Wrap("ai.billing.price_unavailable", apperror.CategoryConflict, 409, apperror.Permanent, "", nil, "该智能体缺少可用的模型价格", err)
+	}
+	if model.Model.LifecycleStatus == officialmodel.LifecycleRetired {
+		return apperror.Wrap("ai.official_model.retired", apperror.CategoryConflict, 409, apperror.Permanent, "", nil, "该官方模型已退役", nil)
+	}
+	return nil
+}
+
+func (s *Service) resolveMappedProviderModel(ctx context.Context, route ProviderModel) (officialmodel.ResolvedModel, error) {
+	if route.Status != enum.CommonYes || route.MappingStatus != officialmodel.MappingStatusMapped || route.OfficialModelID == nil ||
+		route.OfficialCatalogVersion == nil || route.MappedAt == nil {
+		return officialmodel.ResolvedModel{}, officialmodel.ErrModelUnmapped
+	}
+	return officialmodel.ResolveMappedRoute(
+		ctx,
+		s.pricingResolver,
+		route.ModelID,
+		strings.TrimSpace(*route.OfficialModelID),
+		strings.TrimSpace(*route.OfficialCatalogVersion),
+		route.MappingStatus,
+	)
+}
+
+func (s *Service) resolveModelPrice(ctx context.Context, modelID string) (officialmodel.ResolvedModel, error) {
 	if s == nil || s.pricingResolver == nil {
-		return pricing.ModelPrice{}, modelpricing.ErrRepositoryNotConfigured
+		return officialmodel.ResolvedModel{}, officialmodel.ErrRepositoryNotConfigured
 	}
 	return s.pricingResolver.Resolve(ctx, strings.TrimSpace(modelID))
 }
@@ -570,12 +685,6 @@ func (s *Service) resolveModelPrice(ctx context.Context, modelID string) (pricin
 func defaultMultiplier(value int64) int64 {
 	if value <= 0 {
 		return 1000000
-	}
-	return value
-}
-func defaultMaxOutput(value int64) int64 {
-	if value <= 0 {
-		return 4096
 	}
 	return value
 }
@@ -640,7 +749,26 @@ func formatMultiplier(ppm int64) string {
 }
 
 func providerModelDTO(row ProviderModel) ProviderModelDTO {
-	return ProviderModelDTO{ID: row.ID, ProviderID: row.ProviderID, ModelID: row.ModelID, DisplayName: row.DisplayName, Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt)}
+	return ProviderModelDTO{
+		ID: row.ID, ProviderID: row.ProviderID, ModelID: row.ModelID, DisplayName: row.DisplayName,
+		OfficialModelID: pointerValue(row.OfficialModelID), OfficialCatalogVersion: pointerValue(row.OfficialCatalogVersion),
+		MappingStatus: row.MappingStatus, MappedAt: formatOptionalTime(row.MappedAt),
+		Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt),
+	}
+}
+
+func pointerValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func formatOptionalTime(value *time.Time) string {
+	if value == nil {
+		return ""
+	}
+	return formatTime(*value)
 }
 
 func sceneOptions() []dict.Option[string] {

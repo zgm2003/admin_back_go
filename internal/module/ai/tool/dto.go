@@ -6,6 +6,7 @@ import (
 	"time"
 
 	infraai "admin_back_go/internal/infra/ai"
+	"admin_back_go/internal/module/ai/officialmodel"
 	aitext "admin_back_go/internal/module/ai/text"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/dict"
@@ -132,17 +133,20 @@ type GenerateUsage struct {
 }
 
 type GenerateAgentConfig struct {
-	AgentID              uint64
-	AgentName            string
-	ModelID              string
-	ModelDisplayName     string
-	SystemPrompt         string
-	ProviderID           uint64
-	EngineType           string
-	EngineBaseURL        string
-	EngineAPIKeyEnc      string
-	BillingMultiplierPPM int64
-	MaxOutputTokens      int64
+	AgentID                uint64
+	AgentName              string
+	ModelID                string
+	ModelDisplayName       string
+	SystemPrompt           string
+	ProviderID             uint64
+	EngineType             string
+	EngineBaseURL          string
+	EngineAPIKeyEnc        string
+	ProviderModelStatus    int
+	OfficialModelID        string
+	OfficialCatalogVersion string
+	MappingStatus          officialmodel.MappingStatus
+	BillingMultiplierPPM   int64
 }
 
 type DraftTaskService interface {

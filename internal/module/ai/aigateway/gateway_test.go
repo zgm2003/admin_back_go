@@ -900,7 +900,7 @@ func TestGatewayRejectsReplayWithDifferentPreparedRequestUsingOldQuote(t *testin
 	}
 }
 
-func TestGatewayInsufficientBalanceCreatesNoAttempt(t *testing.T) {
+func TestInsufficientBalancePersistsNoProviderAttemptTiming(t *testing.T) {
 	reserve := &testReserve{err: errors.New("insufficient balance")}
 	gateway := New(testGatewayDependencies(reserve, &testAttemptStore{}))
 	body := []byte(`{"model":"gpt-test"}`)

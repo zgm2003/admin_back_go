@@ -348,7 +348,7 @@ func encodeTextResultCandidate(kind string, result *infraai.ChatResult) (*string
 }
 
 func textPreDispatchErrorCode(err error) string {
-	if errors.Is(err, pricing.ErrPriceUnavailable) || errors.Is(err, pricing.ErrMissingModel) || errors.Is(err, pricing.ErrAmbiguousModel) || errors.Is(err, pricing.ErrInvalidCatalog) || errors.Is(err, pricing.ErrUnsupportedUsage) || errors.Is(err, pricing.ErrInvalidMultiplier) {
+	if errors.Is(err, pricing.ErrPriceUnavailable) || errors.Is(err, pricing.ErrMissingModel) || errors.Is(err, pricing.ErrInvalidCatalog) || errors.Is(err, pricing.ErrUnsupportedUsage) || errors.Is(err, pricing.ErrInvalidMultiplier) {
 		return aitext.ErrorCodePriceUnavailable
 	}
 	message := strings.ToLower(strings.TrimSpace(err.Error()))

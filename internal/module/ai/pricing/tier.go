@@ -6,15 +6,15 @@ import (
 	"strings"
 )
 
-func UpperBoundLines(price ModelPrice, lines []QuoteLine) ([]QuoteLine, error) {
+func UpperBoundLines(price PriceBook, lines []QuoteLine) ([]QuoteLine, error) {
 	return selectTiers(price, lines, true)
 }
 
-func SettlementLines(price ModelPrice, lines []QuoteLine) ([]QuoteLine, error) {
+func SettlementLines(price PriceBook, lines []QuoteLine) ([]QuoteLine, error) {
 	return selectTiers(price, lines, false)
 }
 
-func selectTiers(price ModelPrice, lines []QuoteLine, upperBound bool) ([]QuoteLine, error) {
+func selectTiers(price PriceBook, lines []QuoteLine, upperBound bool) ([]QuoteLine, error) {
 	result := append([]QuoteLine(nil), lines...)
 	attemptTotals := make(map[string]int64)
 	if !upperBound {
@@ -113,7 +113,7 @@ func normalizedAttemptID(line QuoteLine) string {
 	return attempt
 }
 
-func ratesFor(price ModelPrice, category Category, unit string) []Rate {
+func ratesFor(price PriceBook, category Category, unit string) []Rate {
 	var rates []Rate
 	for _, rate := range price.Rates {
 		if rate.Category == category && strings.TrimSpace(rate.Unit) == unit {

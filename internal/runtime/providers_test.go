@@ -17,6 +17,24 @@ import (
 	aichat "admin_back_go/internal/module/ai/chat"
 )
 
+func TestBuildProvidersExposesChatTransportCapabilities(t *testing.T) {
+	ring, err := secretkey.NewKeyRing(strings.Repeat("c", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	providers, err := BuildProviders(config.Config{}, ring)
+	if err != nil {
+		t.Fatalf("BuildProviders: %v", err)
+	}
+	if providers.AITransportCapabilities == nil {
+		t.Fatal("chat transport capability resolver is nil")
+	}
+	capabilities, ok := providers.AITransportCapabilities.ResolveCapabilities(infraai.EngineTypeOpenAI)
+	if !ok || len(capabilities.InputModalities) == 0 || !capabilities.SupportsStreaming {
+		t.Fatalf("chat transport capabilities=%#v ok=%v", capabilities, ok)
+	}
+}
+
 func TestBuildProvidersBuildsDedicatedMailDiagnosticBoxCurrentOnly(t *testing.T) {
 	ring, err := secretkey.NewKeyRing(strings.Repeat("c", 64))
 	if err != nil {

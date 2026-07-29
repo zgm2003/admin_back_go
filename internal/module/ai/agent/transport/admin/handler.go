@@ -170,7 +170,6 @@ func createInput(req mutationRequest) aiagentmodule.CreateInput {
 		Avatar:            req.Avatar,
 		Status:            req.Status,
 		BillingMultiplier: req.BillingMultiplier,
-		MaxOutputTokens:   req.MaxOutputTokens,
 	}
 }
 

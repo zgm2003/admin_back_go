@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -17,10 +18,11 @@ import (
 	"admin_back_go/internal/jobs"
 	aichat "admin_back_go/internal/module/ai/chat"
 	aiimage "admin_back_go/internal/module/ai/image"
-	"admin_back_go/internal/module/ai/modelpricing"
+	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/replycommand"
 	airun "admin_back_go/internal/module/ai/run"
 	aitext "admin_back_go/internal/module/ai/text"
+	aitool "admin_back_go/internal/module/ai/tool"
 	"admin_back_go/internal/module/auth"
 	"admin_back_go/internal/module/crontask"
 	exporttask "admin_back_go/internal/module/export"
@@ -281,8 +283,10 @@ func registerWorkerHandlers(
 	)
 	aiRunRepository := airun.NewGormRepository(resources.DB)
 	aiRunRecorder := airun.NewRecorder(aiRunRepository, nil)
-	aiModelPricingResolver := modelpricing.NewService(modelpricing.NewGormRepository(resources.DB))
+	aiOfficialModelResolver := officialmodel.NewService(officialmodel.NewGormRepository(resources.DB))
 	aiTextTasks := aitext.NewGormStore(resources.DB)
+	aiToolRepository := aitool.NewGormRepository(resources.DB)
+	aiToolRuntime := aitool.NewService(aiToolRepository, aitool.DefaultExecutors(aiToolRepository))
 	replyRepository := replycommand.NewGormRepository(
 		resources.DB,
 		replycommand.WithDurableEventSink(realtimeEventSink),
@@ -298,19 +302,23 @@ func registerWorkerHandlers(
 	}
 	textWaker := aitext.NewWakeupEnqueuer(queueClient)
 	aiTextService := aitext.NewService(aitext.ServiceDependencies{Store: aiTextTasks, Waker: textWaker, Executor: paidTextExecutor})
-	aiChatService := aichat.NewService(aichat.Dependencies{
+	aiChatService, err := aichat.NewRuntimeService(aichat.Dependencies{
 		Repository:          aichat.NewGormRepository(resources.DB),
 		AssistantPublisher:  replyAssistantPublisher{repository: replyRepository},
 		PaidAttemptExecutor: paidChatExecutor,
 		Publisher:           realtimePublisher,
 		Secretbox:           providers.Secretbox,
 		EngineFactory:       providers.AIChatFactory,
+		ToolRuntime:         aiToolRuntime,
 		RunRecorder:         aiRunRecorder,
 		TextGeneration:      aiTextService,
-		PricingResolver:     aiModelPricingResolver,
+		PricingResolver:     aiOfficialModelResolver,
 		RunStaleTimeout:     positiveProviderDuration(cfg.AI.RunStaleTimeout, config.DefaultAIRunStaleTimeout),
 		Logger:              logger,
 	})
+	if err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("build worker AI chat service: %w", err)
+	}
 	replyRunner := replycommand.NewRunner(replycommand.RunnerOptions{
 		Repository:       replyRepository,
 		Executor:         aiChatService,
@@ -333,7 +341,7 @@ func registerWorkerHandlers(
 		ObjectWriter:    providers.ObjectWriter,
 		RunRecorder:     aiRunRecorder,
 		Executor:        paidImageExecutor,
-		PricingResolver: aiModelPricingResolver,
+		PricingResolver: aiOfficialModelResolver,
 	})
 	paymentService := paymentmodule.NewService(paymentmodule.Dependencies{
 		Repository:   paymentmodule.NewGormRepository(resources.DB, walletRepository),

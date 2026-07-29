@@ -13,6 +13,7 @@ import (
 	"admin_back_go/internal/infra/database"
 	"admin_back_go/internal/module/ai/aigateway"
 	"admin_back_go/internal/module/ai/billing"
+	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/requestidentity"
 	airun "admin_back_go/internal/module/ai/run"
 	"admin_back_go/internal/shared/enum"
@@ -88,7 +89,7 @@ func (r *GormRepository) ListImageAgents(ctx context.Context, scene string) ([]A
 	err := r.db.WithContext(ctx).Table("ai_agents AS a").
 		Select("a.id AS id, a.name AS name, a.avatar AS avatar").
 		Joins("JOIN ai_providers AS p ON p.id = a.provider_id AND p.is_del = ? AND p.status = ?", enum.CommonNo, enum.CommonYes).
-		Joins("JOIN ai_provider_models AS m ON m.provider_id = a.provider_id AND m.model_id = a.model_id AND m.status = ?", enum.CommonYes).
+		Joins("JOIN ai_provider_models AS m ON m.provider_id = a.provider_id AND m.model_id = a.model_id AND m.status = ? AND m.mapping_status = ?", enum.CommonYes, officialmodel.MappingStatusMapped).
 		Where("a.is_del = ? AND a.status = ?", enum.CommonNo, enum.CommonYes).
 		Where("JSON_CONTAINS(a.scenes_json, JSON_QUOTE(?))", scene).
 		Order("a.id DESC").
@@ -490,7 +491,6 @@ func (r *GormRepository) LoadAgentRuntime(ctx context.Context, agentID uint64) (
 			a.scenes_json AS scenes_json,
 			a.status AS agent_status,
 			a.billing_multiplier_ppm AS billing_multiplier_ppm,
-			a.max_output_tokens AS max_output_tokens,
 			a.provider_id AS provider_id,
 			p.name AS provider_name,
 			p.engine_type AS engine_type,
@@ -499,9 +499,12 @@ func (r *GormRepository) LoadAgentRuntime(ctx context.Context, agentID uint64) (
 			p.status AS provider_status,
 			a.model_id AS model_id,
 			COALESCE(NULLIF(m.display_name, ''), a.model_display_name) AS model_display_name,
-			m.status AS model_status`).
+			m.status AS model_status,
+			m.official_model_id AS official_model_id,
+			m.official_catalog_version AS official_catalog_version,
+			m.mapping_status AS mapping_status`).
 		Joins("JOIN ai_providers AS p ON p.id = a.provider_id AND p.is_del = ?", enum.CommonNo).
-		Joins("JOIN ai_provider_models AS m ON m.provider_id = a.provider_id AND m.model_id = a.model_id").
+		Joins("JOIN ai_provider_models AS m ON m.provider_id = a.provider_id AND m.model_id = a.model_id AND m.status = ? AND m.mapping_status = ?", enum.CommonYes, officialmodel.MappingStatusMapped).
 		Where("a.id = ? AND a.is_del = ?", agentID, enum.CommonNo).
 		Take(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {

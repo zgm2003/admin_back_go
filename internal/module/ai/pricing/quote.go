@@ -8,7 +8,13 @@ import (
 
 const multiplierScale int64 = 1_000_000
 
-func Quote(price ModelPrice, lines []QuoteLine, multiplierPPM int64) (QuoteResult, error) {
+type PriceBook struct {
+	ModelID                    string
+	ContextTierThresholdTokens int64
+	Rates                      []Rate
+}
+
+func Quote(price PriceBook, lines []QuoteLine, multiplierPPM int64) (QuoteResult, error) {
 	if multiplierPPM <= 0 {
 		return QuoteResult{}, ErrInvalidMultiplier
 	}

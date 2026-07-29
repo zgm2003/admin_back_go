@@ -9,7 +9,7 @@ import (
 )
 
 func TestQuoteFiveRMBPerMillionTokens(t *testing.T) {
-	price := ModelPrice{ModelID: "m", Rates: []Rate{{Category: InputTokens, Unit: "token", PriceUnits: 500000000, UnitScale: 1000000}}}
+	price := PriceBook{ModelID: "m", Rates: []Rate{{Category: InputTokens, Unit: "token", PriceUnits: 500000000, UnitScale: 1000000}}}
 	got, err := Quote(price, []QuoteLine{{Key: "a", Item: billing.UsageItem{Category: billing.UsageCategoryInputText, Unit: "token", Quantity: 1000000}}}, 1000000)
 	if err != nil || got.AmountUnits != 500000000 {
 		t.Fatalf("quote = %#v, %v", got, err)
@@ -17,7 +17,7 @@ func TestQuoteFiveRMBPerMillionTokens(t *testing.T) {
 }
 
 func TestQuoteRoundsOnceAndAllocatesDeterministically(t *testing.T) {
-	price := ModelPrice{ModelID: "m", Rates: []Rate{{Category: InputTokens, Unit: "token", PriceUnits: 1, UnitScale: 3}}}
+	price := PriceBook{ModelID: "m", Rates: []Rate{{Category: InputTokens, Unit: "token", PriceUnits: 1, UnitScale: 3}}}
 	lines := []QuoteLine{
 		{Key: "b", Item: billing.UsageItem{Category: billing.UsageCategoryInputText, Unit: "token", Quantity: 1}},
 		{Key: "a", Item: billing.UsageItem{Category: billing.UsageCategoryInputText, Unit: "token", Quantity: 1}},
@@ -32,7 +32,7 @@ func TestQuoteRoundsOnceAndAllocatesDeterministically(t *testing.T) {
 }
 
 func TestQuoteTieBreakUsesAttemptCategoryTierUnitBeforeLineKey(t *testing.T) {
-	price := ModelPrice{ModelID: "m", Rates: []Rate{{Category: InputTokens, Unit: "token", PriceUnits: 1, UnitScale: 3}}}
+	price := PriceBook{ModelID: "m", Rates: []Rate{{Category: InputTokens, Unit: "token", PriceUnits: 1, UnitScale: 3}}}
 	lines := []QuoteLine{
 		{Key: "z", AttemptID: "attempt-b", Item: billing.UsageItem{Category: billing.UsageCategoryInputText, Unit: "token", Quantity: 1}},
 		{Key: "a", AttemptID: "attempt-a", Item: billing.UsageItem{Category: billing.UsageCategoryInputText, Unit: "token", Quantity: 1}},
@@ -47,7 +47,7 @@ func TestQuoteTieBreakUsesAttemptCategoryTierUnitBeforeLineKey(t *testing.T) {
 }
 
 func TestQuoteRejectsUnsupportedAndDuplicateLines(t *testing.T) {
-	price := ModelPrice{ModelID: "m", Rates: []Rate{{Category: InputTokens, Unit: "token", PriceUnits: 1, UnitScale: 1}}}
+	price := PriceBook{ModelID: "m", Rates: []Rate{{Category: InputTokens, Unit: "token", PriceUnits: 1, UnitScale: 1}}}
 	line := QuoteLine{Key: "same", Item: billing.UsageItem{Category: billing.UsageCategoryInputText, Unit: "token", Quantity: 1}}
 	if _, err := Quote(price, []QuoteLine{line, line}, 1000000); !errors.Is(err, ErrDuplicateLine) {
 		t.Fatalf("expected duplicate line error, got %v", err)
@@ -58,7 +58,7 @@ func TestQuoteRejectsUnsupportedAndDuplicateLines(t *testing.T) {
 }
 
 func TestQuoteRejectsMultiplierAndFinalOverflow(t *testing.T) {
-	price := ModelPrice{ModelID: "m", Rates: []Rate{{Category: InputTokens, Unit: "token", PriceUnits: math.MaxInt64, UnitScale: 1}}}
+	price := PriceBook{ModelID: "m", Rates: []Rate{{Category: InputTokens, Unit: "token", PriceUnits: math.MaxInt64, UnitScale: 1}}}
 	line := []QuoteLine{{Key: "a", Item: billing.UsageItem{Category: billing.UsageCategoryInputText, Unit: "token", Quantity: 2}}}
 	if _, err := Quote(price, line, 0); !errors.Is(err, ErrInvalidMultiplier) {
 		t.Fatalf("expected invalid multiplier, got %v", err)

@@ -68,25 +68,25 @@ func TestViewsDescribeUsersMeAndCurrentAdminViewKeys(t *testing.T) {
 	}
 }
 
-func TestViewsProtectAIModelPricingWithListPermission(t *testing.T) {
+func TestAdminViewsPublishOfficialModelRoute(t *testing.T) {
 	bundle := mustBuildBundle(t)
 	var document ViewsDocument
 	if err := json.Unmarshal(bundle.Artifacts["views.json"], &document); err != nil {
 		t.Fatalf("decode views: %v", err)
 	}
 	want := View{
-		Path: "/ai/model-pricing", ViewKey: "ai/model-pricing", I18nKey: "menu.ai_model_pricing",
-		ShowMenu: 1, PermissionCodes: []string{"ai_model_pricing_list"},
+		Path: "/ai/official-models", ViewKey: "ai/official-models", I18nKey: "menu.ai_official_models",
+		ShowMenu: 1, PermissionCodes: []string{"ai_official_model_list"},
 	}
 	for _, view := range document.Views {
 		if view.ViewKey == want.ViewKey {
 			if !reflect.DeepEqual(view, want) {
-				t.Fatalf("model pricing view=%#v want=%#v", view, want)
+				t.Fatalf("official model view=%#v want=%#v", view, want)
 			}
 			return
 		}
 	}
-	t.Fatalf("missing model pricing view %q", want.ViewKey)
+	t.Fatalf("missing official model view %q", want.ViewKey)
 }
 
 func TestViewsPublishPaymentRedeemCodeManagement(t *testing.T) {

@@ -98,7 +98,7 @@ VALUES (515,'查看邮件日志及验证码','','',506,NULL,'admin',3,9,'system_
 	if err != nil {
 		t.Fatalf("read canonical admin schema: %v", err)
 	}
-	table := hclTableBlock(t, string(schema), "mail_log_verification_codes")
+	table := hclTableBlock(t, strings.ReplaceAll(string(schema), "\r\n", "\n"), "mail_log_verification_codes")
 	for _, required := range []string{
 		`schema = schema.admin`, `column "id"`, `type           = bigint`, `unsigned       = true`, `auto_increment = true`,
 		`column "mail_log_id"`, `column "key_id"`, `type = varchar(64)`, `column "code_enc"`, `type = varchar(255)`,
@@ -178,7 +178,7 @@ func TestMailVerificationDiagnosticDocumentation(t *testing.T) {
 	}
 
 	seedReadme := read("database", "seeds", "README.md")
-	for _, required := range []string{"135", "system_mail_logview", "payment_redeem_code_list", "does not assign permissions to any role"} {
+	for _, required := range []string{"138", "system_mail_logview", "payment_redeem_code_list", "does not assign permissions to any role"} {
 		if !strings.Contains(seedReadme, required) {
 			t.Errorf("permission seed documentation missing %q", required)
 		}

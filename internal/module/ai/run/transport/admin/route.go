@@ -34,6 +34,12 @@ func Register(router *gin.Engine, service airunmodule.HTTPService, routeRegistri
 	}, handler.Stats)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodGet,
+		Path:   "/api/admin/v1/ai-runs/stats/latency",
+		Access: adminroute.Permission("ai_run_list"),
+		Audit:  adminroute.NoAudit("read-only"),
+	}, handler.LatencyStats)
+	routes.Handle(adminroute.Definition{
+		Method: http.MethodGet,
 		Path:   "/api/admin/v1/ai-runs/stats/by-date",
 		Access: adminroute.Permission("ai_run_list"),
 		Audit:  adminroute.NoAudit("read-only"),

@@ -29,7 +29,7 @@ import (
 	"admin_back_go/internal/infra/taskqueue"
 	"admin_back_go/internal/module/ai/aigateway"
 	"admin_back_go/internal/module/ai/capability"
-	"admin_back_go/internal/module/ai/modelpricing"
+	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/pricing"
 	"admin_back_go/internal/module/ai/requestidentity"
 	airun "admin_back_go/internal/module/ai/run"
@@ -88,7 +88,7 @@ type Service struct {
 	objectReader  storagecos.ObjectReader
 	objectWriter  storagecos.ObjectWriter
 	executor      TaskExecutor
-	pricing       modelpricing.Resolver
+	pricing       officialmodel.Resolver
 	now           func() time.Time
 	random        func([]byte) (int, error)
 	leaseOwner    string
@@ -104,7 +104,7 @@ type Dependencies struct {
 	ObjectWriter    storagecos.ObjectWriter
 	RunRecorder     airun.Recorder
 	Executor        TaskExecutor
-	PricingResolver modelpricing.Resolver
+	PricingResolver officialmodel.Resolver
 	Now             func() time.Time
 	Random          func([]byte) (int, error)
 	LeaseOwner      string
@@ -362,16 +362,14 @@ func (s *Service) enqueueAcceptedImageTask(ctx context.Context, task ImageTask) 
 
 func (s *Service) imagePricingSnapshot(ctx context.Context, agent AgentRuntime, input CreateInput) (string, int64, *apperror.Error) {
 	if s == nil || s.pricing == nil {
-		return "", 0, apperror.Wrap("ai.billing.price_unavailable", apperror.CategoryInternal, http.StatusInternalServerError, apperror.Permanent, "", nil, "AI模型价格服务未配置", modelpricing.ErrRepositoryNotConfigured)
+		return "", 0, apperror.Wrap("ai.billing.price_unavailable", apperror.CategoryInternal, http.StatusInternalServerError, apperror.Permanent, "", nil, "AI模型价格服务未配置", officialmodel.ErrRepositoryNotConfigured)
 	}
-	model, err := s.pricing.Resolve(ctx, strings.TrimSpace(agent.ModelID))
+	model, err := officialmodel.ResolveMappedRoute(ctx, s.pricing, agent.ModelID, agent.OfficialModelID, agent.OfficialCatalogVersion, agent.MappingStatus)
 	if err != nil {
 		return "", 0, apperror.Wrap("ai.billing.price_unavailable", apperror.CategoryConflict, http.StatusConflict, apperror.Permanent, "", nil, "该图片智能体缺少可用的模型价格", err)
 	}
 	effective, err := gptImage2OutputTokenUpperBound(input.Size, input.Quality, input.N)
-	if err != nil || effective > model.MaxOutputTokens || agent.BillingMultiplierPPM <= 0 || agent.MaxOutputTokens == 0 ||
-		uint64(agent.MaxOutputTokens) > uint64(math.MaxInt64) || int64(agent.MaxOutputTokens) > model.MaxOutputTokens ||
-		effective > int64(agent.MaxOutputTokens) {
+	if err != nil || effective > model.Model.MaxOutputTokens || agent.BillingMultiplierPPM <= 0 {
 		return "", 0, apperror.Wrap("ai.billing.unsafe_upper_bound", apperror.CategoryConflict, http.StatusConflict, apperror.Permanent, "", nil, "图片生成输出上限不安全", pricing.ErrUnsafeTokenUpperBound)
 	}
 	raw, err := aigateway.EncodePricingSnapshot(model, aigateway.PricingSnapshotInput{
@@ -794,7 +792,7 @@ func (s *Service) validImageAgent(ctx context.Context, repo Repository, agentID 
 	if agent == nil {
 		return nil, apperror.NotFoundKey("aiimage.agent.not_found", nil, "图片智能体不存在或未启用")
 	}
-	if agent.AgentStatus != enum.CommonYes || agent.ProviderStatus != enum.CommonYes || agent.ModelStatus != enum.CommonYes {
+	if agent.AgentStatus != enum.CommonYes || agent.ProviderStatus != enum.CommonYes || agent.ModelStatus != enum.CommonYes || agent.MappingStatus != officialmodel.MappingStatusMapped {
 		return nil, apperror.BadRequestKey("aiimage.agent.runtime_disabled", nil, "图片智能体、供应商或模型未启用")
 	}
 	if expectedScene != "" && !sceneEnabled(agent.ScenesJSON, expectedScene) {

@@ -20,6 +20,14 @@ const (
 	StateTimedOut       State = "timed_out"
 )
 
+type ClaimSource string
+
+const (
+	ClaimSourceWake     ClaimSource = "wake"
+	ClaimSourcePoll     ClaimSource = "poll"
+	ClaimSourceRecovery ClaimSource = "recovery"
+)
+
 const (
 	// ErrCodeFinalizationRetry marks a command that must settle persisted facts
 	// without constructing another provider request.
@@ -55,32 +63,36 @@ func (command Command) RequiresFinalizationOnly() bool {
 }
 
 type Command struct {
-	ID                    uint64     `gorm:"column:id;primaryKey"`
-	RequestID             string     `gorm:"column:request_id"`
-	RequestFingerprint    []byte     `gorm:"column:request_fingerprint"`
-	RequestIdentityStatus string     `gorm:"column:request_identity_status"`
-	RequestIdentityMarker string     `gorm:"column:request_identity_marker"`
-	IdempotencyKey        string     `gorm:"column:idempotency_key"`
-	Platform              string     `gorm:"column:platform"`
-	UserID                int64      `gorm:"column:user_id"`
-	ConversationID        int64      `gorm:"column:conversation_id"`
-	UserMessageID         int64      `gorm:"column:user_message_id"`
-	AssistantMessageID    *int64     `gorm:"column:assistant_message_id"`
-	State                 State      `gorm:"column:state"`
-	AttemptCount          uint       `gorm:"column:attempt_count"`
-	MaxAttempts           uint       `gorm:"column:max_attempts"`
-	LeaseOwner            *string    `gorm:"column:lease_owner"`
-	LeaseToken            uint64     `gorm:"column:lease_token"`
-	LeaseExpiresAt        *time.Time `gorm:"column:lease_expires_at"`
-	NextAttemptAt         time.Time  `gorm:"column:next_attempt_at"`
-	CancelRequestedAt     *time.Time `gorm:"column:cancel_requested_at"`
-	OutcomeUnknownAt      *time.Time `gorm:"column:outcome_unknown_at"`
-	LastErrorCode         string     `gorm:"column:last_error_code"`
-	LastErrorMessage      string     `gorm:"column:last_error_message"`
-	StartedAt             *time.Time `gorm:"column:started_at"`
-	FinishedAt            *time.Time `gorm:"column:finished_at"`
-	CreatedAt             time.Time  `gorm:"column:created_at"`
-	UpdatedAt             time.Time  `gorm:"column:updated_at"`
+	ID                    uint64      `gorm:"column:id;primaryKey"`
+	RequestID             string      `gorm:"column:request_id"`
+	RequestFingerprint    []byte      `gorm:"column:request_fingerprint"`
+	RequestIdentityStatus string      `gorm:"column:request_identity_status"`
+	RequestIdentityMarker string      `gorm:"column:request_identity_marker"`
+	IdempotencyKey        string      `gorm:"column:idempotency_key"`
+	Platform              string      `gorm:"column:platform"`
+	UserID                int64       `gorm:"column:user_id"`
+	ConversationID        int64       `gorm:"column:conversation_id"`
+	UserMessageID         int64       `gorm:"column:user_message_id"`
+	AssistantMessageID    *int64      `gorm:"column:assistant_message_id"`
+	RequestReceivedAt     *time.Time  `gorm:"column:request_received_at"`
+	AcceptedAt            *time.Time  `gorm:"column:accepted_at"`
+	ClaimedAt             *time.Time  `gorm:"column:claimed_at"`
+	ClaimSource           ClaimSource `gorm:"column:claim_source"`
+	State                 State       `gorm:"column:state"`
+	AttemptCount          uint        `gorm:"column:attempt_count"`
+	MaxAttempts           uint        `gorm:"column:max_attempts"`
+	LeaseOwner            *string     `gorm:"column:lease_owner"`
+	LeaseToken            uint64      `gorm:"column:lease_token"`
+	LeaseExpiresAt        *time.Time  `gorm:"column:lease_expires_at"`
+	NextAttemptAt         time.Time   `gorm:"column:next_attempt_at"`
+	CancelRequestedAt     *time.Time  `gorm:"column:cancel_requested_at"`
+	OutcomeUnknownAt      *time.Time  `gorm:"column:outcome_unknown_at"`
+	LastErrorCode         string      `gorm:"column:last_error_code"`
+	LastErrorMessage      string      `gorm:"column:last_error_message"`
+	StartedAt             *time.Time  `gorm:"column:started_at"`
+	FinishedAt            *time.Time  `gorm:"column:finished_at"`
+	CreatedAt             time.Time   `gorm:"column:created_at"`
+	UpdatedAt             time.Time   `gorm:"column:updated_at"`
 }
 
 type Renewal struct {
@@ -98,6 +110,7 @@ type CreateReplyInput struct {
 	ModelID               string
 	ModelDisplayName      string
 	RequestID             string
+	RequestReceivedAt     time.Time
 	Content               string
 	MetaJSON              *string
 	InputSnapshot         string

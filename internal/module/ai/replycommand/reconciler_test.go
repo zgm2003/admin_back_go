@@ -3,11 +3,17 @@ package replycommand
 import (
 	"context"
 	"testing"
+	"time"
 )
 
-type fakeOutcomeRepository struct{ work *OutcomeUnknownWork }
+type fakeOutcomeRepository struct {
+	work   *OutcomeUnknownWork
+	source ClaimSource
+	now    time.Time
+}
 
-func (f *fakeOutcomeRepository) NextOutcomeUnknown(context.Context) (*OutcomeUnknownWork, error) {
+func (f *fakeOutcomeRepository) ClaimOutcomeUnknown(_ context.Context, source ClaimSource, now time.Time) (*OutcomeUnknownWork, error) {
+	f.source, f.now = source, now
 	return f.work, nil
 }
 
@@ -32,6 +38,24 @@ func TestReconcilerFinalizesOutcomeUnknownViaFinalizer(t *testing.T) {
 	}
 	if finalizer.commandID != 44 {
 		t.Fatalf("finalizer command=%d", finalizer.commandID)
+	}
+}
+
+func TestOutcomeReconcilerMarksRecoverySource(t *testing.T) {
+	now := time.Date(2026, 7, 28, 10, 0, 2, 0, time.UTC)
+	repository := &fakeOutcomeRepository{work: &OutcomeUnknownWork{CommandID: 45}}
+	reconciler := NewReconciler(ReconcilerOptions{
+		Repository: repository,
+		Finalizer:  &fakeOutcomeFinalizer{},
+		Now:        func() time.Time { return now },
+	})
+
+	worked, err := reconciler.RunOnce(context.Background())
+	if err != nil || !worked {
+		t.Fatalf("worked=%v err=%v", worked, err)
+	}
+	if repository.source != ClaimSourceRecovery || !repository.now.Equal(now) {
+		t.Fatalf("source=%q now=%v", repository.source, repository.now)
 	}
 }
 

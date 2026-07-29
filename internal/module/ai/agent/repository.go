@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"admin_back_go/internal/infra/database"
+	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/shared/enum"
 
 	"gorm.io/gorm"
@@ -15,8 +16,14 @@ var ErrRepositoryNotConfigured = errors.New("aiagent repository not configured")
 
 type AgentWithProvider struct {
 	Agent
-	ProviderName string `gorm:"column:provider_name"`
-	EngineType   string `gorm:"column:engine_type"`
+	ProviderName           string                      `gorm:"column:provider_name"`
+	EngineType             string                      `gorm:"column:engine_type"`
+	ProviderStatus         int                         `gorm:"column:provider_status"`
+	ProviderModelID        uint64                      `gorm:"column:provider_model_id"`
+	ProviderModelStatus    int                         `gorm:"column:provider_model_status"`
+	OfficialModelID        string                      `gorm:"column:official_model_id"`
+	OfficialCatalogVersion string                      `gorm:"column:official_catalog_version"`
+	MappingStatus          officialmodel.MappingStatus `gorm:"column:mapping_status"`
 }
 
 type Repository interface {
@@ -30,7 +37,7 @@ type Repository interface {
 	Update(ctx context.Context, id uint64, fields map[string]any) error
 	ChangeStatus(ctx context.Context, id uint64, status int) error
 	Delete(ctx context.Context, id uint64) error
-	ListVisibleAgents(ctx context.Context, query OptionQuery) ([]Agent, error)
+	ListVisibleAgents(ctx context.Context, query OptionQuery) ([]AgentWithProvider, error)
 }
 
 type GormRepository struct{ db *gorm.DB }
@@ -187,7 +194,7 @@ func (r *GormRepository) Delete(ctx context.Context, id uint64) error {
 		Update("is_del", enum.CommonYes).Error
 }
 
-func (r *GormRepository) ListVisibleAgents(ctx context.Context, query OptionQuery) ([]Agent, error) {
+func (r *GormRepository) ListVisibleAgents(ctx context.Context, query OptionQuery) ([]AgentWithProvider, error) {
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured
 	}
@@ -195,10 +202,10 @@ func (r *GormRepository) ListVisibleAgents(ctx context.Context, query OptionQuer
 	if scene == "" {
 		scene = sceneChat
 	}
-	var rows []Agent
-	if err := r.db.WithContext(ctx).Table("ai_agents AS a").
-		Select("a.*").
-		Joins("JOIN ai_providers p ON p.id = a.provider_id AND p.is_del = ? AND p.status = ?", enum.CommonNo, enum.CommonYes).
+	var rows []AgentWithProvider
+	if err := r.agentSelectDB(ctx).
+		Where("e.status = ?", enum.CommonYes).
+		Where("pm.status = ? AND pm.mapping_status = ?", enum.CommonYes, officialmodel.MappingStatusMapped).
 		Where("a.is_del = ?", enum.CommonNo).
 		Where("a.status = ?", enum.CommonYes).
 		Where("JSON_CONTAINS(a.scenes_json, JSON_QUOTE(?))", scene).
@@ -210,7 +217,15 @@ func (r *GormRepository) ListVisibleAgents(ctx context.Context, query OptionQuer
 }
 
 func (r *GormRepository) agentSelectDB(ctx context.Context) *gorm.DB {
-	return r.db.WithContext(ctx).Table("ai_agents AS a").Select(`a.*, e.name AS provider_name, e.engine_type AS engine_type, e.base_url AS engine_base_url, e.api_key_enc AS engine_api_key_enc, e.status AS engine_status`).Joins("LEFT JOIN ai_providers e ON e.id = a.provider_id AND e.is_del = ?", enum.CommonNo).Where("a.is_del = ?", enum.CommonNo)
+	return r.db.WithContext(ctx).Table("ai_agents AS a").Select(`
+		a.*, e.name AS provider_name, e.engine_type AS engine_type, e.status AS provider_status,
+		pm.id AS provider_model_id, pm.status AS provider_model_status,
+		pm.official_model_id AS official_model_id,
+		pm.official_catalog_version AS official_catalog_version,
+		pm.mapping_status AS mapping_status`).
+		Joins("LEFT JOIN ai_providers e ON e.id = a.provider_id AND e.is_del = ?", enum.CommonNo).
+		Joins("LEFT JOIN ai_provider_models pm ON pm.provider_id = a.provider_id AND pm.model_id = a.model_id").
+		Where("a.is_del = ?", enum.CommonNo)
 }
 
 func (r *GormRepository) activeAgents(ctx context.Context) *gorm.DB {

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 var ErrReconcilerNotReady = errors.New("reply command reconciler is not ready")
@@ -15,7 +16,7 @@ type OutcomeUnknownWork struct {
 }
 
 type OutcomeRepository interface {
-	NextOutcomeUnknown(context.Context) (*OutcomeUnknownWork, error)
+	ClaimOutcomeUnknown(context.Context, ClaimSource, time.Time) (*OutcomeUnknownWork, error)
 }
 
 // OutcomeFinalizer closes an acknowledged-but-unresolved paid attempt through
@@ -51,32 +52,47 @@ func (r *Reconciler) RunOnce(ctx context.Context) (bool, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	work, err := r.repository.NextOutcomeUnknown(ctx)
+	work, err := r.repository.ClaimOutcomeUnknown(ctx, ClaimSourceRecovery, r.now())
 	if err != nil || work == nil {
 		return false, err
 	}
 	return true, r.finalizer.FinalizeOutcomeUnknown(ctx, work.CommandID)
 }
 
-func (r *GormRepository) NextOutcomeUnknown(ctx context.Context) (*OutcomeUnknownWork, error) {
+func (r *GormRepository) ClaimOutcomeUnknown(ctx context.Context, source ClaimSource, now time.Time) (*OutcomeUnknownWork, error) {
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	var command Command
-	err := r.db.WithContext(ctx).
-		Select("ai_reply_commands.*").
-		Joins("JOIN ai_runs ON ai_runs.user_id = ai_reply_commands.user_id AND ai_runs.request_id = ai_reply_commands.request_id").
-		Where("ai_reply_commands.state = ? AND ai_runs.billing_status IN ?", StateOutcomeUnknown, []string{"pending", "held"}).
-		Order("ai_reply_commands.outcome_unknown_at ASC, ai_reply_commands.id ASC").
-		First(&command).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, nil
+	if source != ClaimSourceRecovery || now.IsZero() {
+		return nil, ErrCreateInputInvalid
 	}
-	if err != nil {
-		return nil, err
-	}
-	return &OutcomeUnknownWork{CommandID: command.ID}, nil
+	var work *OutcomeUnknownWork
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var command Command
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
+			Select("ai_reply_commands.*").
+			Joins("JOIN ai_runs ON ai_runs.user_id = ai_reply_commands.user_id AND ai_runs.request_id = ai_reply_commands.request_id").
+			Where("ai_reply_commands.state = ? AND ai_runs.billing_status IN ?", StateOutcomeUnknown, []string{"pending", "held"}).
+			Order("ai_reply_commands.outcome_unknown_at ASC, ai_reply_commands.id ASC").
+			First(&command).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		result := tx.Model(&Command{}).Where("id = ? AND state = ?", command.ID, StateOutcomeUnknown).
+			Updates(map[string]any{"claimed_at": now, "claim_source": source, "updated_at": now})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 1 {
+			work = &OutcomeUnknownWork{CommandID: command.ID}
+		}
+		return nil
+	})
+	return work, err
 }

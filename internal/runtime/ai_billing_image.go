@@ -466,7 +466,7 @@ const (
 )
 
 func imagePreDispatchErrorCode(err error) string {
-	if errors.Is(err, ErrImageReferenceUsageUnavailable) || errors.Is(err, pricing.ErrPriceUnavailable) || errors.Is(err, pricing.ErrMissingModel) || errors.Is(err, pricing.ErrAmbiguousModel) ||
+	if errors.Is(err, ErrImageReferenceUsageUnavailable) || errors.Is(err, pricing.ErrPriceUnavailable) || errors.Is(err, pricing.ErrMissingModel) ||
 		errors.Is(err, pricing.ErrInvalidCatalog) || errors.Is(err, pricing.ErrUnsupportedUsage) || errors.Is(err, pricing.ErrInvalidMultiplier) {
 		return imageErrorCodePriceUnavailable
 	}

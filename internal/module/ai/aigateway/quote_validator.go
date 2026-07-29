@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"admin_back_go/internal/module/ai/billing"
+	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/pricing"
 )
 
@@ -25,6 +26,7 @@ type PricingSnapshot struct {
 	TransportEngine            string         `json:"transport_engine"`
 	RequestedModelID           string         `json:"requested_model_id"`
 	CanonicalModelID           string         `json:"canonical_model_id"`
+	ContextWindowTokens        int64          `json:"context_window_tokens,omitempty"`
 	CatalogMaxOutputTokens     int64          `json:"catalog_max_output_tokens"`
 	EffectiveMaxOutputTokens   int            `json:"effective_max_output_tokens"`
 	ContextTierThresholdTokens int64          `json:"context_tier_threshold_tokens"`
@@ -35,7 +37,10 @@ type PricingSnapshot struct {
 	Rates                      []pricing.Rate `json:"rates"`
 }
 
-const CurrentPricingSnapshotSchemaVersion = 2
+const (
+	PricingSnapshotSchemaVersionV2      = 2
+	CurrentPricingSnapshotSchemaVersion = 3
+)
 
 type PricingSnapshotInput struct {
 	TransportEngine          string
@@ -44,16 +49,23 @@ type PricingSnapshotInput struct {
 	MultiplierPPM            int64
 }
 
-func NewPricingSnapshot(model pricing.ModelPrice, input PricingSnapshotInput) (PricingSnapshot, error) {
+func NewPricingSnapshot(resolved officialmodel.ResolvedModel, input PricingSnapshotInput) (PricingSnapshot, error) {
+	model := resolved.Model
+	version := model.CatalogVersion
+	if resolved.PriceSource == officialmodel.PriceSourceOverride {
+		version += ":override:" + strconv.FormatUint(resolved.OverrideVersion, 10)
+	}
 	snapshot := PricingSnapshot{
 		SchemaVersion: CurrentPricingSnapshotSchemaVersion,
-		Version:       model.Version, CatalogVersion: model.CatalogVersion, OverrideVersion: model.OverrideVersion,
+		Version:       version, CatalogVersion: model.CatalogVersion, OverrideVersion: resolved.OverrideVersion,
 		Billable: true, CatalogVendor: model.CatalogVendor, TransportEngine: input.TransportEngine,
 		RequestedModelID: input.RequestedModelID, CanonicalModelID: model.ModelID,
+		ContextWindowTokens:    model.ContextWindowTokens,
 		CatalogMaxOutputTokens: model.MaxOutputTokens, EffectiveMaxOutputTokens: input.EffectiveMaxOutputTokens,
 		ContextTierThresholdTokens: model.ContextTierThresholdTokens, MultiplierPPM: input.MultiplierPPM,
-		PriceSource: model.PriceSource, SourceURL: model.SourceURL, RetrievedAt: model.RetrievedAt,
-		Rates: append([]pricing.Rate(nil), model.Rates...),
+		PriceSource: resolved.PriceSource, SourceURL: resolved.PriceSourceURL,
+		RetrievedAt: resolved.PriceVerifiedAt.UTC().Format("2006-01-02"),
+		Rates:       append([]pricing.Rate(nil), resolved.EffectivePrice.Rates...),
 	}
 	normalizePricingSnapshot(&snapshot)
 	if err := validatePricingSnapshot(snapshot, true); err != nil {
@@ -62,7 +74,7 @@ func NewPricingSnapshot(model pricing.ModelPrice, input PricingSnapshotInput) (P
 	return snapshot, nil
 }
 
-func EncodePricingSnapshot(model pricing.ModelPrice, input PricingSnapshotInput) (string, error) {
+func EncodePricingSnapshot(model officialmodel.ResolvedModel, input PricingSnapshotInput) (string, error) {
 	snapshot, err := NewPricingSnapshot(model, input)
 	if err != nil {
 		return "", err
@@ -99,12 +111,17 @@ func ParsePricingSnapshot(raw string) (PricingSnapshot, error) {
 			return PricingSnapshot{}, errors.New("pricing snapshot schema version is missing")
 		}
 	} else {
-		if snapshot.SchemaVersion != CurrentPricingSnapshotSchemaVersion {
+		if snapshot.SchemaVersion != PricingSnapshotSchemaVersionV2 && snapshot.SchemaVersion != CurrentPricingSnapshotSchemaVersion {
 			return PricingSnapshot{}, errors.New("pricing snapshot schema version is unsupported")
 		}
 		for _, required := range []string{"price_source", "catalog_version", "override_version", "context_tier_threshold_tokens"} {
 			if _, exists := fields[required]; !exists {
 				return PricingSnapshot{}, fmt.Errorf("pricing snapshot is missing %s", required)
+			}
+		}
+		if snapshot.SchemaVersion == CurrentPricingSnapshotSchemaVersion {
+			if _, exists := fields["context_window_tokens"]; !exists {
+				return PricingSnapshot{}, errors.New("pricing snapshot is missing context_window_tokens")
 			}
 		}
 	}
@@ -151,14 +168,21 @@ func validatePricingSnapshot(snapshot PricingSnapshot, current bool) error {
 		if hasContextTier(snapshot.Rates) && snapshot.ContextTierThresholdTokens <= 0 {
 			return errors.New("pricing snapshot context tier threshold is missing")
 		}
+		if snapshot.SchemaVersion == CurrentPricingSnapshotSchemaVersion && (snapshot.ContextWindowTokens <= 0 || snapshot.CatalogMaxOutputTokens > snapshot.ContextWindowTokens) {
+			return errors.New("pricing snapshot context window is invalid")
+		}
 	}
-	model := snapshot.modelPrice()
-	catalog, err := pricing.NewCatalogChecked([]pricing.ModelPrice{model})
-	if err != nil {
-		return fmt.Errorf("validate pricing snapshot catalog: %w", err)
+	if snapshot.RequestedModelID != snapshot.CanonicalModelID && snapshot.SchemaVersion != 0 {
+		// Current snapshots are created only after the official resolver has frozen
+		// the requested identity. The alias itself remains audit evidence.
+		if strings.TrimSpace(snapshot.RequestedModelID) == "" {
+			return errors.New("pricing snapshot model resolution is inconsistent")
+		}
 	}
-	resolved, err := catalog.Resolve(snapshot.RequestedModelID)
-	if err != nil || resolved.ModelID != snapshot.CanonicalModelID || resolved.Version != snapshot.Version || resolved.CatalogVendor != snapshot.CatalogVendor {
+	if _, err := pricing.Quote(snapshot.priceBook(), nil, snapshot.MultiplierPPM); err != nil {
+		return fmt.Errorf("validate pricing snapshot price book: %w", err)
+	}
+	if snapshot.CanonicalModelID == "" {
 		return errors.New("pricing snapshot model resolution is inconsistent")
 	}
 	return nil
@@ -184,16 +208,9 @@ func requireJSONEnd(decoder *json.Decoder) error {
 	return nil
 }
 
-func (snapshot PricingSnapshot) modelPrice() pricing.ModelPrice {
-	aliases := []string(nil)
-	if snapshot.RequestedModelID != snapshot.CanonicalModelID {
-		aliases = []string{snapshot.RequestedModelID}
-	}
-	return pricing.ModelPrice{
-		Version: snapshot.Version, CatalogVersion: snapshot.CatalogVersion, OverrideVersion: snapshot.OverrideVersion,
-		CatalogVendor: snapshot.CatalogVendor, ModelID: snapshot.CanonicalModelID, Aliases: aliases,
-		MaxOutputTokens: snapshot.CatalogMaxOutputTokens, ContextTierThresholdTokens: snapshot.ContextTierThresholdTokens,
-		PriceSource: snapshot.PriceSource, SourceURL: snapshot.SourceURL, RetrievedAt: snapshot.RetrievedAt,
+func (snapshot PricingSnapshot) priceBook() pricing.PriceBook {
+	return pricing.PriceBook{
+		ModelID: snapshot.CanonicalModelID, ContextTierThresholdTokens: snapshot.ContextTierThresholdTokens,
 		Rates: append([]pricing.Rate(nil), snapshot.Rates...),
 	}
 }
@@ -208,8 +225,11 @@ func (PersistedQuoteValidator) ValidateQuote(ctx context.Context, run RunSnapsho
 	if err != nil {
 		return gatewayError(ErrCodeInvalidPrepared, err.Error(), 409)
 	}
-	if run.RunID <= 0 || run.UserID <= 0 || strings.TrimSpace(run.ModelID) != snapshot.RequestedModelID || preparedRequestSHA256 == ([32]byte{}) || quote.PreparedRequestSHA256 != preparedRequestSHA256 || quote.RequestFingerprint != run.RequestFingerprint || strings.TrimSpace(quote.PricingVersion) != snapshot.Version || quote.EffectiveMaxOutputTokens != snapshot.EffectiveMaxOutputTokens || quote.CurrentCallMaxUnits <= 0 || quote.PriorBillableUnits < 0 || quote.TargetHoldUnits <= 0 || len(quote.UpperBoundItems) == 0 {
+	if run.RunID <= 0 || run.UserID <= 0 || strings.TrimSpace(run.ModelID) != snapshot.RequestedModelID || preparedRequestSHA256 == ([32]byte{}) || quote.PreparedRequestSHA256 != preparedRequestSHA256 || quote.RequestFingerprint != run.RequestFingerprint || strings.TrimSpace(quote.PricingVersion) != snapshot.Version || quote.EffectiveMaxOutputTokens <= 0 || quote.EffectiveMaxOutputTokens > snapshot.EffectiveMaxOutputTokens || quote.CurrentCallMaxUnits <= 0 || quote.PriorBillableUnits < 0 || quote.TargetHoldUnits <= 0 || len(quote.UpperBoundItems) == 0 {
 		return gatewayError(ErrCodeInvalidPrepared, "quote does not match the locked pricing snapshot", 409)
+	}
+	if snapshot.SchemaVersion < CurrentPricingSnapshotSchemaVersion && quote.EffectiveMaxOutputTokens != snapshot.EffectiveMaxOutputTokens {
+		return gatewayError(ErrCodeInvalidPrepared, "legacy quote output bound differs from the locked snapshot", 409)
 	}
 	target, err := cumulativeHoldTarget(quote.PriorBillableUnits, quote.CurrentCallMaxUnits)
 	if err != nil || target != quote.TargetHoldUnits {
@@ -217,6 +237,8 @@ func (PersistedQuoteValidator) ValidateQuote(ctx context.Context, run RunSnapsho
 	}
 	lines := make([]pricing.QuoteLine, len(quote.UpperBoundItems))
 	seen := make(map[string]struct{}, len(quote.UpperBoundItems))
+	var inputBound, outputBound int64
+	var inputItems, outputItems int
 	for index, rawItem := range quote.UpperBoundItems {
 		item, normalizeErr := rawItem.Normalized()
 		if normalizeErr != nil {
@@ -227,16 +249,39 @@ func (PersistedQuoteValidator) ValidateQuote(ctx context.Context, run RunSnapsho
 			return gatewayError(ErrCodeInvalidPrepared, "quote contains duplicate upper-bound usage", 409)
 		}
 		seen[identity] = struct{}{}
-		if item.Category == billing.UsageCategoryOutputText && item.Unit == "token" && item.Quantity != int64(snapshot.EffectiveMaxOutputTokens) {
-			return gatewayError(ErrCodeInvalidPrepared, "quote output bound differs from the effective output cap", 409)
+		if item.Unit == "token" {
+			switch item.Category {
+			case billing.UsageCategoryInputText:
+				inputItems++
+				inputBound = item.Quantity
+			case billing.UsageCategoryOutputText:
+				outputItems++
+				outputBound = item.Quantity
+				if item.Quantity != int64(quote.EffectiveMaxOutputTokens) {
+					return gatewayError(ErrCodeInvalidPrepared, "quote output bound differs from the effective output cap", 409)
+				}
+			}
 		}
 		lines[index] = pricing.QuoteLine{Key: "upper-bound-" + strconv.Itoa(index), Item: item}
 	}
-	selected, err := pricing.UpperBoundLines(snapshot.modelPrice(), lines)
+	if snapshot.SchemaVersion == CurrentPricingSnapshotSchemaVersion {
+		if inputItems != 1 || outputItems != 1 || inputBound <= 0 || outputBound <= 0 {
+			return gatewayError(ErrCodeInvalidPrepared, "current quote requires one positive input and output token bound", 409)
+		}
+		remaining := snapshot.ContextWindowTokens - inputBound
+		safeOutput := int64(snapshot.EffectiveMaxOutputTokens)
+		if remaining < safeOutput {
+			safeOutput = remaining
+		}
+		if safeOutput <= 0 || outputBound != safeOutput || int64(quote.EffectiveMaxOutputTokens) != safeOutput {
+			return gatewayError(ErrCodeInvalidPrepared, "quote output bound does not match the remaining context", 409)
+		}
+	}
+	selected, err := pricing.UpperBoundLines(snapshot.priceBook(), lines)
 	if err != nil {
 		return gatewayError(ErrCodeInvalidPrepared, fmt.Sprintf("quote upper bound is not priceable from the locked snapshot: %v", err), 409)
 	}
-	recomputed, err := pricing.Quote(snapshot.modelPrice(), selected, snapshot.MultiplierPPM)
+	recomputed, err := pricing.Quote(snapshot.priceBook(), selected, snapshot.MultiplierPPM)
 	if err != nil {
 		return gatewayError(ErrCodeInvalidPrepared, fmt.Sprintf("quote is not priceable from the locked snapshot: %v", err), 409)
 	}

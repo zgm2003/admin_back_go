@@ -12,6 +12,7 @@ import (
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/infra/ai/provider"
 	"admin_back_go/internal/infra/secretbox"
+	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/shared/apperror"
 )
 
@@ -30,6 +31,13 @@ type fakeRepository struct {
 	modelsByProvider   map[uint64][]ProviderModel
 	replacedProviderID uint64
 	replacedModels     []ProviderModel
+	allModels          []ProviderModel
+	mappingUpdates     []providerModelMappingUpdate
+}
+
+type providerModelMappingUpdate struct {
+	id      uint64
+	mapping officialmodel.IdentityMapping
 }
 
 func (f *fakeRepository) List(ctx context.Context, query ListQuery) ([]Provider, int64, error) {
@@ -75,6 +83,15 @@ func (f *fakeRepository) ReplaceModels(ctx context.Context, providerID uint64, m
 	return nil
 }
 
+func (f *fakeRepository) ListAllModels(context.Context) ([]ProviderModel, error) {
+	return append([]ProviderModel(nil), f.allModels...), nil
+}
+
+func (f *fakeRepository) UpdateModelMapping(_ context.Context, id uint64, mapping officialmodel.IdentityMapping) error {
+	f.mappingUpdates = append(f.mappingUpdates, providerModelMappingUpdate{id: id, mapping: mapping})
+	return nil
+}
+
 func (f *fakeRepository) ChangeStatus(ctx context.Context, id uint64, status int) error {
 	f.statusID = id
 	f.status = status
@@ -89,6 +106,7 @@ func (f *fakeRepository) Delete(ctx context.Context, id uint64) error {
 type fakeModelDriver struct {
 	config provider.Config
 	err    error
+	models []provider.Model
 }
 
 func (f *fakeModelDriver) ListModels(ctx context.Context, cfg provider.Config) ([]provider.Model, error) {
@@ -96,7 +114,120 @@ func (f *fakeModelDriver) ListModels(ctx context.Context, cfg provider.Config) (
 	if f.err != nil {
 		return nil, f.err
 	}
+	if f.models != nil {
+		return append([]provider.Model(nil), f.models...), nil
+	}
 	return []provider.Model{{ID: "gpt-4.1-mini", Object: "model", OwnedBy: "openai"}}, nil
+}
+
+func TestProviderSyncStoresExactOfficialModelMapping(t *testing.T) {
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
+	ciphertext, err := box.Encrypt("sk-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := &fakeRepository{rowByID: map[uint64]Provider{7: {
+		ID: 7, EngineType: "openai", APIKeyEnc: ciphertext, Status: 1,
+	}}}
+	driver := &fakeModelDriver{models: []provider.Model{{ID: "gpt-4.1-mini", OwnedBy: "openai"}}}
+	service := NewServiceWithDriver(repo, box, nil, driver)
+
+	if _, appErr := service.SyncModels(context.Background(), 7); appErr != nil {
+		t.Fatalf("sync failed: %v", appErr)
+	}
+	if repo.replacedProviderID != 7 || len(repo.replacedModels) != 1 {
+		t.Fatalf("persisted models=%#v provider=%d", repo.replacedModels, repo.replacedProviderID)
+	}
+	mapping := repo.replacedModels[0]
+	if mapping.MappingStatus != "mapped" || mapping.OfficialModelID == nil || *mapping.OfficialModelID != "gpt-4.1-mini" ||
+		mapping.OfficialCatalogVersion == nil || *mapping.OfficialCatalogVersion != "official_models_v1" || mapping.MappedAt == nil {
+		t.Fatalf("mapping=%#v", mapping)
+	}
+}
+
+func TestProviderSyncLeavesCaseMismatchAndUnknownModelUnmapped(t *testing.T) {
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
+	ciphertext, err := box.Encrypt("sk-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := &fakeRepository{rowByID: map[uint64]Provider{7: {
+		ID: 7, EngineType: "openai", APIKeyEnc: ciphertext, Status: 1,
+	}}}
+	driver := &fakeModelDriver{models: []provider.Model{{ID: "GPT-4.1-mini"}, {ID: "private-model"}}}
+	service := NewServiceWithDriver(repo, box, nil, driver)
+
+	if _, appErr := service.SyncModels(context.Background(), 7); appErr != nil {
+		t.Fatalf("sync failed: %v", appErr)
+	}
+	if len(repo.replacedModels) != 2 {
+		t.Fatalf("persisted models=%#v", repo.replacedModels)
+	}
+	for _, model := range repo.replacedModels {
+		if model.MappingStatus != "unmapped" || model.OfficialModelID != nil || model.OfficialCatalogVersion != nil || model.MappedAt != nil {
+			t.Fatalf("model %q unexpectedly mapped: %#v", model.ModelID, model)
+		}
+	}
+}
+
+func TestReconcileOfficialModelMappingsUpdatesOnlyChangedMappings(t *testing.T) {
+	currentOfficialID, currentVersion := "gpt-4.1-mini", "official_models_v1"
+	oldVersion := "official_models_v0"
+	staleOfficialID := "gpt-4.1"
+	originalMappedAt := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 7, 28, 9, 30, 0, 0, time.UTC)
+	repo := &fakeRepository{allModels: []ProviderModel{
+		{ID: 1, ProviderID: 7, ModelID: "gpt-4.1-mini", OfficialModelID: &currentOfficialID, OfficialCatalogVersion: &oldVersion, MappingStatus: officialmodel.MappingStatusMapped, MappedAt: &originalMappedAt, Status: 2},
+		{ID: 2, ProviderID: 7, ModelID: "gpt-4.1-mini", OfficialModelID: &currentOfficialID, OfficialCatalogVersion: &currentVersion, MappingStatus: officialmodel.MappingStatusMapped, MappedAt: &originalMappedAt, Status: 1},
+		{ID: 3, ProviderID: 8, ModelID: "private-model", OfficialModelID: &staleOfficialID, OfficialCatalogVersion: &oldVersion, MappingStatus: officialmodel.MappingStatusMapped, MappedAt: &originalMappedAt, Status: 2},
+	}}
+	service := NewService(
+		repo,
+		secretbox.New([]byte("12345678901234567890123456789012")),
+		nil,
+		WithOfficialModelMatcher(officialmodel.NewIdentityMatcher(officialmodel.Default)),
+		WithNow(func() time.Time { return now }),
+	)
+
+	if err := service.ReconcileOfficialModelMappings(context.Background()); err != nil {
+		t.Fatalf("reconcile mappings: %v", err)
+	}
+	if len(repo.mappingUpdates) != 2 {
+		t.Fatalf("mapping updates=%#v", repo.mappingUpdates)
+	}
+	if update := repo.mappingUpdates[0]; update.id != 1 || update.mapping.Status != officialmodel.MappingStatusMapped ||
+		update.mapping.OfficialModelID != currentOfficialID || update.mapping.CatalogVersion != currentVersion ||
+		update.mapping.MappedAt == nil || !update.mapping.MappedAt.Equal(now) {
+		t.Fatalf("catalog upgrade update=%#v", update)
+	}
+	if update := repo.mappingUpdates[1]; update.id != 3 || update.mapping.Status != officialmodel.MappingStatusUnmapped ||
+		update.mapping.OfficialModelID != "" || update.mapping.CatalogVersion != "" || update.mapping.MappedAt != nil {
+		t.Fatalf("unmapped cleanup update=%#v", update)
+	}
+	if repo.allModels[0].Status != 2 || repo.allModels[1].Status != 1 || repo.allModels[2].Status != 2 {
+		t.Fatalf("route status changed during mapping reconciliation: %#v", repo.allModels)
+	}
+}
+
+func TestDisabledProviderRouteDoesNotRetireOfficialModel(t *testing.T) {
+	repo := &fakeRepository{rowByID: map[uint64]Provider{7: {
+		ID: 7, EngineType: "openai", Status: 1,
+	}}}
+	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+
+	if appErr := service.ChangeStatus(context.Background(), 7, 2); appErr != nil {
+		t.Fatalf("disable provider: %v", appErr)
+	}
+	if repo.statusID != 7 || repo.status != 2 {
+		t.Fatalf("provider status change not persisted: id=%d status=%d", repo.statusID, repo.status)
+	}
+	if len(repo.mappingUpdates) != 0 {
+		t.Fatalf("provider disable mutated official mapping facts: %#v", repo.mappingUpdates)
+	}
+	model, err := officialmodel.Default.ResolveIdentity("gpt-4.1-mini")
+	if err != nil || model.LifecycleStatus != officialmodel.LifecycleActive {
+		t.Fatalf("provider disable changed official lifecycle: model=%#v err=%v", model, err)
+	}
 }
 
 func (f *fakeModelDriver) TestConnection(ctx context.Context, cfg provider.Config) (*provider.TestResult, error) {
@@ -162,7 +293,7 @@ func TestListDoesNotDefaultBlankEngineTypeFilter(t *testing.T) {
 func TestListRejectsInvalidStoredProviderStateInsteadOfInventingDTOFallback(t *testing.T) {
 	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
 	validProvider := Provider{ID: 1, Name: "OpenAI", EngineType: "openai", HealthStatus: provider.HealthUnknown, LastModelSyncStatus: provider.HealthUnknown, Status: 1, CreatedAt: now, UpdatedAt: now}
-	validModels := []ProviderModel{{ProviderID: 1, ModelID: "gpt-4.1-mini", Status: 1, CreatedAt: now, UpdatedAt: now}}
+	validModels := []ProviderModel{{ProviderID: 1, ModelID: "gpt-4.1-mini", MappingStatus: "unmapped", Status: 1, CreatedAt: now, UpdatedAt: now}}
 	cases := []struct {
 		name     string
 		row      Provider
@@ -173,7 +304,7 @@ func TestListRejectsInvalidStoredProviderStateInsteadOfInventingDTOFallback(t *t
 		{name: "blank health_status", row: func() Provider { row := validProvider; row.HealthStatus = ""; return row }(), models: validModels, errorMsg: "AI供应商数据异常"},
 		{name: "blank last_model_sync_status", row: func() Provider { row := validProvider; row.LastModelSyncStatus = ""; return row }(), models: validModels, errorMsg: "AI供应商数据异常"},
 		{name: "invalid provider status", row: func() Provider { row := validProvider; row.Status = 99; return row }(), models: validModels, errorMsg: "AI供应商数据异常"},
-		{name: "invalid model status", row: validProvider, models: []ProviderModel{{ProviderID: 1, ModelID: "gpt-4.1-mini", Status: 99, CreatedAt: now, UpdatedAt: now}}, errorMsg: "AI供应商模型数据异常"},
+		{name: "invalid model status", row: validProvider, models: []ProviderModel{{ProviderID: 1, ModelID: "gpt-4.1-mini", MappingStatus: "unmapped", Status: 99, CreatedAt: now, UpdatedAt: now}}, errorMsg: "AI供应商模型数据异常"},
 	}
 
 	for _, tc := range cases {
@@ -336,7 +467,7 @@ func TestListDTOExcludesEncryptedAndPlainAPIKey(t *testing.T) {
 	repo := &fakeRepository{
 		rows:             []Provider{{ID: 1, Name: "OpenAI", EngineType: "openai", BaseURL: "", APIKeyEnc: "cipher-secret", APIKeyHint: "***cret", HealthStatus: "ok", LastModelSyncStatus: "unknown", Status: 1, CreatedAt: now, UpdatedAt: now}},
 		total:            1,
-		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", Status: 1}}},
+		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", MappingStatus: "unmapped", Status: 1}}},
 	}
 	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 

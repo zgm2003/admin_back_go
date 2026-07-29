@@ -15,6 +15,10 @@ FROM (
   SELECT 'export_tasks' t, 'platform' c UNION ALL SELECT 'export_tasks','kind' UNION ALL SELECT 'export_tasks','object_key'
   UNION ALL SELECT 'export_tasks','claim_owner' UNION ALL SELECT 'export_tasks','claim_token' UNION ALL SELECT 'export_tasks','claim_expires_at'
   UNION ALL SELECT 'ai_runs','platform' UNION ALL SELECT 'ai_runs','input_snapshot' UNION ALL SELECT 'ai_runs','idempotency_key'
+  UNION ALL SELECT 'ai_runs','settled_at'
+  UNION ALL SELECT 'ai_reply_commands','request_received_at' UNION ALL SELECT 'ai_reply_commands','accepted_at'
+  UNION ALL SELECT 'ai_reply_commands','claimed_at' UNION ALL SELECT 'ai_reply_commands','claim_source'
+  UNION ALL SELECT 'ai_provider_attempts','prepare_started_at' UNION ALL SELECT 'ai_provider_attempts','first_delta_at'
   UNION ALL SELECT 'ai_image_tasks','platform' UNION ALL SELECT 'user_wallets','total_consume_cents'
   UNION ALL SELECT 'mail_configs','verify_code_ttl_minutes' UNION ALL SELECT 'sms_configs','verify_code_ttl_minutes'
   UNION ALL SELECT 'notifications','source_task_id' UNION ALL SELECT 'notification_task','claim_owner'
@@ -32,6 +36,11 @@ FROM information_schema.columns
 WHERE table_schema=DATABASE() AND (
   (table_name='ai_runs' AND column_name='idempotency_key' AND
     (column_type<>'varchar(128)' OR is_nullable<>'YES' OR NOT (column_default <=> NULL))) OR
+  (table_name IN ('ai_runs','ai_reply_commands','ai_provider_attempts') AND
+    column_name IN ('settled_at','request_received_at','accepted_at','claimed_at','prepare_started_at','first_delta_at') AND
+    (column_type<>'datetime(6)' OR is_nullable<>'YES' OR NOT (column_default <=> NULL))) OR
+  (table_name='ai_reply_commands' AND column_name='claim_source' AND
+    (column_type<>'varchar(16)' OR is_nullable<>'NO' OR NOT (column_default <=> ''))) OR
   (table_name IN ('ai_runs','ai_reply_commands') AND column_name='request_id' AND
     (column_type<>'varchar(128)' OR is_nullable<>'NO')) OR
   (table_name='realtime_events' AND column_name='request_id' AND
@@ -83,6 +92,7 @@ FROM (
   SELECT 'authz_principal_versions' t, 'chk_authz_principal_platform' c, '(regexp_like(platform,''^[a-z][a-z0-9_]{1,48}$'')and(platformnotin(''app'',''canvas''))and(platform<>''all''))' clause UNION ALL
   SELECT 'ai_reply_commands','chk_ai_reply_platform','(regexp_like(platform,''^[a-z][a-z0-9_]{1,48}$'')and(platformnotin(''app'',''canvas''))and(platform<>''all''))' UNION ALL
   SELECT 'ai_reply_commands','chk_ai_reply_state','(statein(''pending'',''claimed'',''running'',''succeeded'',''failed'',''canceled'',''outcome_unknown'',''timed_out''))' UNION ALL
+  SELECT 'ai_reply_commands','chk_ai_reply_claim_source','(claim_sourcein('''',''wake'',''poll'',''recovery''))' UNION ALL
   SELECT 'ai_video_tasks','chk_ai_video_platform','(regexp_like(platform,''^[a-z][a-z0-9_]{1,48}$'')and(platformnotin(''app'',''canvas''))and(platform<>''all''))'
 ) required
 LEFT JOIN (
@@ -326,10 +336,10 @@ FROM (
 ) actual
 ;
 
-SELECT 'ai_model_pricing_required_tables' AS invariant, COUNT(*) AS violations
+SELECT 'ai_official_model_required_tables' AS invariant, COUNT(*) AS violations
 FROM (
-  SELECT 'ai_model_price_overrides' AS table_name
-  UNION ALL SELECT 'ai_model_price_override_rates'
+  SELECT 'ai_official_model_price_overrides' AS table_name
+  UNION ALL SELECT 'ai_official_model_price_override_rates'
 ) required
 LEFT JOIN information_schema.tables actual
   ON actual.table_schema=DATABASE()
@@ -337,24 +347,24 @@ LEFT JOIN information_schema.tables actual
  AND actual.table_type='BASE TABLE'
 WHERE actual.table_name IS NULL;
 
-SELECT 'ai_model_pricing_required_columns' AS invariant, COUNT(*) AS violations
+SELECT 'ai_official_model_required_columns' AS invariant, COUNT(*) AS violations
 FROM (
-  SELECT 'ai_model_price_overrides' AS table_name, 'id' AS column_name
-  UNION ALL SELECT 'ai_model_price_overrides','catalog_vendor'
-  UNION ALL SELECT 'ai_model_price_overrides','model_id'
-  UNION ALL SELECT 'ai_model_price_overrides','version'
-  UNION ALL SELECT 'ai_model_price_overrides','source_url'
-  UNION ALL SELECT 'ai_model_price_overrides','verified_at'
-  UNION ALL SELECT 'ai_model_price_overrides','updated_by'
-  UNION ALL SELECT 'ai_model_price_overrides','created_at'
-  UNION ALL SELECT 'ai_model_price_overrides','updated_at'
-  UNION ALL SELECT 'ai_model_price_override_rates','id'
-  UNION ALL SELECT 'ai_model_price_override_rates','override_id'
-  UNION ALL SELECT 'ai_model_price_override_rates','category'
-  UNION ALL SELECT 'ai_model_price_override_rates','unit'
-  UNION ALL SELECT 'ai_model_price_override_rates','tier_key'
-  UNION ALL SELECT 'ai_model_price_override_rates','price_units'
-  UNION ALL SELECT 'ai_model_price_override_rates','unit_scale'
+  SELECT 'ai_official_model_price_overrides' AS table_name, 'id' AS column_name
+  UNION ALL SELECT 'ai_official_model_price_overrides','catalog_vendor'
+  UNION ALL SELECT 'ai_official_model_price_overrides','model_id'
+  UNION ALL SELECT 'ai_official_model_price_overrides','version'
+  UNION ALL SELECT 'ai_official_model_price_overrides','source_url'
+  UNION ALL SELECT 'ai_official_model_price_overrides','verified_at'
+  UNION ALL SELECT 'ai_official_model_price_overrides','updated_by'
+  UNION ALL SELECT 'ai_official_model_price_overrides','created_at'
+  UNION ALL SELECT 'ai_official_model_price_overrides','updated_at'
+  UNION ALL SELECT 'ai_official_model_price_override_rates','id'
+  UNION ALL SELECT 'ai_official_model_price_override_rates','override_id'
+  UNION ALL SELECT 'ai_official_model_price_override_rates','category'
+  UNION ALL SELECT 'ai_official_model_price_override_rates','unit'
+  UNION ALL SELECT 'ai_official_model_price_override_rates','tier_key'
+  UNION ALL SELECT 'ai_official_model_price_override_rates','price_units'
+  UNION ALL SELECT 'ai_official_model_price_override_rates','unit_scale'
 ) required
 LEFT JOIN information_schema.columns actual
   ON actual.table_schema=DATABASE()
@@ -362,13 +372,13 @@ LEFT JOIN information_schema.columns actual
  AND actual.column_name=required.column_name
 WHERE actual.column_name IS NULL;
 
-SELECT 'ai_model_pricing_column_shapes' AS invariant, COUNT(*) AS violations
+SELECT 'ai_official_model_column_shapes' AS invariant, COUNT(*) AS violations
 FROM (
   SELECT 1 AS violation
   FROM (
     SELECT COUNT(*) AS column_count
     FROM information_schema.columns
-    WHERE table_schema=DATABASE() AND table_name='ai_model_price_overrides'
+    WHERE table_schema=DATABASE() AND table_name='ai_official_model_price_overrides'
   ) head_count
   WHERE head_count.column_count<>9
   UNION ALL
@@ -376,13 +386,13 @@ FROM (
   FROM (
     SELECT COUNT(*) AS column_count
     FROM information_schema.columns
-    WHERE table_schema=DATABASE() AND table_name='ai_model_price_override_rates'
+    WHERE table_schema=DATABASE() AND table_name='ai_official_model_price_override_rates'
   ) rate_count
   WHERE rate_count.column_count<>7
   UNION ALL
   SELECT 1
   FROM information_schema.columns
-  WHERE table_schema=DATABASE() AND table_name='ai_model_price_overrides' AND (
+  WHERE table_schema=DATABASE() AND table_name='ai_official_model_price_overrides' AND (
     (column_name='id' AND (column_type<>'bigint unsigned' OR is_nullable<>'NO' OR extra<>'auto_increment')) OR
     (column_name='catalog_vendor' AND (column_type<>'varchar(32)' OR character_set_name<>'ascii' OR collation_name<>'ascii_bin' OR is_nullable<>'NO')) OR
     (column_name='model_id' AND (column_type<>'varchar(191)' OR character_set_name<>'ascii' OR collation_name<>'ascii_bin' OR is_nullable<>'NO')) OR
@@ -396,7 +406,7 @@ FROM (
   UNION ALL
   SELECT 1
   FROM information_schema.columns
-  WHERE table_schema=DATABASE() AND table_name='ai_model_price_override_rates' AND (
+  WHERE table_schema=DATABASE() AND table_name='ai_official_model_price_override_rates' AND (
     (column_name='id' AND (column_type<>'bigint unsigned' OR is_nullable<>'NO' OR extra<>'auto_increment')) OR
     (column_name='override_id' AND (column_type<>'bigint unsigned' OR is_nullable<>'NO')) OR
     (column_name='category' AND (column_type<>'varchar(32)' OR character_set_name<>'ascii' OR collation_name<>'ascii_bin' OR is_nullable<>'NO')) OR
@@ -407,19 +417,19 @@ FROM (
   )
 ) invalid_columns;
 
-SELECT 'ai_model_pricing_indexes' AS invariant, COUNT(*) AS violations
+SELECT 'ai_official_model_indexes' AS invariant, COUNT(*) AS violations
 FROM (
-  SELECT 'ai_model_price_overrides' AS table_name, 'PRIMARY' AS index_name, 0 AS non_unique, 'id' AS columns_in_order
-  UNION ALL SELECT 'ai_model_price_overrides','uk_ai_model_price_overrides_identity',0,'catalog_vendor,model_id'
-  UNION ALL SELECT 'ai_model_price_override_rates','PRIMARY',0,'id'
-  UNION ALL SELECT 'ai_model_price_override_rates','uk_ai_model_price_override_rates_key',0,'override_id,category,unit,tier_key'
+  SELECT 'ai_official_model_price_overrides' AS table_name, 'PRIMARY' AS index_name, 0 AS non_unique, 'id' AS columns_in_order
+  UNION ALL SELECT 'ai_official_model_price_overrides','uk_ai_official_model_price_overrides_identity',0,'catalog_vendor,model_id'
+  UNION ALL SELECT 'ai_official_model_price_override_rates','PRIMARY',0,'id'
+  UNION ALL SELECT 'ai_official_model_price_override_rates','uk_ai_official_model_price_override_rates_key',0,'override_id,category,unit,tier_key'
 ) required
 LEFT JOIN (
   SELECT table_name,index_name,MIN(non_unique) AS non_unique,
     GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') AS columns_in_order
   FROM information_schema.statistics
   WHERE table_schema=DATABASE()
-    AND table_name IN ('ai_model_price_overrides','ai_model_price_override_rates')
+    AND table_name IN ('ai_official_model_price_overrides','ai_official_model_price_override_rates')
   GROUP BY table_name,index_name
 ) actual
   ON actual.table_name=required.table_name
@@ -428,24 +438,24 @@ WHERE actual.index_name IS NULL
    OR actual.non_unique<>required.non_unique
    OR actual.columns_in_order<>required.columns_in_order;
 
-SELECT 'ai_model_pricing_checks' AS invariant,
+SELECT 'ai_official_model_checks' AS invariant,
   IF(
     COUNT(*)=5
     AND SUM(
-      (actual.table_name='ai_model_price_overrides'
-        AND actual.constraint_name='chk_ai_model_price_overrides_version'
+      (actual.table_name='ai_official_model_price_overrides'
+        AND actual.constraint_name='chk_ai_official_model_price_overrides_version'
         AND actual.normalized_clause='(version>0)')
-      OR (actual.table_name='ai_model_price_override_rates'
-        AND actual.constraint_name='chk_ai_model_price_override_rates_category'
-        AND actual.normalized_clause='(categoryin(''input'',''output'',''cache_read'',''cache_write''))')
-      OR (actual.table_name='ai_model_price_override_rates'
-        AND actual.constraint_name='chk_ai_model_price_override_rates_unit'
-        AND actual.normalized_clause='(unit=''token'')')
-      OR (actual.table_name='ai_model_price_override_rates'
-        AND actual.constraint_name='chk_ai_model_price_override_rates_price'
+      OR (actual.table_name='ai_official_model_price_override_rates'
+        AND actual.constraint_name='chk_ai_official_model_price_override_rates_category'
+        AND actual.normalized_clause='(categoryin(''input'',''output'',''cache_read'',''cache_write'',''media''))')
+      OR (actual.table_name='ai_official_model_price_override_rates'
+        AND actual.constraint_name='chk_ai_official_model_price_override_rates_unit'
+        AND actual.normalized_clause='(char_length(trim(unit))>0)')
+      OR (actual.table_name='ai_official_model_price_override_rates'
+        AND actual.constraint_name='chk_ai_official_model_price_override_rates_price'
         AND actual.normalized_clause='(price_units>=0)')
-      OR (actual.table_name='ai_model_price_override_rates'
-        AND actual.constraint_name='chk_ai_model_price_override_rates_scale'
+      OR (actual.table_name='ai_official_model_price_override_rates'
+        AND actual.constraint_name='chk_ai_official_model_price_override_rates_scale'
         AND actual.normalized_clause='(unit_scale>0)')
     )=5,
     0,
@@ -474,6 +484,25 @@ FROM (
     ON cc.constraint_schema=tc.constraint_schema
    AND cc.constraint_name=tc.constraint_name
   WHERE tc.constraint_schema=DATABASE()
-    AND tc.table_name IN ('ai_model_price_overrides','ai_model_price_override_rates')
+    AND tc.table_name IN ('ai_official_model_price_overrides','ai_official_model_price_override_rates')
     AND tc.constraint_type='CHECK'
 ) actual;
+
+SELECT 'ai_official_model_provider_mapping_columns' AS invariant, COUNT(*) AS violations
+FROM (
+  SELECT 'official_model_id' AS column_name
+  UNION ALL SELECT 'official_catalog_version'
+  UNION ALL SELECT 'mapping_status'
+  UNION ALL SELECT 'mapped_at'
+) required
+LEFT JOIN information_schema.columns actual
+  ON actual.table_schema=DATABASE()
+ AND actual.table_name='ai_provider_models'
+ AND actual.column_name=required.column_name
+WHERE actual.column_name IS NULL;
+
+SELECT 'ai_official_model_agent_output_column_removed' AS invariant, COUNT(*) AS violations
+FROM information_schema.columns
+WHERE table_schema=DATABASE()
+  AND table_name='ai_agents'
+  AND column_name='max_output_tokens';

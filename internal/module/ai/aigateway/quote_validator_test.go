@@ -5,8 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"admin_back_go/internal/module/ai/billing"
+	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/pricing"
 )
 
@@ -102,6 +104,56 @@ func TestPersistedQuoteValidatorRejectsQuoteForDifferentPreparedRequest(t *testi
 	}
 }
 
+func TestPersistedQuoteValidatorUsesConvergedContextOutputBound(t *testing.T) {
+	rates := []pricing.Rate{
+		{Category: pricing.InputTokens, Unit: "token", PriceUnits: 2, UnitScale: 1},
+		{Category: pricing.OutputTokens, Unit: "token", PriceUnits: 3, UnitScale: 1},
+	}
+	snapshot, err := NewPricingSnapshot(officialmodel.ResolvedModel{
+		Model: officialmodel.Model{
+			CatalogVersion: "catalog-v3", CatalogVendor: "openai", ModelID: "gpt-test",
+			ContextWindowTokens: 200, MaxOutputTokens: 100,
+		},
+		EffectivePrice: pricing.PriceBook{ModelID: "gpt-test", Rates: rates},
+		PriceSource:    officialmodel.PriceSourceOfficial, PriceSourceURL: "https://openai.com/pricing",
+		PriceVerifiedAt: time.Date(2026, 7, 28, 0, 0, 0, 0, time.UTC),
+	}, PricingSnapshotInput{
+		TransportEngine: "openai", RequestedModelID: "gpt-test",
+		EffectiveMaxOutputTokens: 100, MultiplierPPM: 1_000_000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fingerprint := [32]byte{10}
+	inputBound := int64(150)
+	outputBound := 50
+	body := []byte(`{"model":"gpt-test","max_tokens":50}`)
+	requestHash := sha256.Sum256(body)
+	quote := QuoteEvidence{
+		PricingVersion: snapshot.Version, RequestFingerprint: fingerprint,
+		PreparedRequestSHA256: requestHash, EffectiveMaxOutputTokens: outputBound,
+		UpperBoundItems: []billing.UsageItem{
+			{Category: billing.UsageCategoryInputText, Unit: "token", Quantity: inputBound},
+			{Category: billing.UsageCategoryOutputText, Unit: "token", Quantity: int64(outputBound)},
+		},
+		CurrentCallMaxUnits: 450, TargetHoldUnits: 450,
+	}
+	run := RunSnapshot{
+		RunID: 47, UserID: 9, ModelID: "gpt-test", RequestFingerprint: fingerprint,
+		PricingSnapshotJSON: mustPricingSnapshotJSON(t, snapshot),
+	}
+	validator := PersistedQuoteValidator{}
+	if err := validator.ValidateQuote(context.Background(), run, requestHash, quote); err != nil {
+		t.Fatalf("converged quote rejected: %v", err)
+	}
+
+	quote.EffectiveMaxOutputTokens++
+	quote.UpperBoundItems[1].Quantity++
+	if err := validator.ValidateQuote(context.Background(), run, requestHash, quote); err == nil {
+		t.Fatal("quote exceeding the remaining context was accepted")
+	}
+}
+
 func TestPricingSnapshotSchemaPreservesLegacyAndRequiresCurrentPriceMetadata(t *testing.T) {
 	legacy := validPricingSnapshot()
 	parsedLegacy, err := ParsePricingSnapshot(mustPricingSnapshotJSON(t, legacy))
@@ -113,16 +165,17 @@ func TestPricingSnapshotSchemaPreservesLegacyAndRequiresCurrentPriceMetadata(t *
 		t.Fatal("legacy snapshot accepted a negative context tier threshold")
 	}
 
-	current, err := NewPricingSnapshot(pricing.ModelPrice{
-		Version: "catalog-v3:override:4", CatalogVersion: "catalog-v3", OverrideVersion: 4,
-		CatalogVendor: "openai", ModelID: "gpt-test", MaxOutputTokens: 100,
-		ContextTierThresholdTokens: 50, PriceSource: "override", SourceURL: "https://openai.com/pricing", RetrievedAt: "2026-07-27",
-		Rates: []pricing.Rate{
-			{Category: pricing.InputTokens, Unit: "token", TierKey: "short_context", PriceUnits: 2, UnitScale: 1},
-			{Category: pricing.InputTokens, Unit: "token", TierKey: "long_context", PriceUnits: 4, UnitScale: 1},
-			{Category: pricing.OutputTokens, Unit: "token", TierKey: "short_context", PriceUnits: 3, UnitScale: 1},
-			{Category: pricing.OutputTokens, Unit: "token", TierKey: "long_context", PriceUnits: 6, UnitScale: 1},
-		},
+	rates := []pricing.Rate{
+		{Category: pricing.InputTokens, Unit: "token", TierKey: "short_context", PriceUnits: 2, UnitScale: 1},
+		{Category: pricing.InputTokens, Unit: "token", TierKey: "long_context", PriceUnits: 4, UnitScale: 1},
+		{Category: pricing.OutputTokens, Unit: "token", TierKey: "short_context", PriceUnits: 3, UnitScale: 1},
+		{Category: pricing.OutputTokens, Unit: "token", TierKey: "long_context", PriceUnits: 6, UnitScale: 1},
+	}
+	current, err := NewPricingSnapshot(officialmodel.ResolvedModel{
+		Model:          officialmodel.Model{CatalogVersion: "catalog-v3", CatalogVendor: "openai", ModelID: "gpt-test", ContextWindowTokens: 200, MaxOutputTokens: 100, ContextTierThresholdTokens: 50},
+		EffectivePrice: pricing.PriceBook{ModelID: "gpt-test", ContextTierThresholdTokens: 50, Rates: rates},
+		PriceSource:    officialmodel.PriceSourceOverride, OverrideVersion: 4, PriceSourceURL: "https://openai.com/pricing",
+		PriceVerifiedAt: time.Date(2026, 7, 27, 0, 0, 0, 0, time.UTC),
 	}, PricingSnapshotInput{
 		TransportEngine: "openai", RequestedModelID: "gpt-test", EffectiveMaxOutputTokens: 10, MultiplierPPM: 1_000_000,
 	})

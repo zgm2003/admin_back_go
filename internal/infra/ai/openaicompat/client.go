@@ -70,16 +70,8 @@ func New(config Config) *Client {
 }
 
 func (c *Client) Capabilities() infraai.CapabilityMetadata {
-	return infraai.CapabilityMetadata{
-		SupportedUsageIdentities: []infraai.UsageIdentity{
-			{Category: infraai.UsageCategoryInput, Unit: "token"},
-			{Category: infraai.UsageCategoryOutput, Unit: "token"},
-			{Category: infraai.UsageCategoryCacheRead, Unit: "token"},
-			{Category: infraai.UsageCategoryCacheWrite, Unit: "token"},
-		},
-		SafeInputUpperBoundStrategy: infraai.SafeInputUpperBoundStrategyUTF8RequestBytesV1,
-		SupportsIdempotencyHeader:   true,
-	}
+	capabilities, _ := infraai.DefaultTransportCapabilities(infraai.EngineTypeOpenAI)
+	return capabilities
 }
 
 func (c *Client) TestConnection(ctx context.Context, input infraai.TestConnectionInput) (*infraai.TestConnectionResult, error) {
@@ -158,8 +150,11 @@ func (c *Client) PrepareChat(ctx context.Context, input infraai.ChatInput) ([]by
 	if temperature, ok := inputNumber(input.Inputs, "temperature"); ok {
 		body.Temperature = &temperature
 	}
-	if maxTokens, ok := inputInt(input.Inputs, "max_tokens"); ok {
-		body.MaxTokens = &maxTokens
+	if input.EffectiveMaxOutputTokens < 0 {
+		return nil, fmt.Errorf("%w: effective max output tokens must not be negative", infraai.ErrInvalidConfig)
+	}
+	if input.EffectiveMaxOutputTokens > 0 {
+		body.MaxTokens = &input.EffectiveMaxOutputTokens
 	}
 	prepared, err := json.Marshal(body)
 	if err != nil {
@@ -399,6 +394,19 @@ func (c *Client) readChatCompletionStream(ctx context.Context, body io.Reader, s
 		for _, choice := range chunk.Choices {
 			for _, call := range choice.Delta.ToolCalls {
 				mergeToolCall(result, call)
+				if deliveryEnabled && toolCallDeltaDeliverable(call) {
+					err := sink.Emit(ctx, infraai.Event{Type: "tool_delta", Payload: map[string]any{
+						"tool_call_id":    strings.TrimSpace(call.ID),
+						"name":            strings.TrimSpace(call.Function.Name),
+						"arguments_delta": call.Function.Arguments,
+					}})
+					if err != nil {
+						if infraai.IsFatalEventSinkError(err) {
+							return nil, err
+						}
+						deliveryEnabled = false
+					}
+				}
 			}
 			delta := choice.Delta.Content
 			if delta == "" {
@@ -408,6 +416,9 @@ func (c *Client) readChatCompletionStream(ctx context.Context, body io.Reader, s
 			result.Answer = strings.TrimSpace(answer.String())
 			if deliveryEnabled {
 				if err := sink.Emit(ctx, infraai.Event{Type: "delta", DeltaText: delta, Payload: map[string]any{"delta": delta}}); err != nil {
+					if infraai.IsFatalEventSinkError(err) {
+						return nil, err
+					}
 					deliveryEnabled = false
 				}
 			}
@@ -422,6 +433,10 @@ func (c *Client) readChatCompletionStream(ctx context.Context, body io.Reader, s
 	}
 	setStreamResponseHash(result, streamDigest, hasStreamData)
 	return result, nil
+}
+
+func toolCallDeltaDeliverable(call chatStreamToolCall) bool {
+	return strings.TrimSpace(call.ID) != "" || strings.TrimSpace(call.Function.Name) != "" || call.Function.Arguments != ""
 }
 
 func setStreamResponseHash(result *infraai.ChatResult, digest hash.Hash, hasData bool) {

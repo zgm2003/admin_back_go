@@ -99,10 +99,51 @@ type CapabilityMetadata struct {
 	SafeInputUpperBoundStrategy string          `json:"safe_input_upper_bound_strategy"`
 	SupportsIdempotencyHeader   bool            `json:"supports_idempotency_header"`
 	SupportsCancelTask          bool            `json:"supports_cancel_task"`
+	InputModalities             []string        `json:"input_modalities"`
+	OutputModalities            []string        `json:"output_modalities"`
+	SupportedParameters         []string        `json:"supported_parameters"`
+	SupportsTools               bool            `json:"supports_tools"`
+	SupportsStreaming           bool            `json:"supports_streaming"`
+	SupportsStructuredOutput    bool            `json:"supports_structured_output"`
 }
 
 type CapabilityProvider interface {
 	Capabilities() CapabilityMetadata
+}
+
+type TransportCapabilityResolver interface {
+	ResolveCapabilities(EngineType) (CapabilityMetadata, bool)
+}
+
+type TransportCapabilityResolverFunc func(EngineType) (CapabilityMetadata, bool)
+
+func (resolve TransportCapabilityResolverFunc) ResolveCapabilities(engineType EngineType) (CapabilityMetadata, bool) {
+	if resolve == nil {
+		return CapabilityMetadata{}, false
+	}
+	return resolve(engineType)
+}
+
+func DefaultTransportCapabilities(engineType EngineType) (CapabilityMetadata, bool) {
+	if engineType != EngineTypeOpenAI {
+		return CapabilityMetadata{}, false
+	}
+	return CapabilityMetadata{
+		SupportedUsageIdentities: []UsageIdentity{
+			{Category: UsageCategoryInput, Unit: "token"},
+			{Category: UsageCategoryOutput, Unit: "token"},
+			{Category: UsageCategoryCacheRead, Unit: "token"},
+			{Category: UsageCategoryCacheWrite, Unit: "token"},
+		},
+		SafeInputUpperBoundStrategy: SafeInputUpperBoundStrategyUTF8RequestBytesV1,
+		SupportsIdempotencyHeader:   true,
+		InputModalities:             []string{"text", "image"},
+		OutputModalities:            []string{"text"},
+		SupportedParameters:         []string{"temperature"},
+		SupportsTools:               true,
+		SupportsStreaming:           true,
+		SupportsStructuredOutput:    true,
+	}, true
 }
 
 func (s UsageSnapshot) Complete() bool {
@@ -182,18 +223,19 @@ type ToolOutput struct {
 }
 
 type ChatInput struct {
-	AttemptID            uint64
-	IdempotencyKey       string
-	AgentID              uint64
-	RunID                uint64
-	UserID               uint64
-	UserKey              string
-	Content              string
-	ConversationEngineID string
-	Inputs               map[string]any
-	Tools                []ToolDefinition
-	ToolCalls            []ToolCall
-	ToolOutputs          []ToolOutput
+	AttemptID                uint64
+	IdempotencyKey           string
+	AgentID                  uint64
+	RunID                    uint64
+	UserID                   uint64
+	UserKey                  string
+	Content                  string
+	ConversationEngineID     string
+	EffectiveMaxOutputTokens int
+	Inputs                   map[string]any
+	Tools                    []ToolDefinition
+	ToolCalls                []ToolCall
+	ToolOutputs              []ToolOutput
 }
 
 type ChatResult struct {
@@ -221,6 +263,34 @@ type Event struct {
 
 type EventSink interface {
 	Emit(ctx context.Context, event Event) error
+}
+
+type FatalEventSinkError struct{ Err error }
+
+func (err *FatalEventSinkError) Error() string {
+	if err == nil || err.Err == nil {
+		return "fatal AI event sink error"
+	}
+	return err.Err.Error()
+}
+
+func (err *FatalEventSinkError) Unwrap() error {
+	if err == nil {
+		return nil
+	}
+	return err.Err
+}
+
+func FatalEventSink(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &FatalEventSinkError{Err: err}
+}
+
+func IsFatalEventSinkError(err error) bool {
+	var fatal *FatalEventSinkError
+	return errors.As(err, &fatal)
 }
 
 type Engine interface {

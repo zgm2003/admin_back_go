@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"admin_back_go/internal/infra/database"
+	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/shared/enum"
 
 	"gorm.io/gorm"
@@ -171,10 +172,13 @@ func (r *GormRepository) GetGenerateAgentConfig(ctx context.Context, agentID uin
 			a.system_prompt AS system_prompt,
 			a.provider_id AS provider_id,
 			a.billing_multiplier_ppm AS billing_multiplier_ppm,
-			a.max_output_tokens AS max_output_tokens,
 			p.engine_type AS engine_type,
 			p.base_url AS engine_base_url,
-			p.api_key_enc AS engine_api_key_enc`).
+			p.api_key_enc AS engine_api_key_enc,
+			pm.status AS provider_model_status,
+			pm.official_model_id AS official_model_id,
+			pm.official_catalog_version AS official_catalog_version,
+			pm.mapping_status AS mapping_status`).
 		Where("a.id = ?", agentID).
 		Take(&row)
 	if errors.Is(tx.Error, gorm.ErrRecordNotFound) {
@@ -233,6 +237,7 @@ func (r *GormRepository) ListRuntimeTools(ctx context.Context, agentID uint64) (
 		Where("at.agent_id = ?", agentID).
 		Where("at.status = ?", enum.CommonYes).
 		Where("t.status = ?", enum.CommonYes).
+		Where("t.risk_level = ?", RiskLow).
 		Order("at.id ASC").
 		Scan(&rows).Error
 	return rows, err
@@ -299,6 +304,7 @@ func (r *GormRepository) activeTools(ctx context.Context) *gorm.DB {
 func (r *GormRepository) generateAgentDB(ctx context.Context) *gorm.DB {
 	return r.db.WithContext(ctx).Table("ai_agents AS a").
 		Joins("JOIN ai_providers p ON p.id = a.provider_id AND p.is_del = ? AND p.status = ?", enum.CommonNo, enum.CommonYes).
+		Joins("JOIN ai_provider_models pm ON pm.provider_id = a.provider_id AND pm.model_id = a.model_id AND pm.status = ? AND pm.mapping_status = ?", enum.CommonYes, officialmodel.MappingStatusMapped).
 		Where("a.is_del = ? AND a.status = ?", enum.CommonNo, enum.CommonYes).
 		Where("JSON_CONTAINS(a.scenes_json, JSON_QUOTE(?))", sceneAgentGenerate)
 }

@@ -123,7 +123,7 @@ func TestClaimFinalizationRetryAtMaxDoesNotIncrementProviderAttempts(t *testing.
 	mock.ExpectExec("UPDATE `ai_reply_commands` SET").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	claim, err := repository.ClaimNext(context.Background(), "worker-b", now, time.Minute)
+	claim, err := repository.ClaimNext(context.Background(), ClaimSourcePoll, "worker-b", now, time.Minute)
 	if err != nil || claim == nil {
 		t.Fatalf("claim=%+v err=%v", claim, err)
 	}
@@ -167,7 +167,7 @@ func TestClaimProviderFailureFinalizationMarkerAtMaxDoesNotIncrementProviderAtte
 	mock.ExpectExec("UPDATE `ai_reply_commands` SET").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	claim, err := repository.ClaimNext(context.Background(), "worker-b", now, time.Minute)
+	claim, err := repository.ClaimNext(context.Background(), ClaimSourcePoll, "worker-b", now, time.Minute)
 	if err != nil || claim == nil || claim.Command.AttemptCount != 3 || claim.Command.LastErrorCode != "ai.provider_failed" || claim.Command.LastErrorMessage != "provider_failed" {
 		t.Fatalf("claim=%+v err=%v", claim, err)
 	}
@@ -191,7 +191,7 @@ func TestClaimExpiredSucceededAttemptPreservesCandidateWithoutGenericMarker(t *t
 	mock.ExpectExec("UPDATE `ai_reply_commands` SET").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	claim, err := repository.ClaimNext(context.Background(), "worker-b", now, time.Minute)
+	claim, err := repository.ClaimNext(context.Background(), ClaimSourcePoll, "worker-b", now, time.Minute)
 	if err != nil || claim == nil || claim.Command.AttemptCount != 3 || claim.Command.LastErrorCode != "" || claim.Command.LastErrorMessage != "" {
 		t.Fatalf("claim=%+v err=%v", claim, err)
 	}
@@ -213,7 +213,7 @@ func TestClaimPendingPreparedAttemptBelowMaxReusesProviderAttemptNumber(t *testi
 	mock.ExpectExec("UPDATE `ai_reply_commands` SET").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	claim, err := repository.ClaimNext(context.Background(), "worker-b", now, time.Minute)
+	claim, err := repository.ClaimNext(context.Background(), ClaimSourcePoll, "worker-b", now, time.Minute)
 	if err != nil || claim == nil || claim.Command.AttemptCount != 1 {
 		t.Fatalf("claim=%+v err=%v", claim, err)
 	}
@@ -235,7 +235,7 @@ func TestClaimPendingPreparedAttemptAtMaxReusesProviderAttemptNumber(t *testing.
 	mock.ExpectExec("UPDATE `ai_reply_commands` SET").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	claim, err := repository.ClaimNext(context.Background(), "worker-b", now, time.Minute)
+	claim, err := repository.ClaimNext(context.Background(), ClaimSourcePoll, "worker-b", now, time.Minute)
 	if err != nil || claim == nil || claim.Command.AttemptCount != 3 {
 		t.Fatalf("claim=%+v err=%v", claim, err)
 	}
@@ -314,7 +314,7 @@ func testCreateReplyInput(conversationID, userID int64, requestID, content strin
 	}
 	return CreateReplyInput{
 		ConversationID: conversationID, UserID: userID, AgentID: 1, ProviderID: 2,
-		ModelID: "test-model", ModelDisplayName: "Test Model", RequestID: requestID, Content: content, InputSnapshot: content,
+		ModelID: "test-model", ModelDisplayName: "Test Model", RequestID: requestID, RequestReceivedAt: time.Date(2026, 7, 28, 9, 0, 0, 0, time.UTC), Content: content, InputSnapshot: content,
 		PricingSnapshotJSON: `{"version":"test-v1","billable":true,"catalog_vendor":"test-vendor","transport_engine":"openai","requested_model_id":"test-model","canonical_model_id":"test-model","catalog_max_output_tokens":8192,"effective_max_output_tokens":4096,"multiplier_ppm":1000000,"source_url":"https://example.test/pricing","retrieved_at":"2026-07-25","rates":[{"category":"input","unit":"token","tier_key":"","price_units":1,"unit_scale":1000000},{"category":"output","unit":"token","tier_key":"","price_units":1,"unit_scale":1000000}]}`,
 		EffectiveMaxTokens:  4096, RequestFingerprint: fingerprint, RequestIdentityStatus: requestidentity.IdentityStatusReplayable,
 	}

@@ -29,7 +29,7 @@ func TestResumeAICompletionIsAtomicAndIdempotent(t *testing.T) {
 		t.Fatalf("CreateReply: %v", err)
 	}
 	claimAt := time.Now().Add(time.Second)
-	claim, err := repository.ClaimByID(ctx, created.CommandID, "worker-a", claimAt, time.Minute)
+	claim, err := repository.ClaimByID(ctx, created.CommandID, ClaimSourcePoll, "worker-a", claimAt, time.Minute)
 	if err != nil || claim == nil {
 		t.Fatalf("claim=%#v err=%v", claim, err)
 	}
@@ -73,7 +73,7 @@ func TestResumeAIFailureIsCommittedWithTerminalTransition(t *testing.T) {
 		t.Fatalf("CreateReply: %v", err)
 	}
 	claimAt := time.Now().Add(time.Second)
-	claim, err := repository.ClaimByID(ctx, created.CommandID, "worker-a", claimAt, time.Minute)
+	claim, err := repository.ClaimByID(ctx, created.CommandID, ClaimSourcePoll, "worker-a", claimAt, time.Minute)
 	if err != nil || claim == nil {
 		t.Fatalf("claim=%#v err=%v", claim, err)
 	}
@@ -142,7 +142,7 @@ func TestResumeAICancellationIsCommittedExactlyOnceForPendingAndRunning(t *testi
 	if _, err := repository.RequestCancel(ctx, fixture.conversationID, fixture.userID, pendingRequestID, now.Add(time.Second)); err != nil {
 		t.Fatalf("repeat pending cancel: %v", err)
 	}
-	claimPending, err := repository.ClaimByID(ctx, pending.CommandID, "worker-pending", now.Add(2*time.Second), time.Minute)
+	claimPending, err := repository.ClaimByID(ctx, pending.CommandID, ClaimSourcePoll, "worker-pending", now.Add(2*time.Second), time.Minute)
 	if err != nil || claimPending == nil {
 		t.Fatalf("claim canceled pending reply=%#v err=%v", claimPending, err)
 	}
@@ -160,7 +160,7 @@ func TestResumeAICancellationIsCommittedExactlyOnceForPendingAndRunning(t *testi
 		t.Fatalf("create running reply: %v", err)
 	}
 	claimAt := now.Add(time.Minute)
-	claim, err := repository.ClaimByID(ctx, running.CommandID, "worker-a", claimAt, time.Minute)
+	claim, err := repository.ClaimByID(ctx, running.CommandID, ClaimSourcePoll, "worker-a", claimAt, time.Minute)
 	if err != nil || claim == nil {
 		t.Fatalf("claim running reply=%#v err=%v", claim, err)
 	}

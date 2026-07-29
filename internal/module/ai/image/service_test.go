@@ -19,7 +19,7 @@ import (
 	"admin_back_go/internal/infra/taskqueue"
 	"admin_back_go/internal/module/ai/aigateway"
 	"admin_back_go/internal/module/ai/capability"
-	"admin_back_go/internal/module/ai/modelpricing"
+	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/pricing"
 	"admin_back_go/internal/module/ai/requestidentity"
 	airun "admin_back_go/internal/module/ai/run"
@@ -296,7 +296,7 @@ func TestCreateRequiresRequestIDBeforeRepositoryOrQueue(t *testing.T) {
 	box := testImageSecretBox()
 	repo := &fakeImageRepository{agent: validImageAgent(t, box), nextTaskID: 77}
 	enqueuer := &fakeImageEnqueuer{}
-	service := NewService(Dependencies{Repository: repo, Enqueuer: enqueuer, Secretbox: box, Now: fixedImageNow()})
+	service := NewService(Dependencies{Repository: repo, Enqueuer: enqueuer, Secretbox: box, Now: fixedImageNow(), PricingResolver: testImagePricingResolver()})
 
 	_, appErr := service.Create(context.Background(), CreateInput{
 		UserID: 9, AgentID: 1, Platform: enum.PlatformAdmin, Prompt: "draw a cat",
@@ -317,7 +317,7 @@ func TestCreateReplaysCanonicalRequestAndRejectsFingerprintConflictBeforeQueue(t
 	box := testImageSecretBox()
 	repo := &fakeImageRepository{agent: validImageAgent(t, box), nextTaskID: 77}
 	enqueuer := &fakeImageEnqueuer{}
-	service := NewService(Dependencies{Repository: repo, Enqueuer: enqueuer, Secretbox: box, Now: fixedImageNow()})
+	service := NewService(Dependencies{Repository: repo, Enqueuer: enqueuer, Secretbox: box, Now: fixedImageNow(), PricingResolver: testImagePricingResolver()})
 	input := CreateInput{
 		UserID: 9, RequestID: " image-request-1 ", AgentID: 1, Platform: enum.PlatformAdmin,
 		Prompt: "  draw a cat  ", Size: "1024x1024", Quality: "high", N: 1,
@@ -360,7 +360,7 @@ func TestCreateWithUploadedFilesReplaysBeforeUploadOrMutableAgentLookup(t *testi
 	box := testImageSecretBox()
 	repo := &fakeImageRepository{agent: validImageAgent(t, box), nextTaskID: 77, uploadConfig: testUploadConfig(t, box)}
 	writer := &fakeObjectWriter{}
-	service := NewService(Dependencies{Repository: repo, Enqueuer: &fakeImageEnqueuer{}, Secretbox: box, ObjectWriter: writer, Now: fixedImageNow(), Random: fixedImageRandom})
+	service := NewService(Dependencies{Repository: repo, Enqueuer: &fakeImageEnqueuer{}, Secretbox: box, ObjectWriter: writer, Now: fixedImageNow(), Random: fixedImageRandom, PricingResolver: testImagePricingResolver()})
 	input := CreateWithUploadedFilesInput{
 		CreateInput: CreateInput{UserID: 9, RequestID: "image-upload-replay", AgentID: 1, Platform: enum.PlatformAdmin, Prompt: "draw"},
 		Files:       []UploadedFileInput{{FileName: "reference.png", MimeType: "image/png", Body: []byte("same-image-bytes")}},
@@ -384,7 +384,7 @@ func TestCreateWithUploadedFilesRejectsChangedBytesBeforeUpload(t *testing.T) {
 	box := testImageSecretBox()
 	repo := &fakeImageRepository{agent: validImageAgent(t, box), nextTaskID: 77, uploadConfig: testUploadConfig(t, box)}
 	writer := &fakeObjectWriter{}
-	service := NewService(Dependencies{Repository: repo, Enqueuer: &fakeImageEnqueuer{}, Secretbox: box, ObjectWriter: writer, Now: fixedImageNow(), Random: fixedImageRandom})
+	service := NewService(Dependencies{Repository: repo, Enqueuer: &fakeImageEnqueuer{}, Secretbox: box, ObjectWriter: writer, Now: fixedImageNow(), Random: fixedImageRandom, PricingResolver: testImagePricingResolver()})
 	input := CreateWithUploadedFilesInput{
 		CreateInput: CreateInput{UserID: 9, RequestID: "image-upload-conflict", AgentID: 1, Platform: enum.PlatformAdmin, Prompt: "draw"},
 		Files:       []UploadedFileInput{{FileName: "reference.png", MimeType: "image/png", Body: []byte("original-image-bytes")}},
@@ -404,7 +404,7 @@ func TestCreateEnqueuesGenerationTaskWithTaskOwnedFiles(t *testing.T) {
 	box := testImageSecretBox()
 	repo := &fakeImageRepository{agent: validImageAgent(t, box), nextTaskID: 77}
 	enqueuer := &fakeImageEnqueuer{}
-	service := NewService(Dependencies{Repository: repo, Enqueuer: enqueuer, Secretbox: box, Now: fixedImageNow()})
+	service := NewService(Dependencies{Repository: repo, Enqueuer: enqueuer, Secretbox: box, Now: fixedImageNow(), PricingResolver: testImagePricingResolver()})
 
 	result, appErr := service.Create(context.Background(), CreateInput{
 		UserID: 9, RequestID: "image-create-1", AgentID: 1, Platform: enum.PlatformAdmin, Prompt: "  draw a cat  ",
@@ -437,7 +437,7 @@ func TestCreateAcceptsGenerationWideAndPortraitImageSizes(t *testing.T) {
 		t.Run(size, func(t *testing.T) {
 			box := testImageSecretBox()
 			repo := &fakeImageRepository{agent: validImageAgent(t, box), nextTaskID: 77}
-			service := NewService(Dependencies{Repository: repo, Enqueuer: &fakeImageEnqueuer{}, Secretbox: box, Now: fixedImageNow()})
+			service := NewService(Dependencies{Repository: repo, Enqueuer: &fakeImageEnqueuer{}, Secretbox: box, Now: fixedImageNow(), PricingResolver: testImagePricingResolver()})
 
 			_, appErr := service.Create(context.Background(), CreateInput{
 				UserID: 9, RequestID: "image-size-" + size, AgentID: 1, Platform: enum.PlatformAdmin, Prompt: "draw", Size: size,
@@ -480,19 +480,22 @@ func TestGPTImage2OutputTokenUpperBoundBindsFinalSizeQualityAndCount(t *testing.
 	}
 }
 
-func TestImagePricingSnapshotUsesRequestBoundAndRejectsSmallerAgentCap(t *testing.T) {
+func TestImagePricingSnapshotUsesRequestBoundAndRejectsSmallerOfficialCap(t *testing.T) {
 	resolverCalls := 0
-	service := NewService(Dependencies{PricingResolver: modelpricing.ResolverFunc(func(_ context.Context, modelID string) (pricing.ModelPrice, error) {
+	officialMaxOutputTokens := int64(200000)
+	service := NewService(Dependencies{PricingResolver: officialmodel.ResolverFunc(func(_ context.Context, modelID string) (officialmodel.ResolvedModel, error) {
 		resolverCalls++
-		return pricing.ModelPrice{
-			Version: "catalog-v3", CatalogVersion: "catalog-v3", CatalogVendor: "openai", ModelID: modelID,
-			MaxOutputTokens: 200000, PriceSource: "official", SourceURL: "https://openai.com/pricing", RetrievedAt: "2026-07-27",
-			Rates: []pricing.Rate{{Category: pricing.MediaUnits, Unit: "image", PriceUnits: 1, UnitScale: 1}},
+		rates := []pricing.Rate{{Category: pricing.MediaUnits, Unit: "image", PriceUnits: 1, UnitScale: 1}}
+		return officialmodel.ResolvedModel{
+			Model:          officialmodel.Model{CatalogVersion: "catalog-v3", CatalogVendor: "openai", ModelID: modelID, ContextWindowTokens: officialMaxOutputTokens * 2, MaxOutputTokens: officialMaxOutputTokens},
+			EffectivePrice: pricing.PriceBook{ModelID: modelID, Rates: rates}, PriceSource: officialmodel.PriceSourceOfficial,
+			PriceSourceURL: "https://openai.com/pricing", PriceVerifiedAt: time.Date(2026, 7, 27, 0, 0, 0, 0, time.UTC),
 		}, nil
 	})})
 	agent := AgentRuntime{
 		ModelID: RequiredModelID, EngineType: string(infraai.EngineTypeOpenAI),
-		BillingMultiplierPPM: 1_000_000, MaxOutputTokens: 105360,
+		ModelStatus: enum.CommonYes, OfficialModelID: RequiredModelID, OfficialCatalogVersion: "catalog-v3", MappingStatus: officialmodel.MappingStatusMapped,
+		BillingMultiplierPPM: 1_000_000,
 	}
 	request := CreateInput{Size: "1024x1024", Quality: "high", N: 15}
 	raw, effective, appErr := service.imagePricingSnapshot(context.Background(), agent, request)
@@ -504,9 +507,9 @@ func TestImagePricingSnapshotUsesRequestBoundAndRejectsSmallerAgentCap(t *testin
 		t.Fatalf("snapshot=%#v err=%v", snapshot, err)
 	}
 
-	agent.MaxOutputTokens = uint(effective - 1)
+	officialMaxOutputTokens = effective - 1
 	if _, _, appErr = service.imagePricingSnapshot(context.Background(), agent, request); appErr == nil || appErr.HTTPStatus != 409 {
-		t.Fatalf("smaller agent cap error=%#v, want HTTP 409", appErr)
+		t.Fatalf("smaller official cap error=%#v, want HTTP 409", appErr)
 	}
 }
 
@@ -651,7 +654,18 @@ func validImageAgent(t *testing.T, box secretbox.Box) *AgentRuntime {
 	if err != nil {
 		t.Fatalf("encrypt api key: %v", err)
 	}
-	return &AgentRuntime{AgentID: 1, AgentName: "图片助手", ScenesJSON: `["image_generate"]`, AgentStatus: enum.CommonYes, ProviderID: 8, ProviderName: "OpenAI", EngineType: string(infraai.EngineTypeOpenAI), BaseURL: "https://api.openai.test/v1", APIKeyEnc: apiKey, ProviderStatus: enum.CommonYes, ModelID: RequiredModelID, ModelDisplayName: "GPT Image 2", ModelStatus: enum.CommonYes, BillingMultiplierPPM: 1_000_000, MaxOutputTokens: 32_768}
+	return &AgentRuntime{AgentID: 1, AgentName: "图片助手", ScenesJSON: `["image_generate"]`, AgentStatus: enum.CommonYes, ProviderID: 8, ProviderName: "OpenAI", EngineType: string(infraai.EngineTypeOpenAI), BaseURL: "https://api.openai.test/v1", APIKeyEnc: apiKey, ProviderStatus: enum.CommonYes, ModelID: RequiredModelID, ModelDisplayName: "GPT Image 2", ModelStatus: enum.CommonYes, OfficialModelID: RequiredModelID, OfficialCatalogVersion: "catalog-v3", MappingStatus: officialmodel.MappingStatusMapped, BillingMultiplierPPM: 1_000_000}
+}
+
+func testImagePricingResolver() officialmodel.Resolver {
+	return officialmodel.ResolverFunc(func(_ context.Context, modelID string) (officialmodel.ResolvedModel, error) {
+		rates := []pricing.Rate{{Category: pricing.MediaUnits, Unit: "image", PriceUnits: 1, UnitScale: 1}}
+		return officialmodel.ResolvedModel{
+			Model:          officialmodel.Model{CatalogVersion: "catalog-v3", CatalogVendor: "openai", ModelID: modelID, ContextWindowTokens: 400000, MaxOutputTokens: 200000},
+			EffectivePrice: pricing.PriceBook{ModelID: modelID, Rates: rates}, PriceSource: officialmodel.PriceSourceOfficial,
+			PriceSourceURL: "https://openai.com/pricing", PriceVerifiedAt: time.Date(2026, 7, 27, 0, 0, 0, 0, time.UTC),
+		}, nil
+	})
 }
 
 func validPendingTask() ImageTask {

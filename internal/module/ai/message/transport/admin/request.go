@@ -1,17 +1,21 @@
 package admin
 
-import aimessagemodule "admin_back_go/internal/module/ai/message"
-
 type listRequest struct {
 	BeforeID int64 `form:"before_id" binding:"omitempty,min=1"`
 	Limit    int   `form:"limit" binding:"omitempty,min=1,max=100"`
 }
 
 type sendRequest struct {
-	Content       string                       `json:"content" binding:"max=20000"`
-	RequestID     string                       `json:"request_id" binding:"required,max=128"`
-	Attachments   []aimessagemodule.Attachment `json:"attachments" binding:"omitempty,max=5,dive"`
-	RuntimeParams map[string]float64           `json:"runtime_params" binding:"omitempty"`
+	Content       string              `json:"content" binding:"max=20000"`
+	RequestID     string              `json:"request_id" binding:"required,max=128"`
+	Attachments   []attachmentRequest `json:"attachments" binding:"omitempty,max=5,dive"`
+	RuntimeParams map[string]float64  `json:"runtime_params" binding:"omitempty"`
+}
+
+type attachmentRequest struct {
+	Type      string `json:"type" binding:"required,eq=image"`
+	ObjectKey string `json:"object_key" binding:"required"`
+	Name      string `json:"name"`
 }
 
 type cancelRequest struct {
