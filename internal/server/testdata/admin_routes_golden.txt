@@ -68,12 +68,8 @@ GET /api/admin/v1/ai-providers/:id/models
 GET /api/admin/v1/ai-providers/page-init
 GET /api/admin/v1/ai-runs
 GET /api/admin/v1/ai-runs/:id
+GET /api/admin/v1/ai-runs/dashboard
 GET /api/admin/v1/ai-runs/page-init
-GET /api/admin/v1/ai-runs/stats
-GET /api/admin/v1/ai-runs/stats/by-agent
-GET /api/admin/v1/ai-runs/stats/by-date
-GET /api/admin/v1/ai-runs/stats/by-user
-GET /api/admin/v1/ai-runs/stats/latency
 GET /api/admin/v1/ai-tools
 GET /api/admin/v1/ai-tools/generate/page-init
 GET /api/admin/v1/ai-tools/page-init

@@ -40,40 +40,6 @@ func TestRunDetailRowMarksMessageSummariesIgnoredByGorm(t *testing.T) {
 	}
 }
 
-func TestStatsSelectsIntegerAverageDuration(t *testing.T) {
-	summarySQL := statsSummarySelectSQL()
-	groupedSQL := statsGroupedSelectSQL("DATE(r.created_at) as date")
-
-	for name, sql := range map[string]string{
-		"summary": sqlSummaryLower(summarySQL),
-		"grouped": sqlSummaryLower(groupedSQL),
-	} {
-		t.Run(name, func(t *testing.T) {
-			if !strings.Contains(sql, "avg_duration_ms") {
-				t.Fatalf("average duration alias is required, sql=%s", sql)
-			}
-			if strings.Contains(sql, "coalesce(avg(r.duration_ms)") {
-				t.Fatalf("average duration must not scan raw MySQL AVG decimal into int64, sql=%s", sql)
-			}
-			if !strings.Contains(sql, "cast(round(avg(r.duration_ms)) as signed)") {
-				t.Fatalf("average duration must be rounded and cast before scanning into int64, sql=%s", sql)
-			}
-		})
-	}
-}
-
-func TestRepositorySQLUsesAppAndEventSchema(t *testing.T) {
-	summarySQL := sqlSummaryLower(statsSummarySelectSQL())
-	groupedSQL := sqlSummaryLower(statsGroupedSelectSQL("r.agent_id as agent_id, COALESCE(a.name, '') as agent_name"))
-
-	if !strings.Contains(summarySQL, "r.status in (?, ?, ?)") {
-		t.Fatalf("summary must count failed, canceled and timeout as failed terminal runs, sql=%s", summarySQL)
-	}
-	if !strings.Contains(groupedSQL, "r.agent_id as agent_id") || !strings.Contains(groupedSQL, "agent_name") {
-		t.Fatalf("grouped agent stats must expose agent_id/agent_name, sql=%s", groupedSQL)
-	}
-}
-
 func TestBillingDetailUsesThreeBoundedQueries(t *testing.T) {
 	sqlDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	if err != nil {
@@ -106,35 +72,6 @@ func TestBillingDetailUsesThreeBoundedQueries(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("billing detail must use exactly the three expected set queries: %v", err)
-	}
-}
-
-func TestLatencySamplesUsesTerminalBoundedQuery(t *testing.T) {
-	sqlDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer sqlDB.Close()
-	db, err := gorm.Open(mysql.New(mysql.Config{Conn: sqlDB, SkipInitializeWithVersion: true}), &gorm.Config{DisableAutomaticPing: true, Logger: logger.Default.LogMode(logger.Silent)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	repo := &GormRepository{db: db}
-	since := time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC)
-
-	mock.ExpectQuery("SELECT .* FROM ai_provider_attempts attempt_row JOIN ai_runs run_row ON run_row.id = attempt_row.run_id LEFT JOIN ai_providers provider_row ON provider_row.id = run_row.provider_id WHERE run_row.created_at >= \\? AND attempt_row.state IN \\(\\?,\\?,\\?,\\?\\) ORDER BY attempt_row.finished_at DESC, attempt_row.id DESC LIMIT \\?").
-		WithArgs(since, "succeeded", "failed", "canceled", "outcome_unknown", 10000).
-		WillReturnRows(sqlmock.NewRows([]string{"provider_id", "provider_name", "model_id", "dispatched_at", "first_delta_at", "finished_at"}))
-
-	rows, err := repo.LatencySamples(context.Background(), since, 10001)
-	if err != nil {
-		t.Fatalf("LatencySamples returned error: %v", err)
-	}
-	if len(rows) != 0 {
-		t.Fatalf("rows=%#v, want empty result", rows)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("latency samples must use the bounded terminal query: %v", err)
 	}
 }
 

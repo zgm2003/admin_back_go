@@ -269,94 +269,6 @@ type ProviderAttemptDetail struct {
 	UsageStatus       string  `json:"usage_status"`
 }
 
-type StatsFilter struct {
-	DateStart  string
-	DateEnd    string
-	Platform   string
-	AgentID    *int64
-	ProviderID *int64
-	UserID     *int64
-}
-
-type StatsResponse struct {
-	DateRange DateRange    `json:"date_range"`
-	Summary   StatsSummary `json:"summary"`
-}
-
-type DateRange struct {
-	Start *string `json:"start"`
-	End   *string `json:"end"`
-}
-
-type StatsSummary struct {
-	TotalRuns             int64   `json:"total_runs"`
-	SuccessRate           float64 `json:"success_rate"`
-	FailRuns              int64   `json:"fail_runs"`
-	TotalTokens           int64   `json:"total_tokens"`
-	TotalPromptTokens     int64   `json:"total_prompt_tokens"`
-	TotalCompletionTokens int64   `json:"total_completion_tokens"`
-	AvgDurationMS         int64   `json:"avg_duration_ms"`
-}
-
-type StatsMetricItem struct {
-	TotalRuns             int64 `json:"total_runs"`
-	TotalTokens           int64 `json:"total_tokens"`
-	TotalPromptTokens     int64 `json:"total_prompt_tokens"`
-	TotalCompletionTokens int64 `json:"total_completion_tokens"`
-	AvgDurationMS         int64 `json:"avg_duration_ms"`
-}
-
-type StatsByDateItem struct {
-	Date string `json:"date"`
-	StatsMetricItem
-}
-
-type StatsByAgentItem struct {
-	AgentID   int64  `json:"agent_id"`
-	AgentName string `json:"agent_name"`
-	StatsMetricItem
-}
-
-type StatsByUserItem struct {
-	Username string `json:"username"`
-	StatsMetricItem
-}
-
-type StatsByDateResponse struct {
-	List []StatsByDateItem `json:"list"`
-	Page Page              `json:"page"`
-}
-type StatsByAgentResponse struct {
-	List []StatsByAgentItem `json:"list"`
-	Page Page               `json:"page"`
-}
-type StatsByUserResponse struct {
-	List []StatsByUserItem `json:"list"`
-	Page Page              `json:"page"`
-}
-
-type LatencyStatsResponse struct {
-	WindowDays int                `json:"window_days"`
-	MaxSamples int                `json:"max_samples"`
-	List       []LatencyStatsItem `json:"list"`
-}
-
-type LatencyStatsItem struct {
-	ProviderID    int64               `json:"provider_id"`
-	ProviderName  string              `json:"provider_name"`
-	ModelID       string              `json:"model_id"`
-	TTFT          LatencyDistribution `json:"ttft"`
-	ProviderTotal LatencyDistribution `json:"provider_total"`
-}
-
-type LatencyDistribution struct {
-	SampleCount        int   `json:"sample_count"`
-	InsufficientSample bool  `json:"insufficient_sample"`
-	P50MS              int64 `json:"p50_ms"`
-	P95MS              int64 `json:"p95_ms"`
-	P99MS              int64 `json:"p99_ms"`
-}
-
 type OptionRow struct {
 	ID   int64
 	Name string
@@ -465,15 +377,6 @@ type ProviderAttemptRow struct {
 	FinishedAt          *time.Time
 }
 
-type LatencySampleRow struct {
-	ProviderID   int64
-	ProviderName string
-	ModelID      string
-	DispatchedAt *time.Time
-	FirstDeltaAt *time.Time
-	FinishedAt   *time.Time
-}
-
 type EventRow struct {
 	ID        int64
 	Seq       uint
@@ -526,49 +429,6 @@ type KnowledgeHitRow struct {
 	CreatedAt         time.Time
 }
 
-type StatsSummaryRow struct {
-	TotalRuns        int64
-	SuccessRuns      int64
-	FailRuns         int64
-	TotalTokens      int64
-	PromptTokens     int64
-	CompletionTokens int64
-	AvgDurationMS    int64
-}
-
-type StatsMetricRow struct {
-	TotalRuns        int64
-	TotalTokens      int64
-	PromptTokens     int64
-	CompletionTokens int64
-	AvgDurationMS    int64
-}
-
-type StatsListQuery struct {
-	CurrentPage int
-	PageSize    int
-	DateStart   string
-	DateEnd     string
-	Platform    string
-	AgentID     *int64
-	ProviderID  *int64
-	UserID      *int64
-}
-
-type StatsByDateRow struct {
-	Date string
-	StatsMetricRow
-}
-type StatsByAgentRow struct {
-	AgentID   int64
-	AgentName string
-	StatsMetricRow
-}
-type StatsByUserRow struct {
-	Username string
-	StatsMetricRow
-}
-
 type Repository interface {
 	AgentOptions(ctx context.Context) ([]OptionRow, error)
 	ProviderOptions(ctx context.Context) ([]OptionRow, error)
@@ -580,11 +440,6 @@ type Repository interface {
 	ToolCalls(ctx context.Context, runID int64) ([]ToolCallRow, error)
 	KnowledgeRetrievals(ctx context.Context, runID int64) ([]KnowledgeRetrievalRow, error)
 	KnowledgeRetrievalHits(ctx context.Context, retrievalIDs []int64) ([]KnowledgeHitRow, error)
-	StatsSummary(ctx context.Context, query StatsFilter) (StatsSummaryRow, error)
-	StatsByDate(ctx context.Context, query StatsListQuery) ([]StatsByDateRow, int64, error)
-	StatsByAgent(ctx context.Context, query StatsListQuery) ([]StatsByAgentRow, int64, error)
-	StatsByUser(ctx context.Context, query StatsListQuery) ([]StatsByUserRow, int64, error)
-	LatencySamples(ctx context.Context, since time.Time, limit int) ([]LatencySampleRow, error)
 	Dashboard(ctx context.Context, query DashboardQuery) (DashboardRepositoryResult, error)
 }
 
@@ -592,11 +447,7 @@ type HTTPService interface {
 	PageInit(ctx context.Context, filter PageInitFilter) (*InitResponse, *apperror.Error)
 	List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error)
 	Detail(ctx context.Context, id int64) (*DetailResponse, *apperror.Error)
-	Stats(ctx context.Context, query StatsFilter) (*StatsResponse, *apperror.Error)
-	StatsByDate(ctx context.Context, query StatsListQuery) (*StatsByDateResponse, *apperror.Error)
-	StatsByAgent(ctx context.Context, query StatsListQuery) (*StatsByAgentResponse, *apperror.Error)
-	StatsByUser(ctx context.Context, query StatsListQuery) (*StatsByUserResponse, *apperror.Error)
-	LatencyStats(ctx context.Context) (*LatencyStatsResponse, *apperror.Error)
+	Dashboard(ctx context.Context, filter DashboardFilter) (*DashboardResponse, *apperror.Error)
 }
 
 type FeedbackHTTPService interface {

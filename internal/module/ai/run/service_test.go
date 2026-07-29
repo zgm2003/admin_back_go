@@ -33,15 +33,6 @@ type fakeRepository struct {
 	hits             []KnowledgeHitRow
 	hitQueryIDs      []int64
 	hitQueries       int
-	summary          StatsSummaryRow
-	metricQuery      StatsListQuery
-	byDate           []StatsByDateRow
-	byAgent          []StatsByAgentRow
-	byUser           []StatsByUserRow
-	metricTotal      int64
-	latencySamples   []LatencySampleRow
-	latencySince     time.Time
-	latencyLimit     int
 	dashboardQuery   DashboardQuery
 	dashboardRows    DashboardRepositoryResult
 	dashboardErr     error
@@ -83,25 +74,6 @@ func (f *fakeRepository) KnowledgeRetrievalHits(ctx context.Context, retrievalID
 	f.hitQueries++
 	f.hitQueryIDs = append([]int64(nil), retrievalIDs...)
 	return f.hits, nil
-}
-func (f *fakeRepository) StatsSummary(ctx context.Context, query StatsFilter) (StatsSummaryRow, error) {
-	return f.summary, nil
-}
-func (f *fakeRepository) StatsByDate(ctx context.Context, query StatsListQuery) ([]StatsByDateRow, int64, error) {
-	f.metricQuery = query
-	return f.byDate, f.metricTotal, nil
-}
-func (f *fakeRepository) StatsByAgent(ctx context.Context, query StatsListQuery) ([]StatsByAgentRow, int64, error) {
-	f.metricQuery = query
-	return f.byAgent, f.metricTotal, nil
-}
-func (f *fakeRepository) StatsByUser(ctx context.Context, query StatsListQuery) ([]StatsByUserRow, int64, error) {
-	f.metricQuery = query
-	return f.byUser, f.metricTotal, nil
-}
-func (f *fakeRepository) LatencySamples(_ context.Context, since time.Time, limit int) ([]LatencySampleRow, error) {
-	f.latencySince, f.latencyLimit = since, limit
-	return f.latencySamples, nil
 }
 func (f *fakeRepository) Dashboard(_ context.Context, query DashboardQuery) (DashboardRepositoryResult, error) {
 	f.dashboardCalls++
@@ -343,53 +315,6 @@ func TestRunDetailReturnsSafePreparedRequestSummaryOnly(t *testing.T) {
 	}
 }
 
-func TestLatencyStatsUsesNearestRankP50P95P99PerProviderModel(t *testing.T) {
-	now := time.Date(2026, 7, 28, 12, 2, 0, 0, time.UTC)
-	rows := make([]LatencySampleRow, 0, 100)
-	for value := 1; value <= 100; value++ {
-		dispatched := now.Add(time.Duration(value) * time.Second)
-		first := dispatched.Add(time.Duration(value) * time.Millisecond)
-		finished := dispatched.Add(time.Duration(value*2) * time.Millisecond)
-		rows = append(rows, LatencySampleRow{ProviderID: 9, ProviderName: "OpenAI", ModelID: "gpt-test", DispatchedAt: &dispatched, FirstDeltaAt: &first, FinishedAt: &finished})
-	}
-	repo := &fakeRepository{latencySamples: rows}
-
-	result, appErr := NewService(repo, WithClock(clock.Func(func() time.Time { return now }))).LatencyStats(context.Background())
-	if appErr != nil {
-		t.Fatalf("LatencyStats returned error: %v", appErr)
-	}
-	if repo.latencyLimit != 10000 || !repo.latencySince.Equal(now.AddDate(0, 0, -30)) || len(result.List) != 1 {
-		t.Fatalf("query since=%v limit=%d response=%+v", repo.latencySince, repo.latencyLimit, result)
-	}
-	item := result.List[0]
-	if item.TTFT.SampleCount != 100 || item.TTFT.P50MS != 50 || item.TTFT.P95MS != 95 || item.TTFT.P99MS != 99 || item.TTFT.InsufficientSample {
-		t.Fatalf("ttft=%+v", item.TTFT)
-	}
-	if item.ProviderTotal.P50MS != 100 || item.ProviderTotal.P95MS != 190 || item.ProviderTotal.P99MS != 198 {
-		t.Fatalf("provider total=%+v", item.ProviderTotal)
-	}
-}
-
-func TestLatencyStatsExcludesIncompleteAndNegativeDurations(t *testing.T) {
-	now := time.Date(2026, 7, 28, 12, 3, 0, 0, time.UTC)
-	validFirst, validFinished := now.Add(time.Millisecond), now.Add(2*time.Millisecond)
-	negative, before := now.Add(-time.Millisecond), now.Add(-2*time.Millisecond)
-	repo := &fakeRepository{latencySamples: []LatencySampleRow{
-		{ProviderID: 9, ModelID: "gpt-test", DispatchedAt: &now, FirstDeltaAt: &validFirst, FinishedAt: &validFinished},
-		{ProviderID: 9, ModelID: "gpt-test", DispatchedAt: &now, FirstDeltaAt: &negative, FinishedAt: &before},
-		{ProviderID: 9, ModelID: "gpt-test", DispatchedAt: &now},
-	}}
-
-	result, appErr := NewService(repo, WithClock(clock.Func(func() time.Time { return now }))).LatencyStats(context.Background())
-	if appErr != nil {
-		t.Fatalf("LatencyStats returned error: %v", appErr)
-	}
-	item := result.List[0]
-	if item.TTFT.SampleCount != 1 || item.ProviderTotal.SampleCount != 1 || !item.TTFT.InsufficientSample || !item.ProviderTotal.InsufficientSample {
-		t.Fatalf("item=%+v", item)
-	}
-}
-
 func TestDetailProjectsLikedFeedback(t *testing.T) {
 	now := time.Date(2026, 7, 27, 12, 1, 2, 0, time.UTC)
 	repository := &fakeRepository{run: &RunDetailRow{
@@ -587,29 +512,6 @@ func TestDetailIncludesKnowledgeRetrievals(t *testing.T) {
 	hit := retrieval.Hits[0]
 	if hit.KnowledgeBaseName != "架构库" || hit.DocumentTitle != "Go 后端架构" || hit.StatusName != "进入上下文" || hit.ContentSnapshot != "Gin modular monolith" {
 		t.Fatalf("unexpected retrieval hit: %#v", hit)
-	}
-}
-
-func TestStatsSummaryComputesRatesAndTotals(t *testing.T) {
-	repo := &fakeRepository{summary: StatsSummaryRow{TotalRuns: 10, SuccessRuns: 7, FailRuns: 2, TotalTokens: 100, PromptTokens: 40, CompletionTokens: 60, AvgDurationMS: 1234}}
-	res, appErr := NewService(repo).Stats(context.Background(), StatsFilter{})
-	if appErr != nil {
-		t.Fatalf("Stats returned error: %v", appErr)
-	}
-	if res.Summary.SuccessRate != 70 || res.Summary.TotalTokens != 100 || res.Summary.AvgDurationMS != 1234 {
-		t.Fatalf("unexpected stats: %#v", res)
-	}
-}
-
-func TestStatsListsArePaginatedAndNormalized(t *testing.T) {
-	agentID := int64(5)
-	repo := &fakeRepository{byAgent: []StatsByAgentRow{{AgentID: 5, AgentName: "agent", StatsMetricRow: StatsMetricRow{TotalRuns: 2}}}, metricTotal: 1}
-	res, appErr := NewService(repo).StatsByAgent(context.Background(), StatsListQuery{CurrentPage: 0, PageSize: 0, AgentID: &agentID})
-	if appErr != nil {
-		t.Fatalf("StatsByAgent returned error: %v", appErr)
-	}
-	if repo.metricQuery.CurrentPage != 1 || repo.metricQuery.PageSize != 20 || repo.metricQuery.AgentID == nil || *repo.metricQuery.AgentID != 5 || len(res.List) != 1 {
-		t.Fatalf("unexpected stats list: query=%#v res=%#v", repo.metricQuery, res)
 	}
 }
 

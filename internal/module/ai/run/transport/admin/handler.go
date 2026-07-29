@@ -75,45 +75,17 @@ func (h *Handler) SetUserFeedback(c *gin.Context) {
 	writeResult(c, res, appErr)
 }
 
-func (h *Handler) Stats(c *gin.Context) {
-	var req statsRequest
+func (h *Handler) Dashboard(c *gin.Context) {
+	var req dashboardRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
-		response.Error(c, apperror.BadRequest("AI运行统计参数错误"))
+		response.Error(c, apperror.BadRequest("AI运行驾驶舱参数错误"))
 		return
 	}
-	res, appErr := h.requireService().Stats(c.Request.Context(), airunmodule.StatsFilter{DateStart: req.DateStart, DateEnd: req.DateEnd, Platform: req.Platform, AgentID: req.AgentID, ProviderID: req.ProviderID, UserID: req.UserID})
-	writeResult(c, res, appErr)
-}
-
-func (h *Handler) LatencyStats(c *gin.Context) {
-	res, appErr := h.requireService().LatencyStats(c.Request.Context())
-	writeResult(c, res, appErr)
-}
-
-func (h *Handler) StatsByDate(c *gin.Context) {
-	query, ok := bindStatsList(c)
-	if !ok {
-		return
-	}
-	res, appErr := h.requireService().StatsByDate(c.Request.Context(), query)
-	writeResult(c, res, appErr)
-}
-
-func (h *Handler) StatsByAgent(c *gin.Context) {
-	query, ok := bindStatsList(c)
-	if !ok {
-		return
-	}
-	res, appErr := h.requireService().StatsByAgent(c.Request.Context(), query)
-	writeResult(c, res, appErr)
-}
-
-func (h *Handler) StatsByUser(c *gin.Context) {
-	query, ok := bindStatsList(c)
-	if !ok {
-		return
-	}
-	res, appErr := h.requireService().StatsByUser(c.Request.Context(), query)
+	res, appErr := h.requireService().Dashboard(c.Request.Context(), airunmodule.DashboardFilter{
+		RequestID: middleware.GetRequestID(c),
+		DateStart: req.DateStart, DateEnd: req.DateEnd, Platform: req.Platform, ModelID: req.ModelID,
+		AgentID: req.AgentID, ProviderID: req.ProviderID, UserID: req.UserID,
+	})
 	writeResult(c, res, appErr)
 }
 
@@ -131,15 +103,6 @@ func (h *Handler) requireFeedbackService() airunmodule.FeedbackHTTPService {
 		}
 	}
 	return nilHTTPService{}
-}
-
-func bindStatsList(c *gin.Context) (airunmodule.StatsListQuery, bool) {
-	var req statsListRequest
-	if err := c.ShouldBindQuery(&req); err != nil {
-		response.Error(c, apperror.BadRequest("AI运行统计列表参数错误"))
-		return airunmodule.StatsListQuery{}, false
-	}
-	return airunmodule.StatsListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, DateStart: req.DateStart, DateEnd: req.DateEnd, Platform: req.Platform, AgentID: req.AgentID, ProviderID: req.ProviderID, UserID: req.UserID}, true
 }
 
 func routeID(c *gin.Context, name string, msg string) (int64, bool) {
@@ -170,19 +133,7 @@ func (nilHTTPService) List(ctx context.Context, query airunmodule.ListQuery) (*a
 func (nilHTTPService) Detail(ctx context.Context, id int64) (*airunmodule.DetailResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI运行服务未配置")
 }
-func (nilHTTPService) Stats(ctx context.Context, query airunmodule.StatsFilter) (*airunmodule.StatsResponse, *apperror.Error) {
-	return nil, apperror.Internal("AI运行服务未配置")
-}
-func (nilHTTPService) LatencyStats(context.Context) (*airunmodule.LatencyStatsResponse, *apperror.Error) {
-	return nil, apperror.Internal("AI运行服务未配置")
-}
-func (nilHTTPService) StatsByDate(ctx context.Context, query airunmodule.StatsListQuery) (*airunmodule.StatsByDateResponse, *apperror.Error) {
-	return nil, apperror.Internal("AI运行服务未配置")
-}
-func (nilHTTPService) StatsByAgent(ctx context.Context, query airunmodule.StatsListQuery) (*airunmodule.StatsByAgentResponse, *apperror.Error) {
-	return nil, apperror.Internal("AI运行服务未配置")
-}
-func (nilHTTPService) StatsByUser(ctx context.Context, query airunmodule.StatsListQuery) (*airunmodule.StatsByUserResponse, *apperror.Error) {
+func (nilHTTPService) Dashboard(ctx context.Context, filter airunmodule.DashboardFilter) (*airunmodule.DashboardResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI运行服务未配置")
 }
 func (nilHTTPService) SetUserFeedback(ctx context.Context, userID int64, id int64, liked bool) (*airunmodule.FeedbackResponse, *apperror.Error) {

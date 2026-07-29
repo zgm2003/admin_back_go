@@ -964,73 +964,21 @@
     },
     {
       "method": "GET",
+      "path": "/api/admin/v1/ai-runs/dashboard",
+      "operation_id": "get_api_admin_v1_ai_runs_dashboard",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_run_list"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "method": "GET",
       "path": "/api/admin/v1/ai-runs/page-init",
       "operation_id": "get_api_admin_v1_ai_runs_page_init",
-      "access": {
-        "kind": "permission",
-        "permission_code": "ai_run_list"
-      },
-      "audit": {
-        "enabled": false,
-        "reason": "read-only"
-      }
-    },
-    {
-      "method": "GET",
-      "path": "/api/admin/v1/ai-runs/stats",
-      "operation_id": "get_api_admin_v1_ai_runs_stats",
-      "access": {
-        "kind": "permission",
-        "permission_code": "ai_run_list"
-      },
-      "audit": {
-        "enabled": false,
-        "reason": "read-only"
-      }
-    },
-    {
-      "method": "GET",
-      "path": "/api/admin/v1/ai-runs/stats/by-agent",
-      "operation_id": "get_api_admin_v1_ai_runs_stats_by_agent",
-      "access": {
-        "kind": "permission",
-        "permission_code": "ai_run_list"
-      },
-      "audit": {
-        "enabled": false,
-        "reason": "read-only"
-      }
-    },
-    {
-      "method": "GET",
-      "path": "/api/admin/v1/ai-runs/stats/by-date",
-      "operation_id": "get_api_admin_v1_ai_runs_stats_by_date",
-      "access": {
-        "kind": "permission",
-        "permission_code": "ai_run_list"
-      },
-      "audit": {
-        "enabled": false,
-        "reason": "read-only"
-      }
-    },
-    {
-      "method": "GET",
-      "path": "/api/admin/v1/ai-runs/stats/by-user",
-      "operation_id": "get_api_admin_v1_ai_runs_stats_by_user",
-      "access": {
-        "kind": "permission",
-        "permission_code": "ai_run_list"
-      },
-      "audit": {
-        "enabled": false,
-        "reason": "read-only"
-      }
-    },
-    {
-      "method": "GET",
-      "path": "/api/admin/v1/ai-runs/stats/latency",
-      "operation_id": "get_api_admin_v1_ai_runs_stats_latency",
       "access": {
         "kind": "permission",
         "permission_code": "ai_run_list"

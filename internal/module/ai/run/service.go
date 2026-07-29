@@ -27,12 +27,6 @@ import (
 
 const timeLayout = "2006-01-02 15:04:05"
 
-const (
-	latencyStatsWindowDays     = 30
-	latencyStatsMaxSamples     = 10000
-	latencyStatsMinimumSamples = 20
-)
-
 var emptyJSONObject = json.RawMessage("{}")
 
 var knowledgeRetrievalStatusLabels = map[string]string{
@@ -213,140 +207,6 @@ func (s *Service) knowledgeRetrievalItems(ctx context.Context, repo Repository, 
 		items = append(items, knowledgeRetrievalItem(row, hitsByRetrieval[row.ID]))
 	}
 	return items, nil
-}
-
-func (s *Service) Stats(ctx context.Context, query StatsFilter) (*StatsResponse, *apperror.Error) {
-	repo, appErr := s.requireRepository()
-	if appErr != nil {
-		return nil, appErr
-	}
-	query = normalizeStatsFilter(query)
-	if appErr := validateOptionalPlatform(query.Platform); appErr != nil {
-		return nil, appErr
-	}
-	row, err := repo.StatsSummary(ctx, query)
-	if err != nil {
-		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI运行统计失败", err)
-	}
-	rate := float64(0)
-	if row.TotalRuns > 0 {
-		rate = math.Round(float64(row.SuccessRuns)*10000/float64(row.TotalRuns)) / 100
-	}
-	return &StatsResponse{DateRange: DateRange{Start: optionalString(query.DateStart), End: optionalString(query.DateEnd)}, Summary: StatsSummary{
-		TotalRuns: row.TotalRuns, SuccessRate: rate, FailRuns: row.FailRuns,
-		TotalTokens: row.TotalTokens, TotalPromptTokens: row.PromptTokens,
-		TotalCompletionTokens: row.CompletionTokens, AvgDurationMS: row.AvgDurationMS,
-	}}, nil
-}
-
-func (s *Service) StatsByDate(ctx context.Context, query StatsListQuery) (*StatsByDateResponse, *apperror.Error) {
-	repo, appErr := s.requireRepository()
-	if appErr != nil {
-		return nil, appErr
-	}
-	query = normalizeStatsListQuery(query)
-	if appErr := validateOptionalPlatform(query.Platform); appErr != nil {
-		return nil, appErr
-	}
-	rows, total, err := repo.StatsByDate(ctx, query)
-	if err != nil {
-		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI运行日期统计失败", err)
-	}
-	list := make([]StatsByDateItem, 0, len(rows))
-	for _, row := range rows {
-		list = append(list, StatsByDateItem{Date: row.Date, StatsMetricItem: metricItem(row.StatsMetricRow)})
-	}
-	return &StatsByDateResponse{List: list, Page: page(total, query.CurrentPage, query.PageSize)}, nil
-}
-
-func (s *Service) StatsByAgent(ctx context.Context, query StatsListQuery) (*StatsByAgentResponse, *apperror.Error) {
-	repo, appErr := s.requireRepository()
-	if appErr != nil {
-		return nil, appErr
-	}
-	query = normalizeStatsListQuery(query)
-	if appErr := validateOptionalPlatform(query.Platform); appErr != nil {
-		return nil, appErr
-	}
-	rows, total, err := repo.StatsByAgent(ctx, query)
-	if err != nil {
-		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI运行智能体统计失败", err)
-	}
-	list := make([]StatsByAgentItem, 0, len(rows))
-	for _, row := range rows {
-		list = append(list, StatsByAgentItem{AgentID: row.AgentID, AgentName: row.AgentName, StatsMetricItem: metricItem(row.StatsMetricRow)})
-	}
-	return &StatsByAgentResponse{List: list, Page: page(total, query.CurrentPage, query.PageSize)}, nil
-}
-
-func (s *Service) StatsByUser(ctx context.Context, query StatsListQuery) (*StatsByUserResponse, *apperror.Error) {
-	repo, appErr := s.requireRepository()
-	if appErr != nil {
-		return nil, appErr
-	}
-	query = normalizeStatsListQuery(query)
-	if appErr := validateOptionalPlatform(query.Platform); appErr != nil {
-		return nil, appErr
-	}
-	rows, total, err := repo.StatsByUser(ctx, query)
-	if err != nil {
-		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI运行用户统计失败", err)
-	}
-	list := make([]StatsByUserItem, 0, len(rows))
-	for _, row := range rows {
-		list = append(list, StatsByUserItem{Username: row.Username, StatsMetricItem: metricItem(row.StatsMetricRow)})
-	}
-	return &StatsByUserResponse{List: list, Page: page(total, query.CurrentPage, query.PageSize)}, nil
-}
-
-func (s *Service) LatencyStats(ctx context.Context) (*LatencyStatsResponse, *apperror.Error) {
-	repo, appErr := s.requireRepository()
-	if appErr != nil {
-		return nil, appErr
-	}
-	now := s.clock.Now().UTC()
-	rows, err := repo.LatencySamples(ctx, now.AddDate(0, 0, -latencyStatsWindowDays), latencyStatsMaxSamples)
-	if err != nil {
-		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI延迟统计失败", err)
-	}
-	type groupKey struct {
-		providerID int64
-		modelID    string
-	}
-	type samples struct {
-		providerName string
-		ttft         []int64
-		provider     []int64
-	}
-	groups := make(map[groupKey]*samples)
-	for _, row := range rows {
-		key := groupKey{providerID: row.ProviderID, modelID: strings.TrimSpace(row.ModelID)}
-		group := groups[key]
-		if group == nil {
-			group = &samples{providerName: strings.TrimSpace(row.ProviderName)}
-			groups[key] = group
-		}
-		if value := nonNegativeDurationMS(row.DispatchedAt, row.FirstDeltaAt); value != nil {
-			group.ttft = append(group.ttft, *value)
-		}
-		if value := nonNegativeDurationMS(row.DispatchedAt, row.FinishedAt); value != nil {
-			group.provider = append(group.provider, *value)
-		}
-	}
-	list := make([]LatencyStatsItem, 0, len(groups))
-	for key, group := range groups {
-		list = append(list, LatencyStatsItem{
-			ProviderID: key.providerID, ProviderName: group.providerName, ModelID: key.modelID,
-			TTFT: latencyDistribution(group.ttft), ProviderTotal: latencyDistribution(group.provider),
-		})
-	}
-	sort.Slice(list, func(i, j int) bool {
-		if list[i].ProviderID != list[j].ProviderID {
-			return list[i].ProviderID < list[j].ProviderID
-		}
-		return list[i].ModelID < list[j].ModelID
-	})
-	return &LatencyStatsResponse{WindowDays: latencyStatsWindowDays, MaxSamples: latencyStatsMaxSamples, List: list}, nil
 }
 
 func (s *Service) requireRepository() (Repository, *apperror.Error) {
@@ -536,29 +396,6 @@ func isDashboardBillingAnomaly(value string) bool {
 	default:
 		return false
 	}
-}
-
-func normalizeStatsFilter(query StatsFilter) StatsFilter {
-	query.DateStart = strings.TrimSpace(query.DateStart)
-	query.DateEnd = strings.TrimSpace(query.DateEnd)
-	query.Platform = strings.TrimSpace(query.Platform)
-	return query
-}
-
-func normalizeStatsListQuery(query StatsListQuery) StatsListQuery {
-	if query.CurrentPage <= 0 {
-		query.CurrentPage = 1
-	}
-	if query.PageSize <= 0 {
-		query.PageSize = 20
-	}
-	if query.PageSize > enum.PageSizeMax {
-		query.PageSize = enum.PageSizeMax
-	}
-	query.DateStart = strings.TrimSpace(query.DateStart)
-	query.DateEnd = strings.TrimSpace(query.DateEnd)
-	query.Platform = strings.TrimSpace(query.Platform)
-	return query
 }
 
 func listItem(row ListRow) ListItem {
@@ -890,27 +727,6 @@ func nonNegativeDurationMS(start, end *time.Time) *int64 {
 	return &value
 }
 
-func latencyDistribution(values []int64) LatencyDistribution {
-	sorted := append([]int64(nil), values...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
-	result := LatencyDistribution{SampleCount: len(sorted), InsufficientSample: len(sorted) < latencyStatsMinimumSamples}
-	if len(sorted) == 0 {
-		return result
-	}
-	result.P50MS = nearestRank(sorted, 50)
-	result.P95MS = nearestRank(sorted, 95)
-	result.P99MS = nearestRank(sorted, 99)
-	return result
-}
-
-func nearestRank(sorted []int64, percentile int) int64 {
-	if len(sorted) == 0 || percentile <= 0 || percentile > 100 {
-		return 0
-	}
-	index := (percentile*len(sorted)+99)/100 - 1
-	return sorted[index]
-}
-
 func int64Pointer(value int64) *int64 { return &value }
 
 func knowledgeRetrievalItem(row KnowledgeRetrievalRow, hits []KnowledgeHitRow) KnowledgeRetrievalItem {
@@ -985,10 +801,6 @@ func eventItem(row EventRow, startedAt *time.Time) EventItem {
 	}
 }
 
-func metricItem(row StatsMetricRow) StatsMetricItem {
-	return StatsMetricItem{TotalRuns: row.TotalRuns, TotalTokens: row.TotalTokens, TotalPromptTokens: row.PromptTokens, TotalCompletionTokens: row.CompletionTokens, AvgDurationMS: row.AvgDurationMS}
-}
-
 func optionItems(rows []OptionRow) []dict.Option[int] {
 	items := make([]dict.Option[int], 0, len(rows))
 	for _, row := range rows {
@@ -1045,14 +857,6 @@ func cloneRawJSON(raw json.RawMessage) json.RawMessage {
 	out := make(json.RawMessage, len(raw))
 	copy(out, raw)
 	return out
-}
-
-func optionalString(value string) *string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return nil
-	}
-	return &value
 }
 
 func formatTime(value time.Time) string {

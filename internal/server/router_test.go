@@ -224,7 +224,7 @@ func (fakeRouterAIMessageService) Cancel(ctx context.Context, userID int64, inpu
 
 type fakeRouterAIRunService struct{}
 
-func (fakeRouterAIRunService) PageInit(ctx context.Context) (*airun.InitResponse, *apperror.Error) {
+func (fakeRouterAIRunService) PageInit(ctx context.Context, filter airun.PageInitFilter) (*airun.InitResponse, *apperror.Error) {
 	return &airun.InitResponse{}, nil
 }
 
@@ -236,24 +236,8 @@ func (fakeRouterAIRunService) Detail(ctx context.Context, id int64) (*airun.Deta
 	return &airun.DetailResponse{ID: id}, nil
 }
 
-func (fakeRouterAIRunService) Stats(ctx context.Context, query airun.StatsFilter) (*airun.StatsResponse, *apperror.Error) {
-	return &airun.StatsResponse{}, nil
-}
-
-func (fakeRouterAIRunService) LatencyStats(ctx context.Context) (*airun.LatencyStatsResponse, *apperror.Error) {
-	return &airun.LatencyStatsResponse{}, nil
-}
-
-func (fakeRouterAIRunService) StatsByDate(ctx context.Context, query airun.StatsListQuery) (*airun.StatsByDateResponse, *apperror.Error) {
-	return &airun.StatsByDateResponse{Page: airun.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
-}
-
-func (fakeRouterAIRunService) StatsByAgent(ctx context.Context, query airun.StatsListQuery) (*airun.StatsByAgentResponse, *apperror.Error) {
-	return &airun.StatsByAgentResponse{Page: airun.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
-}
-
-func (fakeRouterAIRunService) StatsByUser(ctx context.Context, query airun.StatsListQuery) (*airun.StatsByUserResponse, *apperror.Error) {
-	return &airun.StatsByUserResponse{Page: airun.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
+func (fakeRouterAIRunService) Dashboard(ctx context.Context, filter airun.DashboardFilter) (*airun.DashboardResponse, *apperror.Error) {
+	return &airun.DashboardResponse{}, nil
 }
 
 type fakeRouterAIChatService struct {
@@ -3324,10 +3308,7 @@ func aiRunReadRouteCases() []aiRunReadRouteCase {
 		{requestPath: "/api/admin/v1/ai-runs/page-init", registeredPath: "/api/admin/v1/ai-runs/page-init"},
 		{requestPath: "/api/admin/v1/ai-runs", registeredPath: "/api/admin/v1/ai-runs"},
 		{requestPath: "/api/admin/v1/ai-runs/1", registeredPath: "/api/admin/v1/ai-runs/:id"},
-		{requestPath: "/api/admin/v1/ai-runs/stats", registeredPath: "/api/admin/v1/ai-runs/stats"},
-		{requestPath: "/api/admin/v1/ai-runs/stats/by-date", registeredPath: "/api/admin/v1/ai-runs/stats/by-date"},
-		{requestPath: "/api/admin/v1/ai-runs/stats/by-agent", registeredPath: "/api/admin/v1/ai-runs/stats/by-agent"},
-		{requestPath: "/api/admin/v1/ai-runs/stats/by-user", registeredPath: "/api/admin/v1/ai-runs/stats/by-user"},
+		{requestPath: "/api/admin/v1/ai-runs/dashboard", registeredPath: "/api/admin/v1/ai-runs/dashboard"},
 	}
 }
 

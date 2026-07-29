@@ -94,20 +94,8 @@ func (managementRunHTTPService) List(context.Context, airunmodule.ListQuery) (*a
 func (managementRunHTTPService) Detail(context.Context, int64) (*airunmodule.DetailResponse, *apperror.Error) {
 	return &airunmodule.DetailResponse{}, nil
 }
-func (managementRunHTTPService) Stats(context.Context, airunmodule.StatsFilter) (*airunmodule.StatsResponse, *apperror.Error) {
-	return &airunmodule.StatsResponse{}, nil
-}
-func (managementRunHTTPService) LatencyStats(context.Context) (*airunmodule.LatencyStatsResponse, *apperror.Error) {
-	return &airunmodule.LatencyStatsResponse{}, nil
-}
-func (managementRunHTTPService) StatsByDate(context.Context, airunmodule.StatsListQuery) (*airunmodule.StatsByDateResponse, *apperror.Error) {
-	return &airunmodule.StatsByDateResponse{}, nil
-}
-func (managementRunHTTPService) StatsByAgent(context.Context, airunmodule.StatsListQuery) (*airunmodule.StatsByAgentResponse, *apperror.Error) {
-	return &airunmodule.StatsByAgentResponse{}, nil
-}
-func (managementRunHTTPService) StatsByUser(context.Context, airunmodule.StatsListQuery) (*airunmodule.StatsByUserResponse, *apperror.Error) {
-	return &airunmodule.StatsByUserResponse{}, nil
+func (managementRunHTTPService) Dashboard(context.Context, airunmodule.DashboardFilter) (*airunmodule.DashboardResponse, *apperror.Error) {
+	return &airunmodule.DashboardResponse{}, nil
 }
 func (service *fakeRunHTTPService) SetUserFeedback(_ context.Context, userID int64, id int64, liked bool) (*airunmodule.FeedbackResponse, *apperror.Error) {
 	service.feedbackUserID = userID
