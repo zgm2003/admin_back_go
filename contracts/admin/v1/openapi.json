@@ -720,6 +720,834 @@
         ],
         "type": "object"
       },
+      "AIRunDashboardAgentBreakdown": {
+        "additionalProperties": false,
+        "properties": {
+          "actual_amount": {
+            "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{0,7}[1-9])?$",
+            "type": "string"
+          },
+          "agent_id": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "agent_name": {
+            "type": "string"
+          },
+          "billing_anomaly_count": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "run_anomaly_count": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "success_denominator": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "success_rate": {
+            "maximum": 100,
+            "minimum": 0,
+            "type": "number"
+          },
+          "success_runs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total_runs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total_tokens": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "actual_amount",
+          "agent_id",
+          "agent_name",
+          "billing_anomaly_count",
+          "run_anomaly_count",
+          "success_denominator",
+          "success_rate",
+          "success_runs",
+          "total_runs",
+          "total_tokens"
+        ],
+        "type": "object"
+      },
+      "AIRunDashboardAnomalies": {
+        "additionalProperties": false,
+        "properties": {
+          "billing_items": {
+            "items": {
+              "$ref": "#/components/schemas/AIRunDashboardAnomalyItem"
+            },
+            "type": "array"
+          },
+          "billing_total": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "run_items": {
+            "items": {
+              "$ref": "#/components/schemas/AIRunDashboardAnomalyItem"
+            },
+            "type": "array"
+          },
+          "run_total": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "billing_items",
+          "billing_total",
+          "run_items",
+          "run_total"
+        ],
+        "type": "object"
+      },
+      "AIRunDashboardAnomalyItem": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "count": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "code",
+          "count"
+        ],
+        "type": "object"
+      },
+      "AIRunDashboardAttributionMetrics": {
+        "additionalProperties": false,
+        "properties": {
+          "actual_amount": {
+            "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{0,7}[1-9])?$",
+            "type": "string"
+          },
+          "billing_anomaly_count": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "run_anomaly_count": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "success_denominator": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "success_rate": {
+            "maximum": 100,
+            "minimum": 0,
+            "type": "number"
+          },
+          "success_runs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total_runs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total_tokens": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "actual_amount",
+          "billing_anomaly_count",
+          "run_anomaly_count",
+          "success_denominator",
+          "success_rate",
+          "success_runs",
+          "total_runs",
+          "total_tokens"
+        ],
+        "type": "object"
+      },
+      "AIRunDashboardBilling": {
+        "additionalProperties": false,
+        "properties": {
+          "actual_amount": {
+            "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{0,7}[1-9])?$",
+            "type": "string"
+          },
+          "released_amount": {
+            "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{0,7}[1-9])?$",
+            "type": "string"
+          },
+          "released_runs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "settled_runs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "unbilled_runs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "actual_amount",
+          "released_amount",
+          "released_runs",
+          "settled_runs",
+          "unbilled_runs"
+        ],
+        "type": "object"
+      },
+      "AIRunDashboardBreakdowns": {
+        "additionalProperties": false,
+        "properties": {
+          "agents": {
+            "items": {
+              "$ref": "#/components/schemas/AIRunDashboardAgentBreakdown"
+            },
+            "type": "array"
+          },
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/AIRunDashboardErrorBreakdown"
+            },
+            "type": "array"
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/AIRunDashboardModelBreakdown"
+            },
+            "type": "array"
+          },
+          "providers": {
+            "items": {
+              "$ref": "#/components/schemas/AIRunDashboardProviderBreakdown"
+            },
+            "type": "array"
+          },
+          "tools": {
+            "items": {
+              "$ref": "#/components/schemas/AIRunDashboardToolBreakdown"
+            },
+            "type": "array"
+          },
+          "users": {
+            "items": {
+              "$ref": "#/components/schemas/AIRunDashboardUserBreakdown"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "agents",
+          "errors",
+          "models",
+          "providers",
+          "tools",
+          "users"
+        ],
+        "type": "object"
+      },
+      "AIRunDashboardDateRange": {
+        "additionalProperties": false,
+        "properties": {
+          "end_exclusive": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "start_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "end_exclusive",
+          "start_at"
+        ],
+        "type": "object"
+      },
+      "AIRunDashboardErrorBreakdown": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "error_code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "count",
+          "error_code"
+        ],
+        "type": "object"
+      },
+      "AIRunDashboardModelBreakdown": {
+        "additionalProperties": false,
+        "properties": {
+          "actual_amount": {
+            "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{0,7}[1-9])?$",
+            "type": "string"
+          },
+          "billing_anomaly_count": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "historical": {
+            "type": "boolean"
+          },
+          "model_display_name": {
+            "type": "string"
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "run_anomaly_count": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "success_denominator": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "success_rate": {
+            "maximum": 100,
+            "minimum": 0,
+            "type": "number"
+          },
+          "success_runs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total_runs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total_tokens": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "actual_amount",
+          "billing_anomaly_count",
+          "historical",
+          "model_display_name",
+          "model_id",
+          "run_anomaly_count",
+          "success_denominator",
+          "success_rate",
+          "success_runs",
+          "total_runs",
+          "total_tokens"
+        ],
+        "type": "object"
+      },
+      "AIRunDashboardPercentile": {
+        "additionalProperties": false,
+        "properties": {
+          "insufficient_sample": {
+            "type": "boolean"
+          },
+          "p50_ms": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "p95_ms": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "sample_count": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "insufficient_sample",
+          "p50_ms",
+          "p95_ms",
+          "sample_count"
+        ],
+        "type": "object"
+      },
+      "AIRunDashboardPerformance": {
+        "additionalProperties": false,
+        "properties": {
+          "end_to_end": {
+            "$ref": "#/components/schemas/AIRunDashboardPercentile"
+          },
+          "ttft": {
+            "$ref": "#/components/schemas/AIRunDashboardPercentile"
+          }
+        },
+        "required": [
+          "end_to_end",
+          "ttft"
+        ],
+        "type": "object"
+      },
+      "AIRunDashboardProviderBreakdown": {
+        "additionalProperties": false,
+        "properties": {
+          "actual_amount": {
+            "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{0,7}[1-9])?$",
+            "type": "string"
+          },
+          "billing_anomaly_count": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "provider_id": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "provider_name": {
+            "type": "string"
+          },
+          "run_anomaly_count": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "success_denominator": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "success_rate": {
+            "maximum": 100,
+            "minimum": 0,
+            "type": "number"
+          },
+          "success_runs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total_runs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total_tokens": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "actual_amount",
+          "billing_anomaly_count",
+          "provider_id",
+          "provider_name",
+          "run_anomaly_count",
+          "success_denominator",
+          "success_rate",
+          "success_runs",
+          "total_runs",
+          "total_tokens"
+        ],
+        "type": "object"
+      },
+      "AIRunDashboardResult": {
+        "additionalProperties": false,
+        "properties": {
+          "anomalies": {
+            "$ref": "#/components/schemas/AIRunDashboardAnomalies"
+          },
+          "billing": {
+            "$ref": "#/components/schemas/AIRunDashboardBilling"
+          },
+          "breakdowns": {
+            "$ref": "#/components/schemas/AIRunDashboardBreakdowns"
+          },
+          "date_range": {
+            "$ref": "#/components/schemas/AIRunDashboardDateRange"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "performance": {
+            "$ref": "#/components/schemas/AIRunDashboardPerformance"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/AIRunDashboardSummary"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "trend": {
+            "items": {
+              "$ref": "#/components/schemas/AIRunDashboardTrendItem"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "anomalies",
+          "billing",
+          "breakdowns",
+          "date_range",
+          "generated_at",
+          "performance",
+          "summary",
+          "timezone",
+          "trend"
+        ],
+        "type": "object"
+      },
+      "AIRunDashboardSuccessEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": 0,
+            "type": "integer"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AIRunDashboardResult"
+          },
+          "msg": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "data",
+          "msg"
+        ],
+        "type": "object"
+      },
+      "AIRunDashboardSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "canceled_runs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "completion_tokens": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "failed_runs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "in_progress_runs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "outcome_unknown_runs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "prompt_tokens": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "success_denominator": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "success_rate": {
+            "maximum": 100,
+            "minimum": 0,
+            "type": "number"
+          },
+          "success_runs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "terminal_runs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "timeout_runs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total_runs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total_tokens": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "canceled_runs",
+          "completion_tokens",
+          "failed_runs",
+          "in_progress_runs",
+          "outcome_unknown_runs",
+          "prompt_tokens",
+          "success_denominator",
+          "success_rate",
+          "success_runs",
+          "terminal_runs",
+          "timeout_runs",
+          "total_runs",
+          "total_tokens"
+        ],
+        "type": "object"
+      },
+      "AIRunDashboardToolBreakdown": {
+        "additionalProperties": false,
+        "properties": {
+          "duration": {
+            "$ref": "#/components/schemas/AIRunDashboardPercentile"
+          },
+          "failed_calls": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "success_calls": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "success_denominator": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "success_rate": {
+            "maximum": 100,
+            "minimum": 0,
+            "type": "number"
+          },
+          "timeout_calls": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "tool_code": {
+            "type": "string"
+          },
+          "tool_name": {
+            "type": "string"
+          },
+          "total_calls": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "duration",
+          "failed_calls",
+          "success_calls",
+          "success_denominator",
+          "success_rate",
+          "timeout_calls",
+          "tool_code",
+          "tool_name",
+          "total_calls"
+        ],
+        "type": "object"
+      },
+      "AIRunDashboardTrendItem": {
+        "additionalProperties": false,
+        "properties": {
+          "actual_amount": {
+            "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{0,7}[1-9])?$",
+            "type": "string"
+          },
+          "canceled_runs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "date": {
+            "format": "date",
+            "type": "string"
+          },
+          "end_to_end": {
+            "$ref": "#/components/schemas/AIRunDashboardPercentile"
+          },
+          "failed_runs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "in_progress_runs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "outcome_unknown_runs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "success_denominator": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "success_rate": {
+            "maximum": 100,
+            "minimum": 0,
+            "type": "number"
+          },
+          "success_runs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "timeout_runs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total_runs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "ttft": {
+            "$ref": "#/components/schemas/AIRunDashboardPercentile"
+          }
+        },
+        "required": [
+          "actual_amount",
+          "canceled_runs",
+          "date",
+          "end_to_end",
+          "failed_runs",
+          "in_progress_runs",
+          "outcome_unknown_runs",
+          "success_denominator",
+          "success_rate",
+          "success_runs",
+          "timeout_runs",
+          "total_runs",
+          "ttft"
+        ],
+        "type": "object"
+      },
+      "AIRunDashboardUserBreakdown": {
+        "additionalProperties": false,
+        "properties": {
+          "actual_amount": {
+            "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{0,7}[1-9])?$",
+            "type": "string"
+          },
+          "billing_anomaly_count": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "run_anomaly_count": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "success_denominator": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "success_rate": {
+            "maximum": 100,
+            "minimum": 0,
+            "type": "number"
+          },
+          "success_runs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total_runs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total_tokens": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "user_id": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "actual_amount",
+          "billing_anomaly_count",
+          "run_anomaly_count",
+          "success_denominator",
+          "success_rate",
+          "success_runs",
+          "total_runs",
+          "total_tokens",
+          "user_id",
+          "username"
+        ],
+        "type": "object"
+      },
       "AIRunDetail": {
         "additionalProperties": false,
         "properties": {
@@ -806,6 +1634,9 @@
             ]
           },
           "duration_text": {
+            "type": "string"
+          },
+          "error_code": {
             "type": "string"
           },
           "error_message": {
@@ -970,6 +1801,7 @@
           "created_at",
           "duration_ms",
           "duration_text",
+          "error_code",
           "error_message",
           "events",
           "finished_at",
@@ -1360,120 +2192,6 @@
         ],
         "type": "object"
       },
-      "AIRunLatencyDistribution": {
-        "additionalProperties": false,
-        "properties": {
-          "insufficient_sample": {
-            "type": "boolean"
-          },
-          "p50_ms": {
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "p95_ms": {
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "p99_ms": {
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "sample_count": {
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
-          }
-        },
-        "required": [
-          "insufficient_sample",
-          "p50_ms",
-          "p95_ms",
-          "p99_ms",
-          "sample_count"
-        ],
-        "type": "object"
-      },
-      "AIRunLatencyStatsItem": {
-        "additionalProperties": false,
-        "properties": {
-          "model_id": {
-            "type": "string"
-          },
-          "provider_id": {
-            "format": "int64",
-            "minimum": 1,
-            "type": "integer"
-          },
-          "provider_name": {
-            "type": "string"
-          },
-          "provider_total": {
-            "$ref": "#/components/schemas/AIRunLatencyDistribution"
-          },
-          "ttft": {
-            "$ref": "#/components/schemas/AIRunLatencyDistribution"
-          }
-        },
-        "required": [
-          "model_id",
-          "provider_id",
-          "provider_name",
-          "provider_total",
-          "ttft"
-        ],
-        "type": "object"
-      },
-      "AIRunLatencyStatsResult": {
-        "additionalProperties": false,
-        "properties": {
-          "list": {
-            "items": {
-              "$ref": "#/components/schemas/AIRunLatencyStatsItem"
-            },
-            "type": "array"
-          },
-          "max_samples": {
-            "format": "int64",
-            "minimum": 1,
-            "type": "integer"
-          },
-          "window_days": {
-            "format": "int64",
-            "minimum": 1,
-            "type": "integer"
-          }
-        },
-        "required": [
-          "list",
-          "max_samples",
-          "window_days"
-        ],
-        "type": "object"
-      },
-      "AIRunLatencyStatsSuccessEnvelope": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "const": 0,
-            "type": "integer"
-          },
-          "data": {
-            "$ref": "#/components/schemas/AIRunLatencyStatsResult"
-          },
-          "msg": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "code",
-          "data",
-          "msg"
-        ],
-        "type": "object"
-      },
       "AIRunListItem": {
         "additionalProperties": false,
         "properties": {
@@ -1483,6 +2201,31 @@
             "type": "integer"
           },
           "agent_name": {
+            "type": "string"
+          },
+          "billing_reason": {
+            "enum": [
+              "pending",
+              "held",
+              "settled_complete_usage",
+              "released_before_dispatch",
+              "released_insufficient_balance",
+              "released_provider_failed",
+              "released_outcome_unknown",
+              "unbilled_usage_incomplete",
+              "unbilled_over_hold",
+              "legacy_unpriced"
+            ],
+            "type": "string"
+          },
+          "billing_status": {
+            "enum": [
+              "pending",
+              "held",
+              "settled",
+              "released",
+              "unbilled"
+            ],
             "type": "string"
           },
           "completion_tokens": {
@@ -1521,6 +2264,9 @@
             ]
           },
           "duration_text": {
+            "type": "string"
+          },
+          "error_code": {
             "type": "string"
           },
           "error_message": {
@@ -1590,12 +2336,15 @@
         "required": [
           "agent_id",
           "agent_name",
+          "billing_reason",
+          "billing_status",
           "completion_tokens",
           "conversation_id",
           "conversation_title",
           "created_at",
           "duration_ms",
           "duration_text",
+          "error_code",
           "error_message",
           "id",
           "input_snapshot",
@@ -1713,6 +2462,24 @@
             },
             "type": "array"
           },
+          "billing_reason_arr": {
+            "items": {
+              "$ref": "#/components/schemas/StringOption"
+            },
+            "type": "array"
+          },
+          "billing_status_arr": {
+            "items": {
+              "$ref": "#/components/schemas/StringOption"
+            },
+            "type": "array"
+          },
+          "model_arr": {
+            "items": {
+              "$ref": "#/components/schemas/AIRunPageInitModelOption"
+            },
+            "type": "array"
+          },
           "platform_arr": {
             "items": {
               "$ref": "#/components/schemas/StringOption"
@@ -1734,9 +2501,32 @@
         },
         "required": [
           "agentArr",
+          "billing_reason_arr",
+          "billing_status_arr",
+          "model_arr",
           "platform_arr",
           "providerArr",
           "status_arr"
+        ],
+        "type": "object"
+      },
+      "AIRunPageInitModelOption": {
+        "additionalProperties": false,
+        "properties": {
+          "historical": {
+            "type": "boolean"
+          },
+          "label": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "historical",
+          "label",
+          "value"
         ],
         "type": "object"
       },
@@ -1933,413 +2723,6 @@
           "prepared_request_bytes",
           "provider_attempt_count",
           "tool_call_count"
-        ],
-        "type": "object"
-      },
-      "AIRunStatsByAgentItem": {
-        "additionalProperties": false,
-        "properties": {
-          "agent_id": {
-            "format": "int64",
-            "minimum": 1,
-            "type": "integer"
-          },
-          "agent_name": {
-            "type": "string"
-          },
-          "avg_duration_ms": {
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "total_completion_tokens": {
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "total_prompt_tokens": {
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "total_runs": {
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "total_tokens": {
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
-          }
-        },
-        "required": [
-          "agent_id",
-          "agent_name",
-          "avg_duration_ms",
-          "total_completion_tokens",
-          "total_prompt_tokens",
-          "total_runs",
-          "total_tokens"
-        ],
-        "type": "object"
-      },
-      "AIRunStatsByAgentResult": {
-        "additionalProperties": false,
-        "properties": {
-          "list": {
-            "items": {
-              "$ref": "#/components/schemas/AIRunStatsByAgentItem"
-            },
-            "type": "array"
-          },
-          "page": {
-            "$ref": "#/components/schemas/Page"
-          }
-        },
-        "required": [
-          "list",
-          "page"
-        ],
-        "type": "object"
-      },
-      "AIRunStatsByAgentSuccessEnvelope": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "const": 0,
-            "type": "integer"
-          },
-          "data": {
-            "$ref": "#/components/schemas/AIRunStatsByAgentResult"
-          },
-          "msg": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "code",
-          "data",
-          "msg"
-        ],
-        "type": "object"
-      },
-      "AIRunStatsByDateItem": {
-        "additionalProperties": false,
-        "properties": {
-          "avg_duration_ms": {
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "date": {
-            "type": "string"
-          },
-          "total_completion_tokens": {
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "total_prompt_tokens": {
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "total_runs": {
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "total_tokens": {
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
-          }
-        },
-        "required": [
-          "avg_duration_ms",
-          "date",
-          "total_completion_tokens",
-          "total_prompt_tokens",
-          "total_runs",
-          "total_tokens"
-        ],
-        "type": "object"
-      },
-      "AIRunStatsByDateResult": {
-        "additionalProperties": false,
-        "properties": {
-          "list": {
-            "items": {
-              "$ref": "#/components/schemas/AIRunStatsByDateItem"
-            },
-            "type": "array"
-          },
-          "page": {
-            "$ref": "#/components/schemas/Page"
-          }
-        },
-        "required": [
-          "list",
-          "page"
-        ],
-        "type": "object"
-      },
-      "AIRunStatsByDateSuccessEnvelope": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "const": 0,
-            "type": "integer"
-          },
-          "data": {
-            "$ref": "#/components/schemas/AIRunStatsByDateResult"
-          },
-          "msg": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "code",
-          "data",
-          "msg"
-        ],
-        "type": "object"
-      },
-      "AIRunStatsByUserItem": {
-        "additionalProperties": false,
-        "properties": {
-          "avg_duration_ms": {
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "total_completion_tokens": {
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "total_prompt_tokens": {
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "total_runs": {
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "total_tokens": {
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "username": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "avg_duration_ms",
-          "total_completion_tokens",
-          "total_prompt_tokens",
-          "total_runs",
-          "total_tokens",
-          "username"
-        ],
-        "type": "object"
-      },
-      "AIRunStatsByUserResult": {
-        "additionalProperties": false,
-        "properties": {
-          "list": {
-            "items": {
-              "$ref": "#/components/schemas/AIRunStatsByUserItem"
-            },
-            "type": "array"
-          },
-          "page": {
-            "$ref": "#/components/schemas/Page"
-          }
-        },
-        "required": [
-          "list",
-          "page"
-        ],
-        "type": "object"
-      },
-      "AIRunStatsByUserSuccessEnvelope": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "const": 0,
-            "type": "integer"
-          },
-          "data": {
-            "$ref": "#/components/schemas/AIRunStatsByUserResult"
-          },
-          "msg": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "code",
-          "data",
-          "msg"
-        ],
-        "type": "object"
-      },
-      "AIRunStatsDateRange": {
-        "additionalProperties": false,
-        "properties": {
-          "end": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "start": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "required": [
-          "end",
-          "start"
-        ],
-        "type": "object"
-      },
-      "AIRunStatsMetric": {
-        "additionalProperties": false,
-        "properties": {
-          "avg_duration_ms": {
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "total_completion_tokens": {
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "total_prompt_tokens": {
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "total_runs": {
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "total_tokens": {
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
-          }
-        },
-        "required": [
-          "avg_duration_ms",
-          "total_completion_tokens",
-          "total_prompt_tokens",
-          "total_runs",
-          "total_tokens"
-        ],
-        "type": "object"
-      },
-      "AIRunStatsResult": {
-        "additionalProperties": false,
-        "properties": {
-          "date_range": {
-            "$ref": "#/components/schemas/AIRunStatsDateRange"
-          },
-          "summary": {
-            "$ref": "#/components/schemas/AIRunStatsSummary"
-          }
-        },
-        "required": [
-          "date_range",
-          "summary"
-        ],
-        "type": "object"
-      },
-      "AIRunStatsSuccessEnvelope": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "const": 0,
-            "type": "integer"
-          },
-          "data": {
-            "$ref": "#/components/schemas/AIRunStatsResult"
-          },
-          "msg": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "code",
-          "data",
-          "msg"
-        ],
-        "type": "object"
-      },
-      "AIRunStatsSummary": {
-        "additionalProperties": false,
-        "properties": {
-          "avg_duration_ms": {
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "fail_runs": {
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "success_rate": {
-            "maximum": 100,
-            "minimum": 0,
-            "type": "number"
-          },
-          "total_completion_tokens": {
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "total_prompt_tokens": {
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "total_runs": {
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "total_tokens": {
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
-          }
-        },
-        "required": [
-          "avg_duration_ms",
-          "fail_runs",
-          "success_rate",
-          "total_completion_tokens",
-          "total_prompt_tokens",
-          "total_runs",
-          "total_tokens"
         ],
         "type": "object"
       },
@@ -21426,6 +21809,71 @@
             }
           },
           {
+            "description": "RFC3339 instant used to evaluate stale and overdue anomalies.",
+            "in": "query",
+            "name": "anomaly_as_of",
+            "required": false,
+            "schema": {
+              "format": "date-time",
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Billing anomaly drilldown filter.",
+            "in": "query",
+            "name": "billing_anomaly",
+            "required": false,
+            "schema": {
+              "enum": [
+                "state_inconsistent",
+                "open_overdue",
+                "pricing_snapshot_missing",
+                "legacy_unpriced",
+                "unbilled_usage_incomplete",
+                "unbilled_over_hold"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Billing reason filter.",
+            "in": "query",
+            "name": "billing_reason",
+            "required": false,
+            "schema": {
+              "enum": [
+                "pending",
+                "held",
+                "settled_complete_usage",
+                "released_before_dispatch",
+                "released_insufficient_balance",
+                "released_provider_failed",
+                "released_outcome_unknown",
+                "unbilled_usage_incomplete",
+                "unbilled_over_hold",
+                "legacy_unpriced"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Billing status filter.",
+            "in": "query",
+            "name": "billing_status",
+            "required": false,
+            "schema": {
+              "enum": [
+                "pending",
+                "held",
+                "settled",
+                "released",
+                "unbilled"
+              ],
+              "type": "string"
+            }
+          },
+          {
             "description": "One-based page number.",
             "in": "query",
             "name": "current_page",
@@ -21438,22 +21886,46 @@
             }
           },
           {
-            "description": "Inclusive creation-time upper bound.",
+            "description": "Inclusive Asia/Shanghai calendar date input (YYYY-MM-DD); normalized output uses an exclusive end instant.",
             "in": "query",
             "name": "date_end",
             "required": false,
             "schema": {
-              "maxLength": 20,
+              "format": "date",
+              "maxLength": 10,
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
               "type": "string"
             }
           },
           {
-            "description": "Inclusive creation-time lower bound.",
+            "description": "Inclusive Asia/Shanghai calendar date input (YYYY-MM-DD); normalized output uses an exclusive end instant.",
             "in": "query",
             "name": "date_start",
             "required": false,
             "schema": {
-              "maxLength": 20,
+              "format": "date",
+              "maxLength": 10,
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Final provider attempt error code filter.",
+            "in": "query",
+            "name": "error_code",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Official or historical model ID filter.",
+            "in": "query",
+            "name": "model_id",
+            "required": false,
+            "schema": {
+              "maxLength": 191,
               "type": "string"
             }
           },
@@ -21504,6 +21976,21 @@
             }
           },
           {
+            "description": "Run anomaly drilldown filter.",
+            "in": "query",
+            "name": "run_anomaly",
+            "required": false,
+            "schema": {
+              "enum": [
+                "failed",
+                "timeout",
+                "outcome_unknown",
+                "stale_running"
+              ],
+              "type": "string"
+            }
+          },
+          {
             "description": "Run status filter.",
             "in": "query",
             "name": "status",
@@ -21517,6 +22004,16 @@
                 "timeout",
                 "outcome_unknown"
               ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Tool code drilldown filter.",
+            "in": "query",
+            "name": "tool_code",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
               "type": "string"
             }
           },
@@ -21574,9 +22071,161 @@
         "x-runtime-path": "/api/admin/v1/ai-runs"
       }
     },
+    "/api/admin/v1/ai-runs/dashboard": {
+      "get": {
+        "operationId": "get_api_admin_v1_ai_runs_dashboard",
+        "parameters": [
+          {
+            "description": "Agent ID filter.",
+            "in": "query",
+            "name": "agent_id",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Inclusive Asia/Shanghai calendar date input (YYYY-MM-DD); normalized output uses an exclusive end instant.",
+            "in": "query",
+            "name": "date_end",
+            "required": false,
+            "schema": {
+              "format": "date",
+              "maxLength": 10,
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Inclusive Asia/Shanghai calendar date input (YYYY-MM-DD); normalized output uses an exclusive end instant.",
+            "in": "query",
+            "name": "date_start",
+            "required": false,
+            "schema": {
+              "format": "date",
+              "maxLength": 10,
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Official or historical model ID filter.",
+            "in": "query",
+            "name": "model_id",
+            "required": false,
+            "schema": {
+              "maxLength": 191,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Origin platform filter.",
+            "in": "query",
+            "name": "platform",
+            "required": false,
+            "schema": {
+              "enum": [
+                "admin"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Provider ID filter.",
+            "in": "query",
+            "name": "provider_id",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "User ID filter.",
+            "in": "query",
+            "name": "user_id",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIRunDashboardSuccessEnvelope"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Classified safe error response"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "GET /api/admin/v1/ai-runs/dashboard",
+        "tags": [
+          "ai-runs"
+        ],
+        "x-admin-access": {
+          "kind": "permission",
+          "permission_code": "ai_run_list"
+        },
+        "x-admin-audit": {
+          "enabled": false,
+          "reason": "read-only"
+        },
+        "x-runtime-path": "/api/admin/v1/ai-runs/dashboard"
+      }
+    },
     "/api/admin/v1/ai-runs/page-init": {
       "get": {
         "operationId": "get_api_admin_v1_ai_runs_page_init",
+        "parameters": [
+          {
+            "description": "Inclusive Asia/Shanghai calendar date input (YYYY-MM-DD); normalized output uses an exclusive end instant.",
+            "in": "query",
+            "name": "date_end",
+            "required": false,
+            "schema": {
+              "format": "date",
+              "maxLength": 10,
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Inclusive Asia/Shanghai calendar date input (YYYY-MM-DD); normalized output uses an exclusive end instant.",
+            "in": "query",
+            "name": "date_start",
+            "required": false,
+            "schema": {
+              "format": "date",
+              "maxLength": 10,
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -21617,574 +22266,6 @@
           "reason": "read-only"
         },
         "x-runtime-path": "/api/admin/v1/ai-runs/page-init"
-      }
-    },
-    "/api/admin/v1/ai-runs/stats": {
-      "get": {
-        "operationId": "get_api_admin_v1_ai_runs_stats",
-        "parameters": [
-          {
-            "description": "Agent ID filter.",
-            "in": "query",
-            "name": "agent_id",
-            "required": false,
-            "schema": {
-              "format": "int64",
-              "minimum": 1,
-              "type": "integer"
-            }
-          },
-          {
-            "description": "Inclusive creation-time upper bound.",
-            "in": "query",
-            "name": "date_end",
-            "required": false,
-            "schema": {
-              "maxLength": 20,
-              "type": "string"
-            }
-          },
-          {
-            "description": "Inclusive creation-time lower bound.",
-            "in": "query",
-            "name": "date_start",
-            "required": false,
-            "schema": {
-              "maxLength": 20,
-              "type": "string"
-            }
-          },
-          {
-            "description": "Origin platform filter.",
-            "in": "query",
-            "name": "platform",
-            "required": false,
-            "schema": {
-              "enum": [
-                "admin"
-              ],
-              "type": "string"
-            }
-          },
-          {
-            "description": "Provider ID filter.",
-            "in": "query",
-            "name": "provider_id",
-            "required": false,
-            "schema": {
-              "format": "int64",
-              "minimum": 1,
-              "type": "integer"
-            }
-          },
-          {
-            "description": "User ID filter.",
-            "in": "query",
-            "name": "user_id",
-            "required": false,
-            "schema": {
-              "format": "int64",
-              "minimum": 1,
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AIRunStatsSuccessEnvelope"
-                }
-              }
-            },
-            "description": "Successful response"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Classified safe error response"
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "summary": "GET /api/admin/v1/ai-runs/stats",
-        "tags": [
-          "ai-runs"
-        ],
-        "x-admin-access": {
-          "kind": "permission",
-          "permission_code": "ai_run_list"
-        },
-        "x-admin-audit": {
-          "enabled": false,
-          "reason": "read-only"
-        },
-        "x-runtime-path": "/api/admin/v1/ai-runs/stats"
-      }
-    },
-    "/api/admin/v1/ai-runs/stats/by-agent": {
-      "get": {
-        "operationId": "get_api_admin_v1_ai_runs_stats_by_agent",
-        "parameters": [
-          {
-            "description": "Agent ID filter.",
-            "in": "query",
-            "name": "agent_id",
-            "required": false,
-            "schema": {
-              "format": "int64",
-              "minimum": 1,
-              "type": "integer"
-            }
-          },
-          {
-            "description": "One-based page number.",
-            "in": "query",
-            "name": "current_page",
-            "required": false,
-            "schema": {
-              "default": 1,
-              "format": "int64",
-              "minimum": 1,
-              "type": "integer"
-            }
-          },
-          {
-            "description": "Inclusive creation-time upper bound.",
-            "in": "query",
-            "name": "date_end",
-            "required": false,
-            "schema": {
-              "maxLength": 20,
-              "type": "string"
-            }
-          },
-          {
-            "description": "Inclusive creation-time lower bound.",
-            "in": "query",
-            "name": "date_start",
-            "required": false,
-            "schema": {
-              "maxLength": 20,
-              "type": "string"
-            }
-          },
-          {
-            "description": "Number of rows per page.",
-            "in": "query",
-            "name": "page_size",
-            "required": false,
-            "schema": {
-              "default": 20,
-              "format": "int64",
-              "maximum": 50,
-              "minimum": 1,
-              "type": "integer"
-            }
-          },
-          {
-            "description": "Origin platform filter.",
-            "in": "query",
-            "name": "platform",
-            "required": false,
-            "schema": {
-              "enum": [
-                "admin"
-              ],
-              "type": "string"
-            }
-          },
-          {
-            "description": "Provider ID filter.",
-            "in": "query",
-            "name": "provider_id",
-            "required": false,
-            "schema": {
-              "format": "int64",
-              "minimum": 1,
-              "type": "integer"
-            }
-          },
-          {
-            "description": "User ID filter.",
-            "in": "query",
-            "name": "user_id",
-            "required": false,
-            "schema": {
-              "format": "int64",
-              "minimum": 1,
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AIRunStatsByAgentSuccessEnvelope"
-                }
-              }
-            },
-            "description": "Successful response"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Classified safe error response"
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "summary": "GET /api/admin/v1/ai-runs/stats/by-agent",
-        "tags": [
-          "ai-runs"
-        ],
-        "x-admin-access": {
-          "kind": "permission",
-          "permission_code": "ai_run_list"
-        },
-        "x-admin-audit": {
-          "enabled": false,
-          "reason": "read-only"
-        },
-        "x-runtime-path": "/api/admin/v1/ai-runs/stats/by-agent"
-      }
-    },
-    "/api/admin/v1/ai-runs/stats/by-date": {
-      "get": {
-        "operationId": "get_api_admin_v1_ai_runs_stats_by_date",
-        "parameters": [
-          {
-            "description": "Agent ID filter.",
-            "in": "query",
-            "name": "agent_id",
-            "required": false,
-            "schema": {
-              "format": "int64",
-              "minimum": 1,
-              "type": "integer"
-            }
-          },
-          {
-            "description": "One-based page number.",
-            "in": "query",
-            "name": "current_page",
-            "required": false,
-            "schema": {
-              "default": 1,
-              "format": "int64",
-              "minimum": 1,
-              "type": "integer"
-            }
-          },
-          {
-            "description": "Inclusive creation-time upper bound.",
-            "in": "query",
-            "name": "date_end",
-            "required": false,
-            "schema": {
-              "maxLength": 20,
-              "type": "string"
-            }
-          },
-          {
-            "description": "Inclusive creation-time lower bound.",
-            "in": "query",
-            "name": "date_start",
-            "required": false,
-            "schema": {
-              "maxLength": 20,
-              "type": "string"
-            }
-          },
-          {
-            "description": "Number of rows per page.",
-            "in": "query",
-            "name": "page_size",
-            "required": false,
-            "schema": {
-              "default": 20,
-              "format": "int64",
-              "maximum": 50,
-              "minimum": 1,
-              "type": "integer"
-            }
-          },
-          {
-            "description": "Origin platform filter.",
-            "in": "query",
-            "name": "platform",
-            "required": false,
-            "schema": {
-              "enum": [
-                "admin"
-              ],
-              "type": "string"
-            }
-          },
-          {
-            "description": "Provider ID filter.",
-            "in": "query",
-            "name": "provider_id",
-            "required": false,
-            "schema": {
-              "format": "int64",
-              "minimum": 1,
-              "type": "integer"
-            }
-          },
-          {
-            "description": "User ID filter.",
-            "in": "query",
-            "name": "user_id",
-            "required": false,
-            "schema": {
-              "format": "int64",
-              "minimum": 1,
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AIRunStatsByDateSuccessEnvelope"
-                }
-              }
-            },
-            "description": "Successful response"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Classified safe error response"
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "summary": "GET /api/admin/v1/ai-runs/stats/by-date",
-        "tags": [
-          "ai-runs"
-        ],
-        "x-admin-access": {
-          "kind": "permission",
-          "permission_code": "ai_run_list"
-        },
-        "x-admin-audit": {
-          "enabled": false,
-          "reason": "read-only"
-        },
-        "x-runtime-path": "/api/admin/v1/ai-runs/stats/by-date"
-      }
-    },
-    "/api/admin/v1/ai-runs/stats/by-user": {
-      "get": {
-        "operationId": "get_api_admin_v1_ai_runs_stats_by_user",
-        "parameters": [
-          {
-            "description": "Agent ID filter.",
-            "in": "query",
-            "name": "agent_id",
-            "required": false,
-            "schema": {
-              "format": "int64",
-              "minimum": 1,
-              "type": "integer"
-            }
-          },
-          {
-            "description": "One-based page number.",
-            "in": "query",
-            "name": "current_page",
-            "required": false,
-            "schema": {
-              "default": 1,
-              "format": "int64",
-              "minimum": 1,
-              "type": "integer"
-            }
-          },
-          {
-            "description": "Inclusive creation-time upper bound.",
-            "in": "query",
-            "name": "date_end",
-            "required": false,
-            "schema": {
-              "maxLength": 20,
-              "type": "string"
-            }
-          },
-          {
-            "description": "Inclusive creation-time lower bound.",
-            "in": "query",
-            "name": "date_start",
-            "required": false,
-            "schema": {
-              "maxLength": 20,
-              "type": "string"
-            }
-          },
-          {
-            "description": "Number of rows per page.",
-            "in": "query",
-            "name": "page_size",
-            "required": false,
-            "schema": {
-              "default": 20,
-              "format": "int64",
-              "maximum": 50,
-              "minimum": 1,
-              "type": "integer"
-            }
-          },
-          {
-            "description": "Origin platform filter.",
-            "in": "query",
-            "name": "platform",
-            "required": false,
-            "schema": {
-              "enum": [
-                "admin"
-              ],
-              "type": "string"
-            }
-          },
-          {
-            "description": "Provider ID filter.",
-            "in": "query",
-            "name": "provider_id",
-            "required": false,
-            "schema": {
-              "format": "int64",
-              "minimum": 1,
-              "type": "integer"
-            }
-          },
-          {
-            "description": "User ID filter.",
-            "in": "query",
-            "name": "user_id",
-            "required": false,
-            "schema": {
-              "format": "int64",
-              "minimum": 1,
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AIRunStatsByUserSuccessEnvelope"
-                }
-              }
-            },
-            "description": "Successful response"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Classified safe error response"
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "summary": "GET /api/admin/v1/ai-runs/stats/by-user",
-        "tags": [
-          "ai-runs"
-        ],
-        "x-admin-access": {
-          "kind": "permission",
-          "permission_code": "ai_run_list"
-        },
-        "x-admin-audit": {
-          "enabled": false,
-          "reason": "read-only"
-        },
-        "x-runtime-path": "/api/admin/v1/ai-runs/stats/by-user"
-      }
-    },
-    "/api/admin/v1/ai-runs/stats/latency": {
-      "get": {
-        "operationId": "get_api_admin_v1_ai_runs_stats_latency",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AIRunLatencyStatsSuccessEnvelope"
-                }
-              }
-            },
-            "description": "Successful response"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Classified safe error response"
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "summary": "GET /api/admin/v1/ai-runs/stats/latency",
-        "tags": [
-          "ai-runs"
-        ],
-        "x-admin-access": {
-          "kind": "permission",
-          "permission_code": "ai_run_list"
-        },
-        "x-admin-audit": {
-          "enabled": false,
-          "reason": "read-only"
-        },
-        "x-runtime-path": "/api/admin/v1/ai-runs/stats/latency"
       }
     },
     "/api/admin/v1/ai-runs/{id}": {
