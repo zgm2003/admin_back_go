@@ -2,6 +2,16 @@ ai.run.usage_status_missing: AI运行用量状态缺失
 ai.chat.user_message_empty: 用户消息内容为空
 ai.chat.input_snapshot_failed: 生成AI运行输入快照失败
 airun.platform.invalid: 无效的AI运行平台
+airun.dashboard.query_failed: 查询AI运行驾驶舱失败
+airun.dashboard.result_invalid: AI运行驾驶舱统计结果无效
+airun.dashboard.timezone_invalid: AI运行驾驶舱时区不可用
+airun.dashboard.date_range.partial: 开始日期和结束日期必须同时提供
+airun.dashboard.date_start.invalid: 无效的开始日期
+airun.dashboard.date_end.invalid: 无效的结束日期
+airun.dashboard.date_range.reversed: 开始日期不能晚于结束日期
+airun.dashboard.date_range.too_large: 日期范围不能超过{{.max_days}}天
+airun.dashboard.id.invalid: 筛选ID必须为正整数
+airun.dashboard.model_id.too_long: 模型ID长度不能超过{{.max}}个字符
 airun.feedback.unauthorized: Token无效或已过期
 airun.feedback.id_invalid: 无效的AI运行ID
 airun.feedback.query_failed: 查询AI运行反馈状态失败

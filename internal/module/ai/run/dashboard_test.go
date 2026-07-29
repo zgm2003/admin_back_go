@@ -92,6 +92,13 @@ func TestDashboardRejectsPartialInvalidReversedAndOverNinetyDayRanges(t *testing
 	if repository.dashboardQuery.Platform != "admin" || repository.dashboardQuery.ModelID != "gpt-test" {
 		t.Fatalf("normalized filters=%+v", repository.dashboardQuery)
 	}
+	assertDashboardTime(t, "custom start_at", repository.dashboardQuery.StartAt, "2026-05-01T00:00:00+08:00")
+	assertDashboardTime(t, "custom end_exclusive", repository.dashboardQuery.EndExclusive, "2026-07-30T00:00:00+08:00")
+	if repository.dashboardQuery.AgentID == nil || *repository.dashboardQuery.AgentID != agentID ||
+		repository.dashboardQuery.ProviderID == nil || *repository.dashboardQuery.ProviderID != providerID ||
+		repository.dashboardQuery.UserID == nil || *repository.dashboardQuery.UserID != userID {
+		t.Fatalf("normalized IDs=%+v", repository.dashboardQuery)
+	}
 }
 
 func TestDashboardSuccessRateExcludesRunningAndCanceled(t *testing.T) {
@@ -214,6 +221,25 @@ func TestDashboardReturnsCompleteZeroObjectsAndEmptyArrays(t *testing.T) {
 		if !strings.Contains(string(encoded), key) {
 			t.Fatalf("dashboard JSON missing %s: %s", key, encoded)
 		}
+	}
+
+	withMetrics, appErr := NewService(&fakeRepository{dashboardRows: DashboardRepositoryResult{
+		Attributions: []DashboardAttributionRow{{
+			Dimension: "model", Key: "gpt-test", Name: "GPT Test", TotalRuns: 1,
+			SuccessRuns: 1, TotalTokens: 12, ActualUnits: 25_000_000,
+		}},
+	}}, WithClock(clock.Func(func() time.Time { return dashboardFixedNow(t) }))).Dashboard(context.Background(), DashboardFilter{})
+	if appErr != nil {
+		t.Fatalf("Dashboard with attribution returned error: %v", appErr)
+	}
+	encoded, err = json.Marshal(withMetrics)
+	if err != nil {
+		t.Fatalf("marshal dashboard with attribution: %v", err)
+	}
+	encodedText := string(encoded)
+	if !strings.Contains(encodedText, `"models":[{"model_id":"gpt-test"`) ||
+		!strings.Contains(encodedText, `"success_rate":100`) || strings.Contains(encodedText, `"metrics"`) {
+		t.Fatalf("attribution metrics must be flattened: %s", encodedText)
 	}
 }
 

@@ -2,6 +2,16 @@ ai.run.usage_status_missing: AI run usage status is missing
 ai.chat.user_message_empty: User message content is empty
 ai.chat.input_snapshot_failed: Failed to build AI run input snapshot
 airun.platform.invalid: Invalid AI run platform
+airun.dashboard.query_failed: Failed to query the AI run dashboard
+airun.dashboard.result_invalid: The AI run dashboard result is invalid
+airun.dashboard.timezone_invalid: The AI run dashboard timezone is unavailable
+airun.dashboard.date_range.partial: Start date and end date must be provided together
+airun.dashboard.date_start.invalid: Invalid start date
+airun.dashboard.date_end.invalid: Invalid end date
+airun.dashboard.date_range.reversed: Start date cannot be later than end date
+airun.dashboard.date_range.too_large: Date range cannot exceed {{.max_days}} days
+airun.dashboard.id.invalid: Filter ID must be a positive integer
+airun.dashboard.model_id.too_long: Model ID cannot exceed {{.max}} characters
 airun.feedback.unauthorized: The authentication token is invalid or expired
 airun.feedback.id_invalid: Invalid AI run ID
 airun.feedback.query_failed: Failed to query AI run feedback state
