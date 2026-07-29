@@ -186,8 +186,12 @@ func buildDashboardResponse(query DashboardQuery, rows DashboardRepositoryResult
 		return nil, err
 	}
 
+	trendRows, err := fillDashboardTrendRows(query, rows.Trend)
+	if err != nil {
+		return nil, err
+	}
 	var trendUnits int64
-	for _, row := range rows.Trend {
+	for _, row := range trendRows {
 		trendUnits, err = dashboardAddNonNegative("trend actual amount", trendUnits, row.ActualUnits)
 		if err != nil {
 			return nil, err
@@ -276,6 +280,34 @@ func buildDashboardResponse(query DashboardQuery, rows DashboardRepositoryResult
 	}
 
 	return response, nil
+}
+
+func fillDashboardTrendRows(query DashboardQuery, rows []DashboardTrendRow) ([]DashboardTrendRow, error) {
+	if len(rows) == 0 {
+		return make([]DashboardTrendRow, 0), nil
+	}
+	byDate := make(map[string]DashboardTrendRow, len(rows))
+	for _, row := range rows {
+		date, err := parseDashboardDate(row.Date, query.StartAt.Location())
+		if err != nil || date.Before(query.StartAt) || !date.Before(query.EndExclusive) {
+			return nil, fmt.Errorf("dashboard trend date %q is outside the normalized range", row.Date)
+		}
+		if _, exists := byDate[row.Date]; exists {
+			return nil, fmt.Errorf("dashboard trend date %q is duplicated", row.Date)
+		}
+		byDate[row.Date] = row
+	}
+
+	result := make([]DashboardTrendRow, 0, len(rows))
+	for date := query.StartAt; date.Before(query.EndExclusive); date = date.AddDate(0, 0, 1) {
+		key := date.Format(dashboardDateLayout)
+		row, ok := byDate[key]
+		if !ok {
+			row = DashboardTrendRow{Date: key}
+		}
+		result = append(result, row)
+	}
+	return result, nil
 }
 
 func dashboardRate(numerator, denominator int64) float64 {

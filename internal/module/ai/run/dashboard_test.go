@@ -125,7 +125,7 @@ func TestDashboardSuccessRateExcludesRunningAndCanceled(t *testing.T) {
 	if response.Summary != wantSummary {
 		t.Fatalf("summary=%+v want=%+v", response.Summary, wantSummary)
 	}
-	if got := response.Trend[0]; got.SuccessDenominator != 11 || got.SuccessRate != 63.64 || got.InProgressRuns != 4 {
+	if got := dashboardTrendItemByDate(t, response.Trend, "2026-07-29"); got.SuccessDenominator != 11 || got.SuccessRate != 63.64 || got.InProgressRuns != 4 {
 		t.Fatalf("trend=%+v", got)
 	}
 	if got := response.Breakdowns.Models[0].DashboardAttributionMetrics; got.SuccessDenominator != 11 || got.SuccessRate != 63.64 {
@@ -155,7 +155,7 @@ func TestDashboardFormatsOnlySettledActualUnits(t *testing.T) {
 	if response.Billing.ActualAmount != "1.5" || response.Billing.ReleasedAmount != "5.75" {
 		t.Fatalf("billing=%+v", response.Billing)
 	}
-	if response.Trend[0].ActualAmount != "0.25" || response.Breakdowns.Models[0].ActualAmount != "0.1" || response.Breakdowns.Users[0].ActualAmount != "0.4" {
+	if dashboardTrendItemByDate(t, response.Trend, "2026-07-29").ActualAmount != "0.25" || response.Breakdowns.Models[0].ActualAmount != "0.1" || response.Breakdowns.Users[0].ActualAmount != "0.4" {
 		t.Fatalf("trend=%+v breakdowns=%+v", response.Trend, response.Breakdowns)
 	}
 }
@@ -267,11 +267,41 @@ func TestDashboardMarksNineteenSamplesInsufficientAndTwentySufficient(t *testing
 	if !response.Performance.TTFT.InsufficientSample || response.Performance.EndToEnd.InsufficientSample {
 		t.Fatalf("performance=%+v", response.Performance)
 	}
-	if !response.Trend[0].TTFT.InsufficientSample || response.Trend[0].EndToEnd.InsufficientSample {
-		t.Fatalf("trend=%+v", response.Trend[0])
+	trend := dashboardTrendItemByDate(t, response.Trend, "2026-07-29")
+	if !trend.TTFT.InsufficientSample || trend.EndToEnd.InsufficientSample {
+		t.Fatalf("trend=%+v", trend)
 	}
 	if !response.Breakdowns.Tools[0].Duration.InsufficientSample || response.Breakdowns.Tools[1].Duration.InsufficientSample {
 		t.Fatalf("tools=%+v", response.Breakdowns.Tools)
+	}
+}
+
+func TestDashboardFillsMissingTrendDaysWithoutInventingAnAllZeroSeries(t *testing.T) {
+	repository := &fakeRepository{dashboardRows: DashboardRepositoryResult{Trend: []DashboardTrendRow{
+		{Date: "2026-07-27", TotalRuns: 2, SuccessRuns: 2},
+		{Date: "2026-07-29", TotalRuns: 1, FailedRuns: 1},
+	}}}
+	service := NewService(repository, WithClock(clock.Func(func() time.Time { return dashboardFixedNow(t) })))
+
+	response, appErr := service.Dashboard(context.Background(), DashboardFilter{DateStart: "2026-07-27", DateEnd: "2026-07-29"})
+	if appErr != nil {
+		t.Fatalf("Dashboard returned error: %v", appErr)
+	}
+	if len(response.Trend) != 3 {
+		t.Fatalf("trend=%+v", response.Trend)
+	}
+	if response.Trend[0].Date != "2026-07-27" || response.Trend[0].TotalRuns != 2 ||
+		response.Trend[1].Date != "2026-07-28" || response.Trend[1].TotalRuns != 0 ||
+		response.Trend[2].Date != "2026-07-29" || response.Trend[2].FailedRuns != 1 {
+		t.Fatalf("trend gap was not filled with a truthful zero bucket: %+v", response.Trend)
+	}
+
+	empty, appErr := NewService(&fakeRepository{}, WithClock(clock.Func(func() time.Time { return dashboardFixedNow(t) }))).Dashboard(context.Background(), DashboardFilter{})
+	if appErr != nil {
+		t.Fatalf("empty Dashboard returned error: %v", appErr)
+	}
+	if empty.Trend == nil || len(empty.Trend) != 0 {
+		t.Fatalf("an entirely empty trend must remain a non-nil empty array: %+v", empty.Trend)
 	}
 }
 
@@ -321,4 +351,15 @@ func assertDashboardTime(t *testing.T, name string, value time.Time, want string
 	if got := value.Format(time.RFC3339); got != want {
 		t.Fatalf("%s=%s want=%s", name, got, want)
 	}
+}
+
+func dashboardTrendItemByDate(t *testing.T, items []DashboardTrendItem, date string) DashboardTrendItem {
+	t.Helper()
+	for _, item := range items {
+		if item.Date == date {
+			return item
+		}
+	}
+	t.Fatalf("dashboard trend does not contain date %s: %+v", date, items)
+	return DashboardTrendItem{}
 }
