@@ -7,23 +7,18 @@
           "name": {
             "type": "string"
           },
-          "size": {
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
+          "object_key": {
+            "minLength": 1,
+            "type": "string"
           },
           "type": {
             "const": "image",
-            "type": "string"
-          },
-          "url": {
-            "minLength": 1,
             "type": "string"
           }
         },
         "required": [
           "type",
-          "url"
+          "object_key"
         ],
         "type": "object"
       },
@@ -562,7 +557,15 @@
       "AIMessageMetaAttachment": {
         "additionalProperties": false,
         "properties": {
+          "mime_type": {
+            "minLength": 1,
+            "type": "string"
+          },
           "name": {
+            "type": "string"
+          },
+          "object_key": {
+            "minLength": 1,
             "type": "string"
           },
           "size": {
@@ -575,11 +578,14 @@
             "type": "string"
           },
           "url": {
+            "minLength": 1,
             "type": "string"
           }
         },
         "required": [
+          "mime_type",
           "name",
+          "object_key",
           "size",
           "type",
           "url"
@@ -834,6 +840,9 @@
             },
             "type": "array"
           },
+          "latency": {
+            "$ref": "#/components/schemas/AIRunLatencyBreakdown"
+          },
           "liked": {
             "type": "boolean"
           },
@@ -890,6 +899,9 @@
           },
           "request_id": {
             "type": "string"
+          },
+          "request_summary": {
+            "$ref": "#/components/schemas/AIRunRequestSummary"
           },
           "started_at": {
             "type": "string"
@@ -967,6 +979,7 @@
           "id",
           "input_snapshot",
           "knowledge_retrievals",
+          "latency",
           "liked",
           "liked_at",
           "model_display_name",
@@ -978,6 +991,7 @@
           "provider_id",
           "provider_name",
           "request_id",
+          "request_summary",
           "started_at",
           "status",
           "status_name",
@@ -1236,6 +1250,229 @@
           "status",
           "status_name",
           "total_hits"
+        ],
+        "type": "object"
+      },
+      "AIRunLatencyBreakdown": {
+        "additionalProperties": false,
+        "properties": {
+          "accept_ms": {
+            "anyOf": [
+              {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "claim_source": {
+            "enum": [
+              "",
+              "wake",
+              "poll",
+              "recovery"
+            ],
+            "type": "string"
+          },
+          "end_to_end_ms": {
+            "anyOf": [
+              {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "prepare_ms": {
+            "anyOf": [
+              {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provider_total_ms": {
+            "anyOf": [
+              {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "queue_ms": {
+            "anyOf": [
+              {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "settlement_ms": {
+            "anyOf": [
+              {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ttft_ms": {
+            "anyOf": [
+              {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "accept_ms",
+          "claim_source",
+          "end_to_end_ms",
+          "prepare_ms",
+          "provider_total_ms",
+          "queue_ms",
+          "settlement_ms",
+          "ttft_ms"
+        ],
+        "type": "object"
+      },
+      "AIRunLatencyDistribution": {
+        "additionalProperties": false,
+        "properties": {
+          "insufficient_sample": {
+            "type": "boolean"
+          },
+          "p50_ms": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "p95_ms": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "p99_ms": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "sample_count": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "insufficient_sample",
+          "p50_ms",
+          "p95_ms",
+          "p99_ms",
+          "sample_count"
+        ],
+        "type": "object"
+      },
+      "AIRunLatencyStatsItem": {
+        "additionalProperties": false,
+        "properties": {
+          "model_id": {
+            "type": "string"
+          },
+          "provider_id": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "provider_name": {
+            "type": "string"
+          },
+          "provider_total": {
+            "$ref": "#/components/schemas/AIRunLatencyDistribution"
+          },
+          "ttft": {
+            "$ref": "#/components/schemas/AIRunLatencyDistribution"
+          }
+        },
+        "required": [
+          "model_id",
+          "provider_id",
+          "provider_name",
+          "provider_total",
+          "ttft"
+        ],
+        "type": "object"
+      },
+      "AIRunLatencyStatsResult": {
+        "additionalProperties": false,
+        "properties": {
+          "list": {
+            "items": {
+              "$ref": "#/components/schemas/AIRunLatencyStatsItem"
+            },
+            "type": "array"
+          },
+          "max_samples": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "window_days": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "list",
+          "max_samples",
+          "window_days"
+        ],
+        "type": "object"
+      },
+      "AIRunLatencyStatsSuccessEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": 0,
+            "type": "integer"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AIRunLatencyStatsResult"
+          },
+          "msg": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "data",
+          "msg"
         ],
         "type": "object"
       },
@@ -1659,6 +1896,45 @@
           "provider_request_id",
           "state",
           "usage_status"
+        ],
+        "type": "object"
+      },
+      "AIRunRequestSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "message_count": {
+            "anyOf": [
+              {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "prepared_request_bytes": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "provider_attempt_count": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "tool_call_count": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "message_count",
+          "prepared_request_bytes",
+          "provider_attempt_count",
+          "tool_call_count"
         ],
         "type": "object"
       },
@@ -2282,12 +2558,6 @@
             "minimum": 1,
             "type": "integer"
           },
-          "max_tokens": {
-            "format": "int64",
-            "maximum": 200000,
-            "minimum": 1,
-            "type": "integer"
-          },
           "temperature": {
             "maximum": 2,
             "minimum": 0,
@@ -2674,6 +2944,16 @@
           "billing_multiplier": {
             "type": "string"
           },
+          "capabilities": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Go_internal_module_ai_agent_EffectiveCapabilitiesDTO_Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "catalog_model_id": {
             "type": "string"
           },
@@ -2701,9 +2981,6 @@
           "id": {
             "type": "integer"
           },
-          "max_output_tokens": {
-            "type": "integer"
-          },
           "model_display_name": {
             "type": "string"
           },
@@ -2712,6 +2989,16 @@
           },
           "name": {
             "type": "string"
+          },
+          "official_model": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Go_internal_module_ai_agent_OfficialModelSummaryDTO_Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "override_version": {
             "type": "integer"
@@ -2729,6 +3016,9 @@
             "type": "string"
           },
           "provider_id": {
+            "type": "integer"
+          },
+          "provider_model_id": {
             "type": "integer"
           },
           "provider_name": {
@@ -2766,12 +3056,12 @@
           "created_at",
           "engine_type",
           "id",
-          "max_output_tokens",
           "model_display_name",
           "model_id",
           "name",
           "override_version",
           "provider_id",
+          "provider_model_id",
           "provider_name",
           "scene_names",
           "scenes",
@@ -2788,11 +3078,34 @@
           "avatar": {
             "type": "string"
           },
+          "capabilities": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Go_internal_module_ai_agent_EffectiveCapabilitiesDTO_Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "id": {
             "type": "integer"
           },
           "name": {
             "type": "string"
+          },
+          "official_model": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Go_internal_module_ai_agent_OfficialModelSummaryDTO_Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provider_model_id": {
+            "type": "integer"
           },
           "system_prompt": {
             "type": "string"
@@ -2800,8 +3113,11 @@
         },
         "required": [
           "avatar",
+          "capabilities",
           "id",
           "name",
+          "official_model",
+          "provider_model_id",
           "system_prompt"
         ],
         "type": "object"
@@ -2818,6 +3134,22 @@
         },
         "required": [
           "list"
+        ],
+        "type": "object"
+      },
+      "Go_internal_module_ai_agent_AttachmentCapabilities_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "image": {
+            "$ref": "#/components/schemas/Go_internal_module_ai_agent_ImageAttachmentCapability_Output"
+          },
+          "native_file": {
+            "$ref": "#/components/schemas/Go_internal_module_ai_agent_NativeFileAttachmentCapability_Output"
+          }
+        },
+        "required": [
+          "image",
+          "native_file"
         ],
         "type": "object"
       },
@@ -2858,6 +3190,16 @@
           "billing_multiplier": {
             "type": "string"
           },
+          "capabilities": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Go_internal_module_ai_agent_EffectiveCapabilitiesDTO_Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "catalog_model_id": {
             "type": "string"
           },
@@ -2885,9 +3227,6 @@
           "id": {
             "type": "integer"
           },
-          "max_output_tokens": {
-            "type": "integer"
-          },
           "model_display_name": {
             "type": "string"
           },
@@ -2896,6 +3235,16 @@
           },
           "name": {
             "type": "string"
+          },
+          "official_model": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Go_internal_module_ai_agent_OfficialModelSummaryDTO_Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "override_version": {
             "type": "integer"
@@ -2913,6 +3262,9 @@
             "type": "string"
           },
           "provider_id": {
+            "type": "integer"
+          },
+          "provider_model_id": {
             "type": "integer"
           },
           "provider_name": {
@@ -2950,12 +3302,12 @@
           "created_at",
           "engine_type",
           "id",
-          "max_output_tokens",
           "model_display_name",
           "model_id",
           "name",
           "override_version",
           "provider_id",
+          "provider_model_id",
           "provider_name",
           "scene_names",
           "scenes",
@@ -2963,6 +3315,48 @@
           "status_name",
           "system_prompt",
           "updated_at"
+        ],
+        "type": "object"
+      },
+      "Go_internal_module_ai_agent_EffectiveCapabilitiesDTO_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "attachments": {
+            "$ref": "#/components/schemas/Go_internal_module_ai_agent_AttachmentCapabilities_Output"
+          },
+          "input_modalities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "output_modalities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "runtime_parameters": {
+            "$ref": "#/components/schemas/Go_internal_module_ai_agent_RuntimeParameterCapabilities_Output"
+          },
+          "supports_streaming": {
+            "type": "boolean"
+          },
+          "supports_structured_output": {
+            "type": "boolean"
+          },
+          "supports_tools": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "attachments",
+          "input_modalities",
+          "output_modalities",
+          "runtime_parameters",
+          "supports_streaming",
+          "supports_structured_output",
+          "supports_tools"
         ],
         "type": "object"
       },
@@ -2986,6 +3380,33 @@
         ],
         "type": "object"
       },
+      "Go_internal_module_ai_agent_ImageAttachmentCapability_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "max_file_bytes": {
+            "type": "integer"
+          },
+          "max_files": {
+            "type": "integer"
+          },
+          "mime_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "enabled",
+          "max_file_bytes",
+          "max_files",
+          "mime_types"
+        ],
+        "type": "object"
+      },
       "Go_internal_module_ai_agent_InitDict_Output": {
         "additionalProperties": false,
         "properties": {
@@ -2997,9 +3418,6 @@
               "$ref": "#/components/schemas/Go_internal_shared_dict_Option_int_Output"
             },
             "type": "array"
-          },
-          "max_output_tokens_default": {
-            "type": "integer"
           },
           "provider_model_options": {
             "items": {
@@ -3023,7 +3441,6 @@
         "required": [
           "billing_multiplier_default",
           "common_status_arr",
-          "max_output_tokens_default",
           "provider_model_options",
           "provider_options",
           "scene_arr"
@@ -3061,11 +3478,49 @@
         ],
         "type": "object"
       },
+      "Go_internal_module_ai_agent_MaxHistoryParameterCapability_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "default": {
+            "type": "integer"
+          },
+          "max": {
+            "type": "integer"
+          },
+          "min": {
+            "type": "integer"
+          },
+          "supported": {
+            "type": "boolean"
+          },
+          "transitional": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "default",
+          "max",
+          "min",
+          "supported",
+          "transitional"
+        ],
+        "type": "object"
+      },
       "Go_internal_module_ai_agent_ModelOption_Output": {
         "additionalProperties": false,
         "properties": {
           "billing_multiplier": {
             "type": "string"
+          },
+          "capabilities": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Go_internal_module_ai_agent_EffectiveCapabilitiesDTO_Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "catalog_model_id": {
             "type": "string"
@@ -3091,11 +3546,18 @@
           "label": {
             "type": "string"
           },
-          "max_output_tokens": {
-            "type": "integer"
-          },
           "model_id": {
             "type": "string"
+          },
+          "official_model": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Go_internal_module_ai_agent_OfficialModelSummaryDTO_Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "override_version": {
             "type": "integer"
@@ -3124,11 +3586,58 @@
           "context_tier_threshold_tokens",
           "display_name",
           "label",
-          "max_output_tokens",
           "model_id",
           "override_version",
           "provider_id",
           "value"
+        ],
+        "type": "object"
+      },
+      "Go_internal_module_ai_agent_NativeFileAttachmentCapability_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "type": "object"
+      },
+      "Go_internal_module_ai_agent_OfficialModelSummaryDTO_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "catalog_vendor": {
+            "type": "string"
+          },
+          "catalog_version": {
+            "type": "string"
+          },
+          "context_window_tokens": {
+            "type": "integer"
+          },
+          "lifecycle_status": {
+            "type": "string"
+          },
+          "max_output_tokens": {
+            "type": "integer"
+          },
+          "model_family": {
+            "type": "string"
+          },
+          "model_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "catalog_vendor",
+          "catalog_version",
+          "context_window_tokens",
+          "lifecycle_status",
+          "max_output_tokens",
+          "model_family",
+          "model_id"
         ],
         "type": "object"
       },
@@ -3168,7 +3677,19 @@
           "id": {
             "type": "integer"
           },
+          "mapped_at": {
+            "type": "string"
+          },
+          "mapping_status": {
+            "type": "string"
+          },
           "model_id": {
+            "type": "string"
+          },
+          "official_catalog_version": {
+            "type": "string"
+          },
+          "official_model_id": {
             "type": "string"
           },
           "provider_id": {
@@ -3188,7 +3709,11 @@
           "created_at",
           "display_name",
           "id",
+          "mapped_at",
+          "mapping_status",
           "model_id",
+          "official_catalog_version",
+          "official_model_id",
           "provider_id",
           "status",
           "status_name",
@@ -3208,6 +3733,46 @@
         },
         "required": [
           "list"
+        ],
+        "type": "object"
+      },
+      "Go_internal_module_ai_agent_RuntimeParameterCapabilities_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "max_history": {
+            "$ref": "#/components/schemas/Go_internal_module_ai_agent_MaxHistoryParameterCapability_Output"
+          },
+          "temperature": {
+            "$ref": "#/components/schemas/Go_internal_module_ai_agent_TemperatureParameterCapability_Output"
+          }
+        },
+        "required": [
+          "max_history",
+          "temperature"
+        ],
+        "type": "object"
+      },
+      "Go_internal_module_ai_agent_TemperatureParameterCapability_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "default": {
+            "type": "number"
+          },
+          "max": {
+            "type": "number"
+          },
+          "min": {
+            "type": "number"
+          },
+          "supported": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "default",
+          "max",
+          "min",
+          "supported"
         ],
         "type": "object"
       },
@@ -3900,12 +4465,91 @@
         ],
         "type": "object"
       },
-      "Go_internal_module_ai_modelpricing_ListResponse_Output": {
+      "Go_internal_module_ai_officialmodel_CapabilityDTO_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "image_input": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Go_internal_module_ai_officialmodel_ImageInputCapability_Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "input_modalities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "native_file_input": {
+            "type": "boolean"
+          },
+          "output_modalities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "supported_parameters": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "supports_streaming": {
+            "type": "boolean"
+          },
+          "supports_structured_output": {
+            "type": "boolean"
+          },
+          "supports_tools": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "image_input",
+          "input_modalities",
+          "native_file_input",
+          "output_modalities",
+          "supported_parameters",
+          "supports_streaming",
+          "supports_structured_output",
+          "supports_tools"
+        ],
+        "type": "object"
+      },
+      "Go_internal_module_ai_officialmodel_ImageInputCapability_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "max_bytes": {
+            "type": "integer"
+          },
+          "max_files": {
+            "type": "integer"
+          },
+          "mime_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "max_bytes",
+          "max_files",
+          "mime_types"
+        ],
+        "type": "object"
+      },
+      "Go_internal_module_ai_officialmodel_ListResponse_Output": {
         "additionalProperties": false,
         "properties": {
           "list": {
             "items": {
-              "$ref": "#/components/schemas/Go_internal_module_ai_modelpricing_ModelPriceDTO_Output"
+              "$ref": "#/components/schemas/Go_internal_module_ai_officialmodel_OfficialModelDTO_Output"
             },
             "type": "array"
           }
@@ -3915,7 +4559,23 @@
         ],
         "type": "object"
       },
-      "Go_internal_module_ai_modelpricing_ModelPriceDTO_Output": {
+      "Go_internal_module_ai_officialmodel_MutationResponse_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "after": {
+            "$ref": "#/components/schemas/Go_internal_module_ai_officialmodel_PriceDTO_Output"
+          },
+          "before": {
+            "$ref": "#/components/schemas/Go_internal_module_ai_officialmodel_PriceDTO_Output"
+          }
+        },
+        "required": [
+          "after",
+          "before"
+        ],
+        "type": "object"
+      },
+      "Go_internal_module_ai_officialmodel_OfficialModelDTO_Output": {
         "additionalProperties": false,
         "properties": {
           "aliases": {
@@ -3923,6 +4583,9 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "capabilities": {
+            "$ref": "#/components/schemas/Go_internal_module_ai_officialmodel_CapabilityDTO_Output"
           },
           "catalog_vendor": {
             "type": "string"
@@ -3933,8 +4596,14 @@
           "context_tier_threshold_tokens": {
             "type": "integer"
           },
+          "context_window_tokens": {
+            "type": "integer"
+          },
           "effective": {
-            "$ref": "#/components/schemas/Go_internal_module_ai_modelpricing_PriceDTO_Output"
+            "$ref": "#/components/schemas/Go_internal_module_ai_officialmodel_PriceDTO_Output"
+          },
+          "lifecycle_status": {
+            "type": "string"
           },
           "max_output_tokens": {
             "type": "integer"
@@ -3945,10 +4614,19 @@
           "model_id": {
             "type": "string"
           },
+          "model_source_url": {
+            "type": "string"
+          },
           "official": {
-            "$ref": "#/components/schemas/Go_internal_module_ai_modelpricing_PriceDTO_Output"
+            "$ref": "#/components/schemas/Go_internal_module_ai_officialmodel_PriceDTO_Output"
           },
           "pricing_profile": {
+            "type": "string"
+          },
+          "pricing_source_url": {
+            "type": "string"
+          },
+          "retrieved_at": {
             "type": "string"
           },
           "review_after": {
@@ -3957,36 +4635,26 @@
         },
         "required": [
           "aliases",
+          "capabilities",
           "catalog_vendor",
           "catalog_version",
           "context_tier_threshold_tokens",
+          "context_window_tokens",
           "effective",
+          "lifecycle_status",
           "max_output_tokens",
           "model_family",
           "model_id",
+          "model_source_url",
           "official",
           "pricing_profile",
+          "pricing_source_url",
+          "retrieved_at",
           "review_after"
         ],
         "type": "object"
       },
-      "Go_internal_module_ai_modelpricing_MutationResponse_Output": {
-        "additionalProperties": false,
-        "properties": {
-          "after": {
-            "$ref": "#/components/schemas/Go_internal_module_ai_modelpricing_PriceDTO_Output"
-          },
-          "before": {
-            "$ref": "#/components/schemas/Go_internal_module_ai_modelpricing_PriceDTO_Output"
-          }
-        },
-        "required": [
-          "after",
-          "before"
-        ],
-        "type": "object"
-      },
-      "Go_internal_module_ai_modelpricing_OptionDTO_Output": {
+      "Go_internal_module_ai_officialmodel_OptionDTO_Output": {
         "additionalProperties": false,
         "properties": {
           "label": {
@@ -4002,26 +4670,47 @@
         ],
         "type": "object"
       },
-      "Go_internal_module_ai_modelpricing_PageInitDict_Output": {
+      "Go_internal_module_ai_officialmodel_PageInitDict_Output": {
         "additionalProperties": false,
         "properties": {
           "family_options": {
             "items": {
-              "$ref": "#/components/schemas/Go_internal_module_ai_modelpricing_OptionDTO_Output"
+              "$ref": "#/components/schemas/Go_internal_module_ai_officialmodel_OptionDTO_Output"
+            },
+            "type": "array"
+          },
+          "input_modality_options": {
+            "items": {
+              "$ref": "#/components/schemas/Go_internal_module_ai_officialmodel_OptionDTO_Output"
+            },
+            "type": "array"
+          },
+          "lifecycle_options": {
+            "items": {
+              "$ref": "#/components/schemas/Go_internal_module_ai_officialmodel_OptionDTO_Output"
+            },
+            "type": "array"
+          },
+          "vendor_options": {
+            "items": {
+              "$ref": "#/components/schemas/Go_internal_module_ai_officialmodel_OptionDTO_Output"
             },
             "type": "array"
           }
         },
         "required": [
-          "family_options"
+          "family_options",
+          "input_modality_options",
+          "lifecycle_options",
+          "vendor_options"
         ],
         "type": "object"
       },
-      "Go_internal_module_ai_modelpricing_PageInitResponse_Output": {
+      "Go_internal_module_ai_officialmodel_PageInitResponse_Output": {
         "additionalProperties": false,
         "properties": {
           "dict": {
-            "$ref": "#/components/schemas/Go_internal_module_ai_modelpricing_PageInitDict_Output"
+            "$ref": "#/components/schemas/Go_internal_module_ai_officialmodel_PageInitDict_Output"
           }
         },
         "required": [
@@ -4029,7 +4718,7 @@
         ],
         "type": "object"
       },
-      "Go_internal_module_ai_modelpricing_PriceDTO_Output": {
+      "Go_internal_module_ai_officialmodel_PriceDTO_Output": {
         "additionalProperties": false,
         "properties": {
           "available": {
@@ -4043,7 +4732,7 @@
           },
           "rates": {
             "items": {
-              "$ref": "#/components/schemas/Go_internal_module_ai_modelpricing_RateDTO_Output"
+              "$ref": "#/components/schemas/Go_internal_module_ai_officialmodel_RateDTO_Output"
             },
             "type": "array"
           },
@@ -4068,7 +4757,7 @@
         ],
         "type": "object"
       },
-      "Go_internal_module_ai_modelpricing_RateDTO_Output": {
+      "Go_internal_module_ai_officialmodel_RateDTO_Output": {
         "additionalProperties": false,
         "properties": {
           "category": {
@@ -4096,7 +4785,7 @@
         ],
         "type": "object"
       },
-      "Go_internal_module_ai_modelpricing_transport_admin_rateRequest_Input": {
+      "Go_internal_module_ai_officialmodel_transport_admin_rateRequest_Input": {
         "additionalProperties": false,
         "properties": {
           "category": {
@@ -4104,7 +4793,8 @@
               "input",
               "output",
               "cache_read",
-              "cache_write"
+              "cache_write",
+              "media"
             ],
             "type": "string"
           },
@@ -4124,6 +4814,7 @@
             "maxLength": 64
           },
           "unit": {
+            "maxLength": 32,
             "type": "string"
           },
           "unit_scale": {
@@ -4365,7 +5056,19 @@
           "id": {
             "type": "integer"
           },
+          "mapped_at": {
+            "type": "string"
+          },
+          "mapping_status": {
+            "type": "string"
+          },
           "model_id": {
+            "type": "string"
+          },
+          "official_catalog_version": {
+            "type": "string"
+          },
+          "official_model_id": {
             "type": "string"
           },
           "provider_id": {
@@ -4385,7 +5088,11 @@
           "created_at",
           "display_name",
           "id",
+          "mapped_at",
+          "mapping_status",
           "model_id",
+          "official_catalog_version",
+          "official_model_id",
           "provider_id",
           "status",
           "status_name",
@@ -9891,7 +10598,7 @@
         ],
         "type": "object"
       },
-      "delete_api_admin_v1_ai_model_prices_model_id_override_ResponseEnvelope": {
+      "delete_api_admin_v1_ai_official_models_model_id_price_override_ResponseEnvelope": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -9899,7 +10606,7 @@
             "type": "integer"
           },
           "data": {
-            "$ref": "#/components/schemas/Go_internal_module_ai_modelpricing_MutationResponse_Output"
+            "$ref": "#/components/schemas/Go_internal_module_ai_officialmodel_MutationResponse_Output"
           },
           "msg": {
             "type": "string"
@@ -10998,7 +11705,7 @@
         ],
         "type": "object"
       },
-      "get_api_admin_v1_ai_model_prices_ResponseEnvelope": {
+      "get_api_admin_v1_ai_official_models_ResponseEnvelope": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -11006,7 +11713,7 @@
             "type": "integer"
           },
           "data": {
-            "$ref": "#/components/schemas/Go_internal_module_ai_modelpricing_ListResponse_Output"
+            "$ref": "#/components/schemas/Go_internal_module_ai_officialmodel_ListResponse_Output"
           },
           "msg": {
             "type": "string"
@@ -11019,7 +11726,7 @@
         ],
         "type": "object"
       },
-      "get_api_admin_v1_ai_model_prices_model_id_ResponseEnvelope": {
+      "get_api_admin_v1_ai_official_models_model_id_ResponseEnvelope": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -11027,7 +11734,7 @@
             "type": "integer"
           },
           "data": {
-            "$ref": "#/components/schemas/Go_internal_module_ai_modelpricing_ModelPriceDTO_Output"
+            "$ref": "#/components/schemas/Go_internal_module_ai_officialmodel_OfficialModelDTO_Output"
           },
           "msg": {
             "type": "string"
@@ -11040,7 +11747,7 @@
         ],
         "type": "object"
       },
-      "get_api_admin_v1_ai_model_prices_page_init_ResponseEnvelope": {
+      "get_api_admin_v1_ai_official_models_page_init_ResponseEnvelope": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -11048,7 +11755,7 @@
             "type": "integer"
           },
           "data": {
-            "$ref": "#/components/schemas/Go_internal_module_ai_modelpricing_PageInitResponse_Output"
+            "$ref": "#/components/schemas/Go_internal_module_ai_officialmodel_PageInitResponse_Output"
           },
           "msg": {
             "type": "string"
@@ -13018,10 +13725,6 @@
           "billing_multiplier": {
             "maxLength": 32,
             "type": "string"
-          },
-          "max_output_tokens": {
-            "minimum": 1,
-            "type": "integer"
           },
           "model_id": {
             "maxLength": 191,
@@ -15190,10 +15893,6 @@
             "maxLength": 32,
             "type": "string"
           },
-          "max_output_tokens": {
-            "minimum": 1,
-            "type": "integer"
-          },
           "model_id": {
             "maxLength": 191,
             "type": "string"
@@ -15459,7 +16158,7 @@
         ],
         "type": "object"
       },
-      "put_api_admin_v1_ai_model_prices_model_id_Request": {
+      "put_api_admin_v1_ai_official_models_model_id_price_Request": {
         "additionalProperties": false,
         "properties": {
           "expected_version": {
@@ -15475,7 +16174,7 @@
           },
           "rates": {
             "items": {
-              "$ref": "#/components/schemas/Go_internal_module_ai_modelpricing_transport_admin_rateRequest_Input"
+              "$ref": "#/components/schemas/Go_internal_module_ai_officialmodel_transport_admin_rateRequest_Input"
             },
             "minItems": 1,
             "type": "array"
@@ -15498,7 +16197,7 @@
         ],
         "type": "object"
       },
-      "put_api_admin_v1_ai_model_prices_model_id_ResponseEnvelope": {
+      "put_api_admin_v1_ai_official_models_model_id_price_ResponseEnvelope": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -15506,7 +16205,7 @@
             "type": "integer"
           },
           "data": {
-            "$ref": "#/components/schemas/Go_internal_module_ai_modelpricing_MutationResponse_Output"
+            "$ref": "#/components/schemas/Go_internal_module_ai_officialmodel_MutationResponse_Output"
           },
           "msg": {
             "type": "string"
@@ -19617,9 +20316,9 @@
         "x-runtime-path": "/api/admin/v1/ai-knowledge-documents/:id/status"
       }
     },
-    "/api/admin/v1/ai-model-prices": {
+    "/api/admin/v1/ai-official-models": {
       "get": {
-        "operationId": "get_api_admin_v1_ai_model_prices",
+        "operationId": "get_api_admin_v1_ai_official_models",
         "parameters": [
           {
             "description": "",
@@ -19627,9 +20326,35 @@
             "name": "family",
             "required": false,
             "schema": {
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "input_modality",
+            "required": false,
+            "schema": {
               "enum": [
-                "gpt",
-                "claude"
+                "text",
+                "image",
+                "audio",
+                "file"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "lifecycle",
+            "required": false,
+            "schema": {
+              "enum": [
+                "active",
+                "deprecated",
+                "retired"
               ],
               "type": "string"
             }
@@ -19643,6 +20368,16 @@
               "maxLength": 191,
               "type": "string"
             }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "vendor",
+            "required": false,
+            "schema": {
+              "maxLength": 64,
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -19650,7 +20385,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/get_api_admin_v1_ai_model_prices_ResponseEnvelope"
+                  "$ref": "#/components/schemas/get_api_admin_v1_ai_official_models_ResponseEnvelope"
                 }
               }
             },
@@ -19672,30 +20407,30 @@
             "bearerAuth": []
           }
         ],
-        "summary": "GET /api/admin/v1/ai-model-prices",
+        "summary": "GET /api/admin/v1/ai-official-models",
         "tags": [
-          "ai-model-prices"
+          "ai-official-models"
         ],
         "x-admin-access": {
           "kind": "permission",
-          "permission_code": "ai_model_pricing_list"
+          "permission_code": "ai_official_model_list"
         },
         "x-admin-audit": {
           "enabled": false,
           "reason": "read-only"
         },
-        "x-runtime-path": "/api/admin/v1/ai-model-prices"
+        "x-runtime-path": "/api/admin/v1/ai-official-models"
       }
     },
-    "/api/admin/v1/ai-model-prices/page-init": {
+    "/api/admin/v1/ai-official-models/page-init": {
       "get": {
-        "operationId": "get_api_admin_v1_ai_model_prices_page_init",
+        "operationId": "get_api_admin_v1_ai_official_models_page_init",
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/get_api_admin_v1_ai_model_prices_page_init_ResponseEnvelope"
+                  "$ref": "#/components/schemas/get_api_admin_v1_ai_official_models_page_init_ResponseEnvelope"
                 }
               }
             },
@@ -19717,24 +20452,24 @@
             "bearerAuth": []
           }
         ],
-        "summary": "GET /api/admin/v1/ai-model-prices/page-init",
+        "summary": "GET /api/admin/v1/ai-official-models/page-init",
         "tags": [
-          "ai-model-prices"
+          "ai-official-models"
         ],
         "x-admin-access": {
           "kind": "permission",
-          "permission_code": "ai_model_pricing_list"
+          "permission_code": "ai_official_model_list"
         },
         "x-admin-audit": {
           "enabled": false,
           "reason": "read-only"
         },
-        "x-runtime-path": "/api/admin/v1/ai-model-prices/page-init"
+        "x-runtime-path": "/api/admin/v1/ai-official-models/page-init"
       }
     },
-    "/api/admin/v1/ai-model-prices/{model_id}": {
+    "/api/admin/v1/ai-official-models/{model_id}": {
       "get": {
-        "operationId": "get_api_admin_v1_ai_model_prices_model_id",
+        "operationId": "get_api_admin_v1_ai_official_models_model_id",
         "parameters": [
           {
             "in": "path",
@@ -19751,7 +20486,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/get_api_admin_v1_ai_model_prices_model_id_ResponseEnvelope"
+                  "$ref": "#/components/schemas/get_api_admin_v1_ai_official_models_model_id_ResponseEnvelope"
                 }
               }
             },
@@ -19773,22 +20508,24 @@
             "bearerAuth": []
           }
         ],
-        "summary": "GET /api/admin/v1/ai-model-prices/:model_id",
+        "summary": "GET /api/admin/v1/ai-official-models/:model_id",
         "tags": [
-          "ai-model-prices"
+          "ai-official-models"
         ],
         "x-admin-access": {
           "kind": "permission",
-          "permission_code": "ai_model_pricing_list"
+          "permission_code": "ai_official_model_list"
         },
         "x-admin-audit": {
           "enabled": false,
           "reason": "read-only"
         },
-        "x-runtime-path": "/api/admin/v1/ai-model-prices/:model_id"
-      },
+        "x-runtime-path": "/api/admin/v1/ai-official-models/:model_id"
+      }
+    },
+    "/api/admin/v1/ai-official-models/{model_id}/price": {
       "put": {
-        "operationId": "put_api_admin_v1_ai_model_prices_model_id",
+        "operationId": "put_api_admin_v1_ai_official_models_model_id_price",
         "parameters": [
           {
             "in": "path",
@@ -19804,7 +20541,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/put_api_admin_v1_ai_model_prices_model_id_Request"
+                "$ref": "#/components/schemas/put_api_admin_v1_ai_official_models_model_id_price_Request"
               }
             }
           },
@@ -19815,7 +20552,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/put_api_admin_v1_ai_model_prices_model_id_ResponseEnvelope"
+                  "$ref": "#/components/schemas/put_api_admin_v1_ai_official_models_model_id_price_ResponseEnvelope"
                 }
               }
             },
@@ -19837,26 +20574,26 @@
             "bearerAuth": []
           }
         ],
-        "summary": "PUT /api/admin/v1/ai-model-prices/:model_id",
+        "summary": "PUT /api/admin/v1/ai-official-models/:model_id/price",
         "tags": [
-          "ai-model-prices"
+          "ai-official-models"
         ],
         "x-admin-access": {
           "kind": "permission",
-          "permission_code": "ai_model_pricing_edit"
+          "permission_code": "ai_official_model_price_sync"
         },
         "x-admin-audit": {
           "enabled": true,
-          "module": "ai_model_pricing",
-          "action": "update",
-          "title": "编辑模型定价"
+          "module": "ai_official_model",
+          "action": "sync_price",
+          "title": "同步官方模型价格"
         },
-        "x-runtime-path": "/api/admin/v1/ai-model-prices/:model_id"
+        "x-runtime-path": "/api/admin/v1/ai-official-models/:model_id/price"
       }
     },
-    "/api/admin/v1/ai-model-prices/{model_id}/override": {
+    "/api/admin/v1/ai-official-models/{model_id}/price-override": {
       "delete": {
-        "operationId": "delete_api_admin_v1_ai_model_prices_model_id_override",
+        "operationId": "delete_api_admin_v1_ai_official_models_model_id_price_override",
         "parameters": [
           {
             "in": "path",
@@ -19883,7 +20620,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/delete_api_admin_v1_ai_model_prices_model_id_override_ResponseEnvelope"
+                  "$ref": "#/components/schemas/delete_api_admin_v1_ai_official_models_model_id_price_override_ResponseEnvelope"
                 }
               }
             },
@@ -19905,21 +20642,21 @@
             "bearerAuth": []
           }
         ],
-        "summary": "DELETE /api/admin/v1/ai-model-prices/:model_id/override",
+        "summary": "DELETE /api/admin/v1/ai-official-models/:model_id/price-override",
         "tags": [
-          "ai-model-prices"
+          "ai-official-models"
         ],
         "x-admin-access": {
           "kind": "permission",
-          "permission_code": "ai_model_pricing_edit"
+          "permission_code": "ai_official_model_price_sync"
         },
         "x-admin-audit": {
           "enabled": true,
-          "module": "ai_model_pricing",
-          "action": "restore_official",
-          "title": "恢复模型官方定价"
+          "module": "ai_official_model",
+          "action": "restore_official_price",
+          "title": "恢复官方模型价格"
         },
-        "x-runtime-path": "/api/admin/v1/ai-model-prices/:model_id/override"
+        "x-runtime-path": "/api/admin/v1/ai-official-models/:model_id/price-override"
       }
     },
     "/api/admin/v1/ai-providers": {
@@ -21405,6 +22142,51 @@
           "reason": "read-only"
         },
         "x-runtime-path": "/api/admin/v1/ai-runs/stats/by-user"
+      }
+    },
+    "/api/admin/v1/ai-runs/stats/latency": {
+      "get": {
+        "operationId": "get_api_admin_v1_ai_runs_stats_latency",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIRunLatencyStatsSuccessEnvelope"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Classified safe error response"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "GET /api/admin/v1/ai-runs/stats/latency",
+        "tags": [
+          "ai-runs"
+        ],
+        "x-admin-access": {
+          "kind": "permission",
+          "permission_code": "ai_run_list"
+        },
+        "x-admin-audit": {
+          "enabled": false,
+          "reason": "read-only"
+        },
+        "x-runtime-path": "/api/admin/v1/ai-runs/stats/latency"
       }
     },
     "/api/admin/v1/ai-runs/{id}": {

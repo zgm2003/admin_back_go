@@ -79,7 +79,7 @@
                 "ai/agents",
                 "ai/chat",
                 "ai/knowledge",
-                "ai/model-pricing",
+                "ai/official-models",
                 "ai/providers",
                 "ai/runs",
                 "ai/tools",
@@ -150,8 +150,8 @@
               "ai_knowledge_reindex",
               "ai_knowledge_retrieval_test",
               "ai_knowledge_status",
-              "ai_model_pricing_edit",
-              "ai_model_pricing_list",
+              "ai_official_model_list",
+              "ai_official_model_price_sync",
               "ai_provider_add",
               "ai_provider_del",
               "ai_provider_edit",
@@ -310,12 +310,12 @@
       "permission_codes": []
     },
     {
-      "path": "/ai/model-pricing",
-      "view_key": "ai/model-pricing",
-      "i18n_key": "menu.ai_model_pricing",
+      "path": "/ai/official-models",
+      "view_key": "ai/official-models",
+      "i18n_key": "menu.ai_official_models",
       "show_menu": 1,
       "permission_codes": [
-        "ai_model_pricing_list"
+        "ai_official_model_list"
       ]
     },
     {
