@@ -322,11 +322,31 @@ func sendInputSnapshot(content string, attachments []Attachment, runtimeParams m
 	if len(attachments) == 0 && len(runtimeParams) == 0 {
 		return content, nil
 	}
+	return encodeChatInputSnapshot(content, attachments, runtimeParams, nil)
+}
+
+type historyRequestIdentitySnapshot struct {
+	Operation       string `json:"operation"`
+	SourceMessageID int64  `json:"source_message_id"`
+}
+
+func historyInputSnapshot(content string, attachments []Attachment, runtimeParams map[string]float64, identity requestidentity.Input) (string, error) {
+	operation := strings.TrimSpace(identity.Operation)
+	if (operation != HistoryOperationRevision && operation != HistoryOperationRegeneration) || identity.SourceMessageID <= 0 {
+		return "", errors.New("invalid history request identity snapshot")
+	}
+	return encodeChatInputSnapshot(content, attachments, runtimeParams, &historyRequestIdentitySnapshot{
+		Operation: operation, SourceMessageID: identity.SourceMessageID,
+	})
+}
+
+func encodeChatInputSnapshot(content string, attachments []Attachment, runtimeParams map[string]float64, identity *historyRequestIdentitySnapshot) (string, error) {
 	raw, err := json.Marshal(struct {
-		Content       string             `json:"content"`
-		Attachments   []Attachment       `json:"attachments,omitempty"`
-		RuntimeParams map[string]float64 `json:"runtime_params,omitempty"`
-	}{Content: content, Attachments: attachments, RuntimeParams: runtimeParams})
+		Content         string                          `json:"content"`
+		Attachments     []Attachment                    `json:"attachments,omitempty"`
+		RuntimeParams   map[string]float64              `json:"runtime_params,omitempty"`
+		RequestIdentity *historyRequestIdentitySnapshot `json:"request_identity,omitempty"`
+	}{Content: content, Attachments: attachments, RuntimeParams: runtimeParams, RequestIdentity: identity})
 	if err != nil {
 		return "", err
 	}

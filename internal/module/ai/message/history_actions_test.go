@@ -2,6 +2,7 @@ package aimessage
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -242,6 +243,18 @@ func TestHistoryRevisionRollsBackVisibleTailWhenParticipantFails(t *testing.T) {
 	}
 	if participant.created.MetaJSON == nil || *participant.created.MetaJSON == "" || participant.created.Content != "new text" {
 		t.Fatalf("edit did not inherit server metadata: %+v", participant.created)
+	}
+	var snapshot struct {
+		RequestIdentity struct {
+			Operation       string `json:"operation"`
+			SourceMessageID int64  `json:"source_message_id"`
+		} `json:"request_identity"`
+	}
+	if err := json.Unmarshal([]byte(participant.created.InputSnapshot), &snapshot); err != nil {
+		t.Fatalf("decode history input snapshot: %v", err)
+	}
+	if snapshot.RequestIdentity.Operation != HistoryOperationRevision || snapshot.RequestIdentity.SourceMessageID != 41 {
+		t.Fatalf("history request identity snapshot=%+v", snapshot.RequestIdentity)
 	}
 	if participant.created.Identity.Operation != HistoryOperationRevision || participant.created.Identity.SourceMessageID != 41 {
 		t.Fatalf("typed identity=%+v", participant.created.Identity)

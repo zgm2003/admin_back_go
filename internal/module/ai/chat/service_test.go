@@ -1408,6 +1408,36 @@ func TestPaidReplyRequestIdentityUsesAcceptedCOSObjectKeyForAttachments(t *testi
 	}
 }
 
+func TestPaidReplyRequestIdentityRestoresRevisionContextFromRunSnapshot(t *testing.T) {
+	const pricingSnapshot = `{"version":"test-v1","billable":true,"catalog_vendor":"test","transport_engine":"openai","requested_model_id":"gpt-5.4","canonical_model_id":"gpt-5.4","catalog_max_output_tokens":100,"effective_max_output_tokens":10,"multiplier_ppm":1000000,"source_url":"https://example.test/pricing","retrieved_at":"2026-07-26","rates":[{"category":"input","unit":"token","tier_key":"","price_units":1,"unit_scale":1000000},{"category":"output","unit":"token","tier_key":"","price_units":1,"unit_scale":1000000}]}`
+	const objectKey = "ai_chat_images/2026/07/29/revision.jpg"
+	meta := `{"attachments":[{"type":"image","object_key":"` + objectKey + `","url":"https://cos.example.test/` + objectKey + `"}]}`
+	acceptedIdentity := requestidentity.Input{
+		UserID: 7, Operation: "chat.revision", Modality: "chat", AgentID: 5, ModelID: "gpt-5.4",
+		NormalizedText: "改后的问题", ConversationID: 3, SourceMessageID: 41,
+		Attachments: []requestidentity.AttachmentIdentity{{StorageProvider: "cos", StorageKey: objectKey}},
+		Options:     requestidentity.GenerationOptions{MaxOutputTokens: 10},
+	}
+	fingerprint, err := requestidentity.Fingerprint(acceptedIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := &airun.Run{
+		AgentID: 5, ModelID: "gpt-5.4", RequestFingerprint: fingerprint[:],
+		RequestIdentityStatus: string(requestidentity.IdentityStatusReplayable), PricingSnapshotJSON: pricingSnapshot,
+		InputSnapshot: `{"content":"改后的问题","request_identity":{"operation":"chat.revision","source_message_id":41}}`,
+	}
+
+	identity, err := paidReplyRequestIdentity(run, ConversationReplyInput{ConversationID: 3, UserID: 7}, MessageHistory{ID: 71, Content: "改后的问题", MetaJSON: &meta})
+
+	if err != nil {
+		t.Fatalf("paidReplyRequestIdentity returned error: %v", err)
+	}
+	if identity.Operation != "chat.revision" || identity.SourceMessageID != 41 {
+		t.Fatalf("unexpected revision identity: %#v", identity)
+	}
+}
+
 func TestPaidConversationReplyFinalizesAttachmentIdentityMismatchBeforeDispatch(t *testing.T) {
 	agent, box := validAgentConfig(t)
 	conversationID, userMessageID := int64(3), int64(9)

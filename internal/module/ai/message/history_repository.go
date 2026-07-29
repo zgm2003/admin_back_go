@@ -360,7 +360,7 @@ func (r *GormRepository) buildHistoryCreateInput(ctx context.Context, operation 
 	if err != nil {
 		return replycommand.HistoryCreateInput{}, ErrHistoryAgentUnavailable
 	}
-	inputSnapshot, err := sendInputSnapshot(facts.content, facts.attachments, facts.runtimeParams)
+	inputSnapshot, err := historyInputSnapshot(facts.content, facts.attachments, facts.runtimeParams, facts.identity)
 	if err != nil {
 		return replycommand.HistoryCreateInput{}, ErrHistorySourceInvalid
 	}

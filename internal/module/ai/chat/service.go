@@ -1023,16 +1023,54 @@ func paidReplyRequestIdentity(run *airun.Run, input ConversationReplyInput, mess
 		Options:        options,
 		ConversationID: input.ConversationID,
 	}
-	fingerprint, err := requestidentity.Fingerprint(identity)
-	if err != nil {
-		return requestidentity.Input{}, apperror.Internal("AI请求身份快照无效")
-	}
 	var persisted [32]byte
 	copy(persisted[:], run.RequestFingerprint)
-	if err := requestidentity.CompareForReplay(requestidentity.IdentityStatus(run.RequestIdentityStatus), persisted, fingerprint); err != nil {
-		return requestidentity.Input{}, apperror.Internal("AI请求身份与接受快照不一致")
+	if paidReplyIdentityMatches(run.RequestIdentityStatus, persisted, identity) {
+		return identity, nil
 	}
-	return identity, nil
+	context, err := historyRequestIdentityFromSnapshot(run.InputSnapshot)
+	if err != nil {
+		return requestidentity.Input{}, apperror.Internal("AI历史请求身份快照无效")
+	}
+	if context != nil {
+		identity.Operation = context.Operation
+		identity.SourceMessageID = context.SourceMessageID
+		if paidReplyIdentityMatches(run.RequestIdentityStatus, persisted, identity) {
+			return identity, nil
+		}
+	}
+	return requestidentity.Input{}, apperror.Internal("AI请求身份与接受快照不一致")
+}
+
+func paidReplyIdentityMatches(status string, persisted [32]byte, identity requestidentity.Input) bool {
+	fingerprint, err := requestidentity.Fingerprint(identity)
+	if err != nil {
+		return false
+	}
+	return requestidentity.CompareForReplay(requestidentity.IdentityStatus(status), persisted, fingerprint) == nil
+}
+
+type historyRequestIdentitySnapshot struct {
+	Operation       string `json:"operation"`
+	SourceMessageID int64  `json:"source_message_id"`
+}
+
+func historyRequestIdentityFromSnapshot(raw string) (*historyRequestIdentitySnapshot, error) {
+	var envelope struct {
+		RequestIdentity json.RawMessage `json:"request_identity"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &envelope); err != nil || len(envelope.RequestIdentity) == 0 || string(envelope.RequestIdentity) == "null" {
+		return nil, nil
+	}
+	var snapshot historyRequestIdentitySnapshot
+	if err := json.Unmarshal(envelope.RequestIdentity, &snapshot); err != nil {
+		return nil, err
+	}
+	snapshot.Operation = strings.TrimSpace(snapshot.Operation)
+	if (snapshot.Operation != "chat.revision" && snapshot.Operation != "chat.regeneration") || snapshot.SourceMessageID <= 0 {
+		return nil, errors.New("invalid history request identity context")
+	}
+	return &snapshot, nil
 }
 
 func chatHistory(rows []MessageHistory, currentUserMessageID int64) []map[string]string {
