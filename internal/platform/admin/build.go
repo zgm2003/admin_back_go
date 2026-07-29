@@ -213,7 +213,7 @@ func Build(input BuildInput) (*BuildResult, error) {
 	)
 	aiKnowledgeService := aiknowledge.NewService(aiknowledge.NewGormRepository(resources.DB))
 	aiConversationService := aiconversation.NewService(aiconversation.NewGormRepository(resources.DB))
-	aiRunService := airun.NewService(aiRunRepository)
+	aiRunService := airun.NewService(aiRunRepository, airun.WithLogger(logger))
 	paymentService := paymentmodule.NewService(paymentmodule.Dependencies{
 		Repository:   paymentmodule.NewGormRepository(resources.DB, walletRepository),
 		Gateway:      providers.PaymentGateway,

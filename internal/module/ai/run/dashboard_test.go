@@ -1,11 +1,14 @@
 package airun
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"math"
 	"net/http"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -174,11 +177,11 @@ func TestDashboardFormatsIndependentBillingAmountsWithoutCombiningThem(t *testin
 	}
 }
 
-func TestDashboardDoesNotInferHistoricalModelFromAttributionID(t *testing.T) {
+func TestDashboardMarksModelsHistoricalFromOfficialCatalogRatherThanAttributionID(t *testing.T) {
 	repository := &fakeRepository{dashboardRows: DashboardRepositoryResult{
 		Attributions: []DashboardAttributionRow{
 			{Dimension: "model", Key: "historical-candidate", ID: 0},
-			{Dimension: "model", Key: "official-candidate", ID: 99},
+			{Dimension: "model", Key: "gpt-5.5", ID: 99},
 		},
 	}}
 
@@ -189,10 +192,11 @@ func TestDashboardDoesNotInferHistoricalModelFromAttributionID(t *testing.T) {
 	if len(response.Breakdowns.Models) != 2 {
 		t.Fatalf("models=%+v", response.Breakdowns.Models)
 	}
-	for _, model := range response.Breakdowns.Models {
-		if model.Historical {
-			t.Fatalf("Task 1 must not infer historical from attribution ID: %+v", model)
-		}
+	if !response.Breakdowns.Models[0].Historical {
+		t.Fatalf("catalog-missing model must be historical regardless of attribution ID: %+v", response.Breakdowns.Models[0])
+	}
+	if response.Breakdowns.Models[1].Historical {
+		t.Fatalf("official catalog model must not be historical regardless of attribution ID: %+v", response.Breakdowns.Models[1])
 	}
 }
 
@@ -334,6 +338,70 @@ func TestDashboardWrapsRepositoryErrors(t *testing.T) {
 	response, appErr := NewService(repository, WithClock(clock.Func(func() time.Time { return dashboardFixedNow(t) }))).Dashboard(context.Background(), DashboardFilter{})
 	if response != nil || appErr == nil || appErr.MessageID != "airun.dashboard.query_failed" || !errors.Is(appErr.Cause, repositoryErr) {
 		t.Fatalf("response=%#v appErr=%#v", response, appErr)
+	}
+}
+
+func TestDashboardFailureLogContainsRequestRangeFiltersStageAndDurationOnly(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	repositoryErr := errors.New("driver_unavailable")
+	repository := &fakeRepository{dashboardErr: &DashboardQueryError{Stage: DashboardStageErrors, Err: repositoryErr}}
+	base := dashboardFixedNow(t)
+	clockCalls := 0
+	serviceClock := clock.Func(func() time.Time {
+		value := base.Add(time.Duration(clockCalls) * 125 * time.Millisecond)
+		clockCalls++
+		return value
+	})
+	agentID, providerID, userID := int64(2), int64(3), int64(4)
+	filter := DashboardFilter{
+		RequestID:  "dashboard-request-7",
+		Platform:   "admin",
+		ModelID:    "gpt-5.5",
+		AgentID:    &agentID,
+		ProviderID: &providerID,
+		UserID:     &userID,
+	}
+
+	response, appErr := NewService(repository, WithClock(serviceClock), WithLogger(logger)).Dashboard(context.Background(), filter)
+	if response != nil || appErr == nil || appErr.MessageID != "airun.dashboard.query_failed" || !errors.Is(appErr.Cause, repositoryErr) {
+		t.Fatalf("response=%#v appErr=%#v", response, appErr)
+	}
+	if strings.Contains(appErr.Message, repositoryErr.Error()) {
+		t.Fatalf("safe application error leaked driver detail: %#v", appErr)
+	}
+
+	line := strings.TrimSpace(logs.String())
+	if line == "" || strings.Contains(line, "\n") {
+		t.Fatalf("dashboard failure must emit exactly one log record: %q", line)
+	}
+	for _, fragment := range []string{
+		`level=ERROR`, `msg="AI run dashboard query failed"`, `request_id=dashboard-request-7`,
+		`start_at=2026-07-23T00:00:00+08:00`, `end_exclusive=2026-07-30T00:00:00+08:00`,
+		`platform=admin`, `model_id=gpt-5.5`, `agent_id=2`, `provider_id=3`, `user_id=4`,
+		`stage=errors`, `duration_ms=125`, `error=driver_unavailable`,
+	} {
+		if !strings.Contains(line, fragment) {
+			t.Fatalf("dashboard failure log missing %q: %s", fragment, line)
+		}
+	}
+	allowedKeys := map[string]struct{}{
+		"time": {}, "level": {}, "msg": {}, "request_id": {}, "start_at": {}, "end_exclusive": {},
+		"platform": {}, "model_id": {}, "agent_id": {}, "provider_id": {}, "user_id": {}, "stage": {},
+		"duration_ms": {}, "error": {},
+	}
+	for _, match := range regexp.MustCompile(`(?:^| )([a-z_]+)=`).FindAllStringSubmatch(line, -1) {
+		if _, ok := allowedKeys[match[1]]; !ok {
+			t.Fatalf("dashboard failure log contains non-whitelisted field %q: %s", match[1], line)
+		}
+	}
+	for _, forbidden := range []string{
+		"input_snapshot", "prepared_request_json", "arguments_json", "result_json", "payload", "dsn", "password",
+		"select ", "with filtered_runs", " from ", " where ", "?", "secret prompt",
+	} {
+		if strings.Contains(strings.ToLower(line), forbidden) {
+			t.Fatalf("dashboard failure log leaked forbidden content %q: %s", forbidden, line)
+		}
 	}
 }
 

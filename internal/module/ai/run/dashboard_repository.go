@@ -1,6 +1,8 @@
 package airun
 
 import (
+	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 
@@ -11,6 +13,11 @@ const dashboardFilteredRunColumns = `
 r.id,
 r.created_at,
 r.started_at,
+r.model_id,
+r.model_display_name,
+r.agent_id,
+r.provider_id,
+r.user_id,
 r.status,
 r.billing_status,
 r.billing_reason,
@@ -18,6 +25,36 @@ r.prompt_tokens,
 r.completion_tokens,
 r.total_tokens,
 r.duration_ms`
+
+type DashboardQueryStage string
+
+const (
+	DashboardStageOverview     DashboardQueryStage = "overview"
+	DashboardStagePerformance  DashboardQueryStage = "performance"
+	DashboardStageTrend        DashboardQueryStage = "trend"
+	DashboardStageAttributions DashboardQueryStage = "attributions"
+	DashboardStageErrors       DashboardQueryStage = "errors"
+	DashboardStageTools        DashboardQueryStage = "tools"
+)
+
+type DashboardQueryError struct {
+	Stage DashboardQueryStage
+	Err   error
+}
+
+func (e *DashboardQueryError) Error() string {
+	if e == nil {
+		return "AI run dashboard query failed"
+	}
+	return fmt.Sprintf("AI run dashboard %s query failed: %v", e.Stage, e.Err)
+}
+
+func (e *DashboardQueryError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
 
 func applyDashboardFilters(db *gorm.DB, query DashboardQuery) *gorm.DB {
 	db = db.Where("r.created_at >= ? AND r.created_at < ?", query.StartAt, query.EndExclusive)
@@ -342,6 +379,273 @@ ORDER BY daily_runs.run_date ASC
 LIMIT 90`
 }
 
+func dashboardAttributionsSQL() string {
+	return fmt.Sprintf(`
+WITH filtered_runs AS (?),
+ranked_runs AS (
+  SELECT
+    r.id,
+    r.created_at,
+    r.started_at,
+    r.model_id,
+    r.model_display_name,
+    r.agent_id,
+    r.provider_id,
+    r.user_id,
+    r.status,
+    r.billing_status,
+    r.billing_reason,
+    r.total_tokens,
+    ROW_NUMBER() OVER (PARTITION BY r.model_id ORDER BY r.created_at DESC, r.id DESC) AS model_name_rank
+  FROM filtered_runs r
+),
+classified_runs AS (
+  SELECT
+    r.id,
+    r.created_at,
+    r.started_at,
+    r.model_id,
+    r.model_display_name,
+    r.model_name_rank,
+    r.agent_id,
+    r.provider_id,
+    r.user_id,
+    r.status,
+    r.billing_status,
+    r.billing_reason,
+    r.total_tokens,
+    charge.status AS charge_status,
+    charge.actual_units AS charge_actual_units,
+    charge.finalized_at,
+    %s AS run_anomaly,
+    %s AS billing_anomaly
+  FROM ranked_runs r
+  LEFT JOIN ai_usage_charges charge ON charge.run_id = r.id
+),
+model_attributions AS (
+  SELECT
+    'model' AS dimension,
+    r.model_id AS stable_key,
+    0 AS attribution_id,
+    COALESCE(MAX(CASE WHEN r.model_name_rank = 1 THEN r.model_display_name END), '') AS attribution_name,
+    COUNT(*) AS total_runs,
+    COALESCE(SUM(CASE WHEN r.status = 'success' THEN 1 ELSE 0 END), 0) AS success_runs,
+    COALESCE(SUM(CASE WHEN r.status = 'failed' THEN 1 ELSE 0 END), 0) AS failed_runs,
+    COALESCE(SUM(CASE WHEN r.status = 'timeout' THEN 1 ELSE 0 END), 0) AS timeout_runs,
+    COALESCE(SUM(CASE WHEN r.status = 'outcome_unknown' THEN 1 ELSE 0 END), 0) AS outcome_unknown_runs,
+    COALESCE(SUM(r.total_tokens), 0) AS total_tokens,
+    COALESCE(SUM(CASE
+      WHEN r.billing_status = 'settled'
+       AND r.billing_reason = 'settled_complete_usage'
+       AND r.charge_status = 'settled'
+       AND r.finalized_at IS NOT NULL
+       AND (r.billing_anomaly IS NULL OR r.billing_anomaly <> 'state_inconsistent')
+      THEN r.charge_actual_units ELSE 0 END), 0) AS actual_units,
+    COALESCE(SUM(CASE WHEN r.run_anomaly IS NOT NULL THEN 1 ELSE 0 END), 0) AS run_anomaly_count,
+    COALESCE(SUM(CASE WHEN r.billing_anomaly IS NOT NULL THEN 1 ELSE 0 END), 0) AS billing_anomaly_count
+  FROM classified_runs r
+  GROUP BY r.model_id
+  ORDER BY actual_units DESC, total_runs DESC, stable_key ASC LIMIT 20
+),
+provider_attributions AS (
+  SELECT
+    'provider' AS dimension,
+    CAST(r.provider_id AS CHAR) AS stable_key,
+    r.provider_id AS attribution_id,
+    COALESCE(MAX(provider.name), '') AS attribution_name,
+    COUNT(*) AS total_runs,
+    COALESCE(SUM(CASE WHEN r.status = 'success' THEN 1 ELSE 0 END), 0) AS success_runs,
+    COALESCE(SUM(CASE WHEN r.status = 'failed' THEN 1 ELSE 0 END), 0) AS failed_runs,
+    COALESCE(SUM(CASE WHEN r.status = 'timeout' THEN 1 ELSE 0 END), 0) AS timeout_runs,
+    COALESCE(SUM(CASE WHEN r.status = 'outcome_unknown' THEN 1 ELSE 0 END), 0) AS outcome_unknown_runs,
+    COALESCE(SUM(r.total_tokens), 0) AS total_tokens,
+    COALESCE(SUM(CASE
+      WHEN r.billing_status = 'settled'
+       AND r.billing_reason = 'settled_complete_usage'
+       AND r.charge_status = 'settled'
+       AND r.finalized_at IS NOT NULL
+       AND (r.billing_anomaly IS NULL OR r.billing_anomaly <> 'state_inconsistent')
+      THEN r.charge_actual_units ELSE 0 END), 0) AS actual_units,
+    COALESCE(SUM(CASE WHEN r.run_anomaly IS NOT NULL THEN 1 ELSE 0 END), 0) AS run_anomaly_count,
+    COALESCE(SUM(CASE WHEN r.billing_anomaly IS NOT NULL THEN 1 ELSE 0 END), 0) AS billing_anomaly_count
+  FROM classified_runs r
+  LEFT JOIN ai_providers provider ON provider.id = r.provider_id
+  GROUP BY r.provider_id
+  ORDER BY actual_units DESC, total_runs DESC, stable_key ASC LIMIT 20
+),
+agent_attributions AS (
+  SELECT
+    'agent' AS dimension,
+    CAST(r.agent_id AS CHAR) AS stable_key,
+    r.agent_id AS attribution_id,
+    COALESCE(MAX(agent.name), '') AS attribution_name,
+    COUNT(*) AS total_runs,
+    COALESCE(SUM(CASE WHEN r.status = 'success' THEN 1 ELSE 0 END), 0) AS success_runs,
+    COALESCE(SUM(CASE WHEN r.status = 'failed' THEN 1 ELSE 0 END), 0) AS failed_runs,
+    COALESCE(SUM(CASE WHEN r.status = 'timeout' THEN 1 ELSE 0 END), 0) AS timeout_runs,
+    COALESCE(SUM(CASE WHEN r.status = 'outcome_unknown' THEN 1 ELSE 0 END), 0) AS outcome_unknown_runs,
+    COALESCE(SUM(r.total_tokens), 0) AS total_tokens,
+    COALESCE(SUM(CASE
+      WHEN r.billing_status = 'settled'
+       AND r.billing_reason = 'settled_complete_usage'
+       AND r.charge_status = 'settled'
+       AND r.finalized_at IS NOT NULL
+       AND (r.billing_anomaly IS NULL OR r.billing_anomaly <> 'state_inconsistent')
+      THEN r.charge_actual_units ELSE 0 END), 0) AS actual_units,
+    COALESCE(SUM(CASE WHEN r.run_anomaly IS NOT NULL THEN 1 ELSE 0 END), 0) AS run_anomaly_count,
+    COALESCE(SUM(CASE WHEN r.billing_anomaly IS NOT NULL THEN 1 ELSE 0 END), 0) AS billing_anomaly_count
+  FROM classified_runs r
+  LEFT JOIN ai_agents agent ON agent.id = r.agent_id
+  GROUP BY r.agent_id
+  ORDER BY actual_units DESC, total_runs DESC, stable_key ASC LIMIT 20
+),
+user_attributions AS (
+  SELECT
+    'user' AS dimension,
+    CAST(r.user_id AS CHAR) AS stable_key,
+    r.user_id AS attribution_id,
+    COALESCE(MAX(user_row.username), '') AS attribution_name,
+    COUNT(*) AS total_runs,
+    COALESCE(SUM(CASE WHEN r.status = 'success' THEN 1 ELSE 0 END), 0) AS success_runs,
+    COALESCE(SUM(CASE WHEN r.status = 'failed' THEN 1 ELSE 0 END), 0) AS failed_runs,
+    COALESCE(SUM(CASE WHEN r.status = 'timeout' THEN 1 ELSE 0 END), 0) AS timeout_runs,
+    COALESCE(SUM(CASE WHEN r.status = 'outcome_unknown' THEN 1 ELSE 0 END), 0) AS outcome_unknown_runs,
+    COALESCE(SUM(r.total_tokens), 0) AS total_tokens,
+    COALESCE(SUM(CASE
+      WHEN r.billing_status = 'settled'
+       AND r.billing_reason = 'settled_complete_usage'
+       AND r.charge_status = 'settled'
+       AND r.finalized_at IS NOT NULL
+       AND (r.billing_anomaly IS NULL OR r.billing_anomaly <> 'state_inconsistent')
+      THEN r.charge_actual_units ELSE 0 END), 0) AS actual_units,
+    COALESCE(SUM(CASE WHEN r.run_anomaly IS NOT NULL THEN 1 ELSE 0 END), 0) AS run_anomaly_count,
+    COALESCE(SUM(CASE WHEN r.billing_anomaly IS NOT NULL THEN 1 ELSE 0 END), 0) AS billing_anomaly_count
+  FROM classified_runs r
+  LEFT JOIN users user_row ON user_row.id = r.user_id
+  GROUP BY r.user_id
+  ORDER BY actual_units DESC, total_runs DESC, stable_key ASC LIMIT 20
+)
+SELECT
+  dimension,
+  stable_key AS attribution_key,
+  attribution_id AS id,
+  attribution_name AS name,
+  total_runs,
+  success_runs,
+  failed_runs,
+  timeout_runs,
+  outcome_unknown_runs,
+  total_tokens,
+  actual_units,
+  run_anomaly_count,
+  billing_anomaly_count
+FROM (
+  SELECT dimension, stable_key, attribution_id, attribution_name, total_runs, success_runs, failed_runs, timeout_runs,
+    outcome_unknown_runs, total_tokens, actual_units, run_anomaly_count, billing_anomaly_count
+  FROM model_attributions
+  UNION ALL
+  SELECT dimension, stable_key, attribution_id, attribution_name, total_runs, success_runs, failed_runs, timeout_runs,
+    outcome_unknown_runs, total_tokens, actual_units, run_anomaly_count, billing_anomaly_count
+  FROM provider_attributions
+  UNION ALL
+  SELECT dimension, stable_key, attribution_id, attribution_name, total_runs, success_runs, failed_runs, timeout_runs,
+    outcome_unknown_runs, total_tokens, actual_units, run_anomaly_count, billing_anomaly_count
+  FROM agent_attributions
+  UNION ALL
+  SELECT dimension, stable_key, attribution_id, attribution_name, total_runs, success_runs, failed_runs, timeout_runs,
+    outcome_unknown_runs, total_tokens, actual_units, run_anomaly_count, billing_anomaly_count
+  FROM user_attributions
+) attribution_rows
+ORDER BY FIELD(dimension, 'model', 'provider', 'agent', 'user'), actual_units DESC, total_runs DESC, stable_key ASC`, dashboardRunAnomalyCaseSQL(), dashboardBillingAnomalyCaseSQL())
+}
+
+func dashboardErrorsSQL() string {
+	return `
+WITH filtered_runs AS (?),
+ranked_terminal_attempts AS (
+  SELECT
+    attempt.run_id,
+    attempt.error_code,
+    ROW_NUMBER() OVER (PARTITION BY attempt.run_id ORDER BY attempt.attempt_no DESC, attempt.id DESC) AS final_rank
+  FROM filtered_runs r
+  JOIN ai_provider_attempts attempt ON attempt.run_id = r.id
+  WHERE r.status IN ('failed', 'timeout', 'outcome_unknown')
+    AND attempt.state IN ('succeeded', 'failed', 'canceled', 'outcome_unknown')
+)
+SELECT
+  COALESCE(NULLIF(TRIM(error_code), ''), 'unclassified') AS error_code,
+  COUNT(*) AS count
+FROM ranked_terminal_attempts
+WHERE final_rank = 1
+GROUP BY COALESCE(NULLIF(TRIM(error_code), ''), 'unclassified')
+ORDER BY count DESC, error_code ASC
+LIMIT 20`
+}
+
+func dashboardToolsSQL() string {
+	return `
+WITH filtered_runs AS (?),
+filtered_tool_calls AS (
+  SELECT
+    tool_call.id,
+    tool_call.tool_code,
+    tool_call.tool_name,
+    tool_call.status,
+    tool_call.duration_ms,
+    tool_call.started_at,
+    ROW_NUMBER() OVER (PARTITION BY tool_call.tool_code ORDER BY tool_call.started_at DESC, tool_call.id DESC) AS tool_name_rank
+  FROM filtered_runs r
+  JOIN ai_tool_calls tool_call ON tool_call.run_id = r.id
+),
+tool_totals AS (
+  SELECT
+    tool_code,
+    COALESCE(MAX(CASE WHEN tool_name_rank = 1 THEN tool_name END), '') AS tool_name,
+    COUNT(*) AS total_calls,
+    COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0) AS success_calls,
+    COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS failed_calls,
+    COALESCE(SUM(CASE WHEN status = 'timeout' THEN 1 ELSE 0 END), 0) AS timeout_calls
+  FROM filtered_tool_calls
+  GROUP BY tool_code
+),
+successful_duration_samples AS (
+  SELECT tool_code, duration_ms
+  FROM filtered_tool_calls
+  WHERE status = 'success' AND duration_ms IS NOT NULL AND duration_ms >= 0
+),
+ranked_duration_samples AS (
+  SELECT
+    tool_code,
+    duration_ms,
+    ROW_NUMBER() OVER (PARTITION BY tool_code ORDER BY duration_ms ASC) AS sample_rank,
+    COUNT(*) OVER (PARTITION BY tool_code) AS sample_count
+  FROM successful_duration_samples
+),
+tool_duration_percentiles AS (
+  SELECT
+    tool_code,
+    sample_count,
+    MAX(CASE WHEN sample_rank = CEIL(0.50 * sample_count) THEN duration_ms END) AS p50_ms,
+    MAX(CASE WHEN sample_rank = CEIL(0.95 * sample_count) THEN duration_ms END) AS p95_ms
+  FROM ranked_duration_samples
+  GROUP BY tool_code, sample_count
+)
+SELECT
+  tool_totals.tool_code,
+  tool_totals.tool_name,
+  tool_totals.total_calls,
+  tool_totals.success_calls,
+  tool_totals.failed_calls,
+  tool_totals.timeout_calls,
+  COALESCE(tool_duration_percentiles.sample_count, 0) AS duration_sample_count,
+  COALESCE(tool_duration_percentiles.p50_ms, 0) AS duration_p50_ms,
+  COALESCE(tool_duration_percentiles.p95_ms, 0) AS duration_p95_ms
+FROM tool_totals
+LEFT JOIN tool_duration_percentiles ON tool_duration_percentiles.tool_code = tool_totals.tool_code
+ORDER BY total_calls DESC, tool_code ASC
+LIMIT 20`
+}
+
 func dashboardOverviewQuery(db *gorm.DB, query DashboardQuery) *gorm.DB {
 	return db.Raw(
 		dashboardOverviewSQL(),
@@ -357,6 +661,234 @@ func dashboardPerformanceQuery(db *gorm.DB, query DashboardQuery) *gorm.DB {
 
 func dashboardTrendQuery(db *gorm.DB, query DashboardQuery) *gorm.DB {
 	return db.Raw(dashboardTrendSQL(), dashboardFilteredRuns(db, query))
+}
+
+func dashboardAttributionsQuery(db *gorm.DB, query DashboardQuery) *gorm.DB {
+	return db.Raw(
+		dashboardAttributionsSQL(),
+		dashboardFilteredRuns(db, query),
+		query.StaleBefore,
+		query.StaleBefore,
+	)
+}
+
+func dashboardErrorsQuery(db *gorm.DB, query DashboardQuery) *gorm.DB {
+	return db.Raw(dashboardErrorsSQL(), dashboardFilteredRuns(db, query))
+}
+
+func dashboardToolsQuery(db *gorm.DB, query DashboardQuery) *gorm.DB {
+	return db.Raw(dashboardToolsSQL(), dashboardFilteredRuns(db, query))
+}
+
+func (r *GormRepository) Dashboard(ctx context.Context, query DashboardQuery) (DashboardRepositoryResult, error) {
+	if r == nil || r.db == nil {
+		return DashboardRepositoryResult{}, ErrRepositoryNotConfigured
+	}
+	var result DashboardRepositoryResult
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return scanDashboardQueries(tx, query, &result)
+	}, &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelRepeatableRead})
+	if err != nil {
+		return DashboardRepositoryResult{}, err
+	}
+	return result, nil
+}
+
+func scanDashboardQueries(tx *gorm.DB, query DashboardQuery, result *DashboardRepositoryResult) error {
+	stages := []struct {
+		code DashboardQueryStage
+		scan func() error
+	}{
+		{code: DashboardStageOverview, scan: func() error { return scanDashboardOverview(tx, query, result) }},
+		{code: DashboardStagePerformance, scan: func() error { return scanDashboardPerformance(tx, query, result) }},
+		{code: DashboardStageTrend, scan: func() error { return scanDashboardTrend(tx, query, result) }},
+		{code: DashboardStageAttributions, scan: func() error { return scanDashboardAttributions(tx, query, result) }},
+		{code: DashboardStageErrors, scan: func() error { return dashboardErrorsQuery(tx, query).Scan(&result.Errors).Error }},
+		{code: DashboardStageTools, scan: func() error { return scanDashboardTools(tx, query, result) }},
+	}
+	for _, stage := range stages {
+		if err := stage.scan(); err != nil {
+			return &DashboardQueryError{Stage: stage.code, Err: err}
+		}
+	}
+	return nil
+}
+
+type dashboardOverviewScanRow struct {
+	RowType            string
+	Code               string
+	CountValue         int64
+	TotalRuns          int64
+	RunningRuns        int64
+	SuccessRuns        int64
+	FailedRuns         int64
+	CanceledRuns       int64
+	TimeoutRuns        int64
+	OutcomeUnknownRuns int64
+	PromptTokens       int64
+	CompletionTokens   int64
+	TotalTokens        int64
+	SettledRuns        int64
+	ActualUnits        int64
+	ReleasedRuns       int64
+	ReleasedUnits      int64
+	UnbilledRuns       int64
+}
+
+func scanDashboardOverview(tx *gorm.DB, query DashboardQuery, result *DashboardRepositoryResult) error {
+	var rows []dashboardOverviewScanRow
+	if err := dashboardOverviewQuery(tx, query).Scan(&rows).Error; err != nil {
+		return err
+	}
+	for _, row := range rows {
+		switch row.RowType {
+		case "summary":
+			result.Summary = DashboardSummaryRow{
+				TotalRuns: row.TotalRuns, RunningRuns: row.RunningRuns, SuccessRuns: row.SuccessRuns,
+				FailedRuns: row.FailedRuns, CanceledRuns: row.CanceledRuns, TimeoutRuns: row.TimeoutRuns,
+				OutcomeUnknownRuns: row.OutcomeUnknownRuns, PromptTokens: row.PromptTokens,
+				CompletionTokens: row.CompletionTokens, TotalTokens: row.TotalTokens,
+			}
+			result.Billing = DashboardBillingRow{
+				SettledRuns: row.SettledRuns, ActualUnits: row.ActualUnits, ReleasedRuns: row.ReleasedRuns,
+				ReleasedUnits: row.ReleasedUnits, UnbilledRuns: row.UnbilledRuns,
+			}
+		case "run_anomaly":
+			result.RunAnomalies = append(result.RunAnomalies, DashboardCountRow{Code: row.Code, Count: row.CountValue})
+		case "billing_anomaly":
+			result.BillingAnomalies = append(result.BillingAnomalies, DashboardCountRow{Code: row.Code, Count: row.CountValue})
+		default:
+			return fmt.Errorf("unsupported dashboard overview row type %q", row.RowType)
+		}
+	}
+	return nil
+}
+
+type dashboardDistributionScanRow struct {
+	Metric      string
+	SampleCount int64
+	P50MS       int64
+	P95MS       int64
+}
+
+func scanDashboardPerformance(tx *gorm.DB, query DashboardQuery, result *DashboardRepositoryResult) error {
+	var rows []dashboardDistributionScanRow
+	if err := dashboardPerformanceQuery(tx, query).Scan(&rows).Error; err != nil {
+		return err
+	}
+	for _, row := range rows {
+		distribution := DashboardDistributionRow{SampleCount: row.SampleCount, P50MS: row.P50MS, P95MS: row.P95MS}
+		switch row.Metric {
+		case "ttft":
+			result.Performance.TTFT = distribution
+		case "end_to_end":
+			result.Performance.EndToEnd = distribution
+		default:
+			return fmt.Errorf("unsupported dashboard performance metric %q", row.Metric)
+		}
+	}
+	return nil
+}
+
+type dashboardTrendScanRow struct {
+	Date                string
+	TotalRuns           int64
+	RunningRuns         int64
+	SuccessRuns         int64
+	FailedRuns          int64
+	CanceledRuns        int64
+	TimeoutRuns         int64
+	OutcomeUnknownRuns  int64
+	ActualUnits         int64
+	TTFTSampleCount     int64
+	TTFTP50MS           int64 `gorm:"column:ttft_p50_ms"`
+	TTFTP95MS           int64 `gorm:"column:ttft_p95_ms"`
+	EndToEndSampleCount int64
+	EndToEndP50MS       int64
+	EndToEndP95MS       int64
+}
+
+func scanDashboardTrend(tx *gorm.DB, query DashboardQuery, result *DashboardRepositoryResult) error {
+	var rows []dashboardTrendScanRow
+	if err := dashboardTrendQuery(tx, query).Scan(&rows).Error; err != nil {
+		return err
+	}
+	result.Trend = make([]DashboardTrendRow, 0, len(rows))
+	for _, row := range rows {
+		result.Trend = append(result.Trend, DashboardTrendRow{
+			Date: row.Date, TotalRuns: row.TotalRuns, RunningRuns: row.RunningRuns, SuccessRuns: row.SuccessRuns,
+			FailedRuns: row.FailedRuns, CanceledRuns: row.CanceledRuns, TimeoutRuns: row.TimeoutRuns,
+			OutcomeUnknownRuns: row.OutcomeUnknownRuns, ActualUnits: row.ActualUnits,
+			TTFT: DashboardDistributionRow{SampleCount: row.TTFTSampleCount, P50MS: row.TTFTP50MS, P95MS: row.TTFTP95MS},
+			EndToEnd: DashboardDistributionRow{
+				SampleCount: row.EndToEndSampleCount, P50MS: row.EndToEndP50MS, P95MS: row.EndToEndP95MS,
+			},
+		})
+	}
+	return nil
+}
+
+type dashboardAttributionScanRow struct {
+	Dimension           string
+	AttributionKey      string
+	ID                  int64
+	Name                string
+	TotalRuns           int64
+	SuccessRuns         int64
+	FailedRuns          int64
+	TimeoutRuns         int64
+	OutcomeUnknownRuns  int64
+	TotalTokens         int64
+	ActualUnits         int64
+	RunAnomalyCount     int64
+	BillingAnomalyCount int64
+}
+
+func scanDashboardAttributions(tx *gorm.DB, query DashboardQuery, result *DashboardRepositoryResult) error {
+	var rows []dashboardAttributionScanRow
+	if err := dashboardAttributionsQuery(tx, query).Scan(&rows).Error; err != nil {
+		return err
+	}
+	result.Attributions = make([]DashboardAttributionRow, 0, len(rows))
+	for _, row := range rows {
+		result.Attributions = append(result.Attributions, DashboardAttributionRow{
+			Dimension: row.Dimension, Key: row.AttributionKey, ID: row.ID, Name: row.Name, TotalRuns: row.TotalRuns,
+			SuccessRuns: row.SuccessRuns, FailedRuns: row.FailedRuns, TimeoutRuns: row.TimeoutRuns,
+			OutcomeUnknownRuns: row.OutcomeUnknownRuns, TotalTokens: row.TotalTokens, ActualUnits: row.ActualUnits,
+			RunAnomalyCount: row.RunAnomalyCount, BillingAnomalyCount: row.BillingAnomalyCount,
+		})
+	}
+	return nil
+}
+
+type dashboardToolScanRow struct {
+	ToolCode            string
+	ToolName            string
+	TotalCalls          int64
+	SuccessCalls        int64
+	FailedCalls         int64
+	TimeoutCalls        int64
+	DurationSampleCount int64
+	DurationP50MS       int64
+	DurationP95MS       int64
+}
+
+func scanDashboardTools(tx *gorm.DB, query DashboardQuery, result *DashboardRepositoryResult) error {
+	var rows []dashboardToolScanRow
+	if err := dashboardToolsQuery(tx, query).Scan(&rows).Error; err != nil {
+		return err
+	}
+	result.Tools = make([]DashboardToolRow, 0, len(rows))
+	for _, row := range rows {
+		result.Tools = append(result.Tools, DashboardToolRow{
+			ToolCode: row.ToolCode, ToolName: row.ToolName, TotalCalls: row.TotalCalls,
+			SuccessCalls: row.SuccessCalls, FailedCalls: row.FailedCalls, TimeoutCalls: row.TimeoutCalls,
+			Duration: DashboardDistributionRow{
+				SampleCount: row.DurationSampleCount, P50MS: row.DurationP50MS, P95MS: row.DurationP95MS,
+			},
+		})
+	}
+	return nil
 }
 
 func dashboardFilteredRuns(db *gorm.DB, query DashboardQuery) *gorm.DB {

@@ -2,7 +2,9 @@ package airun
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"net/http"
 	"strings"
@@ -10,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"admin_back_go/internal/config"
+	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/shared/apperror"
 	sharedmoney "admin_back_go/internal/shared/money"
 )
@@ -29,16 +32,17 @@ func (s *Service) Dashboard(ctx context.Context, filter DashboardFilter) (*Dashb
 	if appErr != nil {
 		return nil, appErr
 	}
-	now := time.Now()
+	startedAt := time.Now()
 	if s.clock != nil {
-		now = s.clock.Now()
+		startedAt = s.clock.Now()
 	}
-	query, appErr := normalizeDashboardFilter(filter, now)
+	query, appErr := normalizeDashboardFilter(filter, startedAt)
 	if appErr != nil {
 		return nil, appErr
 	}
 	rows, err := repository.Dashboard(ctx, query)
 	if err != nil {
+		s.logDashboardQueryFailure(ctx, filter, query, startedAt, err)
 		return nil, apperror.WrapKey(apperror.CodeInternal, http.StatusInternalServerError, "airun.dashboard.query_failed", nil, "查询AI运行驾驶舱失败", err)
 	}
 	response, err := buildDashboardResponse(query, rows)
@@ -46,6 +50,50 @@ func (s *Service) Dashboard(ctx context.Context, filter DashboardFilter) (*Dashb
 		return nil, apperror.WrapKey(apperror.CodeInternal, http.StatusInternalServerError, "airun.dashboard.result_invalid", nil, "AI运行驾驶舱统计结果无效", err)
 	}
 	return response, nil
+}
+
+func (s *Service) logDashboardQueryFailure(ctx context.Context, filter DashboardFilter, query DashboardQuery, startedAt time.Time, queryErr error) {
+	finishedAt := time.Now()
+	if s.clock != nil {
+		finishedAt = s.clock.Now()
+	}
+	durationMS := finishedAt.Sub(startedAt).Milliseconds()
+	if durationMS < 0 {
+		durationMS = 0
+	}
+	stage := DashboardQueryStage("")
+	errorDetail := queryErr
+	var stagedErr *DashboardQueryError
+	if errors.As(queryErr, &stagedErr) {
+		stage = stagedErr.Stage
+		if stagedErr.Err != nil {
+			errorDetail = stagedErr.Err
+		}
+	}
+	logger := s.logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	logger.ErrorContext(ctx, "AI run dashboard query failed",
+		slog.String("request_id", filter.RequestID),
+		slog.String("start_at", query.StartAt.Format(time.RFC3339)),
+		slog.String("end_exclusive", query.EndExclusive.Format(time.RFC3339)),
+		slog.String("platform", query.Platform),
+		slog.String("model_id", query.ModelID),
+		slog.Int64("agent_id", dashboardLogID(query.AgentID)),
+		slog.Int64("provider_id", dashboardLogID(query.ProviderID)),
+		slog.Int64("user_id", dashboardLogID(query.UserID)),
+		slog.String("stage", string(stage)),
+		slog.Int64("duration_ms", durationMS),
+		slog.String("error", errorDetail.Error()),
+	)
+}
+
+func dashboardLogID(value *int64) int64 {
+	if value == nil {
+		return 0
+	}
+	return *value
 }
 
 func normalizeDashboardFilter(filter DashboardFilter, now time.Time) (DashboardQuery, *apperror.Error) {
@@ -116,6 +164,11 @@ func normalizeDashboardFilter(filter DashboardFilter, now time.Time) (DashboardQ
 }
 
 func buildDashboardResponse(query DashboardQuery, rows DashboardRepositoryResult) (*DashboardResponse, error) {
+	officialModels := officialmodel.Default.Models()
+	officialModelIDs := make(map[string]struct{}, len(officialModels))
+	for _, model := range officialModels {
+		officialModelIDs[model.ModelID] = struct{}{}
+	}
 	summaryDenominator, err := dashboardSumNonNegative("summary success denominator", rows.Summary.SuccessRuns, rows.Summary.FailedRuns, rows.Summary.TimeoutRuns, rows.Summary.OutcomeUnknownRuns)
 	if err != nil {
 		return nil, err
@@ -239,8 +292,9 @@ func buildDashboardResponse(query DashboardQuery, rows DashboardRepositoryResult
 		}
 		switch dimension {
 		case "model":
+			_, official := officialModelIDs[row.Key]
 			response.Breakdowns.Models = append(response.Breakdowns.Models, DashboardModelBreakdown{
-				ModelID: row.Key, ModelDisplayName: row.Name, DashboardAttributionMetrics: metrics,
+				ModelID: row.Key, ModelDisplayName: row.Name, Historical: !official, DashboardAttributionMetrics: metrics,
 			})
 		case "provider":
 			response.Breakdowns.Providers = append(response.Breakdowns.Providers, DashboardProviderBreakdown{

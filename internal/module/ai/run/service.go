@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"math"
 	"sort"
 	"strconv"
@@ -41,6 +42,7 @@ type Service struct {
 	repository         Repository
 	feedbackRepository FeedbackRepository
 	clock              clock.Clock
+	logger             *slog.Logger
 }
 
 type Option func(*Service)
@@ -59,8 +61,16 @@ func WithClock(value clock.Clock) Option {
 	}
 }
 
+func WithLogger(value *slog.Logger) Option {
+	return func(service *Service) {
+		if value != nil {
+			service.logger = value
+		}
+	}
+}
+
 func NewService(repository Repository, options ...Option) *Service {
-	service := &Service{repository: repository, clock: clock.SystemClock{}}
+	service := &Service{repository: repository, clock: clock.SystemClock{}, logger: slog.Default()}
 	if feedbackRepository, ok := repository.(FeedbackRepository); ok {
 		service.feedbackRepository = feedbackRepository
 	}
