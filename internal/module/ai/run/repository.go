@@ -43,23 +43,65 @@ func (r *GormRepository) ProviderOptions(ctx context.Context) ([]OptionRow, erro
 	return rows, err
 }
 
-func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]ListRow, int64, error) {
+func (r *GormRepository) HistoricalModelOptions(ctx context.Context, startAt, endExclusive time.Time) ([]HistoricalModelRow, error) {
 	if r == nil || r.db == nil {
-		return nil, 0, ErrRepositoryNotConfigured
+		return nil, ErrRepositoryNotConfigured
 	}
-	db := applyListFilters(r.runsBase(ctx), query)
-	var total int64
-	if err := db.Count(&total).Error; err != nil {
-		return nil, 0, err
+	if startAt.IsZero() || endExclusive.IsZero() || !startAt.Before(endExclusive) {
+		return nil, errors.New("historical model date range is invalid")
 	}
-	var rows []ListRow
-	err := db.Select(`r.id, r.request_id, r.user_id,
+	rows := make([]HistoricalModelRow, 0)
+	err := r.db.WithContext(ctx).Raw(`
+SELECT model_id, model_display_name
+FROM (
+  SELECT
+    model_id,
+    model_display_name,
+    ROW_NUMBER() OVER (PARTITION BY model_id ORDER BY created_at DESC, id DESC) AS row_no
+  FROM ai_runs
+  WHERE created_at >= ? AND created_at < ? AND model_id <> ''
+) historical_models
+WHERE row_no = 1
+ORDER BY model_id ASC`, startAt, endExclusive).Scan(&rows).Error
+	return rows, err
+}
+
+const runListFinalAttemptJoinSQL = `LEFT JOIN ai_provider_attempts final_attempt
+ON final_attempt.run_id = r.id
+AND final_attempt.state IN ('succeeded', 'failed', 'canceled', 'outcome_unknown')
+AND NOT EXISTS (
+  SELECT 1
+  FROM ai_provider_attempts newer_attempt
+  WHERE newer_attempt.run_id = final_attempt.run_id
+    AND newer_attempt.state IN ('succeeded', 'failed', 'canceled', 'outcome_unknown')
+    AND (
+      newer_attempt.attempt_no > final_attempt.attempt_no
+      OR (newer_attempt.attempt_no = final_attempt.attempt_no AND newer_attempt.id > final_attempt.id)
+    )
+)`
+
+func runListSelectSQL() string {
+	return `r.id, r.request_id, r.user_id,
 		r.agent_id, COALESCE(a.name, '') as agent_name,
 		r.provider_id, COALESCE(p.name, '') as provider_name,
 		r.platform, r.input_snapshot,
 		r.conversation_id, COALESCE(c.title, '') as conversation_title,
 		r.status, r.model_id, r.model_display_name,
-		r.prompt_tokens, r.completion_tokens, r.total_tokens, r.duration_ms, r.error_message, r.created_at`).
+		r.billing_status, r.billing_reason, COALESCE(final_attempt.error_code, '') AS error_code,
+		r.prompt_tokens, r.completion_tokens, r.total_tokens, r.duration_ms, r.error_message, r.created_at`
+}
+
+func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]ListRow, int64, error) {
+	if r == nil || r.db == nil {
+		return nil, 0, ErrRepositoryNotConfigured
+	}
+	countDB := applyListFilters(r.listBase(ctx, query, false), query)
+	var total int64
+	if err := countDB.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var rows []ListRow
+	err := applyListFilters(r.listBase(ctx, query, true), query).Select(runListSelectSQL()).
 		Order("r.id DESC").
 		Limit(query.PageSize).
 		Offset((query.CurrentPage - 1) * query.PageSize).
@@ -252,6 +294,17 @@ func (r *GormRepository) runsBase(ctx context.Context) *gorm.DB {
 		Joins("LEFT JOIN users u ON u.id = r.user_id")
 }
 
+func (r *GormRepository) listBase(ctx context.Context, query ListQuery, includeFinalAttempt bool) *gorm.DB {
+	db := r.runsBase(ctx)
+	if query.BillingAnomaly != "" {
+		db = db.Joins("LEFT JOIN ai_usage_charges charge ON charge.run_id = r.id")
+	}
+	if includeFinalAttempt || query.ErrorCode != "" {
+		db = db.Joins(runListFinalAttemptJoinSQL)
+	}
+	return db
+}
+
 func (r *GormRepository) messageSummary(ctx context.Context, runID int64, column string) *MessageSummary {
 	var row struct {
 		ID          int64
@@ -292,7 +345,35 @@ func applyListFilters(db *gorm.DB, query ListQuery) *gorm.DB {
 	if query.ProviderID != nil {
 		db = db.Where("r.provider_id = ?", *query.ProviderID)
 	}
-	return applyDateRange(db, query.DateStart, query.DateEnd)
+	if query.ModelID != "" {
+		db = db.Where("r.model_id = ?", query.ModelID)
+	}
+	if query.BillingStatus != "" {
+		db = db.Where("r.billing_status = ?", query.BillingStatus)
+	}
+	if query.BillingReason != "" {
+		db = db.Where("r.billing_reason = ?", query.BillingReason)
+	}
+	if query.ErrorCode != "" {
+		db = db.Where("r.status IN ?", []string{enum.AIRunStatusFailed, enum.AIRunStatusTimeout, enum.AIRunStatusOutcomeUnknown})
+		db = db.Where("COALESCE(NULLIF(TRIM(final_attempt.error_code), ''), 'unclassified') = ?", query.ErrorCode)
+	}
+	if query.ToolCode != "" {
+		db = db.Where("EXISTS (SELECT 1 FROM ai_tool_calls tc WHERE tc.run_id = r.id AND tc.tool_code = ?)", query.ToolCode)
+	}
+	if query.RunAnomaly != "" {
+		db = db.Where("("+dashboardRunAnomalyCaseSQL()+") = ?", query.StaleBefore, query.RunAnomaly)
+	}
+	if query.BillingAnomaly != "" {
+		db = db.Where("("+dashboardBillingAnomalyCaseSQL()+") = ?", query.StaleBefore, query.StaleBefore, query.BillingAnomaly)
+	}
+	if !query.StartAt.IsZero() {
+		db = db.Where("r.created_at >= ?", query.StartAt)
+	}
+	if !query.EndExclusive.IsZero() {
+		db = db.Where("r.created_at < ?", query.EndExclusive)
+	}
+	return db
 }
 
 func applyStatsFilters(db *gorm.DB, query StatsFilter) *gorm.DB {

@@ -10,10 +10,13 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
+	"admin_back_go/internal/config"
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/module/ai/aigateway"
 	"admin_back_go/internal/module/ai/billing"
+	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/pricing"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/clock"
@@ -82,8 +85,16 @@ func NewService(repository Repository, options ...Option) *Service {
 	return service
 }
 
-func (s *Service) PageInit(ctx context.Context) (*InitResponse, *apperror.Error) {
+func (s *Service) PageInit(ctx context.Context, filter PageInitFilter) (*InitResponse, *apperror.Error) {
 	repo, appErr := s.requireRepository()
+	if appErr != nil {
+		return nil, appErr
+	}
+	now := time.Now()
+	if s.clock != nil {
+		now = s.clock.Now()
+	}
+	dateQuery, appErr := normalizeDashboardFilter(DashboardFilter{DateStart: filter.DateStart, DateEnd: filter.DateEnd}, now)
 	if appErr != nil {
 		return nil, appErr
 	}
@@ -95,12 +106,19 @@ func (s *Service) PageInit(ctx context.Context) (*InitResponse, *apperror.Error)
 	if err != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI供应商选项失败", err)
 	}
+	historicalModels, err := repo.HistoricalModelOptions(ctx, dateQuery.StartAt, dateQuery.EndExclusive)
+	if err != nil {
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI运行历史模型选项失败", err)
+	}
 	agentOptions := optionItems(agents)
 	return &InitResponse{Dict: InitDict{
-		StatusArr:   dict.AIRunStatusOptions(),
-		PlatformArr: dict.AIRunPlatformOptions(),
-		AgentArr:    agentOptions,
-		ProviderArr: optionItems(engines),
+		StatusArr:        dict.AIRunStatusOptions(),
+		PlatformArr:      dict.AIRunPlatformOptions(),
+		AgentArr:         agentOptions,
+		ProviderArr:      optionItems(engines),
+		ModelArr:         mergeRunModelOptions(historicalModels),
+		BillingStatusArr: runBillingStatusOptions(),
+		BillingReasonArr: runBillingReasonOptions(),
 	}}, nil
 }
 
@@ -109,7 +127,14 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 	if appErr != nil {
 		return nil, appErr
 	}
-	query = normalizeListQuery(query)
+	now := time.Now()
+	if s.clock != nil {
+		now = s.clock.Now()
+	}
+	query, appErr = normalizeListQuery(query, now)
+	if appErr != nil {
+		return nil, appErr
+	}
 	if appErr := validateOptionalPlatform(query.Platform); appErr != nil {
 		return nil, appErr
 	}
@@ -339,7 +364,7 @@ func validateOptionalPlatform(platform string) *apperror.Error {
 	return nil
 }
 
-func normalizeListQuery(query ListQuery) ListQuery {
+func normalizeListQuery(query ListQuery, now time.Time) (ListQuery, *apperror.Error) {
 	if query.CurrentPage <= 0 {
 		query.CurrentPage = 1
 	}
@@ -351,9 +376,166 @@ func normalizeListQuery(query ListQuery) ListQuery {
 	}
 	query.RequestID = strings.TrimSpace(query.RequestID)
 	query.Platform = strings.TrimSpace(query.Platform)
-	query.DateStart = strings.TrimSpace(query.DateStart)
-	query.DateEnd = strings.TrimSpace(query.DateEnd)
-	return query
+	query.Status = strings.TrimSpace(query.Status)
+	query.ModelID = strings.TrimSpace(query.ModelID)
+	query.BillingStatus = strings.TrimSpace(query.BillingStatus)
+	query.BillingReason = strings.TrimSpace(query.BillingReason)
+	query.ErrorCode = strings.TrimSpace(query.ErrorCode)
+	query.ToolCode = strings.TrimSpace(query.ToolCode)
+	query.RunAnomaly = strings.TrimSpace(query.RunAnomaly)
+	query.BillingAnomaly = strings.TrimSpace(query.BillingAnomaly)
+
+	if query.Status != "" && !enum.IsAIRunStatus(query.Status) {
+		return ListQuery{}, apperror.BadRequest("无效的AI运行状态")
+	}
+	if utf8.RuneCountInString(query.ModelID) > dashboardMaxModelIDLength {
+		return ListQuery{}, apperror.BadRequest("模型ID长度不能超过191个字符")
+	}
+	if query.BillingStatus != "" && !isRunBillingStatus(query.BillingStatus) {
+		return ListQuery{}, apperror.BadRequest("无效的AI运行计费状态")
+	}
+	if query.BillingReason != "" && !isRunBillingReason(query.BillingReason) {
+		return ListQuery{}, apperror.BadRequest("无效的AI运行计费原因")
+	}
+	if utf8.RuneCountInString(query.ErrorCode) > 128 {
+		return ListQuery{}, apperror.BadRequest("错误码长度不能超过128个字符")
+	}
+	if utf8.RuneCountInString(query.ToolCode) > 128 {
+		return ListQuery{}, apperror.BadRequest("工具编码长度不能超过128个字符")
+	}
+	if query.RunAnomaly != "" && !isDashboardRunAnomaly(query.RunAnomaly) {
+		return ListQuery{}, apperror.BadRequest("无效的AI运行异常分类")
+	}
+	if query.BillingAnomaly != "" && !isDashboardBillingAnomaly(query.BillingAnomaly) {
+		return ListQuery{}, apperror.BadRequest("无效的AI计费异常分类")
+	}
+	if appErr := validateDashboardID("agent_id", query.AgentID); appErr != nil {
+		return ListQuery{}, appErr
+	}
+	if appErr := validateDashboardID("provider_id", query.ProviderID); appErr != nil {
+		return ListQuery{}, appErr
+	}
+	if appErr := validateDashboardID("user_id", query.UserID); appErr != nil {
+		return ListQuery{}, appErr
+	}
+	if query.DateStart != "" || query.DateEnd != "" {
+		dateQuery, appErr := normalizeDashboardFilter(DashboardFilter{DateStart: query.DateStart, DateEnd: query.DateEnd}, now)
+		if appErr != nil {
+			return ListQuery{}, appErr
+		}
+		query.StartAt = dateQuery.StartAt
+		query.EndExclusive = dateQuery.EndExclusive
+	}
+	if query.RunAnomaly != "" || query.BillingAnomaly != "" {
+		generatedAt := now
+		if query.AnomalyAsOf != "" {
+			parsed, err := time.Parse(time.RFC3339, query.AnomalyAsOf)
+			if err != nil {
+				return ListQuery{}, apperror.BadRequest("无效的异常快照时间")
+			}
+			generatedAt = parsed
+		}
+		location, err := time.LoadLocation(dashboardTimezone)
+		if err != nil {
+			return ListQuery{}, apperror.Internal("AI运行驾驶舱时区不可用")
+		}
+		query.GeneratedAt = generatedAt.In(location)
+		query.StaleBefore = query.GeneratedAt.Add(-config.DefaultAIRunStaleTimeout)
+	} else {
+		query.AnomalyAsOf = ""
+	}
+	return query, nil
+}
+
+func mergeRunModelOptions(historical []HistoricalModelRow) []ModelOption {
+	officialModels := officialmodel.Default.Models()
+	options := make([]ModelOption, 0, len(officialModels)+len(historical))
+	seen := make(map[string]struct{}, len(officialModels)+len(historical))
+	for _, model := range officialModels {
+		options = append(options, ModelOption{Label: model.ModelID, Value: model.ModelID})
+		seen[model.ModelID] = struct{}{}
+	}
+	for _, model := range historical {
+		modelID := strings.TrimSpace(model.ModelID)
+		if modelID == "" {
+			continue
+		}
+		if _, exists := seen[modelID]; exists {
+			continue
+		}
+		label := strings.TrimSpace(model.ModelDisplayName)
+		if label == "" {
+			label = modelID
+		}
+		options = append(options, ModelOption{Label: label, Value: modelID, Historical: true})
+		seen[modelID] = struct{}{}
+	}
+	return options
+}
+
+func runBillingStatusOptions() []dict.Option[string] {
+	return []dict.Option[string]{
+		{Label: "待处理", Value: string(billing.BillingStatusPending)},
+		{Label: "已预占", Value: string(billing.BillingStatusHeld)},
+		{Label: "已结算", Value: string(billing.BillingStatusSettled)},
+		{Label: "已释放", Value: string(billing.BillingStatusReleased)},
+		{Label: "未计费", Value: string(billing.BillingStatusUnbilled)},
+	}
+}
+
+func runBillingReasonOptions() []dict.Option[string] {
+	return []dict.Option[string]{
+		{Label: "待处理", Value: string(billing.BillingReasonPending)},
+		{Label: "已预占", Value: string(billing.BillingReasonHeld)},
+		{Label: "完整用量已结算", Value: string(billing.BillingReasonSettledCompleteUsage)},
+		{Label: "分发前释放", Value: string(billing.BillingReasonReleasedBeforeDispatch)},
+		{Label: "余额不足释放", Value: string(billing.BillingReasonReleasedInsufficientBalance)},
+		{Label: "上游失败释放", Value: string(billing.BillingReasonReleasedProviderFailed)},
+		{Label: "结果未知释放", Value: string(billing.BillingReasonReleasedOutcomeUnknown)},
+		{Label: "用量不完整未计费", Value: string(billing.BillingReasonUnbilledUsageIncomplete)},
+		{Label: "超出预占未计费", Value: string(billing.BillingReasonUnbilledOverHold)},
+		{Label: "历史无价格", Value: string(billing.BillingReasonLegacyUnpriced)},
+	}
+}
+
+func isRunBillingStatus(value string) bool {
+	switch billing.BillingStatus(value) {
+	case billing.BillingStatusPending, billing.BillingStatusHeld, billing.BillingStatusSettled, billing.BillingStatusReleased, billing.BillingStatusUnbilled:
+		return true
+	default:
+		return false
+	}
+}
+
+func isRunBillingReason(value string) bool {
+	switch billing.BillingReason(value) {
+	case billing.BillingReasonPending, billing.BillingReasonHeld, billing.BillingReasonSettledCompleteUsage,
+		billing.BillingReasonReleasedBeforeDispatch, billing.BillingReasonReleasedInsufficientBalance,
+		billing.BillingReasonReleasedProviderFailed, billing.BillingReasonReleasedOutcomeUnknown,
+		billing.BillingReasonUnbilledUsageIncomplete, billing.BillingReasonUnbilledOverHold,
+		billing.BillingReasonLegacyUnpriced:
+		return true
+	default:
+		return false
+	}
+}
+
+func isDashboardRunAnomaly(value string) bool {
+	switch value {
+	case "failed", "timeout", "outcome_unknown", "stale_running":
+		return true
+	default:
+		return false
+	}
+}
+
+func isDashboardBillingAnomaly(value string) bool {
+	switch value {
+	case "state_inconsistent", "open_overdue", "pricing_snapshot_missing", "legacy_unpriced", "unbilled_usage_incomplete", "unbilled_over_hold":
+		return true
+	default:
+		return false
+	}
 }
 
 func normalizeStatsFilter(query StatsFilter) StatsFilter {
@@ -388,6 +570,7 @@ func listItem(row ListRow) ListItem {
 		ConversationID: row.ConversationID, ConversationTitle: row.ConversationTitle,
 		Status: row.Status, StatusName: enum.AIRunStatusLabels[row.Status],
 		ModelID: row.ModelID, ModelDisplayName: row.ModelDisplayName,
+		BillingStatus: row.BillingStatus, BillingReason: row.BillingReason, ErrorCode: row.ErrorCode,
 		PromptTokens: row.PromptTokens, CompletionTokens: row.CompletionTokens, TotalTokens: row.TotalTokens,
 		DurationMS: row.DurationMS, DurationText: durationString(row.DurationMS), ErrorMessage: row.ErrorMessage,
 		CreatedAt: formatTime(row.CreatedAt),

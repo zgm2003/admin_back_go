@@ -14,35 +14,38 @@ import (
 )
 
 type fakeRepository struct {
-	agents         []OptionRow
-	engines        []OptionRow
-	listQuery      ListQuery
-	rows           []ListRow
-	total          int64
-	run            *RunDetailRow
-	charge         *ChargeRow
-	usageItems     []UsageChargeItemRow
-	attempts       []ProviderAttemptRow
-	billingRuns    []int64
-	events         []EventRow
-	toolCalls      []ToolCallRow
-	retrievals     []KnowledgeRetrievalRow
-	hits           []KnowledgeHitRow
-	hitQueryIDs    []int64
-	hitQueries     int
-	summary        StatsSummaryRow
-	metricQuery    StatsListQuery
-	byDate         []StatsByDateRow
-	byAgent        []StatsByAgentRow
-	byUser         []StatsByUserRow
-	metricTotal    int64
-	latencySamples []LatencySampleRow
-	latencySince   time.Time
-	latencyLimit   int
-	dashboardQuery DashboardQuery
-	dashboardRows  DashboardRepositoryResult
-	dashboardErr   error
-	dashboardCalls int
+	agents           []OptionRow
+	engines          []OptionRow
+	historicalModels []HistoricalModelRow
+	historicalStart  time.Time
+	historicalEnd    time.Time
+	listQuery        ListQuery
+	rows             []ListRow
+	total            int64
+	run              *RunDetailRow
+	charge           *ChargeRow
+	usageItems       []UsageChargeItemRow
+	attempts         []ProviderAttemptRow
+	billingRuns      []int64
+	events           []EventRow
+	toolCalls        []ToolCallRow
+	retrievals       []KnowledgeRetrievalRow
+	hits             []KnowledgeHitRow
+	hitQueryIDs      []int64
+	hitQueries       int
+	summary          StatsSummaryRow
+	metricQuery      StatsListQuery
+	byDate           []StatsByDateRow
+	byAgent          []StatsByAgentRow
+	byUser           []StatsByUserRow
+	metricTotal      int64
+	latencySamples   []LatencySampleRow
+	latencySince     time.Time
+	latencyLimit     int
+	dashboardQuery   DashboardQuery
+	dashboardRows    DashboardRepositoryResult
+	dashboardErr     error
+	dashboardCalls   int
 }
 
 func (f *fakeRepository) AgentOptions(ctx context.Context) ([]OptionRow, error) {
@@ -50,6 +53,11 @@ func (f *fakeRepository) AgentOptions(ctx context.Context) ([]OptionRow, error) 
 }
 func (f *fakeRepository) ProviderOptions(ctx context.Context) ([]OptionRow, error) {
 	return f.engines, nil
+}
+func (f *fakeRepository) HistoricalModelOptions(_ context.Context, startAt, endExclusive time.Time) ([]HistoricalModelRow, error) {
+	f.historicalStart = startAt
+	f.historicalEnd = endExclusive
+	return f.historicalModels, nil
 }
 func (f *fakeRepository) List(ctx context.Context, query ListQuery) ([]ListRow, int64, error) {
 	f.listQuery = query
@@ -103,7 +111,7 @@ func (f *fakeRepository) Dashboard(_ context.Context, query DashboardQuery) (Das
 
 func TestInitReturnsStatusAgentAndProviderOptions(t *testing.T) {
 	repo := &fakeRepository{agents: []OptionRow{{ID: 3, Name: "客服智能体"}}, engines: []OptionRow{{ID: 2, Name: "OpenAI"}}}
-	res, appErr := NewService(repo).PageInit(context.Background())
+	res, appErr := NewService(repo).PageInit(context.Background(), PageInitFilter{})
 	if appErr != nil {
 		t.Fatalf("PageInit returned error: %v", appErr)
 	}
@@ -122,6 +130,114 @@ func TestInitReturnsStatusAgentAndProviderOptions(t *testing.T) {
 			t.Fatalf("AI run page init leaked retired source field %s: %s", key, string(encoded))
 		}
 	}
+}
+
+func TestPageInitMergesOfficialCatalogAndHistoricalRunModels(t *testing.T) {
+	repo := &fakeRepository{historicalModels: []HistoricalModelRow{
+		{ModelID: "gpt-5.5", ModelDisplayName: "不得覆盖官方模型"},
+		{ModelID: "retired-local-model", ModelDisplayName: "历史模型快照"},
+	}}
+	service := NewService(repo, WithClock(clock.Func(func() time.Time { return dashboardFixedNow(t) })))
+
+	response, appErr := service.PageInit(context.Background(), PageInitFilter{})
+	if appErr != nil {
+		t.Fatalf("PageInit returned error: %v", appErr)
+	}
+	official, officialCount := findModelOptions(response.Dict.ModelArr, "gpt-5.5")
+	if officialCount != 1 || official.Historical || official.Label != "gpt-5.5" {
+		t.Fatalf("official option=%+v count=%d", official, officialCount)
+	}
+	historical, historicalCount := findModelOptions(response.Dict.ModelArr, "retired-local-model")
+	if historicalCount != 1 || !historical.Historical || historical.Label != "历史模型快照" {
+		t.Fatalf("historical option=%+v count=%d", historical, historicalCount)
+	}
+	if len(response.Dict.BillingStatusArr) != 5 || len(response.Dict.BillingReasonArr) != 10 {
+		t.Fatalf("billing options are incomplete: statuses=%+v reasons=%+v", response.Dict.BillingStatusArr, response.Dict.BillingReasonArr)
+	}
+	assertDashboardTime(t, "page init default start", repo.historicalStart, "2026-07-23T00:00:00+08:00")
+	assertDashboardTime(t, "page init default end", repo.historicalEnd, "2026-07-30T00:00:00+08:00")
+}
+
+func TestRunListAcceptsOutcomeUnknownAndDashboardDrilldownFilters(t *testing.T) {
+	agentID, providerID, userID := int64(2), int64(3), int64(4)
+	repository := &fakeRepository{}
+	service := NewService(repository, WithClock(clock.Func(func() time.Time { return dashboardFixedNow(t) })))
+
+	response, appErr := service.List(context.Background(), ListQuery{
+		Status: "outcome_unknown", Platform: "admin", ModelID: " gpt-5.5 ", AgentID: &agentID,
+		ProviderID: &providerID, UserID: &userID, BillingStatus: " settled ",
+		BillingReason: " settled_complete_usage ", ErrorCode: " provider_timeout ", ToolCode: " lookup ",
+		RunAnomaly: " stale_running ", BillingAnomaly: " state_inconsistent ",
+		AnomalyAsOf: "2026-07-29T15:42:18+08:00", DateStart: "2026-07-28", DateEnd: "2026-07-29",
+	})
+	if appErr != nil || response == nil {
+		t.Fatalf("List response=%#v error=%v", response, appErr)
+	}
+	query := repository.listQuery
+	if query.Status != "outcome_unknown" || query.ModelID != "gpt-5.5" || query.BillingStatus != "settled" ||
+		query.BillingReason != "settled_complete_usage" || query.ErrorCode != "provider_timeout" || query.ToolCode != "lookup" ||
+		query.RunAnomaly != "stale_running" || query.BillingAnomaly != "state_inconsistent" {
+		t.Fatalf("normalized drilldown query=%+v", query)
+	}
+	assertDashboardTime(t, "list start", query.StartAt, "2026-07-28T00:00:00+08:00")
+	assertDashboardTime(t, "list end", query.EndExclusive, "2026-07-30T00:00:00+08:00")
+	assertDashboardTime(t, "list anomaly as of", query.GeneratedAt, "2026-07-29T15:42:18+08:00")
+	assertDashboardTime(t, "list stale before", query.StaleBefore, "2026-07-29T15:27:18+08:00")
+}
+
+func TestRunListReturnsBillingFactsAndFinalAttemptErrorCode(t *testing.T) {
+	repository := &fakeRepository{rows: []ListRow{{
+		ID: 9, Status: "failed", BillingStatus: "released", BillingReason: "released_provider_failed",
+		ErrorCode: "upstream_unavailable",
+	}}}
+
+	response, appErr := NewService(repository).List(context.Background(), ListQuery{})
+	if appErr != nil {
+		t.Fatalf("List returned error: %v", appErr)
+	}
+	if len(response.List) != 1 || response.List[0].BillingStatus != "released" ||
+		response.List[0].BillingReason != "released_provider_failed" || response.List[0].ErrorCode != "upstream_unavailable" {
+		t.Fatalf("list billing/error facts=%+v", response.List)
+	}
+}
+
+func TestRunListUsesDashboardHalfOpenDateRangeForExactDrilldown(t *testing.T) {
+	repository := &fakeRepository{}
+	service := NewService(repository, WithClock(clock.Func(func() time.Time { return dashboardFixedNow(t) })))
+
+	_, appErr := service.List(context.Background(), ListQuery{DateStart: "2026-07-28", DateEnd: "2026-07-29"})
+	if appErr != nil {
+		t.Fatalf("List returned error: %v", appErr)
+	}
+	assertDashboardTime(t, "list half-open start", repository.listQuery.StartAt, "2026-07-28T00:00:00+08:00")
+	assertDashboardTime(t, "list half-open end", repository.listQuery.EndExclusive, "2026-07-30T00:00:00+08:00")
+	sql := renderRunListQuerySQL(t, repository.listQuery)
+	assertDashboardSQLContains(t, sql, "r.created_at >= ?", "r.created_at < ?")
+	if strings.Contains(sql, "r.created_at <= ?") {
+		t.Fatalf("list end date must be exclusive, sql=%s", sql)
+	}
+
+	for _, filter := range []ListQuery{
+		{DateStart: "2026-07-29"},
+		{DateStart: "2026-07-30", DateEnd: "2026-07-29"},
+		{DateStart: "2026-04-30", DateEnd: "2026-07-29"},
+	} {
+		if response, listErr := service.List(context.Background(), filter); response != nil || listErr == nil || listErr.HTTPStatus != 400 {
+			t.Fatalf("invalid range response=%#v error=%#v filter=%+v", response, listErr, filter)
+		}
+	}
+}
+
+func findModelOptions(options []ModelOption, modelID string) (ModelOption, int) {
+	var found ModelOption
+	count := 0
+	for _, option := range options {
+		if option.Value == modelID {
+			found = option
+			count++
+		}
+	}
+	return found, count
 }
 
 func TestListFiltersAndMapsDuration(t *testing.T) {

@@ -138,6 +138,97 @@ func TestLatencySamplesUsesTerminalBoundedQuery(t *testing.T) {
 	}
 }
 
+func TestPageInitHistoricalModelsUseRequestedDateRangeAndLatestSnapshot(t *testing.T) {
+	db, mock, closeDB := newRunRepositorySQLMock(t)
+	defer closeDB()
+	repository := &GormRepository{db: db}
+	location, err := time.LoadLocation(dashboardTimezone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	startAt := time.Date(2026, 7, 28, 0, 0, 0, 0, location)
+	endExclusive := time.Date(2026, 7, 30, 0, 0, 0, 0, location)
+	mock.ExpectQuery(`(?s)SELECT model_id, model_display_name.*ROW_NUMBER\(\) OVER \(PARTITION BY model_id ORDER BY created_at DESC, id DESC\) AS row_no.*created_at >= \? AND created_at < \?.*WHERE row_no = 1.*ORDER BY model_id ASC`).
+		WithArgs(startAt, endExclusive).
+		WillReturnRows(sqlmock.NewRows([]string{"model_id", "model_display_name"}).AddRow("legacy-model", "最新名称"))
+
+	rows, queryErr := repository.HistoricalModelOptions(context.Background(), startAt, endExclusive)
+	if queryErr != nil {
+		t.Fatalf("HistoricalModelOptions returned error: %v", queryErr)
+	}
+	if len(rows) != 1 || rows[0].ModelID != "legacy-model" || rows[0].ModelDisplayName != "最新名称" {
+		t.Fatalf("historical models=%+v", rows)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("historical model query must use latest in-range Run snapshot: %v", err)
+	}
+}
+
+func TestRunListErrorFilterDoesNotDuplicateRunsWithRetries(t *testing.T) {
+	sql := renderRunListQuerySQL(t, ListQuery{ErrorCode: "provider_timeout"})
+	assertDashboardSQLContains(t, sql,
+		"left join ai_provider_attempts final_attempt on final_attempt.run_id = r.id",
+		"final_attempt.state in ('succeeded', 'failed', 'canceled', 'outcome_unknown')",
+		"not exists (",
+		"select 1 from ai_provider_attempts newer_attempt",
+		"newer_attempt.attempt_no > final_attempt.attempt_no",
+		"newer_attempt.attempt_no = final_attempt.attempt_no and newer_attempt.id > final_attempt.id",
+		"r.status in (?,?,?)",
+		"coalesce(nullif(trim(final_attempt.error_code), ''), 'unclassified') = ?",
+	)
+	if strings.Contains(sql, " distinct ") {
+		t.Fatalf("run list must prevent retry duplication structurally, sql=%s", sql)
+	}
+}
+
+func TestRunListFiltersRunsContainingToolCodeWithoutDuplicateRows(t *testing.T) {
+	sql := renderRunListQuerySQL(t, ListQuery{ToolCode: "lookup"})
+	assertDashboardSQLContains(t, sql,
+		"exists (select 1 from ai_tool_calls tc where tc.run_id = r.id and tc.tool_code = ?)",
+	)
+	if strings.Contains(sql, "join ai_tool_calls") || strings.Contains(sql, "join ai_usage_charges") || strings.Contains(sql, " distinct ") {
+		t.Fatalf("tool filter must use EXISTS without duplicate-hiding DISTINCT, sql=%s", sql)
+	}
+}
+
+func newRunRepositorySQLMock(t *testing.T) (*gorm.DB, sqlmock.Sqlmock, func()) {
+	t.Helper()
+	sqlDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := gorm.Open(mysql.New(mysql.Config{Conn: sqlDB, SkipInitializeWithVersion: true}), &gorm.Config{
+		DisableAutomaticPing: true,
+		Logger:               logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		_ = sqlDB.Close()
+		t.Fatal(err)
+	}
+	return db, mock, func() { _ = sqlDB.Close() }
+}
+
+func renderRunListQuerySQL(t *testing.T, query ListQuery) string {
+	t.Helper()
+	sqlDB, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	db, err := gorm.Open(mysql.New(mysql.Config{Conn: sqlDB, SkipInitializeWithVersion: true}), &gorm.Config{
+		DisableAutomaticPing: true,
+		DryRun:               true,
+		Logger:               logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := &GormRepository{db: db}
+	statement := applyListFilters(repository.listBase(context.Background(), query, true), query).
+		Select(runListSelectSQL()).Find(&[]ListRow{}).Statement
+	return normalizeDashboardSQL(statement.SQL.String())
+}
+
 func sqlSummaryLower(sql string) string {
 	return strings.ToLower(strings.Join(strings.Fields(sql), " "))
 }

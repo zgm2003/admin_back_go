@@ -85,7 +85,7 @@ type managementRunHTTPService struct{}
 
 var _ airunmodule.HTTPService = managementRunHTTPService{}
 
-func (managementRunHTTPService) PageInit(context.Context) (*airunmodule.InitResponse, *apperror.Error) {
+func (managementRunHTTPService) PageInit(context.Context, airunmodule.PageInitFilter) (*airunmodule.InitResponse, *apperror.Error) {
 	return &airunmodule.InitResponse{}, nil
 }
 func (managementRunHTTPService) List(context.Context, airunmodule.ListQuery) (*airunmodule.ListResponse, *apperror.Error) {

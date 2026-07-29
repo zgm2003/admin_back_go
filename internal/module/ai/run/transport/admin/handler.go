@@ -21,7 +21,12 @@ func NewHandler(service airunmodule.HTTPService) *Handler {
 }
 
 func (h *Handler) PageInit(c *gin.Context) {
-	res, appErr := h.requireService().PageInit(c.Request.Context())
+	var req pageInitRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		response.Error(c, apperror.BadRequest("AI运行初始化参数错误"))
+		return
+	}
+	res, appErr := h.requireService().PageInit(c.Request.Context(), airunmodule.PageInitFilter{DateStart: req.DateStart, DateEnd: req.DateEnd})
 	writeResult(c, res, appErr)
 }
 
@@ -31,7 +36,14 @@ func (h *Handler) List(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("AI运行列表参数错误"))
 		return
 	}
-	res, appErr := h.requireService().List(c.Request.Context(), airunmodule.ListQuery{CurrentPage: req.CurrentPage, PageSize: req.PageSize, Platform: req.Platform, Status: req.Status, UserID: req.UserID, RequestID: req.RequestID, AgentID: req.AgentID, ProviderID: req.ProviderID, DateStart: req.DateStart, DateEnd: req.DateEnd})
+	res, appErr := h.requireService().List(c.Request.Context(), airunmodule.ListQuery{
+		CurrentPage: req.CurrentPage, PageSize: req.PageSize, Platform: req.Platform, Status: req.Status,
+		UserID: req.UserID, RequestID: req.RequestID, AgentID: req.AgentID, ProviderID: req.ProviderID,
+		ModelID: req.ModelID, BillingStatus: req.BillingStatus, BillingReason: req.BillingReason,
+		ErrorCode: req.ErrorCode, ToolCode: req.ToolCode, RunAnomaly: req.RunAnomaly,
+		BillingAnomaly: req.BillingAnomaly, AnomalyAsOf: req.AnomalyAsOf,
+		DateStart: req.DateStart, DateEnd: req.DateEnd,
+	})
 	writeResult(c, res, appErr)
 }
 
@@ -149,7 +161,7 @@ func writeResult(c *gin.Context, res any, appErr *apperror.Error) {
 
 type nilHTTPService struct{}
 
-func (nilHTTPService) PageInit(ctx context.Context) (*airunmodule.InitResponse, *apperror.Error) {
+func (nilHTTPService) PageInit(ctx context.Context, filter airunmodule.PageInitFilter) (*airunmodule.InitResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI运行服务未配置")
 }
 func (nilHTTPService) List(ctx context.Context, query airunmodule.ListQuery) (*airunmodule.ListResponse, *apperror.Error) {

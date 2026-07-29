@@ -16,23 +16,49 @@ type InitResponse struct {
 }
 
 type InitDict struct {
-	StatusArr   []dict.Option[string] `json:"status_arr"`
-	PlatformArr []dict.Option[string] `json:"platform_arr"`
-	ProviderArr []dict.Option[int]    `json:"providerArr"`
-	AgentArr    []dict.Option[int]    `json:"agentArr"`
+	StatusArr        []dict.Option[string] `json:"status_arr"`
+	PlatformArr      []dict.Option[string] `json:"platform_arr"`
+	ProviderArr      []dict.Option[int]    `json:"providerArr"`
+	AgentArr         []dict.Option[int]    `json:"agentArr"`
+	ModelArr         []ModelOption         `json:"model_arr"`
+	BillingStatusArr []dict.Option[string] `json:"billing_status_arr"`
+	BillingReasonArr []dict.Option[string] `json:"billing_reason_arr"`
+}
+
+type ModelOption struct {
+	Label      string `json:"label"`
+	Value      string `json:"value"`
+	Historical bool   `json:"historical"`
+}
+
+type PageInitFilter struct {
+	DateStart string
+	DateEnd   string
 }
 
 type ListQuery struct {
-	CurrentPage int
-	PageSize    int
-	Platform    string
-	Status      string
-	UserID      *int64
-	RequestID   string
-	AgentID     *int64
-	ProviderID  *int64
-	DateStart   string
-	DateEnd     string
+	CurrentPage    int
+	PageSize       int
+	Platform       string
+	Status         string
+	UserID         *int64
+	RequestID      string
+	AgentID        *int64
+	ProviderID     *int64
+	ModelID        string
+	BillingStatus  string
+	BillingReason  string
+	ErrorCode      string
+	ToolCode       string
+	RunAnomaly     string
+	BillingAnomaly string
+	AnomalyAsOf    string
+	DateStart      string
+	DateEnd        string
+	StartAt        time.Time
+	EndExclusive   time.Time
+	GeneratedAt    time.Time
+	StaleBefore    time.Time
 }
 
 type Page struct {
@@ -63,6 +89,9 @@ type ListItem struct {
 	StatusName        string `json:"status_name"`
 	ModelID           string `json:"model_id"`
 	ModelDisplayName  string `json:"model_display_name"`
+	BillingStatus     string `json:"billing_status"`
+	BillingReason     string `json:"billing_reason"`
+	ErrorCode         string `json:"error_code"`
 	PromptTokens      uint   `json:"prompt_tokens"`
 	CompletionTokens  uint   `json:"completion_tokens"`
 	TotalTokens       uint   `json:"total_tokens"`
@@ -333,6 +362,11 @@ type OptionRow struct {
 	Name string
 }
 
+type HistoricalModelRow struct {
+	ModelID          string
+	ModelDisplayName string
+}
+
 type ListRow struct {
 	ID                int64
 	RequestID         string
@@ -348,6 +382,9 @@ type ListRow struct {
 	Status            string
 	ModelID           string
 	ModelDisplayName  string
+	BillingStatus     string
+	BillingReason     string
+	ErrorCode         string
 	PromptTokens      uint
 	CompletionTokens  uint
 	TotalTokens       uint
@@ -535,6 +572,7 @@ type StatsByUserRow struct {
 type Repository interface {
 	AgentOptions(ctx context.Context) ([]OptionRow, error)
 	ProviderOptions(ctx context.Context) ([]OptionRow, error)
+	HistoricalModelOptions(ctx context.Context, startAt, endExclusive time.Time) ([]HistoricalModelRow, error)
 	List(ctx context.Context, query ListQuery) ([]ListRow, int64, error)
 	Detail(ctx context.Context, id int64) (*RunDetailRow, error)
 	BillingDetail(ctx context.Context, runID int64) (*ChargeRow, []UsageChargeItemRow, []ProviderAttemptRow, error)
@@ -551,7 +589,7 @@ type Repository interface {
 }
 
 type HTTPService interface {
-	PageInit(ctx context.Context) (*InitResponse, *apperror.Error)
+	PageInit(ctx context.Context, filter PageInitFilter) (*InitResponse, *apperror.Error)
 	List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error)
 	Detail(ctx context.Context, id int64) (*DetailResponse, *apperror.Error)
 	Stats(ctx context.Context, query StatsFilter) (*StatsResponse, *apperror.Error)
