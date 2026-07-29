@@ -583,12 +583,10 @@
           }
         },
         "required": [
-          "mime_type",
-          "name",
-          "object_key",
-          "size",
           "type",
-          "url"
+          "url",
+          "name",
+          "size"
         ],
         "type": "object"
       },
