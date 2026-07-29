@@ -27,13 +27,19 @@ type Capabilities struct {
 }
 
 func cloneCapabilities(value Capabilities) Capabilities {
-	value.InputModalities = append([]string(nil), value.InputModalities...)
-	value.OutputModalities = append([]string(nil), value.OutputModalities...)
-	value.SupportedParameters = append([]string(nil), value.SupportedParameters...)
+	value.InputModalities = cloneStrings(value.InputModalities)
+	value.OutputModalities = cloneStrings(value.OutputModalities)
+	value.SupportedParameters = cloneStrings(value.SupportedParameters)
 	if value.ImageInput != nil {
 		image := *value.ImageInput
-		image.MIMETypes = append([]string(nil), value.ImageInput.MIMETypes...)
+		image.MIMETypes = cloneStrings(value.ImageInput.MIMETypes)
 		value.ImageInput = &image
 	}
 	return value
+}
+
+func cloneStrings(values []string) []string {
+	cloned := make([]string, len(values))
+	copy(cloned, values)
+	return cloned
 }

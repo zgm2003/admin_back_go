@@ -16,7 +16,9 @@
       "max_output_tokens": 128000,
       "context_tier_threshold_tokens": 272000,
       "input_modalities": [
-        "text"
+        "text",
+        "image",
+        "file"
       ],
       "output_modalities": [
         "text"
@@ -25,7 +27,17 @@
       "supports_tools": true,
       "supports_structured_output": true,
       "supported_parameters": [],
-      "native_file_input": false,
+      "native_file_input": true,
+      "image_input": {
+        "mime_types": [
+          "image/jpeg",
+          "image/png",
+          "image/webp",
+          "image/gif"
+        ],
+        "max_files": 5,
+        "max_bytes": 10485760
+      },
       "pricing_profile": "standard_global",
       "rates": [
         {
@@ -100,7 +112,9 @@
       "max_output_tokens": 128000,
       "context_tier_threshold_tokens": 272000,
       "input_modalities": [
-        "text"
+        "text",
+        "image",
+        "file"
       ],
       "output_modalities": [
         "text"
@@ -109,7 +123,17 @@
       "supports_tools": true,
       "supports_structured_output": true,
       "supported_parameters": [],
-      "native_file_input": false,
+      "native_file_input": true,
+      "image_input": {
+        "mime_types": [
+          "image/jpeg",
+          "image/png",
+          "image/webp",
+          "image/gif"
+        ],
+        "max_files": 5,
+        "max_bytes": 10485760
+      },
       "pricing_profile": "standard_global",
       "rates": [
         {
@@ -184,7 +208,9 @@
       "max_output_tokens": 128000,
       "context_tier_threshold_tokens": 272000,
       "input_modalities": [
-        "text"
+        "text",
+        "image",
+        "file"
       ],
       "output_modalities": [
         "text"
@@ -193,7 +219,17 @@
       "supports_tools": true,
       "supports_structured_output": true,
       "supported_parameters": [],
-      "native_file_input": false,
+      "native_file_input": true,
+      "image_input": {
+        "mime_types": [
+          "image/jpeg",
+          "image/png",
+          "image/webp",
+          "image/gif"
+        ],
+        "max_files": 5,
+        "max_bytes": 10485760
+      },
       "pricing_profile": "standard_global",
       "rates": [
         {
@@ -268,7 +304,9 @@
       "max_output_tokens": 128000,
       "context_tier_threshold_tokens": 272000,
       "input_modalities": [
-        "text"
+        "text",
+        "image",
+        "file"
       ],
       "output_modalities": [
         "text"
@@ -277,7 +315,17 @@
       "supports_tools": true,
       "supports_structured_output": true,
       "supported_parameters": [],
-      "native_file_input": false,
+      "native_file_input": true,
+      "image_input": {
+        "mime_types": [
+          "image/jpeg",
+          "image/png",
+          "image/webp",
+          "image/gif"
+        ],
+        "max_files": 5,
+        "max_bytes": 10485760
+      },
       "pricing_profile": "standard_global",
       "rates": [
         {
@@ -338,16 +386,28 @@
       "max_output_tokens": 128000,
       "context_tier_threshold_tokens": 272000,
       "input_modalities": [
-        "text"
+        "text",
+        "image",
+        "file"
       ],
       "output_modalities": [
         "text"
       ],
-      "supports_streaming": true,
+      "supports_streaming": false,
       "supports_tools": true,
       "supports_structured_output": true,
       "supported_parameters": [],
-      "native_file_input": false,
+      "native_file_input": true,
+      "image_input": {
+        "mime_types": [
+          "image/jpeg",
+          "image/png",
+          "image/webp",
+          "image/gif"
+        ],
+        "max_files": 5,
+        "max_bytes": 10485760
+      },
       "pricing_profile": "standard_global",
       "rates": [
         {
@@ -395,7 +455,8 @@
       "context_tier_threshold_tokens": 272000,
       "input_modalities": [
         "text",
-        "image"
+        "image",
+        "file"
       ],
       "output_modalities": [
         "text"
@@ -404,7 +465,7 @@
       "supports_tools": true,
       "supports_structured_output": true,
       "supported_parameters": [],
-      "native_file_input": false,
+      "native_file_input": true,
       "image_input": {
         "mime_types": [
           "image/jpeg",
@@ -471,10 +532,12 @@
       "model_id": "gpt-5.4-mini",
       "aliases": [],
       "lifecycle_status": "active",
-      "context_window_tokens": 1050000,
+      "context_window_tokens": 400000,
       "max_output_tokens": 128000,
       "input_modalities": [
-        "text"
+        "text",
+        "image",
+        "file"
       ],
       "output_modalities": [
         "text"
@@ -483,7 +546,17 @@
       "supports_tools": true,
       "supports_structured_output": true,
       "supported_parameters": [],
-      "native_file_input": false,
+      "native_file_input": true,
+      "image_input": {
+        "mime_types": [
+          "image/jpeg",
+          "image/png",
+          "image/webp",
+          "image/gif"
+        ],
+        "max_files": 5,
+        "max_bytes": 10485760
+      },
       "pricing_profile": "standard_global",
       "rates": [
         {
@@ -519,10 +592,12 @@
       "model_id": "gpt-5.4-nano",
       "aliases": [],
       "lifecycle_status": "active",
-      "context_window_tokens": 1050000,
+      "context_window_tokens": 400000,
       "max_output_tokens": 128000,
       "input_modalities": [
-        "text"
+        "text",
+        "image",
+        "file"
       ],
       "output_modalities": [
         "text"
@@ -531,7 +606,17 @@
       "supports_tools": true,
       "supports_structured_output": true,
       "supported_parameters": [],
-      "native_file_input": false,
+      "native_file_input": true,
+      "image_input": {
+        "mime_types": [
+          "image/jpeg",
+          "image/png",
+          "image/webp",
+          "image/gif"
+        ],
+        "max_files": 5,
+        "max_bytes": 10485760
+      },
       "pricing_profile": "standard_global",
       "rates": [
         {
@@ -571,16 +656,28 @@
       "max_output_tokens": 128000,
       "context_tier_threshold_tokens": 272000,
       "input_modalities": [
-        "text"
+        "text",
+        "image",
+        "file"
       ],
       "output_modalities": [
         "text"
       ],
       "supports_streaming": true,
       "supports_tools": true,
-      "supports_structured_output": true,
+      "supports_structured_output": false,
       "supported_parameters": [],
-      "native_file_input": false,
+      "native_file_input": true,
+      "image_input": {
+        "mime_types": [
+          "image/jpeg",
+          "image/png",
+          "image/webp",
+          "image/gif"
+        ],
+        "max_files": 5,
+        "max_bytes": 10485760
+      },
       "pricing_profile": "standard_global",
       "rates": [
         {
@@ -629,7 +726,8 @@
       "max_output_tokens": 32768,
       "input_modalities": [
         "text",
-        "image"
+        "image",
+        "file"
       ],
       "output_modalities": [
         "text"
@@ -640,7 +738,7 @@
       "supported_parameters": [
         "temperature"
       ],
-      "native_file_input": false,
+      "native_file_input": true,
       "image_input": {
         "mime_types": [
           "image/jpeg",
@@ -690,7 +788,8 @@
       "max_output_tokens": 32768,
       "input_modalities": [
         "text",
-        "image"
+        "image",
+        "file"
       ],
       "output_modalities": [
         "text"
@@ -701,7 +800,7 @@
       "supported_parameters": [
         "temperature"
       ],
-      "native_file_input": false,
+      "native_file_input": true,
       "image_input": {
         "mime_types": [
           "image/jpeg",
@@ -751,7 +850,8 @@
       "max_output_tokens": 16384,
       "input_modalities": [
         "text",
-        "image"
+        "image",
+        "file"
       ],
       "output_modalities": [
         "text"
@@ -762,7 +862,7 @@
       "supported_parameters": [
         "temperature"
       ],
-      "native_file_input": false,
+      "native_file_input": true,
       "image_input": {
         "mime_types": [
           "image/jpeg",
@@ -812,7 +912,8 @@
       "max_output_tokens": 16384,
       "input_modalities": [
         "text",
-        "image"
+        "image",
+        "file"
       ],
       "output_modalities": [
         "text"
@@ -823,7 +924,7 @@
       "supported_parameters": [
         "temperature"
       ],
-      "native_file_input": false,
+      "native_file_input": true,
       "image_input": {
         "mime_types": [
           "image/jpeg",
@@ -869,10 +970,12 @@
       "model_id": "claude-fable-5",
       "aliases": [],
       "lifecycle_status": "active",
-      "context_window_tokens": 200000,
+      "context_window_tokens": 1000000,
       "max_output_tokens": 128000,
       "input_modalities": [
-        "text"
+        "text",
+        "image",
+        "file"
       ],
       "output_modalities": [
         "text"
@@ -883,7 +986,17 @@
       "supported_parameters": [
         "temperature"
       ],
-      "native_file_input": false,
+      "native_file_input": true,
+      "image_input": {
+        "mime_types": [
+          "image/jpeg",
+          "image/png",
+          "image/gif",
+          "image/webp"
+        ],
+        "max_files": 5,
+        "max_bytes": 10485760
+      },
       "pricing_profile": "standard_global",
       "rates": [
         {
@@ -933,10 +1046,12 @@
       "model_id": "claude-opus-5",
       "aliases": [],
       "lifecycle_status": "active",
-      "context_window_tokens": 200000,
+      "context_window_tokens": 1000000,
       "max_output_tokens": 128000,
       "input_modalities": [
-        "text"
+        "text",
+        "image",
+        "file"
       ],
       "output_modalities": [
         "text"
@@ -947,7 +1062,17 @@
       "supported_parameters": [
         "temperature"
       ],
-      "native_file_input": false,
+      "native_file_input": true,
+      "image_input": {
+        "mime_types": [
+          "image/jpeg",
+          "image/png",
+          "image/gif",
+          "image/webp"
+        ],
+        "max_files": 5,
+        "max_bytes": 10485760
+      },
       "pricing_profile": "standard_global",
       "rates": [
         {
@@ -997,10 +1122,12 @@
       "model_id": "claude-sonnet-5",
       "aliases": [],
       "lifecycle_status": "active",
-      "context_window_tokens": 200000,
+      "context_window_tokens": 1000000,
       "max_output_tokens": 128000,
       "input_modalities": [
-        "text"
+        "text",
+        "image",
+        "file"
       ],
       "output_modalities": [
         "text"
@@ -1011,7 +1138,17 @@
       "supported_parameters": [
         "temperature"
       ],
-      "native_file_input": false,
+      "native_file_input": true,
+      "image_input": {
+        "mime_types": [
+          "image/jpeg",
+          "image/png",
+          "image/gif",
+          "image/webp"
+        ],
+        "max_files": 5,
+        "max_bytes": 10485760
+      },
       "pricing_profile": "standard_global",
       "rates": [
         {
@@ -1066,7 +1203,9 @@
       "context_window_tokens": 200000,
       "max_output_tokens": 64000,
       "input_modalities": [
-        "text"
+        "text",
+        "image",
+        "file"
       ],
       "output_modalities": [
         "text"
@@ -1077,7 +1216,17 @@
       "supported_parameters": [
         "temperature"
       ],
-      "native_file_input": false,
+      "native_file_input": true,
+      "image_input": {
+        "mime_types": [
+          "image/jpeg",
+          "image/png",
+          "image/gif",
+          "image/webp"
+        ],
+        "max_files": 5,
+        "max_bytes": 10485760
+      },
       "pricing_profile": "standard_global",
       "rates": [
         {
@@ -1127,10 +1276,12 @@
       "model_id": "claude-opus-4-8",
       "aliases": [],
       "lifecycle_status": "active",
-      "context_window_tokens": 200000,
+      "context_window_tokens": 1000000,
       "max_output_tokens": 128000,
       "input_modalities": [
-        "text"
+        "text",
+        "image",
+        "file"
       ],
       "output_modalities": [
         "text"
@@ -1141,7 +1292,17 @@
       "supported_parameters": [
         "temperature"
       ],
-      "native_file_input": false,
+      "native_file_input": true,
+      "image_input": {
+        "mime_types": [
+          "image/jpeg",
+          "image/png",
+          "image/gif",
+          "image/webp"
+        ],
+        "max_files": 5,
+        "max_bytes": 10485760
+      },
       "pricing_profile": "standard_global",
       "rates": [
         {
@@ -1191,10 +1352,12 @@
       "model_id": "claude-opus-4-7",
       "aliases": [],
       "lifecycle_status": "active",
-      "context_window_tokens": 200000,
+      "context_window_tokens": 1000000,
       "max_output_tokens": 128000,
       "input_modalities": [
-        "text"
+        "text",
+        "image",
+        "file"
       ],
       "output_modalities": [
         "text"
@@ -1205,7 +1368,17 @@
       "supported_parameters": [
         "temperature"
       ],
-      "native_file_input": false,
+      "native_file_input": true,
+      "image_input": {
+        "mime_types": [
+          "image/jpeg",
+          "image/png",
+          "image/gif",
+          "image/webp"
+        ],
+        "max_files": 5,
+        "max_bytes": 10485760
+      },
       "pricing_profile": "standard_global",
       "rates": [
         {
@@ -1255,10 +1428,12 @@
       "model_id": "claude-opus-4-6",
       "aliases": [],
       "lifecycle_status": "active",
-      "context_window_tokens": 200000,
+      "context_window_tokens": 1000000,
       "max_output_tokens": 128000,
       "input_modalities": [
-        "text"
+        "text",
+        "image",
+        "file"
       ],
       "output_modalities": [
         "text"
@@ -1269,7 +1444,17 @@
       "supported_parameters": [
         "temperature"
       ],
-      "native_file_input": false,
+      "native_file_input": true,
+      "image_input": {
+        "mime_types": [
+          "image/jpeg",
+          "image/png",
+          "image/gif",
+          "image/webp"
+        ],
+        "max_files": 5,
+        "max_bytes": 10485760
+      },
       "pricing_profile": "standard_global",
       "rates": [
         {
@@ -1319,10 +1504,12 @@
       "model_id": "claude-sonnet-4-6",
       "aliases": [],
       "lifecycle_status": "active",
-      "context_window_tokens": 200000,
-      "max_output_tokens": 64000,
+      "context_window_tokens": 1000000,
+      "max_output_tokens": 128000,
       "input_modalities": [
-        "text"
+        "text",
+        "image",
+        "file"
       ],
       "output_modalities": [
         "text"
@@ -1333,7 +1520,17 @@
       "supported_parameters": [
         "temperature"
       ],
-      "native_file_input": false,
+      "native_file_input": true,
+      "image_input": {
+        "mime_types": [
+          "image/jpeg",
+          "image/png",
+          "image/gif",
+          "image/webp"
+        ],
+        "max_files": 5,
+        "max_bytes": 10485760
+      },
       "pricing_profile": "standard_global",
       "rates": [
         {
@@ -1388,7 +1585,9 @@
       "context_window_tokens": 200000,
       "max_output_tokens": 64000,
       "input_modalities": [
-        "text"
+        "text",
+        "image",
+        "file"
       ],
       "output_modalities": [
         "text"
@@ -1399,7 +1598,17 @@
       "supported_parameters": [
         "temperature"
       ],
-      "native_file_input": false,
+      "native_file_input": true,
+      "image_input": {
+        "mime_types": [
+          "image/jpeg",
+          "image/png",
+          "image/gif",
+          "image/webp"
+        ],
+        "max_files": 5,
+        "max_bytes": 10485760
+      },
       "pricing_profile": "standard_global",
       "rates": [
         {
@@ -1454,7 +1663,9 @@
       "context_window_tokens": 200000,
       "max_output_tokens": 64000,
       "input_modalities": [
-        "text"
+        "text",
+        "image",
+        "file"
       ],
       "output_modalities": [
         "text"
@@ -1465,7 +1676,17 @@
       "supported_parameters": [
         "temperature"
       ],
-      "native_file_input": false,
+      "native_file_input": true,
+      "image_input": {
+        "mime_types": [
+          "image/jpeg",
+          "image/png",
+          "image/gif",
+          "image/webp"
+        ],
+        "max_files": 5,
+        "max_bytes": 10485760
+      },
       "pricing_profile": "standard_global",
       "rates": [
         {
@@ -1518,7 +1739,8 @@
       "context_window_tokens": 1000000,
       "max_output_tokens": 355785,
       "input_modalities": [
-        "text"
+        "text",
+        "image"
       ],
       "output_modalities": [
         "image"
@@ -1528,6 +1750,15 @@
       "supports_structured_output": false,
       "supported_parameters": [],
       "native_file_input": false,
+      "image_input": {
+        "mime_types": [
+          "image/jpeg",
+          "image/png",
+          "image/webp"
+        ],
+        "max_files": 5,
+        "max_bytes": 10485760
+      },
       "rates": [
         {
           "category": "input",

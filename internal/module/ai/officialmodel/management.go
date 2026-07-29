@@ -187,13 +187,13 @@ func (service *Service) managementModel(ctx context.Context, model Model) (Offic
 	capabilities := model.Capabilities
 	return OfficialModelDTO{
 		CatalogVendor: model.CatalogVendor, ModelFamily: model.ModelFamily, ModelID: model.ModelID,
-		Aliases: append([]string(nil), model.Aliases...), LifecycleStatus: model.LifecycleStatus, CatalogVersion: model.CatalogVersion,
+		Aliases: cloneStrings(model.Aliases), LifecycleStatus: model.LifecycleStatus, CatalogVersion: model.CatalogVersion,
 		ContextWindowTokens: model.ContextWindowTokens, MaxOutputTokens: model.MaxOutputTokens,
 		ContextTierThresholdTokens: model.ContextTierThresholdTokens,
 		Capabilities: CapabilityDTO{
-			InputModalities: append([]string(nil), capabilities.InputModalities...), OutputModalities: append([]string(nil), capabilities.OutputModalities...),
+			InputModalities: cloneStrings(capabilities.InputModalities), OutputModalities: cloneStrings(capabilities.OutputModalities),
 			SupportsStreaming: capabilities.SupportsStreaming, SupportsTools: capabilities.SupportsTools,
-			SupportsStructuredOutput: capabilities.SupportsStructuredOutput, SupportedParameters: append([]string(nil), capabilities.SupportedParameters...),
+			SupportsStructuredOutput: capabilities.SupportsStructuredOutput, SupportedParameters: cloneStrings(capabilities.SupportedParameters),
 			NativeFileInput: capabilities.NativeFileInput, ImageInput: cloneCapabilities(capabilities).ImageInput,
 		},
 		PricingProfile: model.PricingProfile, Official: officialDTO, Effective: effectiveDTO,

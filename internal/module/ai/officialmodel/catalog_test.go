@@ -1,8 +1,12 @@
 package officialmodel
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"net/url"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -109,6 +113,114 @@ func TestOfficialCatalogDefaultHasCompleteSourcesAndLimits(t *testing.T) {
 		reviewAfter, err := time.Parse(time.DateOnly, model.ReviewAfter)
 		if err != nil || !reviewAfter.After(retrieved) {
 			t.Fatalf("invalid review_after for %s: %q", model.ModelID, model.ReviewAfter)
+		}
+	}
+}
+
+func TestOfficialCatalogDefaultRecordsVerifiedMultimodalCapabilities(t *testing.T) {
+	for _, model := range Default.Models() {
+		expectedInput := []string{ModalityText, ModalityImage, ModalityFile}
+		expectedOutput := []string{ModalityText}
+		if model.ModelID == "gpt-image-2" {
+			expectedInput = []string{ModalityText, ModalityImage}
+			expectedOutput = []string{ModalityImage}
+		}
+		if !reflect.DeepEqual(model.Capabilities.InputModalities, expectedInput) {
+			t.Fatalf("%s input modalities = %#v", model.ModelID, model.Capabilities.InputModalities)
+		}
+		if !reflect.DeepEqual(model.Capabilities.OutputModalities, expectedOutput) {
+			t.Fatalf("%s output modalities = %#v", model.ModelID, model.Capabilities.OutputModalities)
+		}
+		image := model.Capabilities.ImageInput
+		if image == nil || len(image.MIMETypes) == 0 || image.MaxFiles <= 0 || image.MaxBytes <= 0 {
+			t.Fatalf("%s image input = %#v", model.ModelID, image)
+		}
+		if model.ModelID == "gpt-image-2" {
+			if model.Capabilities.NativeFileInput || containsString(model.Capabilities.InputModalities, ModalityFile) {
+				t.Fatalf("%s must not advertise document input: %#v", model.ModelID, model.Capabilities)
+			}
+			continue
+		}
+		if !model.Capabilities.NativeFileInput || !containsString(model.Capabilities.InputModalities, ModalityFile) {
+			t.Fatalf("%s document input = %#v", model.ModelID, model.Capabilities)
+		}
+	}
+}
+
+func TestOfficialCatalogDefaultRecordsVerifiedContextLimits(t *testing.T) {
+	expected := map[string]int64{
+		"gpt-5.6-sol": 1_050_000, "gpt-5.6-terra": 1_050_000, "gpt-5.6-luna": 1_050_000,
+		"gpt-5.5": 1_050_000, "gpt-5.5-pro": 1_050_000,
+		"gpt-5.4": 1_050_000, "gpt-5.4-mini": 400_000, "gpt-5.4-nano": 400_000, "gpt-5.4-pro": 1_050_000,
+		"claude-fable-5": 1_000_000, "claude-opus-5": 1_000_000, "claude-sonnet-5": 1_000_000,
+		"claude-opus-4-8": 1_000_000, "claude-opus-4-7": 1_000_000,
+		"claude-opus-4-6": 1_000_000, "claude-sonnet-4-6": 1_000_000,
+		"claude-haiku-4-5-20251001":  200_000,
+		"claude-sonnet-4-5-20250929": 200_000, "claude-opus-4-5-20251101": 200_000,
+	}
+	for modelID, contextWindow := range expected {
+		model, err := Default.ResolveIdentity(modelID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if model.ContextWindowTokens != contextWindow {
+			t.Fatalf("%s context window = %d, want %d", modelID, model.ContextWindowTokens, contextWindow)
+		}
+	}
+	sonnet, err := Default.ResolveIdentity("claude-sonnet-4-6")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sonnet.MaxOutputTokens != 128_000 {
+		t.Fatalf("claude-sonnet-4-6 max output = %d, want 128000", sonnet.MaxOutputTokens)
+	}
+}
+
+func TestOfficialCatalogDefaultDoesNotInventUnsupportedOpenAIFeatures(t *testing.T) {
+	tests := []struct {
+		modelID          string
+		streaming        bool
+		structuredOutput bool
+	}{
+		{modelID: "gpt-5.5-pro", streaming: false, structuredOutput: true},
+		{modelID: "gpt-5.4-pro", streaming: true, structuredOutput: false},
+	}
+	for _, test := range tests {
+		model, err := Default.ResolveIdentity(test.modelID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if model.Capabilities.SupportsStreaming != test.streaming ||
+			model.Capabilities.SupportsStructuredOutput != test.structuredOutput {
+			t.Fatalf("%s capabilities = %#v", test.modelID, model.Capabilities)
+		}
+	}
+}
+
+func TestOfficialModelManagementDTOEncodesEmptyCollectionsAsArrays(t *testing.T) {
+	model := validCatalogModel("model-with-empty-collections")
+	model.Aliases = []string{}
+	model.Capabilities.SupportedParameters = []string{}
+	catalog, err := NewCatalog("test-v1", []Model{model})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(
+		&fakeOverrideRepository{},
+		WithCatalog(catalog),
+	)
+	detail, appErr := service.Detail(context.Background(), model.ModelID)
+	if appErr != nil {
+		t.Fatal(appErr)
+	}
+	payload, err := json.Marshal(detail)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded := string(payload)
+	for _, field := range []string{`"aliases":[]`, `"supported_parameters":[]`} {
+		if !strings.Contains(encoded, field) {
+			t.Fatalf("management DTO must encode %s as an array: %s", field, encoded)
 		}
 	}
 }

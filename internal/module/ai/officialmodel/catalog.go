@@ -135,7 +135,7 @@ func (catalog *Catalog) Version() string {
 }
 
 func cloneModel(model Model) Model {
-	model.Aliases = append([]string(nil), model.Aliases...)
+	model.Aliases = cloneStrings(model.Aliases)
 	model.Capabilities = cloneCapabilities(model.Capabilities)
 	model.OfficialPrice.Rates = append([]pricing.Rate(nil), model.OfficialPrice.Rates...)
 	return model
