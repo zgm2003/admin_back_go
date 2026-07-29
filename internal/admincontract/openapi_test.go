@@ -224,15 +224,11 @@ func TestWorkflowOperationsUseFieldCompleteContracts(t *testing.T) {
 		{method: "delete", path: "/api/admin/v1/ai-conversations/{id}/messages", operationID: "delete_api_admin_v1_ai_conversations_id_messages", responseStatus: "200", responseSchema: "AIMessageDeleteSuccessEnvelope", requestSchema: "AIMessageDeleteRequest", requestRequired: true, positivePathIDs: []string{"id"}},
 		{method: "put", path: "/api/admin/v1/ai-conversations/{id}/read-cursor", operationID: "put_api_admin_v1_ai_conversations_id_read_cursor", responseStatus: "200", responseSchema: "AIConversationReadCursorSuccessEnvelope", requestSchema: "AIConversationReadCursorRequest", requestRequired: true, positivePathIDs: []string{"id"}},
 
-		{method: "get", path: "/api/admin/v1/ai-runs/page-init", responseStatus: "200", responseSchema: "AIRunPageInitSuccessEnvelope"},
-		{method: "get", path: "/api/admin/v1/ai-runs", responseStatus: "200", responseSchema: "AIRunListSuccessEnvelope", queryParameters: []string{"agent_id", "current_page", "date_end", "date_start", "page_size", "platform", "provider_id", "request_id", "status", "user_id"}},
+		{method: "get", path: "/api/admin/v1/ai-runs/page-init", responseStatus: "200", responseSchema: "AIRunPageInitSuccessEnvelope", queryParameters: []string{"date_end", "date_start"}},
+		{method: "get", path: "/api/admin/v1/ai-runs", responseStatus: "200", responseSchema: "AIRunListSuccessEnvelope", queryParameters: []string{"agent_id", "anomaly_as_of", "billing_anomaly", "billing_reason", "billing_status", "current_page", "date_end", "date_start", "error_code", "model_id", "page_size", "platform", "provider_id", "request_id", "run_anomaly", "status", "tool_code", "user_id"}},
+		{method: "get", path: "/api/admin/v1/ai-runs/dashboard", responseStatus: "200", responseSchema: "AIRunDashboardSuccessEnvelope", queryParameters: []string{"agent_id", "date_end", "date_start", "model_id", "platform", "provider_id", "user_id"}},
 		{method: "get", path: "/api/admin/v1/ai-runs/{id}", responseStatus: "200", responseSchema: "AIRunDetailSuccessEnvelope", positivePathIDs: []string{"id"}},
 		{method: "put", path: "/api/admin/v1/ai-runs/{id}/user-feedback", operationID: "put_api_admin_v1_ai_runs_id_user_feedback", responseStatus: "200", responseSchema: "AIRunUserFeedbackSuccessEnvelope", requestSchema: "AIRunUserFeedbackRequest", requestRequired: true, positivePathIDs: []string{"id"}},
-		{method: "get", path: "/api/admin/v1/ai-runs/stats", responseStatus: "200", responseSchema: "AIRunStatsSuccessEnvelope", queryParameters: []string{"agent_id", "date_end", "date_start", "platform", "provider_id", "user_id"}},
-		{method: "get", path: "/api/admin/v1/ai-runs/stats/latency", responseStatus: "200", responseSchema: "AIRunLatencyStatsSuccessEnvelope"},
-		{method: "get", path: "/api/admin/v1/ai-runs/stats/by-date", responseStatus: "200", responseSchema: "AIRunStatsByDateSuccessEnvelope", queryParameters: []string{"agent_id", "current_page", "date_end", "date_start", "page_size", "platform", "provider_id", "user_id"}},
-		{method: "get", path: "/api/admin/v1/ai-runs/stats/by-agent", responseStatus: "200", responseSchema: "AIRunStatsByAgentSuccessEnvelope", queryParameters: []string{"agent_id", "current_page", "date_end", "date_start", "page_size", "platform", "provider_id", "user_id"}},
-		{method: "get", path: "/api/admin/v1/ai-runs/stats/by-user", responseStatus: "200", responseSchema: "AIRunStatsByUserSuccessEnvelope", queryParameters: []string{"agent_id", "current_page", "date_end", "date_start", "page_size", "platform", "provider_id", "user_id"}},
 	}
 
 	for _, expectation := range operations {
@@ -272,7 +268,7 @@ func TestWorkflowSchemasCloseBusinessFieldsAndDeclareNullability(t *testing.T) {
 		"AIMessageRevisionRequest", "AIMessageRegenerationRequest", "AIMessageDeleteSuccessEnvelope",
 		"AIConversationReadCursorSuccessEnvelope", "AIRunUserFeedbackSuccessEnvelope",
 		"AIRunPageInitSuccessEnvelope", "AIRunListSuccessEnvelope", "AIRunDetailSuccessEnvelope",
-		"AIRunStatsSuccessEnvelope", "AIRunStatsByDateSuccessEnvelope", "AIRunLatencyStatsSuccessEnvelope",
+		"AIRunDashboardSuccessEnvelope",
 	} {
 		if document.Components.Schemas[name] == nil {
 			t.Fatalf("missing workflow schema %s", name)
@@ -328,19 +324,16 @@ func TestWorkflowSchemasCloseBusinessFieldsAndDeclareNullability(t *testing.T) {
 	assertNullableProperty(t, document.Components.Schemas["AIRunDetail"], "assistant_message")
 	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIRunDetail", "billing_status", "billing_reason", "held_amount", "actual_amount", "pricing", "usage_items", "provider_attempts", "latency", "request_summary")
 	assertNullableProperty(t, document.Components.Schemas["AIRunDetail"], "pricing")
-	for _, name := range []string{"AIRunPricing", "AIRunPricingRate", "AIRunUsageItem", "AIRunProviderAttempt", "AIRunLatencyBreakdown", "AIRunRequestSummary", "AIRunLatencyDistribution", "AIRunLatencyStatsItem", "AIRunLatencyStatsResult"} {
+	for _, name := range []string{"AIRunPricing", "AIRunPricingRate", "AIRunUsageItem", "AIRunProviderAttempt", "AIRunLatencyBreakdown", "AIRunRequestSummary"} {
 		assertClosedSchemaWithRequired(t, document.Components.Schemas, name)
 	}
 	for name, fields := range map[string][]string{
-		"AIRunPricing":             {"billing_multiplier", "catalog_vendor", "max_output_tokens", "model_id", "rates", "resolved_alias", "transport_engine", "version"},
-		"AIRunPricingRate":         {"category", "price", "tier_key", "unit", "unit_scale"},
-		"AIRunUsageItem":           {"amount", "attempt_no", "billable", "category", "quantity", "tier_key", "unit", "unit_price", "unit_scale"},
-		"AIRunProviderAttempt":     {"attempt_no", "provider_request_id", "state", "usage_status"},
-		"AIRunLatencyBreakdown":    {"accept_ms", "claim_source", "end_to_end_ms", "prepare_ms", "provider_total_ms", "queue_ms", "settlement_ms", "ttft_ms"},
-		"AIRunRequestSummary":      {"message_count", "prepared_request_bytes", "provider_attempt_count", "tool_call_count"},
-		"AIRunLatencyDistribution": {"insufficient_sample", "p50_ms", "p95_ms", "p99_ms", "sample_count"},
-		"AIRunLatencyStatsItem":    {"model_id", "provider_id", "provider_name", "provider_total", "ttft"},
-		"AIRunLatencyStatsResult":  {"list", "max_samples", "window_days"},
+		"AIRunPricing":          {"billing_multiplier", "catalog_vendor", "max_output_tokens", "model_id", "rates", "resolved_alias", "transport_engine", "version"},
+		"AIRunPricingRate":      {"category", "price", "tier_key", "unit", "unit_scale"},
+		"AIRunUsageItem":        {"amount", "attempt_no", "billable", "category", "quantity", "tier_key", "unit", "unit_price", "unit_scale"},
+		"AIRunProviderAttempt":  {"attempt_no", "provider_request_id", "state", "usage_status"},
+		"AIRunLatencyBreakdown": {"accept_ms", "claim_source", "end_to_end_ms", "prepare_ms", "provider_total_ms", "queue_ms", "settlement_ms", "ttft_ms"},
+		"AIRunRequestSummary":   {"message_count", "prepared_request_bytes", "provider_attempt_count", "tool_call_count"},
 	} {
 		properties := document.Components.Schemas[name]["properties"].(map[string]any)
 		if got := sortedMapKeys(properties); !reflect.DeepEqual(got, fields) {
@@ -561,4 +554,178 @@ func sortedMapKeys[T any](items map[string]T) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+func TestAIRunDashboardOpenAPIIsCompleteAndNonNullable(t *testing.T) {
+	bundle := mustBuildBundle(t)
+	var document struct {
+		Paths      map[string]map[string]map[string]any `json:"paths"`
+		Components struct {
+			Schemas map[string]map[string]any `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(bundle.Artifacts["openapi.json"], &document); err != nil {
+		t.Fatal(err)
+	}
+
+	operation := document.Paths["/api/admin/v1/ai-runs/dashboard"]["get"]
+	if operation == nil {
+		t.Fatal("missing GET /api/admin/v1/ai-runs/dashboard")
+	}
+	assertOperationParameters(t, operation,
+		[]string{"agent_id", "date_end", "date_start", "model_id", "platform", "provider_id", "user_id"}, nil, nil)
+	assertOperationResponseRef(t, operation, "200", "AIRunDashboardSuccessEnvelope")
+
+	for _, name := range []string{
+		"AIRunDashboardDateRange", "AIRunDashboardSummary", "AIRunDashboardPercentile",
+		"AIRunDashboardPerformance", "AIRunDashboardBilling", "AIRunDashboardAnomalyItem",
+		"AIRunDashboardAnomalies", "AIRunDashboardTrendItem", "AIRunDashboardAttributionMetrics",
+		"AIRunDashboardModelBreakdown", "AIRunDashboardProviderBreakdown", "AIRunDashboardAgentBreakdown",
+		"AIRunDashboardUserBreakdown", "AIRunDashboardErrorBreakdown", "AIRunDashboardToolBreakdown",
+		"AIRunDashboardBreakdowns", "AIRunDashboardResult", "AIRunDashboardSuccessEnvelope",
+	} {
+		schema := document.Components.Schemas[name]
+		if schema == nil {
+			t.Fatalf("missing dashboard schema %s", name)
+		}
+		if properties, ok := schema["properties"].(map[string]any); ok {
+			if got, want := anyStrings(schema["required"]), sortedMapKeys(properties); !reflect.DeepEqual(got, want) {
+				t.Fatalf("schema %s required=%v want=%v", name, got, want)
+			}
+			for propertyName, raw := range properties {
+				assertSchemaIsNotNullable(t, name+"."+propertyName, raw)
+			}
+		}
+	}
+
+	assertRequiredArrayProperties(t, document.Components.Schemas["AIRunDashboardAnomalies"], "run_items", "billing_items")
+	assertRequiredArrayProperties(t, document.Components.Schemas["AIRunDashboardBreakdowns"], "agents", "errors", "models", "providers", "tools", "users")
+	assertRequiredArrayProperties(t, document.Components.Schemas["AIRunDashboardResult"], "trend")
+	for _, check := range []struct{ schema, field string }{
+		{schema: "AIRunDashboardBilling", field: "actual_amount"},
+		{schema: "AIRunDashboardBilling", field: "released_amount"},
+		{schema: "AIRunDashboardTrendItem", field: "actual_amount"},
+		{schema: "AIRunDashboardAttributionMetrics", field: "actual_amount"},
+		{schema: "AIRunDashboardModelBreakdown", field: "actual_amount"},
+		{schema: "AIRunDashboardProviderBreakdown", field: "actual_amount"},
+		{schema: "AIRunDashboardAgentBreakdown", field: "actual_amount"},
+		{schema: "AIRunDashboardUserBreakdown", field: "actual_amount"},
+	} {
+		property := document.Components.Schemas[check.schema]["properties"].(map[string]any)[check.field].(map[string]any)
+		if property["type"] != "string" {
+			t.Fatalf("%s.%s must be a string amount: %#v", check.schema, check.field, property)
+		}
+	}
+}
+
+func TestLegacyAIRunStatsContractsAreAbsent(t *testing.T) {
+	bundle := mustBuildBundle(t)
+	var document struct {
+		Paths      map[string]map[string]any `json:"paths"`
+		Components struct {
+			Schemas map[string]map[string]any `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(bundle.Artifacts["openapi.json"], &document); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{
+		"/api/admin/v1/ai-runs/stats", "/api/admin/v1/ai-runs/stats/latency",
+		"/api/admin/v1/ai-runs/stats/by-date", "/api/admin/v1/ai-runs/stats/by-agent",
+		"/api/admin/v1/ai-runs/stats/by-user",
+	} {
+		if document.Paths[path] != nil {
+			t.Errorf("legacy AI run stats path is still published: %s", path)
+		}
+	}
+	for name := range document.Components.Schemas {
+		if strings.HasPrefix(name, "AIRunStats") || strings.HasPrefix(name, "AIRunLatencyStats") || name == "AIRunLatencyDistribution" {
+			t.Errorf("legacy AI run stats schema is still published: %s", name)
+		}
+	}
+}
+
+func TestAIRunPageInitAndListPublishDashboardDrilldownContract(t *testing.T) {
+	bundle := mustBuildBundle(t)
+	var document struct {
+		Paths      map[string]map[string]map[string]any `json:"paths"`
+		Components struct {
+			Schemas map[string]map[string]any `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(bundle.Artifacts["openapi.json"], &document); err != nil {
+		t.Fatal(err)
+	}
+	pageInit := document.Paths["/api/admin/v1/ai-runs/page-init"]["get"]
+	assertOperationParameters(t, pageInit, []string{"date_end", "date_start"}, nil, nil)
+	for _, name := range []string{"date_start", "date_end"} {
+		parameter := operationQueryParameter(t, pageInit, name)
+		description, _ := parameter["description"].(string)
+		if !strings.Contains(strings.ToLower(description), "inclusive") || !strings.Contains(description, "YYYY-MM-DD") {
+			t.Fatalf("page-init %s description=%q", name, description)
+		}
+	}
+
+	list := document.Paths["/api/admin/v1/ai-runs"]["get"]
+	assertOperationParameters(t, list, []string{
+		"agent_id", "anomaly_as_of", "billing_anomaly", "billing_reason", "billing_status", "current_page",
+		"date_end", "date_start", "error_code", "model_id", "page_size", "platform", "provider_id",
+		"request_id", "run_anomaly", "status", "tool_code", "user_id",
+	}, nil, nil)
+	anomalyAsOf := operationQueryParameter(t, list, "anomaly_as_of")["schema"].(map[string]any)
+	if anomalyAsOf["format"] != "date-time" {
+		t.Fatalf("anomaly_as_of schema=%#v", anomalyAsOf)
+	}
+
+	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIRunPageInitModelOption", "historical", "label", "value")
+	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIRunPageInitDict",
+		"agentArr", "billing_reason_arr", "billing_status_arr", "model_arr", "platform_arr", "providerArr", "status_arr")
+	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIRunListItem", "billing_reason", "billing_status", "error_code")
+}
+
+func operationQueryParameter(t *testing.T, operation map[string]any, name string) map[string]any {
+	t.Helper()
+	parameters, _ := operation["parameters"].([]any)
+	for _, raw := range parameters {
+		parameter := raw.(map[string]any)
+		if parameter["in"] == "query" && parameter["name"] == name {
+			return parameter
+		}
+	}
+	t.Fatalf("missing query parameter %s", name)
+	return nil
+}
+
+func assertRequiredArrayProperties(t *testing.T, schema map[string]any, names ...string) {
+	t.Helper()
+	required := anyStrings(schema["required"])
+	properties := schema["properties"].(map[string]any)
+	for _, name := range names {
+		if !containsString(required, name) {
+			t.Fatalf("property %s must be required", name)
+		}
+		property := properties[name].(map[string]any)
+		if property["type"] != "array" {
+			t.Fatalf("property %s must be a non-null array: %#v", name, property)
+		}
+	}
+}
+
+func assertSchemaIsNotNullable(t *testing.T, name string, raw any) {
+	t.Helper()
+	schema, ok := raw.(map[string]any)
+	if !ok {
+		t.Fatalf("schema %s=%#v", name, raw)
+	}
+	if schema["nullable"] == true {
+		t.Fatalf("schema %s is nullable", name)
+	}
+	if variants, ok := schema["anyOf"].([]any); ok {
+		for _, variantRaw := range variants {
+			variant, _ := variantRaw.(map[string]any)
+			if variant["type"] == "null" {
+				t.Fatalf("schema %s is nullable", name)
+			}
+		}
+	}
 }

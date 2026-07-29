@@ -130,11 +130,19 @@ func aiWorkflowSchemas() map[string]any {
 		}),
 		"AIConversationReadCursorSuccessEnvelope": successEnvelopeWithData(schemaReference("AIConversationReadCursorResult")),
 
+		"AIRunPageInitModelOption": closedObjectAllProperties(map[string]any{
+			"label":      stringSchema(),
+			"value":      stringSchema(),
+			"historical": booleanSchema(),
+		}),
 		"AIRunPageInitDict": closedObjectAllProperties(map[string]any{
-			"status_arr":   arraySchema(schemaReference("StringOption")),
-			"platform_arr": arraySchema(schemaReference("StringOption")),
-			"providerArr":  arraySchema(schemaReference("IntOption")),
-			"agentArr":     arraySchema(schemaReference("IntOption")),
+			"status_arr":         arraySchema(schemaReference("StringOption")),
+			"platform_arr":       arraySchema(schemaReference("StringOption")),
+			"providerArr":        arraySchema(schemaReference("IntOption")),
+			"agentArr":           arraySchema(schemaReference("IntOption")),
+			"model_arr":          arraySchema(schemaReference("AIRunPageInitModelOption")),
+			"billing_status_arr": arraySchema(schemaReference("StringOption")),
+			"billing_reason_arr": arraySchema(schemaReference("StringOption")),
 		}),
 		"AIRunPageInit": closedObjectAllProperties(map[string]any{
 			"dict": schemaReference("AIRunPageInitDict"),
@@ -168,43 +176,24 @@ func aiWorkflowSchemas() map[string]any {
 			"liked_at": nullableSchema(stringSchema()),
 		}),
 		"AIRunUserFeedbackSuccessEnvelope": successEnvelopeWithData(schemaReference("AIRunUserFeedbackResult")),
-		"AIRunStatsSummary":                aiRunStatsSummarySchema(),
-		"AIRunStatsResult": closedObjectAllProperties(map[string]any{
-			"date_range": schemaReference("AIRunStatsDateRange"),
-			"summary":    schemaReference("AIRunStatsSummary"),
-		}),
-		"AIRunStatsDateRange": closedObjectAllProperties(map[string]any{
-			"start": nullableSchema(stringSchema()),
-			"end":   nullableSchema(stringSchema()),
-		}),
-		"AIRunStatsSuccessEnvelope": successEnvelopeWithData(schemaReference("AIRunStatsResult")),
-		"AIRunStatsMetric":          aiRunStatsMetricSchema(),
-		"AIRunStatsByDateItem":      aiRunStatsByDateItemSchema(),
-		"AIRunStatsByAgentItem":     aiRunStatsByAgentItemSchema(),
-		"AIRunStatsByUserItem":      aiRunStatsByUserItemSchema(),
-		"AIRunStatsByDateResult": closedObjectAllProperties(map[string]any{
-			"list": arraySchema(schemaReference("AIRunStatsByDateItem")),
-			"page": schemaReference("Page"),
-		}),
-		"AIRunStatsByAgentResult": closedObjectAllProperties(map[string]any{
-			"list": arraySchema(schemaReference("AIRunStatsByAgentItem")),
-			"page": schemaReference("Page"),
-		}),
-		"AIRunStatsByUserResult": closedObjectAllProperties(map[string]any{
-			"list": arraySchema(schemaReference("AIRunStatsByUserItem")),
-			"page": schemaReference("Page"),
-		}),
-		"AIRunStatsByDateSuccessEnvelope":  successEnvelopeWithData(schemaReference("AIRunStatsByDateResult")),
-		"AIRunStatsByAgentSuccessEnvelope": successEnvelopeWithData(schemaReference("AIRunStatsByAgentResult")),
-		"AIRunStatsByUserSuccessEnvelope":  successEnvelopeWithData(schemaReference("AIRunStatsByUserResult")),
-		"AIRunLatencyDistribution":         aiRunLatencyDistributionSchema(),
-		"AIRunLatencyStatsItem":            aiRunLatencyStatsItemSchema(),
-		"AIRunLatencyStatsResult": closedObjectAllProperties(map[string]any{
-			"window_days": positiveIntegerSchema(),
-			"max_samples": positiveIntegerSchema(),
-			"list":        arraySchema(schemaReference("AIRunLatencyStatsItem")),
-		}),
-		"AIRunLatencyStatsSuccessEnvelope": successEnvelopeWithData(schemaReference("AIRunLatencyStatsResult")),
+		"AIRunDashboardDateRange":          aiRunDashboardDateRangeSchema(),
+		"AIRunDashboardSummary":            aiRunDashboardSummarySchema(),
+		"AIRunDashboardPercentile":         aiRunDashboardPercentileSchema(),
+		"AIRunDashboardPerformance":        aiRunDashboardPerformanceSchema(),
+		"AIRunDashboardBilling":            aiRunDashboardBillingSchema(),
+		"AIRunDashboardAnomalyItem":        aiRunDashboardAnomalyItemSchema(),
+		"AIRunDashboardAnomalies":          aiRunDashboardAnomaliesSchema(),
+		"AIRunDashboardTrendItem":          aiRunDashboardTrendItemSchema(),
+		"AIRunDashboardAttributionMetrics": aiRunDashboardAttributionMetricsSchema(),
+		"AIRunDashboardModelBreakdown":     aiRunDashboardModelBreakdownSchema(),
+		"AIRunDashboardProviderBreakdown":  aiRunDashboardProviderBreakdownSchema(),
+		"AIRunDashboardAgentBreakdown":     aiRunDashboardAgentBreakdownSchema(),
+		"AIRunDashboardUserBreakdown":      aiRunDashboardUserBreakdownSchema(),
+		"AIRunDashboardErrorBreakdown":     aiRunDashboardErrorBreakdownSchema(),
+		"AIRunDashboardToolBreakdown":      aiRunDashboardToolBreakdownSchema(),
+		"AIRunDashboardBreakdowns":         aiRunDashboardBreakdownsSchema(),
+		"AIRunDashboardResult":             aiRunDashboardResultSchema(),
+		"AIRunDashboardSuccessEnvelope":    successEnvelopeWithData(schemaReference("AIRunDashboardResult")),
 	}
 }
 
@@ -238,13 +227,19 @@ func aiRunListItemProperties() map[string]any {
 		"status_name":        stringSchema(),
 		"model_id":           stringSchema(),
 		"model_display_name": stringSchema(),
-		"prompt_tokens":      nonNegativeIntegerSchema(),
-		"completion_tokens":  nonNegativeIntegerSchema(),
-		"total_tokens":       nonNegativeIntegerSchema(),
-		"duration_ms":        nullableSchema(nonNegativeIntegerSchema()),
-		"duration_text":      stringSchema(),
-		"error_message":      stringSchema(),
-		"created_at":         stringSchema(),
+		"billing_status":     stringEnumSchema("pending", "held", "settled", "released", "unbilled"),
+		"billing_reason": stringEnumSchema(
+			"pending", "held", "settled_complete_usage", "released_before_dispatch", "released_insufficient_balance",
+			"released_provider_failed", "released_outcome_unknown", "unbilled_usage_incomplete", "unbilled_over_hold", "legacy_unpriced",
+		),
+		"error_code":        stringSchema(),
+		"prompt_tokens":     nonNegativeIntegerSchema(),
+		"completion_tokens": nonNegativeIntegerSchema(),
+		"total_tokens":      nonNegativeIntegerSchema(),
+		"duration_ms":       nullableSchema(nonNegativeIntegerSchema()),
+		"duration_text":     stringSchema(),
+		"error_message":     stringSchema(),
+		"created_at":        stringSchema(),
 	}
 }
 
@@ -425,71 +420,183 @@ func aiRunRequestSummarySchema() map[string]any {
 	})
 }
 
-func aiRunLatencyDistributionSchema() map[string]any {
+func canonicalRMBAmountSchema() map[string]any {
+	return map[string]any{"type": "string", "pattern": `^(0|[1-9][0-9]*)(\.[0-9]{0,7}[1-9])?$`}
+}
+
+func aiRunDashboardDateRangeSchema() map[string]any {
+	return closedObjectAllProperties(map[string]any{
+		"start_at":      schemaWith(stringSchema(), "format", "date-time"),
+		"end_exclusive": schemaWith(stringSchema(), "format", "date-time"),
+	})
+}
+
+func aiRunDashboardSummarySchema() map[string]any {
+	return closedObjectAllProperties(map[string]any{
+		"total_runs":           nonNegativeIntegerSchema(),
+		"terminal_runs":        nonNegativeIntegerSchema(),
+		"in_progress_runs":     nonNegativeIntegerSchema(),
+		"success_runs":         nonNegativeIntegerSchema(),
+		"failed_runs":          nonNegativeIntegerSchema(),
+		"timeout_runs":         nonNegativeIntegerSchema(),
+		"outcome_unknown_runs": nonNegativeIntegerSchema(),
+		"canceled_runs":        nonNegativeIntegerSchema(),
+		"success_denominator":  nonNegativeIntegerSchema(),
+		"success_rate":         schemaWith(numberSchema(), "minimum", 0, "maximum", 100),
+		"prompt_tokens":        nonNegativeIntegerSchema(),
+		"completion_tokens":    nonNegativeIntegerSchema(),
+		"total_tokens":         nonNegativeIntegerSchema(),
+	})
+}
+
+func aiRunDashboardPercentileSchema() map[string]any {
 	return closedObjectAllProperties(map[string]any{
 		"sample_count":        nonNegativeIntegerSchema(),
 		"insufficient_sample": booleanSchema(),
 		"p50_ms":              nonNegativeIntegerSchema(),
 		"p95_ms":              nonNegativeIntegerSchema(),
-		"p99_ms":              nonNegativeIntegerSchema(),
 	})
 }
 
-func aiRunLatencyStatsItemSchema() map[string]any {
+func aiRunDashboardPerformanceSchema() map[string]any {
 	return closedObjectAllProperties(map[string]any{
-		"provider_id":    positiveIntegerSchema(),
-		"provider_name":  stringSchema(),
-		"model_id":       stringSchema(),
-		"ttft":           schemaReference("AIRunLatencyDistribution"),
-		"provider_total": schemaReference("AIRunLatencyDistribution"),
+		"ttft":       schemaReference("AIRunDashboardPercentile"),
+		"end_to_end": schemaReference("AIRunDashboardPercentile"),
 	})
 }
 
-func canonicalRMBAmountSchema() map[string]any {
-	return map[string]any{"type": "string", "pattern": `^(0|[1-9][0-9]*)(\.[0-9]{0,7}[1-9])?$`}
-}
-
-func aiRunStatsSummarySchema() map[string]any {
+func aiRunDashboardBillingSchema() map[string]any {
 	return closedObjectAllProperties(map[string]any{
-		"total_runs":              nonNegativeIntegerSchema(),
-		"success_rate":            schemaWith(numberSchema(), "minimum", 0, "maximum", 100),
-		"fail_runs":               nonNegativeIntegerSchema(),
-		"total_tokens":            nonNegativeIntegerSchema(),
-		"total_prompt_tokens":     nonNegativeIntegerSchema(),
-		"total_completion_tokens": nonNegativeIntegerSchema(),
-		"avg_duration_ms":         nonNegativeIntegerSchema(),
+		"settled_runs":    nonNegativeIntegerSchema(),
+		"actual_amount":   canonicalRMBAmountSchema(),
+		"released_runs":   nonNegativeIntegerSchema(),
+		"released_amount": canonicalRMBAmountSchema(),
+		"unbilled_runs":   nonNegativeIntegerSchema(),
 	})
 }
 
-func aiRunStatsMetricProperties() map[string]any {
+func aiRunDashboardAnomalyItemSchema() map[string]any {
+	return closedObjectAllProperties(map[string]any{
+		"code":  stringSchema(),
+		"count": nonNegativeIntegerSchema(),
+	})
+}
+
+func aiRunDashboardAnomaliesSchema() map[string]any {
+	return closedObjectAllProperties(map[string]any{
+		"run_total":     nonNegativeIntegerSchema(),
+		"billing_total": nonNegativeIntegerSchema(),
+		"run_items":     arraySchema(schemaReference("AIRunDashboardAnomalyItem")),
+		"billing_items": arraySchema(schemaReference("AIRunDashboardAnomalyItem")),
+	})
+}
+
+func aiRunDashboardAttributionMetricProperties() map[string]any {
 	return map[string]any{
-		"total_runs":              nonNegativeIntegerSchema(),
-		"total_tokens":            nonNegativeIntegerSchema(),
-		"total_prompt_tokens":     nonNegativeIntegerSchema(),
-		"total_completion_tokens": nonNegativeIntegerSchema(),
-		"avg_duration_ms":         nonNegativeIntegerSchema(),
+		"total_runs":            nonNegativeIntegerSchema(),
+		"success_runs":          nonNegativeIntegerSchema(),
+		"success_denominator":   nonNegativeIntegerSchema(),
+		"success_rate":          schemaWith(numberSchema(), "minimum", 0, "maximum", 100),
+		"total_tokens":          nonNegativeIntegerSchema(),
+		"actual_amount":         canonicalRMBAmountSchema(),
+		"run_anomaly_count":     nonNegativeIntegerSchema(),
+		"billing_anomaly_count": nonNegativeIntegerSchema(),
 	}
 }
 
-func aiRunStatsMetricSchema() map[string]any {
-	return closedObjectAllProperties(aiRunStatsMetricProperties())
+func aiRunDashboardAttributionMetricsSchema() map[string]any {
+	return closedObjectAllProperties(aiRunDashboardAttributionMetricProperties())
 }
 
-func aiRunStatsByDateItemSchema() map[string]any {
-	properties := aiRunStatsMetricProperties()
-	properties["date"] = stringSchema()
+func aiRunDashboardModelBreakdownSchema() map[string]any {
+	properties := aiRunDashboardAttributionMetricProperties()
+	properties["model_id"] = stringSchema()
+	properties["model_display_name"] = stringSchema()
+	properties["historical"] = booleanSchema()
 	return closedObjectAllProperties(properties)
 }
 
-func aiRunStatsByAgentItemSchema() map[string]any {
-	properties := aiRunStatsMetricProperties()
+func aiRunDashboardProviderBreakdownSchema() map[string]any {
+	properties := aiRunDashboardAttributionMetricProperties()
+	properties["provider_id"] = positiveIntegerSchema()
+	properties["provider_name"] = stringSchema()
+	return closedObjectAllProperties(properties)
+}
+
+func aiRunDashboardAgentBreakdownSchema() map[string]any {
+	properties := aiRunDashboardAttributionMetricProperties()
 	properties["agent_id"] = positiveIntegerSchema()
 	properties["agent_name"] = stringSchema()
 	return closedObjectAllProperties(properties)
 }
 
-func aiRunStatsByUserItemSchema() map[string]any {
-	properties := aiRunStatsMetricProperties()
+func aiRunDashboardUserBreakdownSchema() map[string]any {
+	properties := aiRunDashboardAttributionMetricProperties()
+	properties["user_id"] = positiveIntegerSchema()
 	properties["username"] = stringSchema()
 	return closedObjectAllProperties(properties)
+}
+
+func aiRunDashboardErrorBreakdownSchema() map[string]any {
+	return closedObjectAllProperties(map[string]any{
+		"error_code": stringSchema(),
+		"count":      nonNegativeIntegerSchema(),
+	})
+}
+
+func aiRunDashboardToolBreakdownSchema() map[string]any {
+	return closedObjectAllProperties(map[string]any{
+		"tool_code":           stringSchema(),
+		"tool_name":           stringSchema(),
+		"total_calls":         nonNegativeIntegerSchema(),
+		"success_calls":       nonNegativeIntegerSchema(),
+		"failed_calls":        nonNegativeIntegerSchema(),
+		"timeout_calls":       nonNegativeIntegerSchema(),
+		"success_denominator": nonNegativeIntegerSchema(),
+		"success_rate":        schemaWith(numberSchema(), "minimum", 0, "maximum", 100),
+		"duration":            schemaReference("AIRunDashboardPercentile"),
+	})
+}
+
+func aiRunDashboardTrendItemSchema() map[string]any {
+	return closedObjectAllProperties(map[string]any{
+		"date":                 schemaWith(stringSchema(), "format", "date"),
+		"total_runs":           nonNegativeIntegerSchema(),
+		"in_progress_runs":     nonNegativeIntegerSchema(),
+		"success_runs":         nonNegativeIntegerSchema(),
+		"failed_runs":          nonNegativeIntegerSchema(),
+		"canceled_runs":        nonNegativeIntegerSchema(),
+		"timeout_runs":         nonNegativeIntegerSchema(),
+		"outcome_unknown_runs": nonNegativeIntegerSchema(),
+		"success_denominator":  nonNegativeIntegerSchema(),
+		"success_rate":         schemaWith(numberSchema(), "minimum", 0, "maximum", 100),
+		"actual_amount":        canonicalRMBAmountSchema(),
+		"ttft":                 schemaReference("AIRunDashboardPercentile"),
+		"end_to_end":           schemaReference("AIRunDashboardPercentile"),
+	})
+}
+
+func aiRunDashboardBreakdownsSchema() map[string]any {
+	return closedObjectAllProperties(map[string]any{
+		"models":    arraySchema(schemaReference("AIRunDashboardModelBreakdown")),
+		"providers": arraySchema(schemaReference("AIRunDashboardProviderBreakdown")),
+		"agents":    arraySchema(schemaReference("AIRunDashboardAgentBreakdown")),
+		"users":     arraySchema(schemaReference("AIRunDashboardUserBreakdown")),
+		"errors":    arraySchema(schemaReference("AIRunDashboardErrorBreakdown")),
+		"tools":     arraySchema(schemaReference("AIRunDashboardToolBreakdown")),
+	})
+}
+
+func aiRunDashboardResultSchema() map[string]any {
+	return closedObjectAllProperties(map[string]any{
+		"generated_at": schemaWith(stringSchema(), "format", "date-time"),
+		"timezone":     stringSchema(),
+		"date_range":   schemaReference("AIRunDashboardDateRange"),
+		"summary":      schemaReference("AIRunDashboardSummary"),
+		"performance":  schemaReference("AIRunDashboardPerformance"),
+		"billing":      schemaReference("AIRunDashboardBilling"),
+		"anomalies":    schemaReference("AIRunDashboardAnomalies"),
+		"trend":        arraySchema(schemaReference("AIRunDashboardTrendItem")),
+		"breakdowns":   schemaReference("AIRunDashboardBreakdowns"),
+	})
 }

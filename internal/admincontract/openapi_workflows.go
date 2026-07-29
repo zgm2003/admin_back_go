@@ -120,14 +120,10 @@ func buildWorkflowOperationContracts() map[workflowOperationKey]workflowOperatio
 		workflowKey(http.MethodDelete, "/api/admin/v1/ai-conversations/:id/messages"): workflowContract("AIMessageDeleteSuccessEnvelope", requiredBody("AIMessageDeleteRequest"), nil, positiveID),
 		workflowKey(http.MethodPut, "/api/admin/v1/ai-conversations/:id/read-cursor"): workflowContract("AIConversationReadCursorSuccessEnvelope", requiredBody("AIConversationReadCursorRequest"), nil, positiveID),
 
-		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/page-init"):         workflowContract("AIRunPageInitSuccessEnvelope", nil, nil, noID),
+		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/page-init"):         workflowContract("AIRunPageInitSuccessEnvelope", nil, aiRunPageInitQueryParameters(), noID),
 		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs"):                   workflowContract("AIRunListSuccessEnvelope", nil, aiRunListQueryParameters(), noID),
+		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/dashboard"):         workflowContract("AIRunDashboardSuccessEnvelope", nil, aiRunDashboardQueryParameters(), noID),
 		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/:id"):               workflowContract("AIRunDetailSuccessEnvelope", nil, nil, positiveID),
-		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/stats"):             workflowContract("AIRunStatsSuccessEnvelope", nil, aiRunStatsQueryParameters(false), noID),
-		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/stats/latency"):     workflowContract("AIRunLatencyStatsSuccessEnvelope", nil, nil, noID),
-		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/stats/by-date"):     workflowContract("AIRunStatsByDateSuccessEnvelope", nil, aiRunStatsQueryParameters(true), noID),
-		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/stats/by-agent"):    workflowContract("AIRunStatsByAgentSuccessEnvelope", nil, aiRunStatsQueryParameters(true), noID),
-		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/stats/by-user"):     workflowContract("AIRunStatsByUserSuccessEnvelope", nil, aiRunStatsQueryParameters(true), noID),
 		workflowKey(http.MethodPut, "/api/admin/v1/ai-runs/:id/user-feedback"): workflowContract("AIRunUserFeedbackSuccessEnvelope", requiredBody("AIRunUserFeedbackRequest"), nil, positiveID),
 	}
 }
@@ -176,41 +172,55 @@ func queryParameter(name string, required bool, schema map[string]any, descripti
 }
 
 func aiRunListQueryParameters() []map[string]any {
-	parameters := []map[string]any{
+	return []map[string]any{
 		queryParameter("agent_id", false, positiveIntegerSchema(), "Agent ID filter."),
+		queryParameter("anomaly_as_of", false, schemaWith(maxStringSchema(64), "format", "date-time"), "RFC3339 instant used to evaluate stale and overdue anomalies."),
+		queryParameter("billing_anomaly", false, stringEnumSchema("state_inconsistent", "open_overdue", "pricing_snapshot_missing", "legacy_unpriced", "unbilled_usage_incomplete", "unbilled_over_hold"), "Billing anomaly drilldown filter."),
+		queryParameter("billing_reason", false, stringEnumSchema(
+			"pending", "held", "settled_complete_usage", "released_before_dispatch", "released_insufficient_balance",
+			"released_provider_failed", "released_outcome_unknown", "unbilled_usage_incomplete", "unbilled_over_hold", "legacy_unpriced",
+		), "Billing reason filter."),
+		queryParameter("billing_status", false, stringEnumSchema("pending", "held", "settled", "released", "unbilled"), "Billing status filter."),
 		queryParameter("current_page", false, schemaWith(positiveIntegerSchema(), "default", 1), "One-based page number."),
-		queryParameter("date_end", false, maxStringSchema(20), "Inclusive creation-time upper bound."),
-		queryParameter("date_start", false, maxStringSchema(20), "Inclusive creation-time lower bound."),
+		aiRunDateQueryParameter("date_end"),
+		aiRunDateQueryParameter("date_start"),
+		queryParameter("error_code", false, maxStringSchema(128), "Final provider attempt error code filter."),
+		queryParameter("model_id", false, maxStringSchema(191), "Official or historical model ID filter."),
 		queryParameter("page_size", false, schemaWith(integerRangeSchema(1, 50), "default", 20), "Number of rows per page."),
 		queryParameter("platform", false, registeredPlatformSchema(), "Origin platform filter."),
 		queryParameter("provider_id", false, positiveIntegerSchema(), "Provider ID filter."),
 		queryParameter("request_id", false, maxStringSchema(128), "Request ID search."),
+		queryParameter("run_anomaly", false, stringEnumSchema("failed", "timeout", "outcome_unknown", "stale_running"), "Run anomaly drilldown filter."),
 		queryParameter("status", false, stringEnumSchema("running", "success", "failed", "canceled", "timeout", "outcome_unknown"), "Run status filter."),
+		queryParameter("tool_code", false, maxStringSchema(128), "Tool code drilldown filter."),
 		queryParameter("user_id", false, positiveIntegerSchema(), "User ID filter."),
 	}
-	return parameters
 }
 
-func aiRunStatsQueryParameters(paged bool) []map[string]any {
-	parameters := []map[string]any{
+func aiRunDashboardQueryParameters() []map[string]any {
+	return []map[string]any{
 		queryParameter("agent_id", false, positiveIntegerSchema(), "Agent ID filter."),
-	}
-	if paged {
-		parameters = append(parameters, queryParameter("current_page", false, schemaWith(positiveIntegerSchema(), "default", 1), "One-based page number."))
-	}
-	parameters = append(parameters,
-		queryParameter("date_end", false, maxStringSchema(20), "Inclusive creation-time upper bound."),
-		queryParameter("date_start", false, maxStringSchema(20), "Inclusive creation-time lower bound."),
-	)
-	if paged {
-		parameters = append(parameters, queryParameter("page_size", false, schemaWith(integerRangeSchema(1, 50), "default", 20), "Number of rows per page."))
-	}
-	parameters = append(parameters,
+		aiRunDateQueryParameter("date_end"),
+		aiRunDateQueryParameter("date_start"),
+		queryParameter("model_id", false, maxStringSchema(191), "Official or historical model ID filter."),
 		queryParameter("platform", false, registeredPlatformSchema(), "Origin platform filter."),
 		queryParameter("provider_id", false, positiveIntegerSchema(), "Provider ID filter."),
 		queryParameter("user_id", false, positiveIntegerSchema(), "User ID filter."),
+	}
+}
+
+func aiRunPageInitQueryParameters() []map[string]any {
+	return []map[string]any{
+		aiRunDateQueryParameter("date_end"),
+		aiRunDateQueryParameter("date_start"),
+	}
+}
+
+func aiRunDateQueryParameter(name string) map[string]any {
+	return queryParameter(name, false,
+		schemaWith(maxStringSchema(10), "format", "date", "pattern", `^\d{4}-\d{2}-\d{2}$`),
+		"Inclusive Asia/Shanghai calendar date input (YYYY-MM-DD); normalized output uses an exclusive end instant.",
 	)
-	return parameters
 }
 
 func workflowOperationContractFor(method string, path string) (workflowOperationContract, bool) {

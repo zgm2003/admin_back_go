@@ -148,10 +148,7 @@ func TestBundlePublishesCurrentAdminPlatformKernel(t *testing.T) {
 		assertQueryStringEnum(t, openAPI.Paths["/api/admin/v1/permissions"]["get"], "platform", []string{"admin"})
 		for _, path := range []string{
 			"/api/admin/v1/ai-runs",
-			"/api/admin/v1/ai-runs/stats",
-			"/api/admin/v1/ai-runs/stats/by-agent",
-			"/api/admin/v1/ai-runs/stats/by-date",
-			"/api/admin/v1/ai-runs/stats/by-user",
+			"/api/admin/v1/ai-runs/dashboard",
 		} {
 			assertQueryStringEnum(t, openAPI.Paths[path]["get"], "platform", []string{"admin"})
 		}

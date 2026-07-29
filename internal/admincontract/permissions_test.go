@@ -94,7 +94,7 @@ func TestPermissionsCatalogAndOperationPoliciesAreComplete(t *testing.T) {
 	}
 }
 
-func TestPermissionsProtectAIRunMonitoringOperations(t *testing.T) {
+func TestAIRunDashboardUsesAIRunListPermission(t *testing.T) {
 	bundle := mustBuildBundle(t)
 	var document PermissionsDocument
 	if err := json.Unmarshal(bundle.Artifacts["permissions.json"], &document); err != nil {
@@ -105,11 +105,7 @@ func TestPermissionsProtectAIRunMonitoringOperations(t *testing.T) {
 		"/api/admin/v1/ai-runs/page-init",
 		"/api/admin/v1/ai-runs",
 		"/api/admin/v1/ai-runs/:id",
-		"/api/admin/v1/ai-runs/stats",
-		"/api/admin/v1/ai-runs/stats/latency",
-		"/api/admin/v1/ai-runs/stats/by-date",
-		"/api/admin/v1/ai-runs/stats/by-agent",
-		"/api/admin/v1/ai-runs/stats/by-user",
+		"/api/admin/v1/ai-runs/dashboard",
 	} {
 		operation, exists := findOperationPolicy(document.Operations, "GET", path)
 		if !exists {
