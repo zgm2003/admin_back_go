@@ -547,6 +547,7 @@ type Repository interface {
 	StatsByAgent(ctx context.Context, query StatsListQuery) ([]StatsByAgentRow, int64, error)
 	StatsByUser(ctx context.Context, query StatsListQuery) ([]StatsByUserRow, int64, error)
 	LatencySamples(ctx context.Context, since time.Time, limit int) ([]LatencySampleRow, error)
+	Dashboard(ctx context.Context, query DashboardQuery) (DashboardRepositoryResult, error)
 }
 
 type HTTPService interface {

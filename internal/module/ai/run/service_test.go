@@ -39,6 +39,10 @@ type fakeRepository struct {
 	latencySamples []LatencySampleRow
 	latencySince   time.Time
 	latencyLimit   int
+	dashboardQuery DashboardQuery
+	dashboardRows  DashboardRepositoryResult
+	dashboardErr   error
+	dashboardCalls int
 }
 
 func (f *fakeRepository) AgentOptions(ctx context.Context) ([]OptionRow, error) {
@@ -90,6 +94,11 @@ func (f *fakeRepository) StatsByUser(ctx context.Context, query StatsListQuery) 
 func (f *fakeRepository) LatencySamples(_ context.Context, since time.Time, limit int) ([]LatencySampleRow, error) {
 	f.latencySince, f.latencyLimit = since, limit
 	return f.latencySamples, nil
+}
+func (f *fakeRepository) Dashboard(_ context.Context, query DashboardQuery) (DashboardRepositoryResult, error) {
+	f.dashboardCalls++
+	f.dashboardQuery = query
+	return f.dashboardRows, f.dashboardErr
 }
 
 func TestInitReturnsStatusAgentAndProviderOptions(t *testing.T) {
