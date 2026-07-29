@@ -240,7 +240,11 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	if paidReply && s.paidAttemptExecutor != nil {
 		identity, identityErr := paidReplyRequestIdentity(acceptedRun, input, userMessage)
 		if identityErr != nil {
-			return nil, identityErr
+			result, finalizationErr := s.finalizePaidFailure(context.WithoutCancel(ctx), runID, input, true)
+			if finalizationErr != nil {
+				return nil, errors.Join(identityErr, finalizationErr)
+			}
+			return result, nil
 		}
 		input.RequestIdentity = identity
 	}
@@ -997,11 +1001,15 @@ func paidReplyRequestIdentity(run *airun.Run, input ConversationReplyInput, mess
 			if !ok {
 				return requestidentity.Input{}, apperror.Internal("AI附件身份快照无效")
 			}
-			url, ok := item["url"].(string)
-			if !ok || strings.TrimSpace(url) == "" {
-				return requestidentity.Input{}, apperror.Internal("AI附件身份快照无效")
+			if objectKey, ok := item["object_key"].(string); ok && strings.TrimSpace(objectKey) != "" {
+				attachments = append(attachments, requestidentity.AttachmentIdentity{StorageProvider: "cos", StorageKey: strings.TrimSpace(objectKey)})
+				continue
 			}
-			attachments = append(attachments, requestidentity.AttachmentIdentity{StorageProvider: "url", StorageKey: strings.TrimSpace(url)})
+			if url, ok := item["url"].(string); ok && strings.TrimSpace(url) != "" {
+				attachments = append(attachments, requestidentity.AttachmentIdentity{StorageProvider: "url", StorageKey: strings.TrimSpace(url)})
+				continue
+			}
+			return requestidentity.Input{}, apperror.Internal("AI附件身份快照无效")
 		}
 	}
 	identity := requestidentity.Input{

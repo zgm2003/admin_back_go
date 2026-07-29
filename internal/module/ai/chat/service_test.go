@@ -242,6 +242,11 @@ type sequencePaidAttemptExecutor struct {
 	inputs  []PaidChatAttemptInput
 }
 
+type finalizingPaidFailureExecutor struct {
+	executeCalls      int
+	preDispatchInputs []PaidChatAttemptInput
+}
+
 func (f *sequencePaidAttemptExecutor) ExecutePaidChatAttempt(_ context.Context, input PaidChatAttemptInput) (*PaidChatAttemptResult, error) {
 	f.inputs = append(f.inputs, input)
 	if len(f.results) == 0 {
@@ -254,6 +259,20 @@ func (f *sequencePaidAttemptExecutor) ExecutePaidChatAttempt(_ context.Context, 
 
 func (f fakePaidAttemptExecutor) ExecutePaidChatAttempt(context.Context, PaidChatAttemptInput) (*PaidChatAttemptResult, error) {
 	return f.result, f.err
+}
+
+func (f *finalizingPaidFailureExecutor) ExecutePaidChatAttempt(context.Context, PaidChatAttemptInput) (*PaidChatAttemptResult, error) {
+	f.executeCalls++
+	return nil, errors.New("unexpected paid attempt")
+}
+
+func (f *finalizingPaidFailureExecutor) FinalizePaidChatPreDispatchFailure(_ context.Context, input PaidChatAttemptInput) (*PaidChatAttemptResult, error) {
+	f.preDispatchInputs = append(f.preDispatchInputs, input)
+	return &PaidChatAttemptResult{Finalized: true}, nil
+}
+
+func (f *finalizingPaidFailureExecutor) FinalizePaidChatLocalFailure(context.Context, PaidChatAttemptInput) (*PaidChatAttemptResult, error) {
+	return nil, errors.New("unexpected local failure finalization")
 }
 
 func (f *fakeProviderAttemptRecorder) PrepareProviderAttempt(_ context.Context, input ProviderAttemptPrepareInput) (*ProviderAttemptRef, error) {
@@ -1357,6 +1376,69 @@ func TestPaidConversationReplyCarriesToolsAcrossTwoPreparedAttempts(t *testing.T
 	}
 	if !firstUsage.Complete() || !secondUsage.Complete() || recovered.Usage.RawProviderJSON == nil || continuation.Usage.RawProviderJSON == nil {
 		t.Fatalf("both provider attempts must carry complete reported usage: first=%+v second=%+v", recovered.Usage, continuation.Usage)
+	}
+}
+
+func TestPaidReplyRequestIdentityUsesAcceptedCOSObjectKeyForAttachments(t *testing.T) {
+	const pricingSnapshot = `{"version":"test-v1","billable":true,"catalog_vendor":"test","transport_engine":"openai","requested_model_id":"gpt-5.4","canonical_model_id":"gpt-5.4","catalog_max_output_tokens":100,"effective_max_output_tokens":10,"multiplier_ppm":1000000,"source_url":"https://example.test/pricing","retrieved_at":"2026-07-26","rates":[{"category":"input","unit":"token","tier_key":"","price_units":1,"unit_scale":1000000},{"category":"output","unit":"token","tier_key":"","price_units":1,"unit_scale":1000000}]}`
+	const objectKey = "ai_chat_images/2026/07/29/example.jpg"
+	meta := `{"attachments":[{"type":"image","object_key":"` + objectKey + `","url":"https://cos.example.test/` + objectKey + `"}]}`
+	acceptedIdentity := requestidentity.Input{
+		UserID: 7, Operation: "chat.reply", Modality: "chat", AgentID: 5, ModelID: "gpt-5.4",
+		NormalizedText: "看图", ConversationID: 3,
+		Attachments: []requestidentity.AttachmentIdentity{{StorageProvider: "cos", StorageKey: objectKey}},
+		Options:     requestidentity.GenerationOptions{MaxOutputTokens: 10},
+	}
+	fingerprint, err := requestidentity.Fingerprint(acceptedIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := &airun.Run{
+		AgentID: 5, ModelID: "gpt-5.4", RequestFingerprint: fingerprint[:],
+		RequestIdentityStatus: string(requestidentity.IdentityStatusReplayable), PricingSnapshotJSON: pricingSnapshot,
+	}
+
+	identity, err := paidReplyRequestIdentity(run, ConversationReplyInput{ConversationID: 3, UserID: 7}, MessageHistory{ID: 9, Content: "看图", MetaJSON: &meta})
+
+	if err != nil {
+		t.Fatalf("paidReplyRequestIdentity returned error: %v", err)
+	}
+	if len(identity.Attachments) != 1 || identity.Attachments[0].StorageProvider != "cos" || identity.Attachments[0].StorageKey != objectKey {
+		t.Fatalf("unexpected attachment identity: %#v", identity.Attachments)
+	}
+}
+
+func TestPaidConversationReplyFinalizesAttachmentIdentityMismatchBeforeDispatch(t *testing.T) {
+	agent, box := validAgentConfig(t)
+	conversationID, userMessageID := int64(3), int64(9)
+	repo := &fakeRepository{
+		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5, IsDel: enum.CommonNo},
+		agent:        agent,
+		history:      []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, Content: "看图"}},
+		acceptedRun: &airun.Run{
+			ID: 100, UserID: 7, AgentID: 5, ProviderID: 2, ModelID: "gpt-5.4", RequestID: "rid",
+			ConversationID: &conversationID, UserMessageID: &userMessageID,
+			RequestFingerprint: make([]byte, sha256.Size), RequestIdentityStatus: string(requestidentity.IdentityStatusReplayable),
+			PricingSnapshotJSON: `{"version":"test-v1","billable":true,"catalog_vendor":"test","transport_engine":"openai","requested_model_id":"gpt-5.4","canonical_model_id":"gpt-5.4","catalog_max_output_tokens":100,"effective_max_output_tokens":10,"multiplier_ppm":1000000,"source_url":"https://example.test/pricing","retrieved_at":"2026-07-26","rates":[{"category":"input","unit":"token","tier_key":"","price_units":1,"unit_scale":1000000},{"category":"output","unit":"token","tier_key":"","price_units":1,"unit_scale":1000000}]}`,
+			Status:              enum.AIRunStatusRunning, BillingStatus: "pending", BillingReason: "pending",
+		},
+	}
+	paid := &finalizingPaidFailureExecutor{}
+	service := newTestChatService(Dependencies{
+		Repository: repo, Publisher: &fakePublisher{}, PaidAttemptExecutor: paid,
+		EngineFactory: &fakeEngineFactory{engine: infraai.NewFakeEngine("unused")}, Secretbox: box,
+	})
+
+	result, err := service.ExecuteConversationReply(context.Background(), ConversationReplyInput{
+		CommandID: 41, LeaseOwner: "worker-a", LeaseToken: 1, ConversationID: 3, UserID: 7,
+		AgentID: 5, UserMessageID: 9, RequestID: "rid", CommandAttempt: 1, CommandMaxAttempts: 3,
+	})
+
+	if err != nil || result == nil || !result.Finalized {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if len(paid.preDispatchInputs) != 1 || paid.preDispatchInputs[0].RunID != 100 || paid.executeCalls != 0 {
+		t.Fatalf("unexpected paid failure finalization: %+v execute_calls=%d", paid.preDispatchInputs, paid.executeCalls)
 	}
 }
 
