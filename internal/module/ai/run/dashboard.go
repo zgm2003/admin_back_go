@@ -55,8 +55,8 @@ func normalizeDashboardFilter(filter DashboardFilter, now time.Time) (DashboardQ
 	}
 
 	generatedAt := now.In(location)
-	dateStart := strings.TrimSpace(filter.DateStart)
-	dateEnd := strings.TrimSpace(filter.DateEnd)
+	dateStart := filter.DateStart
+	dateEnd := filter.DateEnd
 	var startAt time.Time
 	var endExclusive time.Time
 	switch {
@@ -122,9 +122,6 @@ func buildDashboardResponse(query DashboardQuery, rows DashboardRepositoryResult
 	}
 	terminalRuns, err := dashboardSumNonNegative("summary terminal runs", rows.Summary.SuccessRuns, rows.Summary.FailedRuns, rows.Summary.CanceledRuns, rows.Summary.TimeoutRuns, rows.Summary.OutcomeUnknownRuns)
 	if err != nil {
-		return nil, err
-	}
-	if _, err := dashboardSumNonNegative("billing amount", rows.Billing.ActualUnits, rows.Billing.ReleasedUnits); err != nil {
 		return nil, err
 	}
 	actualAmount, err := dashboardFormatUnits("billing actual amount", rows.Billing.ActualUnits)
@@ -239,7 +236,7 @@ func buildDashboardResponse(query DashboardQuery, rows DashboardRepositoryResult
 		switch dimension {
 		case "model":
 			response.Breakdowns.Models = append(response.Breakdowns.Models, DashboardModelBreakdown{
-				ModelID: row.Key, ModelDisplayName: row.Name, Historical: row.ID == 0, DashboardAttributionMetrics: metrics,
+				ModelID: row.Key, ModelDisplayName: row.Name, DashboardAttributionMetrics: metrics,
 			})
 		case "provider":
 			response.Breakdowns.Providers = append(response.Breakdowns.Providers, DashboardProviderBreakdown{

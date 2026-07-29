@@ -52,6 +52,8 @@ func TestDashboardRejectsPartialInvalidReversedAndOverNinetyDayRanges(t *testing
 		{name: "end only", filter: DashboardFilter{DateEnd: "2026-07-29"}},
 		{name: "invalid start", filter: DashboardFilter{DateStart: "2026/07/01", DateEnd: "2026-07-29"}},
 		{name: "non canonical date", filter: DashboardFilter{DateStart: "2026-7-01", DateEnd: "2026-07-29"}},
+		{name: "start with surrounding spaces", filter: DashboardFilter{DateStart: " 2026-07-01 ", DateEnd: "2026-07-29"}},
+		{name: "end with trailing space", filter: DashboardFilter{DateStart: "2026-07-01", DateEnd: "2026-07-29 "}},
 		{name: "invalid calendar date", filter: DashboardFilter{DateStart: "2026-02-30", DateEnd: "2026-03-01"}},
 		{name: "reversed", filter: DashboardFilter{DateStart: "2026-07-29", DateEnd: "2026-07-28"}},
 		{name: "over ninety inclusive days", filter: DashboardFilter{DateStart: "2026-04-30", DateEnd: "2026-07-29"}},
@@ -148,6 +150,42 @@ func TestDashboardFormatsOnlySettledActualUnits(t *testing.T) {
 	}
 	if response.Trend[0].ActualAmount != "0.25" || response.Breakdowns.Models[0].ActualAmount != "0.1" || response.Breakdowns.Users[0].ActualAmount != "0.4" {
 		t.Fatalf("trend=%+v breakdowns=%+v", response.Trend, response.Breakdowns)
+	}
+}
+
+func TestDashboardFormatsIndependentBillingAmountsWithoutCombiningThem(t *testing.T) {
+	repository := &fakeRepository{dashboardRows: DashboardRepositoryResult{
+		Billing: DashboardBillingRow{ActualUnits: math.MaxInt64, ReleasedUnits: 1},
+	}}
+
+	response, appErr := NewService(repository, WithClock(clock.Func(func() time.Time { return dashboardFixedNow(t) }))).Dashboard(context.Background(), DashboardFilter{})
+	if appErr != nil {
+		t.Fatalf("Dashboard returned error: %v", appErr)
+	}
+	if response.Billing.ActualAmount != "92233720368.54775807" || response.Billing.ReleasedAmount != "0.00000001" {
+		t.Fatalf("billing=%+v", response.Billing)
+	}
+}
+
+func TestDashboardDoesNotInferHistoricalModelFromAttributionID(t *testing.T) {
+	repository := &fakeRepository{dashboardRows: DashboardRepositoryResult{
+		Attributions: []DashboardAttributionRow{
+			{Dimension: "model", Key: "historical-candidate", ID: 0},
+			{Dimension: "model", Key: "official-candidate", ID: 99},
+		},
+	}}
+
+	response, appErr := NewService(repository, WithClock(clock.Func(func() time.Time { return dashboardFixedNow(t) }))).Dashboard(context.Background(), DashboardFilter{})
+	if appErr != nil {
+		t.Fatalf("Dashboard returned error: %v", appErr)
+	}
+	if len(response.Breakdowns.Models) != 2 {
+		t.Fatalf("models=%+v", response.Breakdowns.Models)
+	}
+	for _, model := range response.Breakdowns.Models {
+		if model.Historical {
+			t.Fatalf("Task 1 must not infer historical from attribution ID: %+v", model)
+		}
 	}
 }
 
