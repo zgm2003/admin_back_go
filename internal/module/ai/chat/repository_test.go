@@ -33,7 +33,7 @@ func TestStaleRunningRunsDBFiltersOnlyOldRunningRows(t *testing.T) {
 		"status = ?",
 		"started_at IS NOT NULL",
 		"started_at < ?",
-		"NOT EXISTS (SELECT 1 FROM usage_charges c WHERE c.run_id = ai_runs.id AND c.status = ?)",
+		"NOT EXISTS (SELECT 1 FROM ai_usage_charges c WHERE c.run_id = ai_runs.id AND c.status = ?)",
 		"ORDER BY started_at ASC, id ASC",
 		"LIMIT ?",
 	} {
