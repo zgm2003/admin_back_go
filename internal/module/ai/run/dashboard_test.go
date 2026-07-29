@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"log/slog"
 	"math"
 	"net/http"
@@ -16,6 +17,8 @@ import (
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/clock"
+
+	gormlogger "gorm.io/gorm/logger"
 )
 
 func TestDashboardDefaultsToSevenShanghaiCalendarDays(t *testing.T) {
@@ -345,7 +348,15 @@ func TestDashboardFailureLogContainsRequestRangeFiltersStageAndDurationOnly(t *t
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logs, nil))
 	repositoryErr := errors.New("driver_unavailable")
-	repository := &fakeRepository{dashboardErr: &DashboardQueryError{Stage: DashboardStageErrors, Err: repositoryErr}}
+	databaseLogger := gormlogger.New(log.New(&logs, "", 0), gormlogger.Config{LogLevel: gormlogger.Error})
+	db, mock, _ := newDashboardRepositoryTestDBWithLogger(t, databaseLogger)
+	mock.ExpectBegin()
+	mock.ExpectQuery(dashboardOverviewQueryPattern).WillReturnRows(dashboardOverviewRows())
+	mock.ExpectQuery(dashboardPerformanceQueryPattern).WillReturnRows(dashboardPerformanceRows())
+	mock.ExpectQuery(dashboardTrendQueryPattern).WillReturnRows(dashboardTrendRows())
+	mock.ExpectQuery(dashboardAttributionsQueryPattern).WillReturnRows(dashboardAttributionRows())
+	mock.ExpectQuery(dashboardErrorsQueryPattern).WillReturnError(repositoryErr)
+	mock.ExpectRollback()
 	base := dashboardFixedNow(t)
 	clockCalls := 0
 	serviceClock := clock.Func(func() time.Time {
@@ -363,12 +374,15 @@ func TestDashboardFailureLogContainsRequestRangeFiltersStageAndDurationOnly(t *t
 		UserID:     &userID,
 	}
 
-	response, appErr := NewService(repository, WithClock(serviceClock), WithLogger(logger)).Dashboard(context.Background(), filter)
+	response, appErr := NewService(&GormRepository{db: db}, WithClock(serviceClock), WithLogger(logger)).Dashboard(context.Background(), filter)
 	if response != nil || appErr == nil || appErr.MessageID != "airun.dashboard.query_failed" || !errors.Is(appErr.Cause, repositoryErr) {
 		t.Fatalf("response=%#v appErr=%#v", response, appErr)
 	}
 	if strings.Contains(appErr.Message, repositoryErr.Error()) {
 		t.Fatalf("safe application error leaked driver detail: %#v", appErr)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("dashboard query expectations: %v", err)
 	}
 
 	line := strings.TrimSpace(logs.String())

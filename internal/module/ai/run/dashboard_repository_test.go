@@ -13,7 +13,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
+	gormlogger "gorm.io/gorm/logger"
 )
 
 const (
@@ -269,6 +269,10 @@ func TestDashboardQueriesDoNotSelectLargeJSONColumns(t *testing.T) {
 }
 
 func newDashboardRepositoryTestDB(t *testing.T) (*gorm.DB, sqlmock.Sqlmock, *[]driver.TxOptions) {
+	return newDashboardRepositoryTestDBWithLogger(t, gormlogger.Default.LogMode(gormlogger.Silent))
+}
+
+func newDashboardRepositoryTestDBWithLogger(t *testing.T, databaseLogger gormlogger.Interface) (*gorm.DB, sqlmock.Sqlmock, *[]driver.TxOptions) {
 	t.Helper()
 	dsn := fmt.Sprintf("dashboard_%s_%d", strings.ReplaceAll(t.Name(), "/", "_"), time.Now().UnixNano())
 	seedDB, mock, err := sqlmock.NewWithDSN(dsn)
@@ -288,7 +292,7 @@ func newDashboardRepositoryTestDB(t *testing.T) (*gorm.DB, sqlmock.Sqlmock, *[]d
 	})
 	db, err := gorm.Open(mysql.New(mysql.Config{Conn: sqlDB, SkipInitializeWithVersion: true}), &gorm.Config{
 		DisableAutomaticPing: true,
-		Logger:               logger.Default.LogMode(logger.Silent),
+		Logger:               databaseLogger,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -417,7 +421,7 @@ func renderDashboardQuerySQL(t *testing.T, build func(*gorm.DB, DashboardQuery) 
 	db, err := gorm.Open(mysql.New(mysql.Config{Conn: sqlDB, SkipInitializeWithVersion: true}), &gorm.Config{
 		DisableAutomaticPing: true,
 		DryRun:               true,
-		Logger:               logger.Default.LogMode(logger.Silent),
+		Logger:               gormlogger.Default.LogMode(gormlogger.Silent),
 	})
 	if err != nil {
 		t.Fatal(err)

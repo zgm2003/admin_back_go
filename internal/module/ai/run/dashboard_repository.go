@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"gorm.io/gorm"
+	gormlogger "gorm.io/gorm/logger"
 )
 
 const dashboardFilteredRunColumns = `
@@ -684,8 +685,12 @@ func (r *GormRepository) Dashboard(ctx context.Context, query DashboardQuery) (D
 	if r == nil || r.db == nil {
 		return DashboardRepositoryResult{}, ErrRepositoryNotConfigured
 	}
+	db := r.db
+	if db.Logger != nil {
+		db = db.Session(&gorm.Session{Logger: db.Logger.LogMode(gormlogger.Silent)})
+	}
 	var result DashboardRepositoryResult
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		return scanDashboardQueries(tx, query, &result)
 	}, &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelRepeatableRead})
 	if err != nil {
