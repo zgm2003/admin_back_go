@@ -2280,6 +2280,19 @@
           "input_snapshot": {
             "type": "string"
           },
+          "liked": {
+            "type": "boolean"
+          },
+          "liked_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "model_display_name": {
             "type": "string"
           },
@@ -2348,6 +2361,8 @@
           "error_message",
           "id",
           "input_snapshot",
+          "liked",
+          "liked_at",
           "model_display_name",
           "model_id",
           "platform",
@@ -22014,6 +22029,19 @@
             "required": false,
             "schema": {
               "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Persisted user feedback filter.",
+            "in": "query",
+            "name": "user_feedback",
+            "required": false,
+            "schema": {
+              "enum": [
+                "liked",
+                "unliked"
+              ],
               "type": "string"
             }
           },
