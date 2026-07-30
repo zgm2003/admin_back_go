@@ -724,11 +724,12 @@ func (r *GormRepository) transitionWithTerminalEvent(ctx context.Context, comman
 			OccurredAt: occurredAt,
 		}
 		if to == StateCanceled {
-			eventInput.Type = modulerealtime.TypeAIResponseCanceledV1
-			eventInput.Payload = modulerealtime.AIResponseCanceledPayload{
-				ConversationID: command.ConversationID,
-				RequestID:      command.RequestID,
+			payload, payloadErr := canceledTerminalPayload(command)
+			if payloadErr != nil {
+				return payloadErr
 			}
+			eventInput.Type = modulerealtime.TypeAIResponseCanceledV2
+			eventInput.Payload = payload
 		} else {
 			message, _ := updates["last_error_message"].(string)
 			errorCode, _ := updates["last_error_code"].(string)
@@ -764,6 +765,17 @@ func (r *GormRepository) transitionWithTerminalEvent(ctx context.Context, comman
 		r.eventSink.PublishBestEffort(ctx, durableEvent)
 	}
 	return applied, nil
+}
+
+func canceledTerminalPayload(command Command) (modulerealtime.AIResponseCanceledPayload, error) {
+	if command.ConversationID <= 0 || strings.TrimSpace(command.RequestID) == "" || command.AssistantMessageID == nil || *command.AssistantMessageID <= 0 {
+		return modulerealtime.AIResponseCanceledPayload{}, errors.New("canceled terminal event requires stopped assistant message")
+	}
+	return modulerealtime.AIResponseCanceledPayload{
+		ConversationID:     command.ConversationID,
+		RequestID:          command.RequestID,
+		AssistantMessageID: *command.AssistantMessageID,
+	}, nil
 }
 
 func (r *GormRepository) PublishAssistant(ctx context.Context, input PublishAssistantInput) (int64, bool, error) {

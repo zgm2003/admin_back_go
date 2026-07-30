@@ -701,8 +701,15 @@ func appendChatRealtimeFinalization(ctx context.Context, tx *gorm.DB, sink modul
 		eventInput.Type = modulerealtime.TypeAIResponseCompletedV1
 		eventInput.Payload = modulerealtime.AIResponseCompletedPayload{ConversationID: command.ConversationID, RequestID: command.RequestID, AssistantMessageID: result.AssistantMessageID}
 	case replycommand.StateCanceled:
-		eventInput.Type = modulerealtime.TypeAIResponseCanceledV1
-		eventInput.Payload = modulerealtime.AIResponseCanceledPayload{ConversationID: command.ConversationID, RequestID: command.RequestID}
+		if result == nil || result.AssistantMessageID <= 0 {
+			return nil, errors.New("canceled realtime event has no assistant message")
+		}
+		eventInput.Type = modulerealtime.TypeAIResponseCanceledV2
+		eventInput.Payload = modulerealtime.AIResponseCanceledPayload{
+			ConversationID:     command.ConversationID,
+			RequestID:          command.RequestID,
+			AssistantMessageID: result.AssistantMessageID,
+		}
 	case replycommand.StateFailed, replycommand.StateOutcomeUnknown:
 		var walletPath *string
 		var rechargePath *string

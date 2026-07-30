@@ -128,15 +128,22 @@ func TestConfirmedRecoveryEventsUseExactPayloadAndDurability(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create canceled event id: %v", err)
 	}
-	canceled, err := registry.NewDurable(eventID, TypeAIResponseCanceledV1, "request-1", 9, AIResponseCanceledPayload{
-		ConversationID: 3,
-		RequestID:      "request-1",
+	canceled, err := registry.NewDurable(eventID, TypeAIResponseCanceledV2, "request-1", 9, AIResponseCanceledPayload{
+		ConversationID:     3,
+		RequestID:          "request-1",
+		AssistantMessageID: 97,
 	}, now)
 	if err != nil {
 		t.Fatalf("build canceled event: %v", err)
 	}
-	if canceled.Durability != infrarealtime.Durable || string(canceled.Data) != `{"conversation_id":3,"request_id":"request-1"}` {
+	if canceled.Durability != infrarealtime.Durable || string(canceled.Data) != `{"conversation_id":3,"request_id":"request-1","assistant_message_id":97}` {
 		t.Fatalf("unexpected canceled envelope: %#v data=%s", canceled, canceled.Data)
+	}
+	if _, exists := registry.Definition("ai.response.canceled.v1"); exists {
+		t.Fatal("canceled v1 must not remain in the runtime registry")
+	}
+	if err := (&AIResponseCanceledPayload{ConversationID: 3, RequestID: "request-1"}).Validate(); err == nil {
+		t.Fatal("canceled payload without stopped assistant message was accepted")
 	}
 }
 

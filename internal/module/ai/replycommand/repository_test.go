@@ -86,6 +86,18 @@ func TestTransitionRejectsNonCanonicalMachineCodeBeforeDatabaseAccess(t *testing
 	}
 }
 
+func TestCanceledTerminalPayloadRequiresStoppedAssistantMessage(t *testing.T) {
+	payload, err := canceledTerminalPayload(Command{ConversationID: 3, RequestID: "request-1"})
+	if err == nil {
+		t.Fatalf("missing stopped message accepted: %#v", payload)
+	}
+	assistantID := int64(97)
+	payload, err = canceledTerminalPayload(Command{ConversationID: 3, RequestID: "request-1", AssistantMessageID: &assistantID})
+	if err != nil || payload.AssistantMessageID != assistantID {
+		t.Fatalf("payload=%#v err=%v", payload, err)
+	}
+}
+
 func TestRenewExtendsLeaseAfterDurableCancellation(t *testing.T) {
 	repository, _, mock, closeDB := newAttemptMockRepository(t)
 	defer closeDB()

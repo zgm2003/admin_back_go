@@ -213,7 +213,7 @@ func TestCancelIntentDoesNotDependOnTerminalEventSink(t *testing.T) {
 func assertSingleCanceledEvent(t *testing.T, db *gorm.DB, events *modulerealtime.GormRepository, userID, conversationID int64, requestID string) {
 	t.Helper()
 	var rows []modulerealtime.Event
-	if err := db.Where("target_type = ? AND target_id = ? AND event_type = ? AND request_id = ?", modulerealtime.TargetTypeUser, fmt.Sprint(userID), modulerealtime.TypeAIResponseCanceledV1, requestID).Find(&rows).Error; err != nil {
+	if err := db.Where("target_type = ? AND target_id = ? AND event_type = ? AND request_id = ?", modulerealtime.TargetTypeUser, fmt.Sprint(userID), modulerealtime.TypeAIResponseCanceledV2, requestID).Find(&rows).Error; err != nil {
 		t.Fatalf("load canceled events: %v", err)
 	}
 	if len(rows) != 1 {
@@ -227,7 +227,7 @@ func assertSingleCanceledEvent(t *testing.T, db *gorm.DB, events *modulerealtime
 	if err := json.Unmarshal(envelope.Data, &payload); err != nil {
 		t.Fatalf("decode canceled payload: %v", err)
 	}
-	if payload.ConversationID != conversationID || payload.RequestID != requestID {
+	if payload.ConversationID != conversationID || payload.RequestID != requestID || payload.AssistantMessageID <= 0 {
 		t.Fatalf("unexpected canceled payload: %#v", payload)
 	}
 	resumed, err := events.ResumeUser(context.Background(), modulerealtime.ResumeQuery{UserID: userID, AfterSequence: rows[0].Sequence - 1})

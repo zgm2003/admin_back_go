@@ -287,9 +287,10 @@ func TestWorkflowSchemasCloseBusinessFieldsAndDeclareNullability(t *testing.T) {
 	if unread := conversationProperties["unread_count"].(map[string]any); unread["type"] != "integer" || unread["minimum"] != float64(0) {
 		t.Fatalf("AIConversationItem.unread_count=%#v", unread)
 	}
-	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIMessageItem", "paired_message_id", "run_id", "liked")
+	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIMessageItem", "paired_message_id", "run_id", "liked", "delivery_state", "settlement_pending")
 	assertNullableProperty(t, document.Components.Schemas["AIMessageItem"], "paired_message_id")
 	assertNullableProperty(t, document.Components.Schemas["AIMessageItem"], "run_id")
+	assertNullableProperty(t, document.Components.Schemas["AIMessageItem"], "delivery_state")
 	if liked := document.Components.Schemas["AIMessageItem"]["properties"].(map[string]any)["liked"].(map[string]any); liked["type"] != "boolean" {
 		t.Fatalf("AIMessageItem.liked=%#v", liked)
 	}
@@ -372,9 +373,24 @@ func TestWorkflowSchemasCloseBusinessFieldsAndDeclareNullability(t *testing.T) {
 			t.Fatalf("%s.%s is not canonical RMB: %#v", check.schemaName, check.field, property)
 		}
 	}
-	cancelStatus := document.Components.Schemas["AIMessageCancelResult"]["properties"].(map[string]any)["status"].(map[string]any)
-	if cancelStatus["const"] != "stopping" {
-		t.Fatalf("cancel status=%#v", cancelStatus["const"])
+	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIMessageCancelRequest", "request_id", "delivered_seq")
+	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIMessageCancelResult", "conversation_id", "request_id", "status", "assistant_message_id", "settlement_pending")
+	assertNullableProperty(t, document.Components.Schemas["AIMessageCancelResult"], "assistant_message_id")
+	assertSchemaPropertyStringEnum(t, document.Components.Schemas, "AIMessageCancelResult", "status", []string{"already_terminal", "stopped"})
+	deliveryState := document.Components.Schemas["AIMessageItem"]["properties"].(map[string]any)["delivery_state"].(map[string]any)
+	deliveryVariants := deliveryState["anyOf"].([]any)
+	if len(deliveryVariants) != 2 || !equalJSONValues(deliveryVariants[0].(map[string]any)["enum"], []any{"completed", "stopped"}) {
+		t.Fatalf("AIMessageItem.delivery_state=%#v", deliveryState)
+	}
+	cancelRequestProperties := document.Components.Schemas["AIMessageCancelRequest"]["properties"].(map[string]any)
+	if deliveredSeq := cancelRequestProperties["delivered_seq"].(map[string]any); deliveredSeq["type"] != "integer" || deliveredSeq["minimum"] != float64(0) {
+		t.Fatalf("cancel delivered_seq=%#v", deliveredSeq)
+	}
+	for schemaName := range map[string]struct{}{"AIMessageCancelResult": {}, "AIMessageItem": {}} {
+		properties := document.Components.Schemas[schemaName]["properties"].(map[string]any)
+		if pending := properties["settlement_pending"].(map[string]any); pending["type"] != "boolean" {
+			t.Fatalf("%s.settlement_pending=%#v", schemaName, pending)
+		}
 	}
 
 	messageItem := document.Components.Schemas["AIMessageItem"]

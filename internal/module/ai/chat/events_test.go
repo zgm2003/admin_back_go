@@ -46,3 +46,9 @@ func TestEnvelopeBuildersUseConversationScopedPayloads(t *testing.T) {
 		})
 	}
 }
+
+func TestAIResponseEventAliasesUseDeliveryV2(t *testing.T) {
+	if EventAIResponseDelta != "ai.response.delta.v2" || EventAIResponseCanceled != "ai.response.canceled.v2" {
+		t.Fatalf("delta=%q canceled=%q", EventAIResponseDelta, EventAIResponseCanceled)
+	}
+}

@@ -169,6 +169,36 @@ func (noopFinalizationEventSink) AppendTx(context.Context, *gorm.DB, modulerealt
 
 func (noopFinalizationEventSink) PublishBestEffort(context.Context, *modulerealtime.Event) {}
 
+type capturingFinalizationEventSink struct {
+	input modulerealtime.AppendInput
+}
+
+func (sink *capturingFinalizationEventSink) AppendTx(_ context.Context, _ *gorm.DB, input modulerealtime.AppendInput) (*modulerealtime.Event, error) {
+	sink.input = input
+	return &modulerealtime.Event{}, nil
+}
+
+func (*capturingFinalizationEventSink) PublishBestEffort(context.Context, *modulerealtime.Event) {}
+
+func TestCanceledChatFinalizationPublishesV2WithStoppedAssistantMessage(t *testing.T) {
+	sink := &capturingFinalizationEventSink{}
+	result := &replycommand.PaidCommandFinalizationResult{AssistantMessageID: 97}
+	_, err := appendChatRealtimeFinalization(
+		context.Background(), &gorm.DB{}, sink,
+		replycommand.Command{ConversationID: 3, UserID: 9, RequestID: "request-1"},
+		result,
+		replycommand.PaidCommandFinalizationInput{State: replycommand.StateCanceled},
+		time.Date(2026, 7, 30, 8, 0, 0, 0, time.UTC),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, ok := sink.input.Payload.(modulerealtime.AIResponseCanceledPayload)
+	if sink.input.Type != modulerealtime.TypeAIResponseCanceledV2 || !ok || payload.AssistantMessageID != 97 {
+		t.Fatalf("event=%+v payload=%#v", sink.input, sink.input.Payload)
+	}
+}
+
 func TestChatFinalizationCleanupRunsAfterCommitAndDoesNotUndoTerminalFacts(t *testing.T) {
 	db, mock, closeDB := newFinalizerMockDB(t)
 	defer closeDB()

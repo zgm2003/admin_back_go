@@ -657,7 +657,7 @@ server / ephemeral / sequence 0:
   realtime.error.v1
   realtime.resync_required.v1
   ai.response.start.v1
-  ai.response.delta.v1
+  ai.response.delta.v2
 
 client:
   realtime.subscribe.v1
@@ -670,18 +670,19 @@ server / durable / sequence > 0:
   notification.created.v1
   ai.response.completed.v1
   ai.response.failed.v1
-  ai.response.canceled.v1
+  ai.response.canceled.v2
 ```
 
 The confirmed recovery and cancellation payloads are exact:
 
 ```
 {"latest_sequence":123}
-{"conversation_id":1,"request_id":"..."}
+{"conversation_id":1,"request_id":"...","assistant_message_id":97}
 ```
 
 realtime.resync_required.v1 is server-only Ephemeral. Its envelope sequence is
-always zero. ai.response.canceled.v1 is server-only Durable. Completed,
+always zero. ai.response.canceled.v2 is server-only Durable and carries the
+stopped assistant message ID. Completed,
 failed, and canceled AI events are inserted in the same MySQL transaction as
 their terminal command transition. Notification events are inserted in the
 same transaction as notification rows. Start/delta/progress events are
@@ -1795,7 +1796,7 @@ Runtime boundary:
 
 ```text
 POST /api/admin/v1/ai-conversations/:id/messages must fail explicitly when no enabled provider/agent exists; production must not fake success.
-Provider streams/events stay server-side; browser receives admin_go WebSocket envelopes: ai.response.start/delta/completed/failed.v1.
+Provider streams/events stay server-side; browser receives admin_go WebSocket envelopes: ai.response.start.v1, ai.response.delta.v2, ai.response.completed.v1, ai.response.failed.v1, and ai.response.canceled.v2.
 OpenAI-compatible StreamChat does not use a 30s HTTP total timeout while reading response body; live max duration and upstream silence timeout are code-owned AI runtime guardrails, not Docker-first env knobs.
 ai_run_timeout is stale cleanup only: admin-worker marks running rows older than the code-owned AI run stale timeout default, not fresh online replies.
 ai_runs records Run-level history for current chat/text/tool/image execution and may own multiple provider attempts; historical audio/video Run and billing rows remain immutable evidence after those generation modules are retired.
@@ -1805,7 +1806,9 @@ Provider usage is normalized only into token totals; token totals are never gues
 ai_run_events records lifecycle events only: start/completed/failed/canceled/timeout.
 ai_tool_calls records tool execution audit and is shown on run detail; tool calls are not stuffed into ai_run_events.
 ai_knowledge_retrievals and ai_knowledge_retrieval_hits record knowledge retrieval audit and are shown on run detail; knowledge retrievals are not stuffed into ai_run_events.
-WebSocket delta is not persisted to ai_run_events; final assistant content stays in ai_messages.
+Each ai.response.delta.v2 is published only after its contiguous command-scoped delivery chunk is committed in MySQL. Delivery chunks are temporary recovery facts and are cleaned in bounded batches after a terminal commit, with reconciler compensation.
+WebSocket delta is not persisted to ai_run_events. A user stop immediately creates one ai_messages row from the server-committed prefix through delivered_seq and marks delivery_state=stopped; successful replies use delivery_state=completed.
+Message delivery and Run settlement are separate state machines: a stopped message may already be visible while its Run remains running and drains the provider. The finalizer keeps that same assistant message ID, clears the full result candidate, and bills only complete authoritative upstream usage rather than the stopped prefix length.
 There is no daily aggregate table, billing amount, provider task id, execution-step timeline, usage dump, or snapshot JSON in the run-monitor MVP.
 admin-worker fan-out still depends on REALTIME_PUBLISHER=redis for cross-process realtime.
 ```

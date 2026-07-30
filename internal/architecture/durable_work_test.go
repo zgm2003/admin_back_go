@@ -14,7 +14,7 @@ func TestDurableWorkUsesDatabaseTruthFencingAndTypedRealtime(t *testing.T) {
 	for _, required := range []string{
 		"lease_owner = ? AND lease_token = ?",
 		"WithDurableEventSink",
-		"TypeAIResponseCanceledV1",
+		"TypeAIResponseCanceledV2",
 		"PublishBestEffort",
 	} {
 		if !strings.Contains(replyRepository, required) {
@@ -33,7 +33,7 @@ func TestDurableWorkUsesDatabaseTruthFencingAndTypedRealtime(t *testing.T) {
 	}
 
 	realtimeEvents := durableRead(t, root, "internal", "module", "realtime", "event.go")
-	for _, required := range []string{"type EventRegistry struct", "TypeResyncRequiredV1", "TypeAIResponseCanceledV1", "DisallowUnknownFields"} {
+	for _, required := range []string{"type EventRegistry struct", "TypeResyncRequiredV1", "TypeAIResponseCanceledV2", "DisallowUnknownFields"} {
 		if !strings.Contains(realtimeEvents, required) {
 			t.Fatalf("typed realtime registry is missing %q", required)
 		}

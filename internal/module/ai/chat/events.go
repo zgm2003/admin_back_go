@@ -12,10 +12,12 @@ const (
 	EventAIResponseDelta     = modulerealtime.TypeAIResponseDeltaV2
 	EventAIResponseCompleted = modulerealtime.TypeAIResponseCompletedV1
 	EventAIResponseFailed    = modulerealtime.TypeAIResponseFailedV1
+	EventAIResponseCanceled  = modulerealtime.TypeAIResponseCanceledV2
 )
 
 type StartPayload = modulerealtime.AIResponseStartPayload
 type DeltaPayload = modulerealtime.AIResponseDeltaPayload
+type CanceledPayload = modulerealtime.AIResponseCanceledPayload
 
 func BuildStartEvent(payload StartPayload) (infrarealtime.Envelope, error) {
 	return buildEvent(EventAIResponseStart, payload.RequestID, payload)

@@ -76,7 +76,7 @@ func TestRealtimeSchemasPreserveNonBlankPayloadConstraints(t *testing.T) {
 		field     string
 	}{
 		{modulerealtime.TypeAIResponseStartV1, "request_id"},
-		{modulerealtime.TypeAIResponseCanceledV1, "request_id"},
+		{modulerealtime.TypeAIResponseCanceledV2, "request_id"},
 		{modulerealtime.TypeAIResponseFailedV1, "msg"},
 		{modulerealtime.TypeErrorV1, "msg"},
 	} {
@@ -89,6 +89,25 @@ func TestRealtimeSchemasPreserveNonBlankPayloadConstraints(t *testing.T) {
 	items, _ := topics["items"].(map[string]any)
 	if items["minLength"] != float64(1) || items["pattern"] == "" {
 		t.Fatalf("subscribe topic does not preserve non-blank validation: %v", items)
+	}
+}
+
+func TestAIResponseCanceledV2RequiresStoppedAssistantMessage(t *testing.T) {
+	bundle := mustBuildBundle(t)
+	artifact := bundle.Artifacts["realtime/events.schema.json"]
+	payload := realtimePayloadSchema(t, artifact, modulerealtime.TypeAIResponseCanceledV2)
+	required := anyStrings(payload["required"])
+	for _, field := range []string{"conversation_id", "request_id", "assistant_message_id"} {
+		if !containsString(required, field) {
+			t.Fatalf("canceled v2 required=%v, missing %s", required, field)
+		}
+	}
+	messageID := realtimePayloadProperty(t, artifact, modulerealtime.TypeAIResponseCanceledV2, "assistant_message_id")
+	if messageID["type"] != "integer" || messageID["minimum"] != float64(1) {
+		t.Fatalf("assistant_message_id=%#v", messageID)
+	}
+	if strings.Contains(string(artifact), "ai.response.canceled.v1") {
+		t.Fatal("generated realtime schema retained canceled v1")
 	}
 }
 

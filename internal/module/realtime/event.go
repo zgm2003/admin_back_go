@@ -19,7 +19,7 @@ const (
 	TypeAIResponseDeltaV2     = "ai.response.delta.v2"
 	TypeAIResponseCompletedV1 = "ai.response.completed.v1"
 	TypeAIResponseFailedV1    = "ai.response.failed.v1"
-	TypeAIResponseCanceledV1  = "ai.response.canceled.v1"
+	TypeAIResponseCanceledV2  = "ai.response.canceled.v2"
 	TypeNotificationCreatedV1 = "notification.created.v1"
 	TypeConnectedV1           = "realtime.connected.v1"
 	TypePingV1                = "realtime.ping.v1"
@@ -363,12 +363,13 @@ type AIResponseFailedPayload struct {
 }
 
 type AIResponseCanceledPayload struct {
-	ConversationID int64  `json:"conversation_id"`
-	RequestID      string `json:"request_id"`
+	ConversationID     int64  `json:"conversation_id"`
+	RequestID          string `json:"request_id"`
+	AssistantMessageID int64  `json:"assistant_message_id"`
 }
 
 func (p *AIResponseCanceledPayload) Validate() error {
-	if p.ConversationID <= 0 || !validRequestID(p.RequestID) {
+	if p.ConversationID <= 0 || p.AssistantMessageID <= 0 || !validRequestID(p.RequestID) {
 		return errors.New("invalid AI canceled payload")
 	}
 	return nil
@@ -400,7 +401,7 @@ func defaultEventDefinitions() []EventDefinition {
 		{Type: TypeAIResponseDeltaV2, Direction: DirectionServer, Durability: infrarealtime.Ephemeral, NewPayload: func() any { return &AIResponseDeltaPayload{} }},
 		{Type: TypeAIResponseCompletedV1, Direction: DirectionServer, Durability: infrarealtime.Durable, NewPayload: func() any { return &AIResponseCompletedPayload{} }},
 		{Type: TypeAIResponseFailedV1, Direction: DirectionServer, Durability: infrarealtime.Durable, NewPayload: func() any { return &AIResponseFailedPayload{} }},
-		{Type: TypeAIResponseCanceledV1, Direction: DirectionServer, Durability: infrarealtime.Durable, NewPayload: func() any { return &AIResponseCanceledPayload{} }},
+		{Type: TypeAIResponseCanceledV2, Direction: DirectionServer, Durability: infrarealtime.Durable, NewPayload: func() any { return &AIResponseCanceledPayload{} }},
 		{Type: TypeNotificationCreatedV1, Direction: DirectionServer, Durability: infrarealtime.Durable, NewPayload: func() any { return &NotificationCreatedPayload{} }},
 		{Type: TypeConnectedV1, Direction: DirectionServer, Durability: infrarealtime.Ephemeral, NewPayload: func() any { return &ConnectedPayload{} }},
 		{Type: TypePingV1, Direction: DirectionBidirectional, Durability: infrarealtime.Ephemeral, NewPayload: func() any { return &EmptyPayload{} }},

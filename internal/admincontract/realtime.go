@@ -269,12 +269,13 @@ func realtimeEventSchemas() []realtimeEventSchema {
 			}}),
 		},
 		{
-			Type: modulerealtime.TypeAIResponseCanceledV1,
+			Type: modulerealtime.TypeAIResponseCanceledV2,
 			Payload: closedObject(
-				[]string{"conversation_id", "request_id"},
+				[]string{"conversation_id", "request_id", "assistant_message_id"},
 				map[string]any{
-					"conversation_id": positiveID(),
-					"request_id":      nonBlankStringProperty(realtimeRequestIDMaxLength),
+					"conversation_id":      positiveID(),
+					"request_id":           nonBlankStringProperty(realtimeRequestIDMaxLength),
+					"assistant_message_id": positiveID(),
 				},
 			),
 		},
