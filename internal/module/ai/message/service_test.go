@@ -63,16 +63,20 @@ type fakeRepository struct {
 	cancelConversationID int64
 	cancelUserID         int64
 	cancelRequestID      string
-	cancelResult         *replycommand.Command
+	cancelDeliveredSeq   uint32
+	cancelResult         replycommand.RequestCancelResult
 	cancelErr            error
 }
 
-func (f *fakeRepository) RequestCancel(_ context.Context, conversationID int64, userID int64, requestID string, _ time.Time) (*replycommand.Command, error) {
-	f.cancelConversationID = conversationID
-	f.cancelUserID = userID
-	f.cancelRequestID = requestID
-	if f.cancelResult == nil {
-		f.cancelResult = &replycommand.Command{ID: 99, ConversationID: conversationID, UserID: userID, RequestID: requestID, State: replycommand.StateCanceled}
+func (f *fakeRepository) RequestCancel(_ context.Context, input replycommand.RequestCancelInput) (replycommand.RequestCancelResult, error) {
+	f.cancelConversationID = input.ConversationID
+	f.cancelUserID = input.UserID
+	f.cancelRequestID = input.RequestID
+	f.cancelDeliveredSeq = input.DeliveredSeq
+	if f.cancelResult.CommandID == 0 {
+		f.cancelResult = replycommand.RequestCancelResult{
+			CommandID: 99, Status: replycommand.CancelStatusStopped, AssistantMessageID: 97, SettlementPending: true,
+		}
 	}
 	return f.cancelResult, f.cancelErr
 }
@@ -200,18 +204,35 @@ func TestListProjectsReplyCommandPairsRunAndLikedWithoutAdjacencyGuessing(t *tes
 	}
 }
 
+func TestListProjectsStoppedDeliveryAndSettlementState(t *testing.T) {
+	now := time.Date(2026, 7, 30, 10, 0, 0, 0, time.UTC)
+	stopped := DeliveryStateStopped
+	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7}, rows: []MessageProjection{{
+		Message:           Message{ID: 97, ConversationID: 3, Role: enum.AIMessageRoleAssistant, Content: "1234", DeliveryState: &stopped, CreatedAt: now, UpdatedAt: now},
+		SettlementPending: true,
+	}}}
+
+	res, appErr := NewService(repo).List(context.Background(), 7, ListQuery{ConversationID: 3})
+	if appErr != nil {
+		t.Fatal(appErr)
+	}
+	if len(res.List) != 1 || res.List[0].DeliveryState == nil || *res.List[0].DeliveryState != DeliveryStateStopped || !res.List[0].SettlementPending {
+		t.Fatalf("list=%+v", res.List)
+	}
+}
+
 func TestListProjectionUsesOneBoundedPageQueryAndCanonicalRunIdentity(t *testing.T) {
 	db, mock, cleanup := newMessageMockDB(t)
 	defer cleanup()
 	repository := &GormRepository{db: db}
 
 	rows := sqlmock.NewRows([]string{
-		"id", "conversation_id", "role", "content_type", "content", "meta_json", "reply_command_id", "is_del", "created_at", "updated_at",
-		"paired_message_id", "run_id", "liked",
-	}).AddRow(97, 3, enum.AIMessageRoleAssistant, "text", "answer", nil, 12, enum.CommonNo, time.Now(), time.Now(), 41, 501, true).
-		AddRow(63, 3, enum.AIMessageRoleAssistant, "text", "orphan", nil, nil, enum.CommonNo, time.Now(), time.Now(), nil, nil, false).
-		AddRow(41, 3, enum.AIMessageRoleUser, "text", "question", nil, nil, enum.CommonNo, time.Now(), time.Now(), 97, nil, false)
-	mock.ExpectQuery("SELECT .*paired_message_id.*run_id.*liked.*FROM ai_messages.*ai_reply_commands.*paired_messages.*LEFT JOIN ai_runs ON ai_runs.user_id = assistant_commands.user_id AND ai_runs.request_id = assistant_commands.request_id AND ai_runs.assistant_message_id = m.id.*ORDER BY m.id DESC LIMIT \\?").
+		"id", "conversation_id", "role", "content_type", "content", "meta_json", "reply_command_id", "delivery_state", "is_del", "created_at", "updated_at",
+		"paired_message_id", "run_id", "liked", "settlement_pending",
+	}).AddRow(97, 3, enum.AIMessageRoleAssistant, "text", "answer", nil, 12, DeliveryStateCompleted, enum.CommonNo, time.Now(), time.Now(), 41, 501, true, false).
+		AddRow(63, 3, enum.AIMessageRoleAssistant, "text", "orphan", nil, nil, DeliveryStateStopped, enum.CommonNo, time.Now(), time.Now(), nil, nil, false, true).
+		AddRow(41, 3, enum.AIMessageRoleUser, "text", "question", nil, nil, nil, enum.CommonNo, time.Now(), time.Now(), 97, nil, false, true)
+	mock.ExpectQuery("SELECT .*delivery_state.*paired_message_id.*run_id.*liked.*settlement_pending.*FROM ai_messages.*ai_reply_commands.*paired_messages.*LEFT JOIN ai_runs ON ai_runs.user_id = assistant_commands.user_id AND ai_runs.request_id = assistant_commands.request_id AND ai_runs.assistant_message_id = m.id.*ORDER BY m.id DESC LIMIT \\?").
 		WithArgs(int64(7), enum.CommonNo, enum.AIMessageRoleUser, enum.AIMessageRoleAssistant, enum.CommonNo, enum.AIMessageRoleAssistant, int64(3), enum.CommonNo, 3).
 		WillReturnRows(rows)
 
@@ -566,14 +587,14 @@ func testMessageTransportCapabilities() staticTransportCapabilityResolver {
 func TestCancelRequiresOwnedConversation(t *testing.T) {
 	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7}}
 	publisher := &fakeCancelPublisher{err: errors.New("redis unavailable")}
-	res, appErr := NewService(repo, WithCancelPublisher(publisher)).Cancel(context.Background(), 7, CancelInput{ConversationID: 3, RequestID: "rid"})
+	res, appErr := NewService(repo, WithCancelPublisher(publisher)).Cancel(context.Background(), 7, CancelInput{ConversationID: 3, RequestID: "rid", DeliveredSeq: 4})
 	if appErr != nil {
 		t.Fatalf("Cancel returned error: %v", appErr)
 	}
-	if res.ConversationID != 3 || res.RequestID != "rid" || res.Status != "stopping" {
+	if res.ConversationID != 3 || res.RequestID != "rid" || res.Status != string(replycommand.CancelStatusStopped) || res.AssistantMessageID == nil || *res.AssistantMessageID != 97 || !res.SettlementPending {
 		t.Fatalf("unexpected cancel response: %#v", res)
 	}
-	if repo.cancelConversationID != 3 || repo.cancelUserID != 7 || repo.cancelRequestID != "rid" || publisher.commandID != 99 {
+	if repo.cancelConversationID != 3 || repo.cancelUserID != 7 || repo.cancelRequestID != "rid" || repo.cancelDeliveredSeq != 4 || publisher.commandID != 99 {
 		t.Fatalf("durable cancel repo=(%d,%d,%q) signal=%d", repo.cancelConversationID, repo.cancelUserID, repo.cancelRequestID, publisher.commandID)
 	}
 }

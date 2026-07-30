@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
@@ -362,17 +363,45 @@ func (s *Service) Cancel(ctx context.Context, userID int64, input CancelInput) (
 		return nil, apperror.BadRequest("request_id不能为空")
 	}
 	repo, _ := s.requireRepository()
-	command, err := repo.RequestCancel(ctx, input.ConversationID, userID, requestID, time.Now())
+	result, err := repo.RequestCancel(ctx, replycommand.RequestCancelInput{
+		ConversationID: input.ConversationID,
+		UserID:         userID,
+		RequestID:      requestID,
+		DeliveredSeq:   input.DeliveredSeq,
+		Now:            time.Now(),
+	})
 	if err != nil {
+		if errors.Is(err, replycommand.ErrReplyCommandNotFound) {
+			return nil, apperror.NotFound("AI回复任务不存在")
+		}
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "取消AI回复失败", err)
 	}
-	if command == nil || command.ID == 0 {
+	if result.CommandID == 0 {
 		return nil, apperror.NotFound("AI回复任务不存在")
 	}
-	if s.cancelPublisher != nil {
-		_ = s.cancelPublisher.PublishCancel(ctx, command.ID)
+	if !result.DeliveryConsistent && result.Status == replycommand.CancelStatusStopped {
+		slog.Default().WarnContext(context.WithoutCancel(ctx), "AI stopped delivery prefix was inconsistent",
+			"command_id", result.CommandID,
+			"request_id", requestID,
+			"requested_delivery_seq", input.DeliveredSeq,
+			"stop_delivery_seq", result.StopDeliverySeq,
+		)
 	}
-	return &CancelResponse{ConversationID: input.ConversationID, RequestID: requestID, Status: "stopping"}, nil
+	if s.cancelPublisher != nil && result.Status == replycommand.CancelStatusStopped && result.SettlementPending {
+		_ = s.cancelPublisher.PublishCancel(context.WithoutCancel(ctx), result.CommandID)
+	}
+	var assistantMessageID *int64
+	if result.AssistantMessageID > 0 {
+		assistantID := result.AssistantMessageID
+		assistantMessageID = &assistantID
+	}
+	return &CancelResponse{
+		ConversationID:     input.ConversationID,
+		RequestID:          requestID,
+		Status:             string(result.Status),
+		AssistantMessageID: assistantMessageID,
+		SettlementPending:  result.SettlementPending,
+	}, nil
 }
 
 func buildSendFingerprint(userID, conversationID int64, content string, attachments []Attachment, runtimeParams map[string]float64, agent AgentRuntime, effectiveMaxOutputTokens int64) ([32]byte, error) {
@@ -530,6 +559,7 @@ func messageItem(row MessageProjection) MessageItem {
 	return MessageItem{
 		ID: row.ID, Role: row.Role, ContentType: contentType, Content: row.Content, MetaJSON: decodeMetaJSON(metaJSON),
 		PairedMessageID: row.PairedMessageID, RunID: row.RunID, Liked: row.Liked,
+		DeliveryState: row.DeliveryState, SettlementPending: row.SettlementPending,
 		CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt),
 	}
 }

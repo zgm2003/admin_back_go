@@ -38,7 +38,7 @@ const defaultMaxAttempts = 3
 
 type Repository interface {
 	CreateReply(context.Context, CreateReplyInput) (CreateReplyResult, error)
-	RequestCancel(context.Context, int64, int64, string, time.Time) (*Command, error)
+	RequestCancel(context.Context, RequestCancelInput) (RequestCancelResult, error)
 	ClaimNext(context.Context, ClaimSource, string, time.Time, time.Duration) (*Claim, error)
 	ClaimByID(context.Context, uint64, ClaimSource, string, time.Time, time.Duration) (*Claim, error)
 	Renew(context.Context, uint64, string, uint64, time.Time) (Renewal, error)
@@ -49,24 +49,25 @@ type Repository interface {
 	FinishAttempt(context.Context, FinishAttemptInput) (bool, error)
 }
 
-func (r *GormRepository) RequestCancel(ctx context.Context, conversationID int64, userID int64, requestID string, now time.Time) (*Command, error) {
+func (r *GormRepository) RequestCancel(ctx context.Context, input RequestCancelInput) (RequestCancelResult, error) {
 	if r == nil || r.db == nil {
-		return nil, ErrRepositoryNotConfigured
+		return RequestCancelResult{}, ErrRepositoryNotConfigured
 	}
-	requestID = strings.TrimSpace(requestID)
-	if conversationID <= 0 || userID <= 0 || requestID == "" || utf8.RuneCountInString(requestID) > 128 {
-		return nil, ErrCreateInputInvalid
+	input.RequestID = strings.TrimSpace(input.RequestID)
+	if input.ConversationID <= 0 || input.UserID <= 0 || input.RequestID == "" || utf8.RuneCountInString(input.RequestID) > 128 {
+		return RequestCancelResult{}, ErrCreateInputInvalid
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if now.IsZero() {
-		now = time.Now()
+	if input.Now.IsZero() {
+		input.Now = time.Now()
 	}
-	var command Command
+	var result RequestCancelResult
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var command Command
 		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("user_id = ? AND request_id = ?", userID, requestID).
+			Where("user_id = ? AND request_id = ? AND conversation_id = ?", input.UserID, input.RequestID, input.ConversationID).
 			First(&command).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrReplyCommandNotFound
@@ -74,13 +75,18 @@ func (r *GormRepository) RequestCancel(ctx context.Context, conversationID int64
 		if err != nil {
 			return err
 		}
-		if command.ConversationID != conversationID {
-			return ErrReplyCommandNotFound
+		result.CommandID = command.ID
+		if terminalState(command.State) || command.State == StateOutcomeUnknown {
+			result.Status = CancelStatusAlreadyTerminal
+			if command.AssistantMessageID != nil {
+				result.AssistantMessageID = *command.AssistantMessageID
+			}
+			return nil
 		}
 
 		var conversation replyConversation
 		err = tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("id = ? AND user_id = ? AND is_del = ?", conversationID, userID, enum.CommonNo).
+			Where("id = ? AND user_id = ? AND is_del = ?", input.ConversationID, input.UserID, enum.CommonNo).
 			First(&conversation).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrConversationUnavailable
@@ -88,22 +94,88 @@ func (r *GormRepository) RequestCancel(ctx context.Context, conversationID int64
 		if err != nil {
 			return err
 		}
-		if terminalState(command.State) || command.State == StateOutcomeUnknown || command.CancelRequestedAt != nil {
+		if command.CancelRequestedAt != nil {
+			result.Status = CancelStatusStopped
+			result.SettlementPending = settlementPendingState(command.State)
+			result.DeliveryConsistent = true
+			if command.AssistantMessageID != nil {
+				result.AssistantMessageID = *command.AssistantMessageID
+			}
+			if command.StopDeliverySeq != nil {
+				result.StopDeliverySeq = *command.StopDeliverySeq
+			}
 			return nil
 		}
 
-		updates := map[string]any{"cancel_requested_at": now, "updated_at": now}
-		command.CancelRequestedAt = &now
-		if err := tx.Model(&Command{}).Where("id = ?", command.ID).Updates(updates).Error; err != nil {
+		prefix, err := r.ReadDeliveryPrefixTx(ctx, tx, command.ID, input.DeliveredSeq)
+		if err != nil {
 			return err
 		}
-		command.UpdatedAt = now
+		if input.DeliveredSeq > command.DeliverySeq {
+			prefix = DeliveryPrefix{}
+		}
+		stopDeliverySeq := prefix.StopDeliverySeq
+		content := prefix.Content
+		if !prefix.Consistent {
+			stopDeliverySeq = 0
+			content = ""
+		}
+		replyCommandID := command.ID
+		deliveryState := DeliveryStateStopped
+		message := replyMessage{
+			ConversationID: input.ConversationID,
+			ReplyCommandID: &replyCommandID,
+			Role:           enum.AIMessageRoleAssistant,
+			ContentType:    "text",
+			Content:        content,
+			DeliveryState:  &deliveryState,
+			IsDel:          enum.CommonNo,
+			CreatedAt:      input.Now,
+			UpdatedAt:      input.Now,
+		}
+		if err := tx.Create(&message).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&replyConversation{}).
+			Where("id = ? AND user_id = ? AND is_del = ?", input.ConversationID, input.UserID, enum.CommonNo).
+			Updates(map[string]any{"last_message_at": input.Now, "updated_at": input.Now}).Error; err != nil {
+			return err
+		}
+		updated := tx.Model(&Command{}).Where("id = ?", command.ID).Updates(map[string]any{
+			"cancel_requested_at":  input.Now,
+			"stop_delivery_seq":    stopDeliverySeq,
+			"assistant_message_id": message.ID,
+			"updated_at":           input.Now,
+		})
+		if updated.Error != nil {
+			return updated.Error
+		}
+		if updated.RowsAffected != 1 {
+			return ErrReplyCommandNotFound
+		}
+		result.Status = CancelStatusStopped
+		result.AssistantMessageID = message.ID
+		result.SettlementPending = settlementPendingState(command.State)
+		result.DeliveryConsistent = prefix.Consistent
+		result.StopDeliverySeq = stopDeliverySeq
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return RequestCancelResult{}, err
 	}
-	return &command, nil
+	if result.Status == CancelStatusStopped && result.CommandID > 0 {
+		_, _ = r.DeleteDeliveryChunks(context.WithoutCancel(ctx), result.CommandID, 256)
+	}
+	return result, nil
+}
+
+func settlementPendingState(state State) bool {
+	switch state {
+	case StatePending, StateClaimed, StateRunning:
+		return true
+	default:
+		return false
+	}
 }
 
 type Claim struct {
@@ -747,6 +819,7 @@ func (r *GormRepository) PublishAssistant(ctx context.Context, input PublishAssi
 			Role:           enum.AIMessageRoleAssistant,
 			ContentType:    "text",
 			Content:        strings.TrimSpace(input.Content),
+			DeliveryState:  stringPointer(DeliveryStateCompleted),
 			IsDel:          enum.CommonNo,
 			CreatedAt:      input.Now,
 			UpdatedAt:      input.Now,
@@ -877,9 +950,12 @@ type replyMessage struct {
 	ContentType    string    `gorm:"column:content_type"`
 	Content        string    `gorm:"column:content"`
 	MetaJSON       *string   `gorm:"column:meta_json"`
+	DeliveryState  *string   `gorm:"column:delivery_state"`
 	IsDel          int       `gorm:"column:is_del"`
 	CreatedAt      time.Time `gorm:"column:created_at"`
 	UpdatedAt      time.Time `gorm:"column:updated_at"`
 }
+
+func stringPointer(value string) *string { return &value }
 
 func (replyMessage) TableName() string { return "ai_messages" }

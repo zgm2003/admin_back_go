@@ -47,9 +47,9 @@ func TestSendAndCancelRequestIDContractIs128Characters(t *testing.T) {
 		wantStatus int
 	}{
 		{name: "send 128", path: "/api/admin/v1/ai-conversations/3/messages", body: func(id string) string { return fmt.Sprintf(`{"content":"hello","request_id":"%s"}`, id) }, wantStatus: http.StatusAccepted},
-		{name: "cancel 128", path: "/api/admin/v1/ai-conversations/3/messages/cancel", body: func(id string) string { return fmt.Sprintf(`{"request_id":"%s"}`, id) }, wantStatus: http.StatusOK},
+		{name: "cancel 128", path: "/api/admin/v1/ai-conversations/3/messages/cancel", body: func(id string) string { return fmt.Sprintf(`{"request_id":"%s","delivered_seq":0}`, id) }, wantStatus: http.StatusOK},
 		{name: "send 129", path: "/api/admin/v1/ai-conversations/3/messages", body: func(id string) string { return fmt.Sprintf(`{"content":"hello","request_id":"%s"}`, id) }, wantStatus: http.StatusBadRequest},
-		{name: "cancel 129", path: "/api/admin/v1/ai-conversations/3/messages/cancel", body: func(id string) string { return fmt.Sprintf(`{"request_id":"%s"}`, id) }, wantStatus: http.StatusBadRequest},
+		{name: "cancel 129", path: "/api/admin/v1/ai-conversations/3/messages/cancel", body: func(id string) string { return fmt.Sprintf(`{"request_id":"%s","delivered_seq":0}`, id) }, wantStatus: http.StatusBadRequest},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			length := 128
@@ -77,8 +77,12 @@ func (acceptedMessageService) Send(_ context.Context, _ int64, input aimessage.S
 	}, nil
 }
 
-func (acceptedMessageService) Cancel(context.Context, int64, aimessage.CancelInput) (*aimessage.CancelResponse, *apperror.Error) {
-	return &aimessage.CancelResponse{ConversationID: 3, RequestID: "request-1", Status: "stopping"}, nil
+func (acceptedMessageService) Cancel(_ context.Context, _ int64, input aimessage.CancelInput) (*aimessage.CancelResponse, *apperror.Error) {
+	assistantID := int64(input.DeliveredSeq)
+	return &aimessage.CancelResponse{
+		ConversationID: 3, RequestID: input.RequestID, Status: string(replycommand.CancelStatusStopped),
+		AssistantMessageID: &assistantID, SettlementPending: true,
+	}, nil
 }
 
 func (s *acceptedMessageService) Revise(_ context.Context, userID int64, input aimessage.EditInput) (*aimessage.SendResponse, *apperror.Error) {
@@ -139,7 +143,7 @@ func TestSendRejectsMaxTokensEvenWhenJSONIsForged(t *testing.T) {
 	}
 }
 
-func TestCancelReturnsStoppingIntentInsteadOfTerminalState(t *testing.T) {
+func TestCancelReturnsStoppedMessageAndRejectsClientContent(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	handler := NewHandler(acceptedMessageService{})
@@ -148,7 +152,7 @@ func TestCancelReturnsStoppingIntentInsteadOfTerminalState(t *testing.T) {
 		handler.Cancel(c)
 	})
 
-	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-conversations/3/messages/cancel", strings.NewReader(`{"request_id":"request-1"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-conversations/3/messages/cancel", strings.NewReader(`{"request_id":"request-1","delivered_seq":4}`))
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, request)
@@ -156,13 +160,23 @@ func TestCancelReturnsStoppingIntentInsteadOfTerminalState(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
-	for _, field := range []string{`"conversation_id":3`, `"request_id":"request-1"`, `"status":"stopping"`} {
+	for _, field := range []string{`"conversation_id":3`, `"request_id":"request-1"`, `"status":"stopped"`, `"assistant_message_id":4`, `"settlement_pending":true`} {
 		if !strings.Contains(recorder.Body.String(), field) {
 			t.Fatalf("missing %s in %s", field, recorder.Body.String())
 		}
 	}
-	if strings.Contains(recorder.Body.String(), `"status":"canceled"`) {
-		t.Fatalf("cancel intent response reported terminal state: %s", recorder.Body.String())
+
+	for _, body := range []string{
+		`{"request_id":"request-1"}`,
+		`{"request_id":"request-1","delivered_seq":4,"content":"forged"}`,
+	} {
+		invalid := httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-conversations/3/messages/cancel", strings.NewReader(body))
+		invalid.Header.Set("Content-Type", "application/json")
+		invalidRecorder := httptest.NewRecorder()
+		router.ServeHTTP(invalidRecorder, invalid)
+		if invalidRecorder.Code != http.StatusBadRequest {
+			t.Fatalf("body=%s status=%d response=%s", body, invalidRecorder.Code, invalidRecorder.Body.String())
+		}
 	}
 }
 

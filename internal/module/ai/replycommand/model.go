@@ -20,6 +20,15 @@ const (
 	StateTimedOut       State = "timed_out"
 )
 
+type CancelStatus string
+
+const (
+	CancelStatusStopped         CancelStatus = "stopped"
+	CancelStatusAlreadyTerminal CancelStatus = "already_terminal"
+	DeliveryStateCompleted                   = "completed"
+	DeliveryStateStopped                     = "stopped"
+)
+
 type ClaimSource string
 
 const (
@@ -139,4 +148,21 @@ type CreateReplyResult struct {
 	ChargeID      int64
 	RequestID     string
 	State         State
+}
+
+type RequestCancelInput struct {
+	ConversationID int64
+	UserID         int64
+	RequestID      string
+	DeliveredSeq   uint32
+	Now            time.Time
+}
+
+type RequestCancelResult struct {
+	CommandID          uint64
+	Status             CancelStatus
+	AssistantMessageID int64
+	SettlementPending  bool
+	DeliveryConsistent bool
+	StopDeliverySeq    uint32
 }

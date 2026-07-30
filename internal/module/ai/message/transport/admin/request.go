@@ -19,7 +19,8 @@ type attachmentRequest struct {
 }
 
 type cancelRequest struct {
-	RequestID string `json:"request_id" binding:"required,max=128"`
+	RequestID    string  `json:"request_id" binding:"required,max=128"`
+	DeliveredSeq *uint32 `json:"delivered_seq" binding:"required"`
 }
 
 type revisionRequest struct {

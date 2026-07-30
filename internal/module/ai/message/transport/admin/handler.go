@@ -93,11 +93,15 @@ func (h *Handler) Cancel(c *gin.Context) {
 		return
 	}
 	var req cancelRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindStrictJSON(c, &req); err != nil {
 		response.Error(c, apperror.BadRequest("AI消息参数错误"))
 		return
 	}
-	res, appErr := h.requireService().Cancel(c.Request.Context(), identity.UserID, aimessagemodule.CancelInput{ConversationID: conversationID, RequestID: req.RequestID})
+	res, appErr := h.requireService().Cancel(c.Request.Context(), identity.UserID, aimessagemodule.CancelInput{
+		ConversationID: conversationID,
+		RequestID:      req.RequestID,
+		DeliveredSeq:   *req.DeliveredSeq,
+	})
 	writeResult(c, res, appErr)
 }
 

@@ -28,7 +28,13 @@ type SendInput struct {
 type CancelInput struct {
 	ConversationID int64
 	RequestID      string
+	DeliveredSeq   uint32
 }
+
+const (
+	DeliveryStateCompleted = replycommand.DeliveryStateCompleted
+	DeliveryStateStopped   = replycommand.DeliveryStateStopped
+)
 
 type EditInput struct {
 	UserID         int64
@@ -69,23 +75,26 @@ type CancelPublisher interface {
 }
 
 type MessageItem struct {
-	ID              int64  `json:"id"`
-	Role            int    `json:"role"`
-	ContentType     string `json:"content_type"`
-	Content         string `json:"content"`
-	MetaJSON        any    `json:"meta_json,omitempty"`
-	PairedMessageID *int64 `json:"paired_message_id"`
-	RunID           *int64 `json:"run_id"`
-	Liked           bool   `json:"liked"`
-	CreatedAt       string `json:"created_at"`
-	UpdatedAt       string `json:"updated_at"`
+	ID                int64   `json:"id"`
+	Role              int     `json:"role"`
+	ContentType       string  `json:"content_type"`
+	Content           string  `json:"content"`
+	MetaJSON          any     `json:"meta_json,omitempty"`
+	PairedMessageID   *int64  `json:"paired_message_id"`
+	RunID             *int64  `json:"run_id"`
+	Liked             bool    `json:"liked"`
+	DeliveryState     *string `json:"delivery_state"`
+	SettlementPending bool    `json:"settlement_pending"`
+	CreatedAt         string  `json:"created_at"`
+	UpdatedAt         string  `json:"updated_at"`
 }
 
 type MessageProjection struct {
 	Message
-	PairedMessageID *int64 `gorm:"column:paired_message_id"`
-	RunID           *int64 `gorm:"column:run_id"`
-	Liked           bool   `gorm:"column:liked"`
+	PairedMessageID   *int64 `gorm:"column:paired_message_id"`
+	RunID             *int64 `gorm:"column:run_id"`
+	Liked             bool   `gorm:"column:liked"`
+	SettlementPending bool   `gorm:"column:settlement_pending"`
 }
 
 type ListResponse struct {
@@ -103,9 +112,11 @@ type SendResponse struct {
 }
 
 type CancelResponse struct {
-	ConversationID int64  `json:"conversation_id"`
-	RequestID      string `json:"request_id"`
-	Status         string `json:"status"`
+	ConversationID     int64  `json:"conversation_id"`
+	RequestID          string `json:"request_id"`
+	Status             string `json:"status"`
+	AssistantMessageID *int64 `json:"assistant_message_id"`
+	SettlementPending  bool   `json:"settlement_pending"`
 }
 
 type DeleteResponse struct {
@@ -137,7 +148,7 @@ type Repository interface {
 	AgentForConversation(ctx context.Context, conversationID int64, userID int64) (*AgentRuntime, error)
 	List(ctx context.Context, query ListQuery) ([]MessageProjection, bool, error)
 	CreateReply(ctx context.Context, input replycommand.CreateReplyInput) (replycommand.CreateReplyResult, error)
-	RequestCancel(ctx context.Context, conversationID int64, userID int64, requestID string, now time.Time) (*replycommand.Command, error)
+	RequestCancel(ctx context.Context, input replycommand.RequestCancelInput) (replycommand.RequestCancelResult, error)
 }
 
 type HistoryRepository interface {

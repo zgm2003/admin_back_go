@@ -49,16 +49,15 @@ func TestRequestCancelIsDurableAndIdempotentForPendingAndRunningCommands(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	canceled, err := repository.RequestCancel(ctx, fixture.conversationID, fixture.userID, "cancel-pending", now.Add(time.Second))
+	canceled, err := repository.RequestCancel(ctx, requestCancelInput(fixture.conversationID, fixture.userID, "cancel-pending", 0, now.Add(time.Second)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if canceled.ID != pending.CommandID || canceled.State != StatePending || canceled.CancelRequestedAt == nil || canceled.FinishedAt != nil {
+	if canceled.CommandID != pending.CommandID || canceled.Status != CancelStatusStopped || canceled.AssistantMessageID <= 0 || !canceled.SettlementPending {
 		t.Fatalf("pending cancel=%+v", canceled)
 	}
-	firstRequestedAt := *canceled.CancelRequestedAt
-	again, err := repository.RequestCancel(ctx, fixture.conversationID, fixture.userID, "cancel-pending", now.Add(2*time.Second))
-	if err != nil || again.ID != canceled.ID || again.State != StatePending || again.CancelRequestedAt == nil || !again.CancelRequestedAt.Equal(firstRequestedAt) {
+	again, err := repository.RequestCancel(ctx, requestCancelInput(fixture.conversationID, fixture.userID, "cancel-pending", 4, now.Add(2*time.Second)))
+	if err != nil || again.CommandID != canceled.CommandID || again.Status != CancelStatusStopped || again.AssistantMessageID != canceled.AssistantMessageID || again.StopDeliverySeq != 0 {
 		t.Fatalf("idempotent cancel=%+v err=%v", again, err)
 	}
 
@@ -73,21 +72,31 @@ func TestRequestCancelIsDurableAndIdempotentForPendingAndRunningCommands(t *test
 	if ok, err := repository.Transition(ctx, running.CommandID, "worker-a", claim.FencingToken, StateClaimed, StateRunning, nil); err != nil || !ok {
 		t.Fatalf("running transition ok=%v err=%v", ok, err)
 	}
-	requested, err := repository.RequestCancel(ctx, fixture.conversationID, fixture.userID, "cancel-running", now.Add(time.Second))
+	requested, err := repository.RequestCancel(ctx, requestCancelInput(fixture.conversationID, fixture.userID, "cancel-running", 0, now.Add(time.Second)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if requested.State != StateRunning || requested.CancelRequestedAt == nil || requested.FinishedAt != nil {
+	if requested.Status != CancelStatusStopped || requested.AssistantMessageID <= 0 || !requested.SettlementPending {
 		t.Fatalf("running cancel request=%+v", requested)
 	}
 	if assistantID, published, err := repository.PublishAssistant(ctx, PublishAssistantInput{CommandID: running.CommandID, Owner: "worker-a", Token: claim.FencingToken, Content: "must not publish", Now: now.Add(2 * time.Second)}); err != nil || published || assistantID != 0 {
 		t.Fatalf("canceled command publication id=%d published=%v err=%v", assistantID, published, err)
 	}
 
-	if _, err := repository.RequestCancel(ctx, fixture.conversationID, fixture.userID+1, "cancel-running", now); !errors.Is(err, ErrConversationUnavailable) {
+	if _, err := repository.RequestCancel(ctx, requestCancelInput(fixture.conversationID, fixture.userID+1, "cancel-running", 0, now)); !errors.Is(err, ErrReplyCommandNotFound) {
 		t.Fatalf("unauthorized cancel err=%v", err)
 	}
-	if _, err := repository.RequestCancel(ctx, fixture.conversationID, fixture.userID, strings.Repeat("界", 129), now); !errors.Is(err, ErrCreateInputInvalid) {
+	if _, err := repository.RequestCancel(ctx, requestCancelInput(fixture.conversationID, fixture.userID, strings.Repeat("界", 129), 0, now)); !errors.Is(err, ErrCreateInputInvalid) {
 		t.Fatalf("oversized cancel request_id err=%v", err)
+	}
+}
+
+func requestCancelInput(conversationID, userID int64, requestID string, deliveredSeq uint32, now time.Time) RequestCancelInput {
+	return RequestCancelInput{
+		ConversationID: conversationID,
+		UserID:         userID,
+		RequestID:      requestID,
+		DeliveredSeq:   deliveredSeq,
+		Now:            now,
 	}
 }

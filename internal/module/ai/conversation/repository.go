@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/infra/database"
+	"admin_back_go/internal/module/ai/replycommand"
 	"admin_back_go/internal/shared/enum"
 
 	"gorm.io/gorm"
@@ -80,6 +81,7 @@ func (r *GormRepository) UnreadCounts(ctx context.Context, conversationIDs []int
 		Where("m.conversation_id IN ?", conversationIDs).
 		Where("m.role = ?", enum.AIMessageRoleAssistant).
 		Where("m.is_del = ?", enum.CommonNo).
+		Where("m.delivery_state <> ?", replycommand.DeliveryStateStopped).
 		Where("m.id > c.last_read_message_id").
 		Where("c.is_del = ?", enum.CommonNo).
 		Group("m.conversation_id").
@@ -191,6 +193,7 @@ LEFT JOIN ai_messages AS unread
   ON unread.conversation_id = c.id
  AND unread.role = ?
  AND unread.is_del = ?
+ AND unread.delivery_state <> ?
  AND unread.id > c.last_read_message_id
 WHERE c.id = ?
   AND c.user_id = ?
@@ -198,7 +201,7 @@ WHERE c.id = ?
 GROUP BY c.last_read_message_id
 LIMIT ?`,
 		messageID, enum.AIMessageRoleAssistant, enum.CommonNo,
-		enum.AIMessageRoleAssistant, enum.CommonNo,
+		enum.AIMessageRoleAssistant, enum.CommonNo, replycommand.DeliveryStateStopped,
 		conversationID, userID, enum.CommonNo, 1,
 	).Scan(&state).Error
 	if err != nil {

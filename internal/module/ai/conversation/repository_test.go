@@ -51,8 +51,8 @@ func TestRepositoryUnreadCountsGroupsTwoConversationsAndFiltersVisibleAssistantM
 	sqlDB, mock, db := newConversationRepositoryTestDB(t)
 	t.Cleanup(func() { _ = sqlDB.Close() })
 
-	mock.ExpectQuery("(?s)SELECT m\\.conversation_id, COUNT\\(\\*\\) AS unread_count FROM ai_messages m JOIN ai_conversations c ON c\\.id = m\\.conversation_id WHERE m\\.conversation_id IN \\(\\?,\\?\\) AND m\\.role = \\? AND m\\.is_del = \\? AND m\\.id > c\\.last_read_message_id AND c\\.is_del = \\? GROUP BY .*m.*conversation_id").
-		WithArgs(int64(8), int64(6), 2, 2, 2).
+	mock.ExpectQuery("(?s)SELECT m\\.conversation_id, COUNT\\(\\*\\) AS unread_count FROM ai_messages m JOIN ai_conversations c ON c\\.id = m\\.conversation_id WHERE m\\.conversation_id IN \\(\\?,\\?\\) AND m\\.role = \\? AND m\\.is_del = \\? AND m\\.delivery_state <> \\? AND m\\.id > c\\.last_read_message_id AND c\\.is_del = \\? GROUP BY .*m.*conversation_id").
+		WithArgs(int64(8), int64(6), 2, 2, "stopped", 2).
 		WillReturnRows(sqlmock.NewRows([]string{"conversation_id", "unread_count"}).AddRow(8, 3).AddRow(6, 1))
 
 	counts, err := (&GormRepository{db: db}).UnreadCounts(context.Background(), []int64{8, 6})
@@ -74,8 +74,8 @@ func TestRepositoryReadCursorUsesVisibleAssistantAndGreatest(t *testing.T) {
 	mock.ExpectExec("(?s)UPDATE ai_conversations AS c JOIN ai_messages AS target .*SET c\\.last_read_message_id = GREATEST\\(c\\.last_read_message_id, target\\.id\\).*").
 		WithArgs(int64(9), int64(3), 2, 2, int64(7), 2).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectQuery("(?s)SELECT c\\.last_read_message_id, COUNT\\(unread\\.id\\) AS unread_count FROM ai_conversations AS c JOIN ai_messages AS target .*LEFT JOIN ai_messages AS unread .*GROUP BY c\\.last_read_message_id.*LIMIT \\?").
-		WithArgs(int64(9), 2, 2, 2, 2, int64(3), int64(7), 2, 1).
+	mock.ExpectQuery("(?s)SELECT c\\.last_read_message_id, COUNT\\(unread\\.id\\) AS unread_count FROM ai_conversations AS c JOIN ai_messages AS target .*LEFT JOIN ai_messages AS unread .*unread\\.delivery_state <> \\?.*GROUP BY c\\.last_read_message_id.*LIMIT \\?").
+		WithArgs(int64(9), 2, 2, 2, 2, "stopped", int64(3), int64(7), 2, 1).
 		WillReturnRows(sqlmock.NewRows([]string{"last_read_message_id", "unread_count"}).AddRow(9, 2))
 
 	cursor, unreadCount, valid, err := (&GormRepository{db: db}).AdvanceReadCursor(context.Background(), 3, 7, 9)

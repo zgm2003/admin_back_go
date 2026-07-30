@@ -136,10 +136,10 @@ func TestResumeAICancellationIsCommittedExactlyOnceForPendingAndRunning(t *testi
 	if err != nil {
 		t.Fatalf("create pending reply: %v", err)
 	}
-	if _, err := repository.RequestCancel(ctx, fixture.conversationID, fixture.userID, pendingRequestID, now); err != nil {
+	if _, err := repository.RequestCancel(ctx, requestCancelInput(fixture.conversationID, fixture.userID, pendingRequestID, 0, now)); err != nil {
 		t.Fatalf("cancel pending reply: %v", err)
 	}
-	if _, err := repository.RequestCancel(ctx, fixture.conversationID, fixture.userID, pendingRequestID, now.Add(time.Second)); err != nil {
+	if _, err := repository.RequestCancel(ctx, requestCancelInput(fixture.conversationID, fixture.userID, pendingRequestID, 0, now.Add(time.Second))); err != nil {
 		t.Fatalf("repeat pending cancel: %v", err)
 	}
 	claimPending, err := repository.ClaimByID(ctx, pending.CommandID, ClaimSourcePoll, "worker-pending", now.Add(2*time.Second), time.Minute)
@@ -167,7 +167,7 @@ func TestResumeAICancellationIsCommittedExactlyOnceForPendingAndRunning(t *testi
 	if ok, err := repository.Transition(ctx, running.CommandID, claim.Owner, claim.FencingToken, StateClaimed, StateRunning, map[string]any{"started_at": claimAt}); err != nil || !ok {
 		t.Fatalf("start running reply ok=%v err=%v", ok, err)
 	}
-	if _, err := repository.RequestCancel(ctx, fixture.conversationID, fixture.userID, runningRequestID, claimAt.Add(time.Second)); err != nil {
+	if _, err := repository.RequestCancel(ctx, requestCancelInput(fixture.conversationID, fixture.userID, runningRequestID, 0, claimAt.Add(time.Second))); err != nil {
 		t.Fatalf("request running cancel: %v", err)
 	}
 	if ok, err := repository.Transition(ctx, running.CommandID, claim.Owner, claim.FencingToken, StateRunning, StateCanceled, map[string]any{"finished_at": claimAt.Add(2 * time.Second)}); err != nil || !ok {
@@ -198,7 +198,7 @@ func TestCancelIntentDoesNotDependOnTerminalEventSink(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create reply: %v", err)
 	}
-	if _, err := repository.RequestCancel(context.Background(), fixture.conversationID, fixture.userID, requestID, time.Now()); err != nil {
+	if _, err := repository.RequestCancel(context.Background(), requestCancelInput(fixture.conversationID, fixture.userID, requestID, 0, time.Now())); err != nil {
 		t.Fatalf("persist cancel intent: %v", err)
 	}
 	var command Command

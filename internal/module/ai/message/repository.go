@@ -49,11 +49,11 @@ func (r *GormRepository) CreateReply(ctx context.Context, input replycommand.Cre
 	return r.replies.CreateReply(ctx, input)
 }
 
-func (r *GormRepository) RequestCancel(ctx context.Context, conversationID int64, userID int64, requestID string, now time.Time) (*replycommand.Command, error) {
+func (r *GormRepository) RequestCancel(ctx context.Context, input replycommand.RequestCancelInput) (replycommand.RequestCancelResult, error) {
 	if r == nil || r.replies == nil {
-		return nil, ErrRepositoryNotConfigured
+		return replycommand.RequestCancelResult{}, ErrRepositoryNotConfigured
 	}
-	return r.replies.RequestCancel(ctx, conversationID, userID, requestID, now)
+	return r.replies.RequestCancel(ctx, input)
 }
 
 func (r *GormRepository) Conversation(ctx context.Context, id int64) (*Conversation, error) {
@@ -105,9 +105,10 @@ func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]MessagePr
 	}
 	db := r.db.WithContext(ctx).Table("ai_messages m").
 		Select(`m.id, m.conversation_id, m.role, m.content_type, m.content, m.meta_json,
-			m.reply_command_id, m.is_del, m.created_at, m.updated_at,
+			m.reply_command_id, m.delivery_state, m.is_del, m.created_at, m.updated_at,
 			paired_messages.id AS paired_message_id, ai_runs.id AS run_id,
-			(ai_runs.id IS NOT NULL AND ai_runs.liked_at IS NOT NULL) AS liked`).
+			(ai_runs.id IS NOT NULL AND ai_runs.liked_at IS NOT NULL) AS liked,
+			COALESCE(COALESCE(user_commands.state, assistant_commands.state) IN ('pending','claimed','running'), FALSE) AS settlement_pending`).
 		Joins("JOIN ai_conversations c ON c.id = m.conversation_id AND c.user_id = ? AND c.is_del = ?", query.UserID, enum.CommonNo).
 		Joins("LEFT JOIN ai_reply_commands user_commands ON user_commands.user_message_id = m.id AND m.role = ?", enum.AIMessageRoleUser).
 		Joins("LEFT JOIN ai_reply_commands assistant_commands ON assistant_commands.id = m.reply_command_id AND assistant_commands.assistant_message_id = m.id AND m.role = ?", enum.AIMessageRoleAssistant).
