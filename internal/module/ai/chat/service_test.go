@@ -36,6 +36,16 @@ func TestNewRuntimeServiceRejectsMissingOfficialModelResolver(t *testing.T) {
 	}
 }
 
+func TestNewRuntimeServiceRejectsMissingDeliveryCommitter(t *testing.T) {
+	service, err := NewRuntimeService(Dependencies{
+		ToolRuntime:     &fakeToolRuntime{},
+		PricingResolver: testCurrentPricingResolver(),
+	})
+	if service != nil || !errors.Is(err, ErrDeliveryCommitterNotConfigured) {
+		t.Fatalf("service=%#v err=%v", service, err)
+	}
+}
+
 func TestTextCompletionPricingSnapshotUsesInjectedResolver(t *testing.T) {
 	resolverCalls := 0
 	service := newTestChatService(Dependencies{PricingResolver: officialmodel.ResolverFunc(func(_ context.Context, modelID string) (officialmodel.ResolvedModel, error) {
@@ -83,6 +93,9 @@ func testCurrentPricingResolver() officialmodel.Resolver {
 func newTestChatService(deps Dependencies) *Service {
 	if deps.PricingResolver == nil {
 		deps.PricingResolver = testCurrentPricingResolver()
+	}
+	if deps.DeliveryCommitter == nil {
+		deps.DeliveryCommitter = &fakeDeliveryCommitter{}
 	}
 	return NewService(deps)
 }
@@ -213,6 +226,26 @@ type fakePublisher struct {
 	pubs []infrarealtime.Publication
 }
 
+type fakeDeliveryCommitter struct {
+	inputs    []DeliveryCommit
+	nextSeq   uint32
+	committed bool
+	err       error
+}
+
+func (f *fakeDeliveryCommitter) CommitDelivery(_ context.Context, input DeliveryCommit) (uint32, bool, error) {
+	f.inputs = append(f.inputs, input)
+	if f.err != nil {
+		return 0, false, f.err
+	}
+	f.nextSeq++
+	committed := f.committed
+	if !committed {
+		committed = true
+	}
+	return f.nextSeq, committed, nil
+}
+
 type failingEventSink struct {
 	err error
 }
@@ -330,23 +363,6 @@ func (f *fakeAssistantPublisher) PublishAssistant(_ context.Context, input Assis
 func (f *fakePublisher) Publish(ctx context.Context, p infrarealtime.Publication) error {
 	f.pubs = append(f.pubs, p)
 	return nil
-}
-
-func TestConversationEventSinkDoesNotGuessDeltaFromPayload(t *testing.T) {
-	publisher := &fakePublisher{}
-	sink := &conversationEventSink{
-		service: &Service{publisher: publisher},
-		input:   ConversationReplyInput{ConversationID: 3, UserID: 7, RequestID: "rid"},
-	}
-	if err := sink.Emit(t.Context(), infraai.Event{
-		Type:    "delta",
-		Payload: map[string]any{"delta": "payload-only must not become a realtime delta"},
-	}); err != nil {
-		t.Fatalf("emit payload-only provider event: %v", err)
-	}
-	if len(publisher.pubs) != 0 {
-		t.Fatalf("payload-only provider event was guessed into realtime: %#v", publisher.pubs)
-	}
 }
 
 func TestDrainSinkPropagatesPublisherCancellationWhileDeliveryIsActive(t *testing.T) {
@@ -914,8 +930,9 @@ func TestExecuteConversationReplyPreservesStreamingDeltasFromEngine(t *testing.T
 		history:      []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, ContentType: "text", Content: "hi"}},
 	}
 	pub := &fakePublisher{}
+	delivery := &fakeDeliveryCommitter{}
 	recorder := &fakeRunRecorder{nextID: 100}
-	res, err := newTestChatService(Dependencies{Repository: repo, AssistantPublisher: repo, Publisher: pub, RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: splitDeltaEngine{}}, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
+	res, err := newTestChatService(Dependencies{Repository: repo, AssistantPublisher: repo, DeliveryCommitter: delivery, Publisher: pub, RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: splitDeltaEngine{}}, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
 	if err != nil {
 		t.Fatalf("ExecuteConversationReply returned error: %v", err)
 	}
@@ -925,7 +942,10 @@ func TestExecuteConversationReplyPreservesStreamingDeltasFromEngine(t *testing.T
 	if recorder.completed.TotalTokens != 12 || recorder.completed.PromptTokens != 4 || recorder.completed.CompletionTokens != 8 {
 		t.Fatalf("run token usage was not persisted: %#v", recorder.completed)
 	}
-	var deltas []string
+	if len(delivery.inputs) != 1 || delivery.inputs[0].Delta != "你好" {
+		t.Fatalf("delivery commits=%+v", delivery.inputs)
+	}
+	var deltas []DeltaPayload
 	for _, pub := range pub.pubs {
 		if pub.Envelope.Type != EventAIResponseDelta {
 			continue
@@ -934,9 +954,9 @@ func TestExecuteConversationReplyPreservesStreamingDeltasFromEngine(t *testing.T
 		if err := json.Unmarshal(pub.Envelope.Data, &payload); err != nil {
 			t.Fatalf("unexpected delta payload: %v", err)
 		}
-		deltas = append(deltas, payload.Delta)
+		deltas = append(deltas, payload)
 	}
-	if len(deltas) != 2 || deltas[0] != "你" || deltas[1] != "好" {
+	if len(deltas) != 1 || deltas[0].DeliverySeq != 1 || deltas[0].Delta != "你好" {
 		t.Fatalf("unexpected deltas: %#v", deltas)
 	}
 }
@@ -952,10 +972,11 @@ func TestExecuteConversationReplyStopsDeliveryButDrainsUsageAndCandidate(t *test
 	engine := &stopThenDrainEngine{stopDelivery: stopDelivery}
 	attempts := &fakeProviderAttemptRecorder{}
 	publisher := &fakePublisher{}
+	delivery := &fakeDeliveryCommitter{}
 	recorder := &fakeRunRecorder{nextID: 100}
 
 	result, err := newTestChatService(Dependencies{
-		Repository: repo, AssistantPublisher: repo, AttemptRecorder: attempts, Publisher: publisher,
+		Repository: repo, AssistantPublisher: repo, DeliveryCommitter: delivery, AttemptRecorder: attempts, Publisher: publisher,
 		RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box,
 	}).ExecuteConversationReply(context.Background(), ConversationReplyInput{
 		CommandID: 41, LeaseOwner: "worker-a", LeaseToken: 2, DeliveryContext: deliveryCtx,
@@ -982,7 +1003,7 @@ func TestExecuteConversationReplyStopsDeliveryButDrainsUsageAndCandidate(t *test
 		}
 		deltas = append(deltas, payload.Delta)
 	}
-	if len(deltas) != 1 || deltas[0] != "停止前" {
+	if len(deltas) != 0 || len(delivery.inputs) != 0 {
 		t.Fatalf("delivered deltas=%v", deltas)
 	}
 	if repo.assistant.Content != "" || recorder.completed.RunID != 0 || recorder.canceled.RunID != 0 {

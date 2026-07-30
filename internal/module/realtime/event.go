@@ -16,7 +16,7 @@ import (
 
 const (
 	TypeAIResponseStartV1     = "ai.response.start.v1"
-	TypeAIResponseDeltaV1     = "ai.response.delta.v1"
+	TypeAIResponseDeltaV2     = "ai.response.delta.v2"
 	TypeAIResponseCompletedV1 = "ai.response.completed.v1"
 	TypeAIResponseFailedV1    = "ai.response.failed.v1"
 	TypeAIResponseCanceledV1  = "ai.response.canceled.v1"
@@ -328,11 +328,13 @@ func (p *AIResponseStartPayload) Validate() error {
 type AIResponseDeltaPayload struct {
 	ConversationID int64  `json:"conversation_id"`
 	RequestID      string `json:"request_id"`
+	DeliverySeq    uint32 `json:"delivery_seq"`
 	Delta          string `json:"delta"`
 }
 
 func (p *AIResponseDeltaPayload) Validate() error {
-	if p.ConversationID <= 0 || !validRequestID(p.RequestID) || len([]rune(p.Delta)) > 65536 {
+	if p.ConversationID <= 0 || !validRequestID(p.RequestID) || p.DeliverySeq == 0 || p.Delta == "" ||
+		!utf8.ValidString(p.Delta) || len(p.Delta) > 16*1024 {
 		return errors.New("invalid AI delta payload")
 	}
 	return nil
@@ -395,7 +397,7 @@ func validRequestID(value string) bool {
 func defaultEventDefinitions() []EventDefinition {
 	return []EventDefinition{
 		{Type: TypeAIResponseStartV1, Direction: DirectionServer, Durability: infrarealtime.Ephemeral, NewPayload: func() any { return &AIResponseStartPayload{} }},
-		{Type: TypeAIResponseDeltaV1, Direction: DirectionServer, Durability: infrarealtime.Ephemeral, NewPayload: func() any { return &AIResponseDeltaPayload{} }},
+		{Type: TypeAIResponseDeltaV2, Direction: DirectionServer, Durability: infrarealtime.Ephemeral, NewPayload: func() any { return &AIResponseDeltaPayload{} }},
 		{Type: TypeAIResponseCompletedV1, Direction: DirectionServer, Durability: infrarealtime.Durable, NewPayload: func() any { return &AIResponseCompletedPayload{} }},
 		{Type: TypeAIResponseFailedV1, Direction: DirectionServer, Durability: infrarealtime.Durable, NewPayload: func() any { return &AIResponseFailedPayload{} }},
 		{Type: TypeAIResponseCanceledV1, Direction: DirectionServer, Durability: infrarealtime.Durable, NewPayload: func() any { return &AIResponseCanceledPayload{} }},

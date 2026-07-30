@@ -9,7 +9,7 @@ import (
 
 const (
 	EventAIResponseStart     = modulerealtime.TypeAIResponseStartV1
-	EventAIResponseDelta     = modulerealtime.TypeAIResponseDeltaV1
+	EventAIResponseDelta     = modulerealtime.TypeAIResponseDeltaV2
 	EventAIResponseCompleted = modulerealtime.TypeAIResponseCompletedV1
 	EventAIResponseFailed    = modulerealtime.TypeAIResponseFailedV1
 )

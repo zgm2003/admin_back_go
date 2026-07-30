@@ -305,6 +305,7 @@ func registerWorkerHandlers(
 	aiChatService, err := aichat.NewRuntimeService(aichat.Dependencies{
 		Repository:          aichat.NewGormRepository(resources.DB),
 		AssistantPublisher:  replyAssistantPublisher{repository: replyRepository},
+		DeliveryCommitter:   replyDeliveryCommitter{repository: replyRepository},
 		PaidAttemptExecutor: paidChatExecutor,
 		Publisher:           realtimePublisher,
 		Secretbox:           providers.Secretbox,

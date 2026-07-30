@@ -18,7 +18,7 @@ func TestEnvelopeBuildersUseConversationScopedPayloads(t *testing.T) {
 			return BuildStartEvent(StartPayload{ConversationID: 3, RequestID: "rid", UserMessageID: 9, AgentID: 2})
 		}},
 		{"delta", EventAIResponseDelta, func() (infrarealtime.Envelope, error) {
-			return BuildDeltaEvent(DeltaPayload{ConversationID: 3, RequestID: "rid", Delta: "hello"})
+			return BuildDeltaEvent(DeltaPayload{ConversationID: 3, RequestID: "rid", DeliverySeq: 1, Delta: "hello"})
 		}},
 	}
 	for _, tc := range cases {

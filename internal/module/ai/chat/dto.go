@@ -91,6 +91,18 @@ type AssistantPublisher interface {
 	PublishAssistant(context.Context, AssistantPublication) (int64, bool, error)
 }
 
+type DeliveryCommit struct {
+	CommandID uint64
+	Owner     string
+	Token     uint64
+	Delta     string
+	Now       time.Time
+}
+
+type DeliveryCommitter interface {
+	CommitDelivery(context.Context, DeliveryCommit) (deliverySeq uint32, committed bool, err error)
+}
+
 type ProviderAttemptState string
 
 const (

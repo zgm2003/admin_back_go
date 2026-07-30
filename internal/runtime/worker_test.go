@@ -264,6 +264,9 @@ func TestWorkerReplyRepositoryUsesDurableRealtimeSink(t *testing.T) {
 	if !strings.Contains(compact, want) {
 		t.Fatalf("worker reply repository must persist terminal realtime events with the shared durable sink")
 	}
+	if want := "DeliveryCommitter: replyDeliveryCommitter{repository: replyRepository}"; !strings.Contains(compact, want) {
+		t.Fatalf("worker chat runtime must commit deltas through the shared reply repository")
+	}
 }
 
 func TestWorkerWiresOneAuthoritativeOfficialModelResolver(t *testing.T) {

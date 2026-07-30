@@ -45,13 +45,49 @@ func TestEnvelopeRegistryEnforcesDeclaredDurability(t *testing.T) {
 	if envelope.Durability != infrarealtime.Durable || envelope.Sequence != 9 {
 		t.Fatalf("unexpected durable envelope: %#v", envelope)
 	}
-	if _, err := registry.NewDurable(eventID, TypeAIResponseDeltaV1, "rid", 10, AIResponseDeltaPayload{
-		ConversationID: 3, RequestID: "rid", Delta: "hello",
+	if _, err := registry.NewDurable(eventID, TypeAIResponseDeltaV2, "rid", 10, AIResponseDeltaPayload{
+		ConversationID: 3, RequestID: "rid", DeliverySeq: 1, Delta: "hello",
 	}, now); !errors.Is(err, ErrEventDurabilityInvalid) {
 		t.Fatalf("ephemeral delta was accepted as durable: %v", err)
 	}
 	if _, err := registry.NewEphemeral(TypeSubscribeV1, "rid", SubscribePayload{Topics: []string{"user:7"}}, now); err == nil {
 		t.Fatalf("client-only event was accepted as a server envelope: %v", err)
+	}
+}
+
+func TestAIResponseDeltaV2RequiresContinuousDeliveryIdentity(t *testing.T) {
+	registry := DefaultRegistry()
+	definition, ok := registry.Definition(TypeAIResponseDeltaV2)
+	if !ok || definition.Durability != infrarealtime.Ephemeral || definition.Direction != DirectionServer {
+		t.Fatalf("definition=%+v ok=%v", definition, ok)
+	}
+	if _, exists := registry.Definition("ai.response.delta.v1"); exists {
+		t.Fatal("delta v1 must not remain in the runtime registry")
+	}
+
+	envelope, err := registry.NewEphemeral(TypeAIResponseDeltaV2, "request-1", AIResponseDeltaPayload{
+		ConversationID: 3,
+		RequestID:      "request-1",
+		DeliverySeq:    7,
+		Delta:          "  你\n",
+	}, time.Date(2026, 7, 30, 8, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(envelope.Data); got != `{"conversation_id":3,"request_id":"request-1","delivery_seq":7,"delta":"  你\n"}` {
+		t.Fatalf("payload=%s", got)
+	}
+
+	invalid := []AIResponseDeltaPayload{
+		{ConversationID: 3, RequestID: "request-1", DeliverySeq: 0, Delta: "x"},
+		{ConversationID: 3, RequestID: "request-1", DeliverySeq: 1, Delta: ""},
+		{ConversationID: 3, RequestID: "request-1", DeliverySeq: 1, Delta: strings.Repeat("界", 5462)},
+		{ConversationID: 3, RequestID: "request-1", DeliverySeq: 1, Delta: string([]byte{0xff})},
+	}
+	for _, payload := range invalid {
+		if err := payload.Validate(); err == nil {
+			t.Fatalf("invalid payload accepted: seq=%d bytes=%d", payload.DeliverySeq, len(payload.Delta))
+		}
 	}
 }
 

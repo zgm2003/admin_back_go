@@ -43,6 +43,7 @@ var (
 type Dependencies struct {
 	Repository          Repository
 	AssistantPublisher  AssistantPublisher
+	DeliveryCommitter   DeliveryCommitter
 	AttemptRecorder     ProviderAttemptRecorder
 	PaidAttemptExecutor PaidChatAttemptExecutor
 	Publisher           infrarealtime.Publisher
@@ -61,6 +62,7 @@ type Dependencies struct {
 type Service struct {
 	repository          Repository
 	assistantPublisher  AssistantPublisher
+	deliveryCommitter   DeliveryCommitter
 	attemptRecorder     ProviderAttemptRecorder
 	paidAttemptExecutor PaidChatAttemptExecutor
 	publisher           infrarealtime.Publisher
@@ -89,7 +91,7 @@ func NewService(deps Dependencies) *Service {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Service{repository: deps.Repository, assistantPublisher: deps.AssistantPublisher, attemptRecorder: deps.AttemptRecorder, paidAttemptExecutor: deps.PaidAttemptExecutor, publisher: deps.Publisher, engineFactory: deps.EngineFactory, secretbox: deps.Secretbox, toolRuntime: deps.ToolRuntime, knowledgeRuntime: deps.KnowledgeRuntime, runRecorder: deps.RunRecorder, textGeneration: deps.TextGeneration, pricingResolver: deps.PricingResolver, runStaleTimeout: runStaleTimeout, now: now, logger: logger}
+	return &Service{repository: deps.Repository, assistantPublisher: deps.AssistantPublisher, deliveryCommitter: deps.DeliveryCommitter, attemptRecorder: deps.AttemptRecorder, paidAttemptExecutor: deps.PaidAttemptExecutor, publisher: deps.Publisher, engineFactory: deps.EngineFactory, secretbox: deps.Secretbox, toolRuntime: deps.ToolRuntime, knowledgeRuntime: deps.KnowledgeRuntime, runRecorder: deps.RunRecorder, textGeneration: deps.TextGeneration, pricingResolver: deps.PricingResolver, runStaleTimeout: runStaleTimeout, now: now, logger: logger}
 }
 
 func NewRuntimeService(deps Dependencies) (*Service, error) {
@@ -99,10 +101,13 @@ func NewRuntimeService(deps Dependencies) (*Service, error) {
 	if deps.PricingResolver == nil {
 		return nil, ErrOfficialModelResolverNotConfigured
 	}
+	if deps.DeliveryCommitter == nil {
+		return nil, ErrDeliveryCommitterNotConfigured
+	}
 	return NewService(deps), nil
 }
 
-func (s *Service) ExecuteConversationReply(ctx context.Context, input ConversationReplyInput) (*ConversationReplyResult, error) {
+func (s *Service) ExecuteConversationReply(ctx context.Context, input ConversationReplyInput) (replyResult *ConversationReplyResult, replyErr error) {
 	if input.ConversationID <= 0 || input.UserID <= 0 || input.UserMessageID <= 0 || strings.TrimSpace(input.RequestID) == "" {
 		return nil, apperror.BadRequest("AI对话回复任务参数错误")
 	}
@@ -228,7 +233,29 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 			userContent = strings.TrimSpace(knowledge.Context) + "\n\n用户问题：\n" + userContent
 		}
 	}
-	sink := newDrainSink(input.DeliveryContext, &conversationEventSink{service: s, input: input})
+	delivery := newDeliverySink(deliverySinkOptions{
+		DeliveryContext: input.DeliveryContext,
+		Committer:       s.deliveryCommitter,
+		Publisher:       s.publisher,
+		CommandID:       input.CommandID,
+		Owner:           input.LeaseOwner,
+		Token:           input.LeaseToken,
+		ConversationID:  input.ConversationID,
+		UserID:          input.UserID,
+		RequestID:       input.RequestID,
+		Now:             s.now,
+	})
+	defer func() {
+		if closeErr := delivery.Close(context.WithoutCancel(ctx)); closeErr != nil {
+			if replyErr != nil {
+				replyErr = errors.Join(replyErr, closeErr)
+				return
+			}
+			replyResult = nil
+			replyErr = closeErr
+		}
+	}()
+	sink := infraai.EventSink(delivery)
 	chatInput := infraai.ChatInput{
 		AgentID: uint64(input.AgentID),
 		RunID:   uint64(runID),
@@ -258,6 +285,13 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	}
 	chatInput.Tools = toolDefinitions(runtimeTools)
 	paidResult, err := s.streamChatWithAttempt(ctx, runID, input, engine, chatInput, sink)
+	if flushErr := delivery.Flush(context.WithoutCancel(ctx)); flushErr != nil {
+		if err != nil {
+			err = errors.Join(err, flushErr)
+		} else {
+			err = flushErr
+		}
+	}
 	if paidResult != nil && paidResult.Finalized {
 		return finalizedConversationReply(input, paidResult), nil
 	}
@@ -296,6 +330,13 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		chatInput.ToolCalls = toolCalls
 		chatInput.ToolOutputs = outputs
 		paidResult, err = s.streamChatWithAttempt(ctx, runID, input, engine, chatInput, sink)
+		if flushErr := delivery.Flush(context.WithoutCancel(ctx)); flushErr != nil {
+			if err != nil {
+				err = errors.Join(err, flushErr)
+			} else {
+				err = flushErr
+			}
+		}
 		if paidResult != nil && paidResult.Finalized {
 			return finalizedConversationReply(input, paidResult), nil
 		}
@@ -334,9 +375,12 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	answer = strings.TrimSpace(answer)
 	if answer == "" {
 		answer = "AI没有返回内容"
-		if err := s.publishDelta(input.DeliveryContext, input, answer); err != nil {
+		if err := delivery.Accept(answer); err != nil {
 			return nil, err
 		}
+	}
+	if err := delivery.Flush(context.WithoutCancel(ctx)); err != nil {
+		return nil, err
 	}
 	if appErr := validateRunUsageStatus(result); appErr != nil {
 		if paidReply {
@@ -875,39 +919,11 @@ func (s *Service) publishStart(ctx context.Context, input ConversationReplyInput
 	return s.publish(ctx, input.UserID, event)
 }
 
-func (s *Service) publishDelta(ctx context.Context, input ConversationReplyInput, delta string) error {
-	if strings.TrimSpace(delta) == "" {
-		return nil
-	}
-	event, err := BuildDeltaEvent(DeltaPayload{ConversationID: input.ConversationID, RequestID: input.RequestID, Delta: delta})
-	if err != nil {
-		return err
-	}
-	return s.publish(ctx, input.UserID, event)
-}
-
 func (s *Service) publish(ctx context.Context, userID int64, event infrarealtime.Envelope) error {
 	if s.publisher == nil {
 		return nil
 	}
 	return s.publisher.Publish(ctx, infrarealtime.Publication{Platform: enum.PlatformAdmin, UserID: userID, Envelope: event})
-}
-
-type conversationEventSink struct {
-	service *Service
-	input   ConversationReplyInput
-}
-
-func (s *conversationEventSink) Emit(ctx context.Context, event infraai.Event) error {
-	if s == nil || s.service == nil {
-		return nil
-	}
-	if event.Type == "delta" {
-		return s.service.publishDelta(ctx, s.input, event.DeltaText)
-	}
-	// Terminal state belongs exclusively to the fenced replycommand
-	// transition, which persists the event in the same transaction.
-	return nil
 }
 
 func agentSupportsTextGeneration(raw string) bool {

@@ -219,13 +219,14 @@ func realtimeEventSchemas() []realtimeEventSchema {
 			),
 		},
 		{
-			Type: modulerealtime.TypeAIResponseDeltaV1,
+			Type: modulerealtime.TypeAIResponseDeltaV2,
 			Payload: closedObject(
-				[]string{"conversation_id", "request_id", "delta"},
+				[]string{"conversation_id", "request_id", "delivery_seq", "delta"},
 				map[string]any{
 					"conversation_id": positiveID(),
 					"request_id":      nonBlankStringProperty(realtimeRequestIDMaxLength),
-					"delta":           stringProperty(65536),
+					"delivery_seq":    positiveID(),
+					"delta":           map[string]any{"type": "string", "minLength": 1, "maxLength": 16384},
 				},
 			),
 		},
