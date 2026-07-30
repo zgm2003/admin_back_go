@@ -1270,6 +1270,10 @@ table "ai_messages" {
     type     = bigint
     unsigned = true
   }
+  column "delivery_state" {
+    null = true
+    type = varchar(16)
+  }
   column "is_del" {
     null     = false
     type     = tinyint
@@ -1308,6 +1312,9 @@ table "ai_messages" {
   index "uk_ai_messages_reply_command" {
     unique  = true
     columns = [column.reply_command_id]
+  }
+  check "chk_ai_messages_delivery_state" {
+    expr = "(((`role` = 2) and (`delivery_state` in (_utf8mb4'completed',_utf8mb4'stopped'))) or ((`role` <> 2) and (`delivery_state` is null)))"
   }
 }
 table "ai_prompts" {
@@ -1944,6 +1951,17 @@ table "ai_reply_commands" {
     null = true
     type = datetime(6)
   }
+  column "delivery_seq" {
+    null     = false
+    type     = int
+    default  = 0
+    unsigned = true
+  }
+  column "stop_delivery_seq" {
+    null     = true
+    type     = int
+    unsigned = true
+  }
   column "outcome_unknown_at" {
     null = true
     type = datetime(6)
@@ -2006,6 +2024,48 @@ table "ai_reply_commands" {
   }
   check "chk_ai_reply_request_identity" {
     expr = "(((`request_identity_status` = _utf8mb4'replayable') and (`request_identity_marker` = _utf8mb4'')) or ((`request_identity_status` = _utf8mb4'legacy_non_replayable') and (`request_identity_marker` like _utf8mb4'legacy_non_replayable_v1:ai_runs:%')))"
+  }
+  check "chk_ai_reply_delivery_seq" {
+    expr = "(((`cancel_requested_at` is null) and (`stop_delivery_seq` is null)) or ((`cancel_requested_at` is not null) and (`stop_delivery_seq` is not null) and (`stop_delivery_seq` <= `delivery_seq`)))"
+  }
+}
+table "ai_reply_delivery_chunks" {
+  schema  = schema.admin
+  charset = "utf8mb4"
+  collate = "utf8mb4_0900_ai_ci"
+  column "command_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "delivery_seq" {
+    null     = false
+    type     = int
+    unsigned = true
+  }
+  column "delta" {
+    null = false
+    type = text
+  }
+  column "created_at" {
+    null    = false
+    type    = datetime(6)
+    default = sql("CURRENT_TIMESTAMP(6)")
+  }
+  primary_key {
+    columns = [column.command_id, column.delivery_seq]
+  }
+  foreign_key "fk_ai_reply_delivery_chunks_command" {
+    columns     = [column.command_id]
+    ref_columns = [table.ai_reply_commands.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  check "chk_ai_reply_delivery_chunks_seq" {
+    expr = "(`delivery_seq` > 0)"
+  }
+  check "chk_ai_reply_delivery_chunks_delta" {
+    expr = "((octet_length(`delta`) > 0) and (octet_length(`delta`) <= 16384))"
   }
 }
 table "ai_run_events" {

@@ -263,3 +263,35 @@ FROM (
   LEFT JOIN `users` AS updater ON updater.`id`=override_row.`updated_by`
   WHERE updater.`id` IS NULL
 ) orphan_rows;
+
+SELECT 'ai_reply_delivery_chunk_foreign_keys' AS invariant, COUNT(*) AS violations
+FROM (
+  SELECT 'ai_reply_delivery_chunks' AS table_name,
+    'fk_ai_reply_delivery_chunks_command' AS constraint_name,
+    'command_id' AS column_name,
+    'ai_reply_commands' AS referenced_table_name,
+    'id' AS referenced_column_name,
+    'RESTRICT' AS on_update,
+    'RESTRICT' AS on_delete
+) required
+LEFT JOIN (
+  SELECT kcu.table_name,kcu.constraint_name,kcu.column_name,
+    kcu.referenced_table_name,kcu.referenced_column_name,
+    rc.update_rule,rc.delete_rule
+  FROM information_schema.key_column_usage kcu
+  JOIN information_schema.referential_constraints rc
+    ON rc.constraint_schema=kcu.constraint_schema
+   AND rc.table_name=kcu.table_name
+   AND rc.constraint_name=kcu.constraint_name
+  WHERE kcu.table_schema=DATABASE()
+    AND kcu.table_name='ai_reply_delivery_chunks'
+    AND kcu.referenced_table_name IS NOT NULL
+) actual
+  ON actual.table_name=required.table_name
+ AND actual.constraint_name=required.constraint_name
+WHERE actual.constraint_name IS NULL
+   OR actual.column_name<>required.column_name
+   OR actual.referenced_table_name<>required.referenced_table_name
+   OR actual.referenced_column_name<>required.referenced_column_name
+   OR actual.update_rule<>required.on_update
+   OR actual.delete_rule<>required.on_delete;

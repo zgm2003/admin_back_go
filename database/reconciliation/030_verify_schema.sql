@@ -4,7 +4,7 @@ FROM (
   UNION ALL SELECT 'ai_image_files' UNION ALL SELECT 'ai_text_tasks' UNION ALL SELECT 'ai_video_tasks'
   UNION ALL SELECT 'ai_assets' UNION ALL SELECT 'payment_callback_events' UNION ALL SELECT 'user_wallets'
   UNION ALL SELECT 'mail_configs' UNION ALL SELECT 'sms_configs' UNION ALL SELECT 'authz_principal_versions'
-  UNION ALL SELECT 'ai_reply_commands' UNION ALL SELECT 'ai_provider_attempts' UNION ALL SELECT 'realtime_events'
+  UNION ALL SELECT 'ai_reply_commands' UNION ALL SELECT 'ai_reply_delivery_chunks' UNION ALL SELECT 'ai_provider_attempts' UNION ALL SELECT 'realtime_events'
   UNION ALL SELECT 'realtime_event_retention_watermarks'
 ) required
 LEFT JOIN information_schema.tables t ON t.table_schema=DATABASE() AND t.table_name=required.name
@@ -18,6 +18,10 @@ FROM (
   UNION ALL SELECT 'ai_runs','settled_at'
   UNION ALL SELECT 'ai_reply_commands','request_received_at' UNION ALL SELECT 'ai_reply_commands','accepted_at'
   UNION ALL SELECT 'ai_reply_commands','claimed_at' UNION ALL SELECT 'ai_reply_commands','claim_source'
+  UNION ALL SELECT 'ai_reply_commands','delivery_seq' UNION ALL SELECT 'ai_reply_commands','stop_delivery_seq'
+  UNION ALL SELECT 'ai_messages','delivery_state'
+  UNION ALL SELECT 'ai_reply_delivery_chunks','command_id' UNION ALL SELECT 'ai_reply_delivery_chunks','delivery_seq'
+  UNION ALL SELECT 'ai_reply_delivery_chunks','delta' UNION ALL SELECT 'ai_reply_delivery_chunks','created_at'
   UNION ALL SELECT 'ai_provider_attempts','prepare_started_at' UNION ALL SELECT 'ai_provider_attempts','first_delta_at'
   UNION ALL SELECT 'ai_image_tasks','platform' UNION ALL SELECT 'user_wallets','total_consume_cents'
   UNION ALL SELECT 'mail_configs','verify_code_ttl_minutes' UNION ALL SELECT 'sms_configs','verify_code_ttl_minutes'
@@ -41,6 +45,20 @@ WHERE table_schema=DATABASE() AND (
     (column_type<>'datetime(6)' OR is_nullable<>'YES' OR NOT (column_default <=> NULL))) OR
   (table_name='ai_reply_commands' AND column_name='claim_source' AND
     (column_type<>'varchar(16)' OR is_nullable<>'NO' OR NOT (column_default <=> ''))) OR
+  (table_name='ai_reply_commands' AND column_name='delivery_seq' AND
+    (column_type<>'int unsigned' OR is_nullable<>'NO' OR NOT (column_default <=> '0'))) OR
+  (table_name='ai_reply_commands' AND column_name='stop_delivery_seq' AND
+    (column_type<>'int unsigned' OR is_nullable<>'YES' OR NOT (column_default <=> NULL))) OR
+  (table_name='ai_messages' AND column_name='delivery_state' AND
+    (column_type<>'varchar(16)' OR is_nullable<>'YES' OR NOT (column_default <=> NULL))) OR
+  (table_name='ai_reply_delivery_chunks' AND column_name='command_id' AND
+    (column_type<>'bigint unsigned' OR is_nullable<>'NO' OR NOT (column_default <=> NULL))) OR
+  (table_name='ai_reply_delivery_chunks' AND column_name='delivery_seq' AND
+    (column_type<>'int unsigned' OR is_nullable<>'NO' OR NOT (column_default <=> NULL))) OR
+  (table_name='ai_reply_delivery_chunks' AND column_name='delta' AND
+    (column_type<>'text' OR is_nullable<>'NO' OR NOT (column_default <=> NULL))) OR
+  (table_name='ai_reply_delivery_chunks' AND column_name='created_at' AND
+    (column_type<>'datetime(6)' OR is_nullable<>'NO' OR NOT (UPPER(column_default) <=> 'CURRENT_TIMESTAMP(6)'))) OR
   (table_name IN ('ai_runs','ai_reply_commands') AND column_name='request_id' AND
     (column_type<>'varchar(128)' OR is_nullable<>'NO')) OR
   (table_name='realtime_events' AND column_name='request_id' AND
@@ -71,6 +89,7 @@ FROM (
   SELECT 'ai_reply_commands','idx_ai_reply_claim',1,'state,next_attempt_at,lease_expires_at,id' UNION ALL
   SELECT 'ai_provider_attempts','uk_ai_attempt_command_no',0,'command_id,attempt_no' UNION ALL
   SELECT 'ai_provider_attempts','uk_ai_attempt_key',0,'idempotency_key' UNION ALL
+  SELECT 'ai_reply_delivery_chunks','PRIMARY',0,'command_id,delivery_seq' UNION ALL
   SELECT 'realtime_events','uk_realtime_event_id',0,'event_id' UNION ALL
   SELECT 'realtime_events','idx_realtime_resume',1,'target_type,target_id,sequence' UNION ALL
   SELECT 'realtime_events','idx_realtime_expiry',1,'expires_at,sequence' UNION ALL
@@ -87,12 +106,23 @@ WHERE actual.index_name IS NULL
   OR actual.non_unique<>required.non_unique
   OR actual.columns_in_order<>required.columns_in_order;
 
+SELECT 'ai_reply_delivery_chunk_indexes' AS invariant, COUNT(*) AS violations
+FROM (
+  SELECT table_name, COUNT(*) AS index_count
+  FROM information_schema.statistics
+  WHERE table_schema=DATABASE() AND table_name='ai_reply_delivery_chunks'
+  GROUP BY table_name
+) actual
+WHERE actual.index_count<>1;
+
 SELECT 'required_constraints' AS invariant, COUNT(*) AS violations
 FROM (
   SELECT 'authz_principal_versions' t, 'chk_authz_principal_platform' c, '(regexp_like(platform,''^[a-z][a-z0-9_]{1,48}$'')and(platformnotin(''app'',''canvas''))and(platform<>''all''))' clause UNION ALL
   SELECT 'ai_reply_commands','chk_ai_reply_platform','(regexp_like(platform,''^[a-z][a-z0-9_]{1,48}$'')and(platformnotin(''app'',''canvas''))and(platform<>''all''))' UNION ALL
   SELECT 'ai_reply_commands','chk_ai_reply_state','(statein(''pending'',''claimed'',''running'',''succeeded'',''failed'',''canceled'',''outcome_unknown'',''timed_out''))' UNION ALL
   SELECT 'ai_reply_commands','chk_ai_reply_claim_source','(claim_sourcein('''',''wake'',''poll'',''recovery''))' UNION ALL
+  SELECT 'ai_reply_commands','chk_ai_reply_delivery_seq','(((cancel_requested_atisnull)and(stop_delivery_seqisnull))or((cancel_requested_atisnotnull)and(stop_delivery_seqisnotnull)and(stop_delivery_seq<=delivery_seq)))' UNION ALL
+  SELECT 'ai_messages','chk_ai_messages_delivery_state','(((role=2)and(delivery_statein(''completed'',''stopped'')))or((role<>2)and(delivery_stateisnull)))' UNION ALL
   SELECT 'ai_video_tasks','chk_ai_video_platform','(regexp_like(platform,''^[a-z][a-z0-9_]{1,48}$'')and(platformnotin(''app'',''canvas''))and(platform<>''all''))'
 ) required
 LEFT JOIN (

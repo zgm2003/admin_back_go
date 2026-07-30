@@ -1,0 +1,18 @@
+[
+  {
+    "name": "ai_reply_delivery_cancel_prefix",
+    "repository_file": "internal/module/ai/replycommand/delivery.go",
+    "sql": "SELECT delivery_seq,delta FROM ai_reply_delivery_chunks WHERE command_id=:command_id AND delivery_seq<=:delivered_seq ORDER BY delivery_seq ASC",
+    "bindings": {"command_id": 41, "delivered_seq": 400},
+    "expected_key": "PRIMARY",
+    "max_rows_examined": 400
+  },
+  {
+    "name": "ai_reply_delivery_cleanup_batch",
+    "repository_file": "internal/module/ai/replycommand/delivery.go",
+    "sql": "DELETE FROM ai_reply_delivery_chunks WHERE command_id=:command_id ORDER BY delivery_seq ASC LIMIT :limit",
+    "bindings": {"command_id": 41, "limit": 256},
+    "expected_key": "PRIMARY",
+    "max_rows_examined": 256
+  }
+]
