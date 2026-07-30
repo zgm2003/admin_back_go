@@ -435,6 +435,39 @@ func TestDetailPublishesPaidBillingEvidenceFromRunSnapshot(t *testing.T) {
 	}
 }
 
+func TestDetailTreatsStoppedCanceledAttemptUsageAsBillable(t *testing.T) {
+	now := time.Date(2026, 7, 30, 21, 26, 7, 0, time.Local)
+	repo := &fakeRepository{
+		run: &RunDetailRow{
+			ID: 6, RequestID: "stopped-run", UserID: 1, Status: enum.AIRunStatusCanceled,
+			BillingStatus: string(billing.BillingStatusSettled), BillingReason: string(billing.BillingReasonSettledCompleteUsage),
+			PricingSnapshotJSON: paidPricingSnapshotJSON(), CreatedAt: now, UpdatedAt: now,
+		},
+		charge: &ChargeRow{ID: 6, HeldUnits: 581401250, ActualUnits: 4956000, Status: string(billing.ChargeStatusSettled)},
+		usageItems: []UsageChargeItemRow{
+			{AttemptID: 7, AttemptNo: 1, AttemptState: string(billing.AttemptStateCanceled), Category: "input", TierKey: "short_context", Quantity: 1530, Unit: "token", UnitPriceUnits: 500000000, UnitScale: 1000000, AmountUnits: 765000},
+			{AttemptID: 7, AttemptNo: 1, AttemptState: string(billing.AttemptStateCanceled), Category: "output", TierKey: "short_context", Quantity: 1333, Unit: "token", UnitPriceUnits: 3000000000, UnitScale: 1000000, AmountUnits: 3999000},
+			{AttemptID: 7, AttemptNo: 1, AttemptState: string(billing.AttemptStateCanceled), Category: "cache_read", TierKey: "short_context", Quantity: 3840, Unit: "token", UnitPriceUnits: 50000000, UnitScale: 1000000, AmountUnits: 192000},
+		},
+		attempts: []ProviderAttemptRow{
+			{ID: 7, AttemptNo: 1, State: string(billing.AttemptStateCanceled), ProviderRequestID: "provider-stopped", UsageStatus: string(billing.UsageStatusComplete)},
+		},
+	}
+
+	res, appErr := NewService(repo).Detail(context.Background(), 6)
+	if appErr != nil {
+		t.Fatalf("stopped run detail returned error: %v", appErr)
+	}
+	if res.ActualAmount != "0.04956" || len(res.UsageItems) != 3 {
+		t.Fatalf("unexpected stopped billing detail: %#v", res)
+	}
+	for _, item := range res.UsageItems {
+		if !item.Billable {
+			t.Fatalf("settled stopped usage must be billable: %#v", res.UsageItems)
+		}
+	}
+}
+
 func TestDetailMapsLegacyRunWithoutChargeWithoutParsingMarker(t *testing.T) {
 	repo := &fakeRepository{run: &RunDetailRow{
 		ID: 45, BillingStatus: string(billing.BillingStatusUnbilled), BillingReason: string(billing.BillingReasonLegacyUnpriced),

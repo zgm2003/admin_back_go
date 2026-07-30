@@ -503,13 +503,12 @@ func buildBillingDetail(row RunDetailRow, charge *ChargeRow, usageRows []UsageCh
 		if formatErr != nil {
 			return billingDetailView{}, fmt.Errorf("format usage amount: %w", formatErr)
 		}
-		billable := item.AttemptState == string(billing.AttemptStateSucceeded)
-		if billable {
-			if item.AmountUnits > math.MaxInt64-billableSum {
-				return billingDetailView{}, fmt.Errorf("billable usage amount overflow")
-			}
-			billableSum += item.AmountUnits
+		// Charge items already passed the finalizer's billable-attempt allowlist.
+		// Non-billable failed-attempt usage is appended separately as audit evidence below.
+		if item.AmountUnits > math.MaxInt64-billableSum {
+			return billingDetailView{}, fmt.Errorf("billable usage amount overflow")
 		}
+		billableSum += item.AmountUnits
 		itemKey := usageItemKey(item.AttemptID, item.Category, item.TierKey, item.Unit)
 		if _, exists := seenItems[itemKey]; exists {
 			return billingDetailView{}, fmt.Errorf("usage item %q is duplicated", itemKey)
@@ -518,7 +517,7 @@ func buildBillingDetail(row RunDetailRow, charge *ChargeRow, usageRows []UsageCh
 		usage = append(usage, UsageItemDetail{
 			AttemptNo: item.AttemptNo, Category: item.Category, TierKey: item.TierKey,
 			Quantity: item.Quantity, Unit: item.Unit, UnitPrice: unitPrice,
-			UnitScale: item.UnitScale, Amount: amount, Billable: billable,
+			UnitScale: item.UnitScale, Amount: amount, Billable: true,
 		})
 	}
 	if row.BillingStatus == string(billing.BillingStatusSettled) && billableSum != charge.ActualUnits {
