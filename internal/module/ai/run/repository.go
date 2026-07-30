@@ -317,7 +317,7 @@ func applyListFilters(db *gorm.DB, query ListQuery) *gorm.DB {
 		db = db.Where("("+dashboardRunAnomalyCaseSQL()+") = ?", query.StaleBefore, query.RunAnomaly)
 	}
 	if query.BillingAnomaly != "" {
-		db = db.Where("("+dashboardBillingAnomalyCaseSQL()+") = ?", query.StaleBefore, query.StaleBefore, query.BillingAnomaly)
+		db = db.Where("("+dashboardBillingAnomalyCaseSQL()+") = ?", query.StaleBefore, query.BillingAnomaly)
 	}
 	if !query.StartAt.IsZero() {
 		db = db.Where("r.created_at >= ?", query.StartAt)

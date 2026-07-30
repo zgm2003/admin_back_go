@@ -145,6 +145,17 @@ func TestRunListFiltersRunsContainingToolCodeWithoutDuplicateRows(t *testing.T) 
 	}
 }
 
+func TestRunListBillingAnomalyBindsEachPlaceholderOnce(t *testing.T) {
+	staleBefore := time.Date(2026, 7, 30, 9, 45, 0, 0, time.FixedZone("Asia/Shanghai", 8*60*60))
+	statement := renderRunListQueryStatement(t, ListQuery{
+		BillingAnomaly: "state_inconsistent",
+		StaleBefore:    staleBefore,
+	})
+	if placeholders, bindings := strings.Count(statement.SQL.String(), "?"), len(statement.Vars); placeholders != bindings {
+		t.Fatalf("billing anomaly query placeholders=%d bindings=%d sql=%s vars=%#v", placeholders, bindings, statement.SQL.String(), statement.Vars)
+	}
+}
+
 func newRunRepositorySQLMock(t *testing.T) (*gorm.DB, sqlmock.Sqlmock, func()) {
 	t.Helper()
 	sqlDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
@@ -164,6 +175,11 @@ func newRunRepositorySQLMock(t *testing.T) (*gorm.DB, sqlmock.Sqlmock, func()) {
 
 func renderRunListQuerySQL(t *testing.T, query ListQuery) string {
 	t.Helper()
+	return normalizeDashboardSQL(renderRunListQueryStatement(t, query).SQL.String())
+}
+
+func renderRunListQueryStatement(t *testing.T, query ListQuery) *gorm.Statement {
+	t.Helper()
 	sqlDB, _, err := sqlmock.New()
 	if err != nil {
 		t.Fatal(err)
@@ -178,9 +194,8 @@ func renderRunListQuerySQL(t *testing.T, query ListQuery) string {
 		t.Fatal(err)
 	}
 	repository := &GormRepository{db: db}
-	statement := applyListFilters(repository.listBase(context.Background(), query, true), query).
+	return applyListFilters(repository.listBase(context.Background(), query, true), query).
 		Select(runListSelectSQL()).Find(&[]ListRow{}).Statement
-	return normalizeDashboardSQL(statement.SQL.String())
 }
 
 func sqlSummaryLower(sql string) string {
