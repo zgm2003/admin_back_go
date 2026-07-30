@@ -2061,10 +2061,10 @@ table "ai_reply_delivery_chunks" {
     on_update   = RESTRICT
     on_delete   = RESTRICT
   }
-  check "chk_ai_reply_delivery_chunks_seq" {
+  check "chk_ai_reply_delivery_chunk_seq" {
     expr = "(`delivery_seq` > 0)"
   }
-  check "chk_ai_reply_delivery_chunks_delta" {
+  check "chk_ai_reply_delivery_chunk_size" {
     expr = "((octet_length(`delta`) > 0) and (octet_length(`delta`) <= 16384))"
   }
 }

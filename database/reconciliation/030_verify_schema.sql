@@ -108,7 +108,7 @@ WHERE actual.index_name IS NULL
 
 SELECT 'ai_reply_delivery_chunk_indexes' AS invariant, COUNT(*) AS violations
 FROM (
-  SELECT table_name, COUNT(*) AS index_count
+  SELECT table_name, COUNT(DISTINCT index_name) AS index_count
   FROM information_schema.statistics
   WHERE table_schema=DATABASE() AND table_name='ai_reply_delivery_chunks'
   GROUP BY table_name
@@ -123,6 +123,8 @@ FROM (
   SELECT 'ai_reply_commands','chk_ai_reply_claim_source','(claim_sourcein('''',''wake'',''poll'',''recovery''))' UNION ALL
   SELECT 'ai_reply_commands','chk_ai_reply_delivery_seq','(((cancel_requested_atisnull)and(stop_delivery_seqisnull))or((cancel_requested_atisnotnull)and(stop_delivery_seqisnotnull)and(stop_delivery_seq<=delivery_seq)))' UNION ALL
   SELECT 'ai_messages','chk_ai_messages_delivery_state','(((role=2)and(delivery_statein(''completed'',''stopped'')))or((role<>2)and(delivery_stateisnull)))' UNION ALL
+  SELECT 'ai_reply_delivery_chunks','chk_ai_reply_delivery_chunk_seq','(delivery_seq>0)' UNION ALL
+  SELECT 'ai_reply_delivery_chunks','chk_ai_reply_delivery_chunk_size','((octet_length(delta)>0)and(octet_length(delta)<=16384))' UNION ALL
   SELECT 'ai_video_tasks','chk_ai_video_platform','(regexp_like(platform,''^[a-z][a-z0-9_]{1,48}$'')and(platformnotin(''app'',''canvas''))and(platform<>''all''))'
 ) required
 LEFT JOIN (

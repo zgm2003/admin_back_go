@@ -16,6 +16,7 @@ func TestAIStoppedDeliverySchemaContract(t *testing.T) {
 		t.Fatalf("read stopped delivery migration: %v", err)
 	}
 	migration := string(migrationBytes)
+	schemaVerification := readArchitectureText(t, "database/reconciliation/030_verify_schema.sql")
 	relations := readArchitectureText(t, "database/reconciliation/031_verify_relations.sql")
 
 	commands := hclTableBlock(t, schema, "ai_reply_commands")
@@ -55,6 +56,14 @@ func TestAIStoppedDeliverySchemaContract(t *testing.T) {
 	if !strings.Contains(deliveryChunks, `foreign_key "fk_ai_reply_delivery_chunks_command"`) {
 		t.Error("ai_reply_delivery_chunks missing command foreign key")
 	}
+	for _, required := range []string{
+		`check "chk_ai_reply_delivery_chunk_seq"`,
+		`check "chk_ai_reply_delivery_chunk_size"`,
+	} {
+		if !strings.Contains(deliveryChunks, required) {
+			t.Errorf("ai_reply_delivery_chunks missing %q", required)
+		}
+	}
 
 	for _, required := range []string{
 		"CREATE TEMPORARY TABLE `_ai_stopped_delivery_guard`",
@@ -76,6 +85,20 @@ func TestAIStoppedDeliverySchemaContract(t *testing.T) {
 	if firstDDL := strings.Index(migration, "ALTER TABLE"); firstDDL >= 0 &&
 		strings.Index(migration, "CREATE TEMPORARY TABLE `_ai_stopped_delivery_guard`") > firstDDL {
 		t.Error("stopped delivery guard must precede permanent DDL")
+	}
+	if !strings.Contains(schemaVerification, "ai_reply_delivery_chunks") {
+		t.Error("schema verification missing ai_reply_delivery_chunks")
+	}
+	indexInvariantStart := strings.Index(schemaVerification, "SELECT 'ai_reply_delivery_chunk_indexes'")
+	indexInvariantEnd := -1
+	if indexInvariantStart >= 0 {
+		if relativeEnd := strings.Index(schemaVerification[indexInvariantStart:], "\n\nSELECT "); relativeEnd >= 0 {
+			indexInvariantEnd = indexInvariantStart + relativeEnd
+		}
+	}
+	if indexInvariantStart < 0 || indexInvariantEnd < 0 ||
+		!strings.Contains(schemaVerification[indexInvariantStart:indexInvariantEnd], "COUNT(DISTINCT index_name)") {
+		t.Error("delivery chunk index invariant must count indexes, not composite-key columns")
 	}
 	if !strings.Contains(relations, "fk_ai_reply_delivery_chunks_command") {
 		t.Error("relation verification missing fk_ai_reply_delivery_chunks_command")

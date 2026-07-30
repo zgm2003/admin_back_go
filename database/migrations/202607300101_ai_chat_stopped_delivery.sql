@@ -49,8 +49,8 @@ CREATE TABLE `ai_reply_delivery_chunks` (
   CONSTRAINT `fk_ai_reply_delivery_chunks_command`
     FOREIGN KEY (`command_id`) REFERENCES `ai_reply_commands` (`id`)
     ON UPDATE RESTRICT ON DELETE RESTRICT,
-  CONSTRAINT `chk_ai_reply_delivery_chunks_seq` CHECK (`delivery_seq` > 0),
-  CONSTRAINT `chk_ai_reply_delivery_chunks_delta`
+  CONSTRAINT `chk_ai_reply_delivery_chunk_seq` CHECK (`delivery_seq` > 0),
+  CONSTRAINT `chk_ai_reply_delivery_chunk_size`
     CHECK (OCTET_LENGTH(`delta`) > 0 AND OCTET_LENGTH(`delta`) <= 16384)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
