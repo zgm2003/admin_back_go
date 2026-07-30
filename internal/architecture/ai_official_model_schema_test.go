@@ -90,6 +90,7 @@ func readOfficialModelSchemaFile(t *testing.T, path string) string {
 
 func tableBlock(t *testing.T, hcl string, name string) string {
 	t.Helper()
+	hcl = strings.ReplaceAll(hcl, "\r\n", "\n")
 	start := strings.Index(hcl, `table "`+name+`" {`)
 	if start < 0 {
 		t.Fatalf("missing HCL table %s", name)
