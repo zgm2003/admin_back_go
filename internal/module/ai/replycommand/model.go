@@ -86,6 +86,8 @@ type Command struct {
 	LeaseExpiresAt        *time.Time  `gorm:"column:lease_expires_at"`
 	NextAttemptAt         time.Time   `gorm:"column:next_attempt_at"`
 	CancelRequestedAt     *time.Time  `gorm:"column:cancel_requested_at"`
+	DeliverySeq           uint32      `gorm:"column:delivery_seq"`
+	StopDeliverySeq       *uint32     `gorm:"column:stop_delivery_seq"`
 	OutcomeUnknownAt      *time.Time  `gorm:"column:outcome_unknown_at"`
 	LastErrorCode         string      `gorm:"column:last_error_code"`
 	LastErrorMessage      string      `gorm:"column:last_error_message"`
@@ -101,6 +103,15 @@ type Renewal struct {
 }
 
 func (Command) TableName() string { return "ai_reply_commands" }
+
+type DeliveryChunk struct {
+	CommandID   uint64    `gorm:"column:command_id;primaryKey"`
+	DeliverySeq uint32    `gorm:"column:delivery_seq;primaryKey"`
+	Delta       string    `gorm:"column:delta"`
+	CreatedAt   time.Time `gorm:"column:created_at"`
+}
+
+func (DeliveryChunk) TableName() string { return "ai_reply_delivery_chunks" }
 
 type CreateReplyInput struct {
 	ConversationID        int64
