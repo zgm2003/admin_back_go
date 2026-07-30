@@ -60,7 +60,7 @@
             },
             "type": {
               "enum": [
-                "ai.response.delta.v1",
+                "ai.response.delta.v2",
                 "ai.response.start.v1",
                 "realtime.connected.v1",
                 "realtime.error.v1",
@@ -113,7 +113,7 @@
             },
             "type": {
               "enum": [
-                "ai.response.canceled.v1",
+                "ai.response.canceled.v2",
                 "ai.response.completed.v1",
                 "ai.response.failed.v1",
                 "notification.created.v1"
@@ -167,9 +167,9 @@
     },
     "type": {
       "enum": [
-        "ai.response.canceled.v1",
+        "ai.response.canceled.v2",
         "ai.response.completed.v1",
-        "ai.response.delta.v1",
+        "ai.response.delta.v2",
         "ai.response.failed.v1",
         "ai.response.start.v1",
         "notification.created.v1",

@@ -8,6 +8,11 @@
         "data": {
           "additionalProperties": false,
           "properties": {
+            "assistant_message_id": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            },
             "conversation_id": {
               "format": "int64",
               "minimum": 1,
@@ -22,7 +27,8 @@
           },
           "required": [
             "conversation_id",
-            "request_id"
+            "request_id",
+            "assistant_message_id"
           ],
           "type": "object"
         },
@@ -48,7 +54,7 @@
           "type": "integer"
         },
         "type": {
-          "const": "ai.response.canceled.v1"
+          "const": "ai.response.canceled.v2"
         }
       },
       "required": [
@@ -143,8 +149,14 @@
               "minimum": 1,
               "type": "integer"
             },
+            "delivery_seq": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            },
             "delta": {
-              "maxLength": 65536,
+              "maxLength": 16384,
+              "minLength": 1,
               "type": "string"
             },
             "request_id": {
@@ -157,6 +169,7 @@
           "required": [
             "conversation_id",
             "request_id",
+            "delivery_seq",
             "delta"
           ],
           "type": "object"
@@ -183,7 +196,7 @@
           "type": "integer"
         },
         "type": {
-          "const": "ai.response.delta.v1"
+          "const": "ai.response.delta.v2"
         }
       },
       "required": [

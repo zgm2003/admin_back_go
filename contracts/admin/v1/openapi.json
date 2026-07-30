@@ -306,6 +306,11 @@
       "AIMessageCancelRequest": {
         "additionalProperties": false,
         "properties": {
+          "delivered_seq": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "request_id": {
             "maxLength": 128,
             "minLength": 1,
@@ -313,13 +318,26 @@
           }
         },
         "required": [
-          "request_id"
+          "request_id",
+          "delivered_seq"
         ],
         "type": "object"
       },
       "AIMessageCancelResult": {
         "additionalProperties": false,
         "properties": {
+          "assistant_message_id": {
+            "anyOf": [
+              {
+                "format": "int64",
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "conversation_id": {
             "format": "int64",
             "minimum": 1,
@@ -328,14 +346,22 @@
           "request_id": {
             "type": "string"
           },
+          "settlement_pending": {
+            "type": "boolean"
+          },
           "status": {
-            "const": "stopping",
+            "enum": [
+              "stopped",
+              "already_terminal"
+            ],
             "type": "string"
           }
         },
         "required": [
+          "assistant_message_id",
           "conversation_id",
           "request_id",
+          "settlement_pending",
           "status"
         ],
         "type": "object"
@@ -433,6 +459,20 @@
           "created_at": {
             "type": "string"
           },
+          "delivery_state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "completed",
+                  "stopped"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "id": {
             "format": "int64",
             "minimum": 1,
@@ -476,6 +516,9 @@
               }
             ]
           },
+          "settlement_pending": {
+            "type": "boolean"
+          },
           "updated_at": {
             "type": "string"
           }
@@ -488,6 +531,8 @@
           "paired_message_id",
           "run_id",
           "liked",
+          "delivery_state",
+          "settlement_pending",
           "created_at",
           "updated_at"
         ],
