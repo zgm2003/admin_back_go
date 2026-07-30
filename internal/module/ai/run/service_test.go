@@ -259,6 +259,25 @@ func TestDetailReturnsMessagesAndPersistedEvents(t *testing.T) {
 	}
 }
 
+func TestDetailResponsePublishesContractRequiredErrorCode(t *testing.T) {
+	row := &RunDetailRow{ID: 1, ErrorCode: "provider_timeout"}
+	response, appErr := NewService(&fakeRepository{run: row}).Detail(context.Background(), 1)
+	if appErr != nil {
+		t.Fatalf("Detail returned error: %v", appErr)
+	}
+	encoded, err := json.Marshal(response)
+	if err != nil {
+		t.Fatalf("marshal detail response: %v", err)
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &payload); err != nil {
+		t.Fatalf("decode detail response: %v", err)
+	}
+	if got := string(payload["error_code"]); got != `"provider_timeout"` {
+		t.Fatalf("detail response error_code=%s, want provider_timeout; payload=%s", got, encoded)
+	}
+}
+
 func TestRunDetailBuildsLatencyBreakdownFromDurableTimeline(t *testing.T) {
 	received := time.Date(2026, 7, 28, 12, 0, 0, 0, time.UTC)
 	accepted := received.Add(20 * time.Millisecond)

@@ -40,6 +40,23 @@ func TestRunDetailRowMarksMessageSummariesIgnoredByGorm(t *testing.T) {
 	}
 }
 
+func TestRunDetailReadsErrorCodeFromSameFinalAttemptAsList(t *testing.T) {
+	db, mock, closeDB := newRunRepositorySQLMock(t)
+	defer closeDB()
+	repository := &GormRepository{db: db}
+
+	mock.ExpectQuery(`(?s)SELECT .*COALESCE\(final_attempt\.error_code, ''\) AS error_code.*FROM ai_runs r.*LEFT JOIN ai_provider_attempts final_attempt.*newer_attempt\.attempt_no > final_attempt\.attempt_no.*WHERE r\.id = \?`).
+		WithArgs(int64(44)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "error_code"}))
+
+	if _, err := repository.Detail(context.Background(), 44); err != nil {
+		t.Fatalf("Detail returned error: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("detail query must project the final terminal attempt error code: %v", err)
+	}
+}
+
 func TestBillingDetailUsesThreeBoundedQueries(t *testing.T) {
 	sqlDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	if err != nil {

@@ -116,12 +116,13 @@ func (r *GormRepository) Detail(ctx context.Context, id int64) (*RunDetailRow, e
 	var row RunDetailRow
 	err := r.runsBase(ctx).
 		Joins("LEFT JOIN ai_reply_commands rc ON rc.user_id = r.user_id AND rc.request_id = r.request_id").
+		Joins(runListFinalAttemptJoinSQL).
 		Select(`r.id, r.request_id, r.user_id, COALESCE(u.username, '') as username,
 			r.agent_id, COALESCE(a.name, '') as agent_name,
 			r.provider_id, COALESCE(p.name, '') as provider_name,
 			r.platform, r.input_snapshot,
 			r.conversation_id, COALESCE(c.title, '') as conversation_title,
-			r.status, r.model_id, r.model_display_name,
+			r.status, r.model_id, r.model_display_name, COALESCE(final_attempt.error_code, '') AS error_code,
 			r.prompt_tokens, r.completion_tokens, r.total_tokens, r.duration_ms, r.error_message,
 			r.pricing_snapshot_json, r.billing_status, r.billing_reason,
 			r.started_at, r.finished_at, r.settled_at, r.liked_at, r.created_at, r.updated_at,

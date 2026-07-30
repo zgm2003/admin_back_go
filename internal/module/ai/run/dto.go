@@ -190,6 +190,7 @@ type DetailResponse struct {
 	TotalTokens         uint                     `json:"total_tokens"`
 	DurationMS          *uint                    `json:"duration_ms"`
 	DurationText        string                   `json:"duration_text"`
+	ErrorCode           string                   `json:"error_code"`
 	ErrorMessage        string                   `json:"error_message"`
 	BillingStatus       string                   `json:"billing_status"`
 	BillingReason       string                   `json:"billing_reason"`
@@ -321,6 +322,7 @@ type RunDetailRow struct {
 	Status              string
 	ModelID             string
 	ModelDisplayName    string
+	ErrorCode           string
 	PromptTokens        uint
 	CompletionTokens    uint
 	TotalTokens         uint
