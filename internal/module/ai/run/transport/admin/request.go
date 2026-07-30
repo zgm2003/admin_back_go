@@ -21,6 +21,7 @@ type listRequest struct {
 	ToolCode       string `form:"tool_code" binding:"omitempty,max=128"`
 	RunAnomaly     string `form:"run_anomaly" binding:"omitempty,max=32"`
 	BillingAnomaly string `form:"billing_anomaly" binding:"omitempty,max=32"`
+	UserFeedback   string `form:"user_feedback" binding:"omitempty,oneof=liked unliked"`
 	AnomalyAsOf    string `form:"anomaly_as_of" binding:"omitempty,max=64"`
 	DateStart      string `form:"date_start" binding:"omitempty,max=20"`
 	DateEnd        string `form:"date_end" binding:"omitempty,max=20"`

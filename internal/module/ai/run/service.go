@@ -244,6 +244,7 @@ func normalizeListQuery(query ListQuery, now time.Time) (ListQuery, *apperror.Er
 	query.ToolCode = strings.TrimSpace(query.ToolCode)
 	query.RunAnomaly = strings.TrimSpace(query.RunAnomaly)
 	query.BillingAnomaly = strings.TrimSpace(query.BillingAnomaly)
+	query.UserFeedback = strings.TrimSpace(query.UserFeedback)
 
 	if query.Status != "" && !enum.IsAIRunStatus(query.Status) {
 		return ListQuery{}, apperror.BadRequest("无效的AI运行状态")
@@ -268,6 +269,9 @@ func normalizeListQuery(query ListQuery, now time.Time) (ListQuery, *apperror.Er
 	}
 	if query.BillingAnomaly != "" && !isDashboardBillingAnomaly(query.BillingAnomaly) {
 		return ListQuery{}, apperror.BadRequest("无效的AI计费异常分类")
+	}
+	if query.UserFeedback != "" && !isRunUserFeedback(query.UserFeedback) {
+		return ListQuery{}, apperror.BadRequest("无效的AI运行用户反馈")
 	}
 	if appErr := validateDashboardID("agent_id", query.AgentID); appErr != nil {
 		return ListQuery{}, appErr
@@ -389,6 +393,10 @@ func isDashboardRunAnomaly(value string) bool {
 	}
 }
 
+func isRunUserFeedback(value string) bool {
+	return value == "liked" || value == "unliked"
+}
+
 func isDashboardBillingAnomaly(value string) bool {
 	switch value {
 	case "state_inconsistent", "open_overdue", "pricing_snapshot_missing", "legacy_unpriced", "unbilled_usage_incomplete", "unbilled_over_hold":
@@ -408,6 +416,7 @@ func listItem(row ListRow) ListItem {
 		Status: row.Status, StatusName: enum.AIRunStatusLabels[row.Status],
 		ModelID: row.ModelID, ModelDisplayName: row.ModelDisplayName,
 		BillingStatus: row.BillingStatus, BillingReason: row.BillingReason, ErrorCode: row.ErrorCode,
+		Liked: row.LikedAt != nil, LikedAt: formatOptionalTimePointer(row.LikedAt),
 		PromptTokens: row.PromptTokens, CompletionTokens: row.CompletionTokens, TotalTokens: row.TotalTokens,
 		DurationMS: row.DurationMS, DurationText: durationString(row.DurationMS), ErrorMessage: row.ErrorMessage,
 		CreatedAt: formatTime(row.CreatedAt),

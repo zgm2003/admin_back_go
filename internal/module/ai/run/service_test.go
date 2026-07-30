@@ -173,6 +173,33 @@ func TestRunListReturnsBillingFactsAndFinalAttemptErrorCode(t *testing.T) {
 	}
 }
 
+func TestRunListNormalizesUserFeedbackAndReturnsLikedFacts(t *testing.T) {
+	likedAt := time.Date(2026, 7, 30, 10, 11, 12, 0, time.FixedZone("Asia/Shanghai", 8*60*60))
+	repository := &fakeRepository{rows: []ListRow{{ID: 9, LikedAt: &likedAt}}}
+
+	response, appErr := NewService(repository).List(context.Background(), ListQuery{UserFeedback: " liked "})
+	if appErr != nil {
+		t.Fatalf("List returned error: %v", appErr)
+	}
+	if repository.listQuery.UserFeedback != "liked" {
+		t.Fatalf("normalized user feedback=%q", repository.listQuery.UserFeedback)
+	}
+	if len(response.List) != 1 || !response.List[0].Liked || response.List[0].LikedAt == nil || *response.List[0].LikedAt != "2026-07-30 10:11:12" {
+		t.Fatalf("list feedback facts=%+v", response.List)
+	}
+}
+
+func TestRunListRejectsUnknownUserFeedback(t *testing.T) {
+	repository := &fakeRepository{}
+	response, appErr := NewService(repository).List(context.Background(), ListQuery{UserFeedback: "thumbs_up"})
+	if response != nil || appErr == nil || appErr.HTTPStatus != 400 {
+		t.Fatalf("response=%#v error=%#v", response, appErr)
+	}
+	if repository.listQuery.UserFeedback != "" {
+		t.Fatalf("invalid user feedback reached repository: %+v", repository.listQuery)
+	}
+}
+
 func TestRunListUsesDashboardHalfOpenDateRangeForExactDrilldown(t *testing.T) {
 	repository := &fakeRepository{}
 	service := NewService(repository, WithClock(clock.Func(func() time.Time { return dashboardFixedNow(t) })))

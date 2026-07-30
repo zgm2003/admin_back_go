@@ -52,6 +52,7 @@ type ListQuery struct {
 	ToolCode       string
 	RunAnomaly     string
 	BillingAnomaly string
+	UserFeedback   string
 	AnomalyAsOf    string
 	DateStart      string
 	DateEnd        string
@@ -74,31 +75,33 @@ type ListResponse struct {
 }
 
 type ListItem struct {
-	ID                int64  `json:"id"`
-	RequestID         string `json:"request_id"`
-	UserID            int64  `json:"user_id"`
-	AgentID           int64  `json:"agent_id"`
-	AgentName         string `json:"agent_name"`
-	ProviderID        int64  `json:"provider_id"`
-	ProviderName      string `json:"provider_name"`
-	Platform          string `json:"platform"`
-	InputSnapshot     string `json:"input_snapshot"`
-	ConversationID    *int64 `json:"conversation_id"`
-	ConversationTitle string `json:"conversation_title"`
-	Status            string `json:"status"`
-	StatusName        string `json:"status_name"`
-	ModelID           string `json:"model_id"`
-	ModelDisplayName  string `json:"model_display_name"`
-	BillingStatus     string `json:"billing_status"`
-	BillingReason     string `json:"billing_reason"`
-	ErrorCode         string `json:"error_code"`
-	PromptTokens      uint   `json:"prompt_tokens"`
-	CompletionTokens  uint   `json:"completion_tokens"`
-	TotalTokens       uint   `json:"total_tokens"`
-	DurationMS        *uint  `json:"duration_ms"`
-	DurationText      string `json:"duration_text"`
-	ErrorMessage      string `json:"error_message"`
-	CreatedAt         string `json:"created_at"`
+	ID                int64   `json:"id"`
+	RequestID         string  `json:"request_id"`
+	UserID            int64   `json:"user_id"`
+	AgentID           int64   `json:"agent_id"`
+	AgentName         string  `json:"agent_name"`
+	ProviderID        int64   `json:"provider_id"`
+	ProviderName      string  `json:"provider_name"`
+	Platform          string  `json:"platform"`
+	InputSnapshot     string  `json:"input_snapshot"`
+	ConversationID    *int64  `json:"conversation_id"`
+	ConversationTitle string  `json:"conversation_title"`
+	Status            string  `json:"status"`
+	StatusName        string  `json:"status_name"`
+	ModelID           string  `json:"model_id"`
+	ModelDisplayName  string  `json:"model_display_name"`
+	BillingStatus     string  `json:"billing_status"`
+	BillingReason     string  `json:"billing_reason"`
+	ErrorCode         string  `json:"error_code"`
+	Liked             bool    `json:"liked"`
+	LikedAt           *string `json:"liked_at"`
+	PromptTokens      uint    `json:"prompt_tokens"`
+	CompletionTokens  uint    `json:"completion_tokens"`
+	TotalTokens       uint    `json:"total_tokens"`
+	DurationMS        *uint   `json:"duration_ms"`
+	DurationText      string  `json:"duration_text"`
+	ErrorMessage      string  `json:"error_message"`
+	CreatedAt         string  `json:"created_at"`
 }
 
 type MessageSummary struct {
@@ -298,6 +301,7 @@ type ListRow struct {
 	BillingStatus     string
 	BillingReason     string
 	ErrorCode         string
+	LikedAt           *time.Time
 	PromptTokens      uint
 	CompletionTokens  uint
 	TotalTokens       uint

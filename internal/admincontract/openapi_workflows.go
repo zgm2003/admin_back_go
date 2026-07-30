@@ -193,6 +193,7 @@ func aiRunListQueryParameters() []map[string]any {
 		queryParameter("run_anomaly", false, stringEnumSchema("failed", "timeout", "outcome_unknown", "stale_running"), "Run anomaly drilldown filter."),
 		queryParameter("status", false, stringEnumSchema("running", "success", "failed", "canceled", "timeout", "outcome_unknown"), "Run status filter."),
 		queryParameter("tool_code", false, maxStringSchema(128), "Tool code drilldown filter."),
+		queryParameter("user_feedback", false, stringEnumSchema("liked", "unliked"), "Persisted user feedback filter."),
 		queryParameter("user_id", false, positiveIntegerSchema(), "User ID filter."),
 	}
 }

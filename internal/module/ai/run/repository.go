@@ -88,7 +88,7 @@ func runListSelectSQL() string {
 		r.conversation_id, COALESCE(c.title, '') as conversation_title,
 		r.status, r.model_id, r.model_display_name,
 		r.billing_status, r.billing_reason, COALESCE(final_attempt.error_code, '') AS error_code,
-		r.prompt_tokens, r.completion_tokens, r.total_tokens, r.duration_ms, r.error_message, r.created_at`
+		r.liked_at, r.prompt_tokens, r.completion_tokens, r.total_tokens, r.duration_ms, r.error_message, r.created_at`
 }
 
 func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]ListRow, int64, error) {
@@ -318,6 +318,12 @@ func applyListFilters(db *gorm.DB, query ListQuery) *gorm.DB {
 	}
 	if query.BillingAnomaly != "" {
 		db = db.Where("("+dashboardBillingAnomalyCaseSQL()+") = ?", query.StaleBefore, query.BillingAnomaly)
+	}
+	switch query.UserFeedback {
+	case "liked":
+		db = db.Where("r.liked_at IS NOT NULL")
+	case "unliked":
+		db = db.Where("r.liked_at IS NULL")
 	}
 	if !query.StartAt.IsZero() {
 		db = db.Where("r.created_at >= ?", query.StartAt)

@@ -23,6 +23,8 @@ type dashboardHTTPService struct {
 	dashboardResult *airunmodule.DashboardResponse
 	dashboardErr    *apperror.Error
 	pageInitFilter  airunmodule.PageInitFilter
+	listQuery       airunmodule.ListQuery
+	listCalls       int
 }
 
 func (service *dashboardHTTPService) Dashboard(_ context.Context, filter airunmodule.DashboardFilter) (*airunmodule.DashboardResponse, *apperror.Error) {
@@ -34,6 +36,37 @@ func (service *dashboardHTTPService) Dashboard(_ context.Context, filter airunmo
 func (service *dashboardHTTPService) PageInit(_ context.Context, filter airunmodule.PageInitFilter) (*airunmodule.InitResponse, *apperror.Error) {
 	service.pageInitFilter = filter
 	return &airunmodule.InitResponse{}, nil
+}
+
+func (service *dashboardHTTPService) List(_ context.Context, query airunmodule.ListQuery) (*airunmodule.ListResponse, *apperror.Error) {
+	service.listCalls++
+	service.listQuery = query
+	return &airunmodule.ListResponse{}, nil
+}
+
+func TestRunListHandlerBindsAndValidatesUserFeedback(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, test := range []struct {
+		name       string
+		query      string
+		wantStatus int
+		wantValue  string
+		wantCalls  int
+	}{
+		{name: "liked", query: "liked", wantStatus: http.StatusOK, wantValue: "liked", wantCalls: 1},
+		{name: "unknown", query: "thumbs_up", wantStatus: http.StatusBadRequest, wantCalls: 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			service := &dashboardHTTPService{}
+			router := gin.New()
+			router.GET("/api/admin/v1/ai-runs", NewHandler(service).List)
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/admin/v1/ai-runs?user_feedback="+test.query, nil))
+			if recorder.Code != test.wantStatus || service.listCalls != test.wantCalls || service.listQuery.UserFeedback != test.wantValue {
+				t.Fatalf("status=%d body=%s calls=%d query=%+v", recorder.Code, recorder.Body.String(), service.listCalls, service.listQuery)
+			}
+		})
+	}
 }
 
 func TestDashboardHandlerBindsEveryFilterAndReturnsCompleteResponse(t *testing.T) {

@@ -145,6 +145,22 @@ func TestRunListFiltersRunsContainingToolCodeWithoutDuplicateRows(t *testing.T) 
 	}
 }
 
+func TestRunListProjectsAndFiltersPersistedUserFeedback(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		userFeedback string
+		wantSQL      string
+	}{
+		{name: "liked", userFeedback: "liked", wantSQL: "r.liked_at is not null"},
+		{name: "unliked", userFeedback: "unliked", wantSQL: "r.liked_at is null"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			sql := renderRunListQuerySQL(t, ListQuery{UserFeedback: test.userFeedback})
+			assertDashboardSQLContains(t, sql, "r.liked_at", test.wantSQL)
+		})
+	}
+}
+
 func TestRunListBillingAnomalyBindsEachPlaceholderOnce(t *testing.T) {
 	staleBefore := time.Date(2026, 7, 30, 9, 45, 0, 0, time.FixedZone("Asia/Shanghai", 8*60*60))
 	statement := renderRunListQueryStatement(t, ListQuery{

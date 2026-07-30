@@ -41,7 +41,7 @@ func (h *Handler) List(c *gin.Context) {
 		UserID: req.UserID, RequestID: req.RequestID, AgentID: req.AgentID, ProviderID: req.ProviderID,
 		ModelID: req.ModelID, BillingStatus: req.BillingStatus, BillingReason: req.BillingReason,
 		ErrorCode: req.ErrorCode, ToolCode: req.ToolCode, RunAnomaly: req.RunAnomaly,
-		BillingAnomaly: req.BillingAnomaly, AnomalyAsOf: req.AnomalyAsOf,
+		BillingAnomaly: req.BillingAnomaly, UserFeedback: req.UserFeedback, AnomalyAsOf: req.AnomalyAsOf,
 		DateStart: req.DateStart, DateEnd: req.DateEnd,
 	})
 	writeResult(c, res, appErr)

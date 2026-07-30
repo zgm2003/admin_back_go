@@ -233,6 +233,8 @@ func aiRunListItemProperties() map[string]any {
 			"released_provider_failed", "released_outcome_unknown", "unbilled_usage_incomplete", "unbilled_over_hold", "legacy_unpriced",
 		),
 		"error_code":        stringSchema(),
+		"liked":             booleanSchema(),
+		"liked_at":          nullableSchema(stringSchema()),
 		"prompt_tokens":     nonNegativeIntegerSchema(),
 		"completion_tokens": nonNegativeIntegerSchema(),
 		"total_tokens":      nonNegativeIntegerSchema(),

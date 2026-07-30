@@ -225,7 +225,7 @@ func TestWorkflowOperationsUseFieldCompleteContracts(t *testing.T) {
 		{method: "put", path: "/api/admin/v1/ai-conversations/{id}/read-cursor", operationID: "put_api_admin_v1_ai_conversations_id_read_cursor", responseStatus: "200", responseSchema: "AIConversationReadCursorSuccessEnvelope", requestSchema: "AIConversationReadCursorRequest", requestRequired: true, positivePathIDs: []string{"id"}},
 
 		{method: "get", path: "/api/admin/v1/ai-runs/page-init", responseStatus: "200", responseSchema: "AIRunPageInitSuccessEnvelope", queryParameters: []string{"date_end", "date_start"}},
-		{method: "get", path: "/api/admin/v1/ai-runs", responseStatus: "200", responseSchema: "AIRunListSuccessEnvelope", queryParameters: []string{"agent_id", "anomaly_as_of", "billing_anomaly", "billing_reason", "billing_status", "current_page", "date_end", "date_start", "error_code", "model_id", "page_size", "platform", "provider_id", "request_id", "run_anomaly", "status", "tool_code", "user_id"}},
+		{method: "get", path: "/api/admin/v1/ai-runs", responseStatus: "200", responseSchema: "AIRunListSuccessEnvelope", queryParameters: []string{"agent_id", "anomaly_as_of", "billing_anomaly", "billing_reason", "billing_status", "current_page", "date_end", "date_start", "error_code", "model_id", "page_size", "platform", "provider_id", "request_id", "run_anomaly", "status", "tool_code", "user_feedback", "user_id"}},
 		{method: "get", path: "/api/admin/v1/ai-runs/dashboard", responseStatus: "200", responseSchema: "AIRunDashboardSuccessEnvelope", queryParameters: []string{"agent_id", "date_end", "date_start", "model_id", "platform", "provider_id", "user_id"}},
 		{method: "get", path: "/api/admin/v1/ai-runs/{id}", responseStatus: "200", responseSchema: "AIRunDetailSuccessEnvelope", positivePathIDs: []string{"id"}},
 		{method: "put", path: "/api/admin/v1/ai-runs/{id}/user-feedback", operationID: "put_api_admin_v1_ai_runs_id_user_feedback", responseStatus: "200", responseSchema: "AIRunUserFeedbackSuccessEnvelope", requestSchema: "AIRunUserFeedbackRequest", requestRequired: true, positivePathIDs: []string{"id"}},
@@ -247,6 +247,7 @@ func TestWorkflowOperationsUseFieldCompleteContracts(t *testing.T) {
 		})
 	}
 	assertQueryStringEnum(t, document.Paths["/api/admin/v1/ai-runs"]["get"], "status", []string{"running", "success", "failed", "canceled", "timeout", "outcome_unknown"})
+	assertQueryStringEnum(t, document.Paths["/api/admin/v1/ai-runs"]["get"], "user_feedback", []string{"liked", "unliked"})
 }
 
 func TestWorkflowSchemasCloseBusinessFieldsAndDeclareNullability(t *testing.T) {
@@ -670,7 +671,7 @@ func TestAIRunPageInitAndListPublishDashboardDrilldownContract(t *testing.T) {
 	assertOperationParameters(t, list, []string{
 		"agent_id", "anomaly_as_of", "billing_anomaly", "billing_reason", "billing_status", "current_page",
 		"date_end", "date_start", "error_code", "model_id", "page_size", "platform", "provider_id",
-		"request_id", "run_anomaly", "status", "tool_code", "user_id",
+		"request_id", "run_anomaly", "status", "tool_code", "user_feedback", "user_id",
 	}, nil, nil)
 	anomalyAsOf := operationQueryParameter(t, list, "anomaly_as_of")["schema"].(map[string]any)
 	if anomalyAsOf["format"] != "date-time" {
@@ -680,7 +681,8 @@ func TestAIRunPageInitAndListPublishDashboardDrilldownContract(t *testing.T) {
 	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIRunPageInitModelOption", "historical", "label", "value")
 	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIRunPageInitDict",
 		"agentArr", "billing_reason_arr", "billing_status_arr", "model_arr", "platform_arr", "providerArr", "status_arr")
-	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIRunListItem", "billing_reason", "billing_status", "error_code")
+	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIRunListItem", "billing_reason", "billing_status", "error_code", "liked", "liked_at")
+	assertNullableProperty(t, document.Components.Schemas["AIRunListItem"], "liked_at")
 }
 
 func operationQueryParameter(t *testing.T, operation map[string]any, name string) map[string]any {
