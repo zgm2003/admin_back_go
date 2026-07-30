@@ -382,7 +382,7 @@ try {
     '-conversation-id',[string]$conversationID,'-request-id',$request3
   ) | Out-Null
   Wait-ForCommandState -CommandID $command3 -State 'canceled' -TimeoutSeconds 45
-  Assert-CommandCardinality -CommandID $command3 -State 'canceled' -AssistantCount 0 -EventCount 1 -AttemptCount 1
+  Assert-CommandCardinality -CommandID $command3 -State 'canceled' -AssistantCount 1 -EventCount 1 -AttemptCount 1
 
   $replay = Invoke-Fixture -Arguments @('-mode','resume','-user-id',[string]$userID,'-after-sequence','0')
   if ([int]$replay.count -ne 3 -or [bool]$replay.resync_required) {

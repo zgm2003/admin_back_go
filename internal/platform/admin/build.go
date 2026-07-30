@@ -283,27 +283,28 @@ func Build(input BuildInput) (*BuildResult, error) {
 	operationRepository := operationlog.NewGormRepository(resources.DB)
 	operationService := operationlog.NewService(operationRepository)
 	notificationService := notification.NewService(notification.NewGormRepository(resources.DB))
-
-	aiChatService, err := aichat.NewRuntimeService(aichat.Dependencies{
-		Repository:       aichat.NewGormRepository(resources.DB),
-		Publisher:        publisher,
-		Secretbox:        providers.Secretbox,
-		EngineFactory:    providers.AIChatFactory,
-		ToolRuntime:      aiToolService,
-		KnowledgeRuntime: knowledgeRuntimeAdapter{service: aiKnowledgeService},
-		RunRecorder:      aiRunRecorder,
-		TextGeneration:   aiTextService,
-		PricingResolver:  aiOfficialModelResolver,
-		RunStaleTimeout:  cfg.AI.RunStaleTimeout,
-		Logger:           logger,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("build admin AI chat service: %w", err)
-	}
 	aiReplyRepository := replycommand.NewGormRepository(
 		resources.DB,
 		replycommand.WithDurableEventSink(realtimeEventSink),
 	)
+
+	aiChatService, err := aichat.NewRuntimeService(aichat.Dependencies{
+		Repository:        aichat.NewGormRepository(resources.DB),
+		DeliveryCommitter: replyDeliveryCommitter{repository: aiReplyRepository},
+		Publisher:         publisher,
+		Secretbox:         providers.Secretbox,
+		EngineFactory:     providers.AIChatFactory,
+		ToolRuntime:       aiToolService,
+		KnowledgeRuntime:  knowledgeRuntimeAdapter{service: aiKnowledgeService},
+		RunRecorder:       aiRunRecorder,
+		TextGeneration:    aiTextService,
+		PricingResolver:   aiOfficialModelResolver,
+		RunStaleTimeout:   cfg.AI.RunStaleTimeout,
+		Logger:            logger,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("build admin AI chat service: %w", err)
+	}
 	aiMessageService := aimessage.NewService(
 		aimessage.NewGormRepository(
 			resources.DB,

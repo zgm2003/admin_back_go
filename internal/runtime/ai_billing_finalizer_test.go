@@ -339,12 +339,12 @@ func TestDeriveChatFinalizationTriggerUsesOnlyPersistedFacts(t *testing.T) {
 			want: aigateway.TriggerOutcomeUnknown,
 		},
 		{
-			name:    "outcome unknown beats user stop",
+			name:    "user stop beats outcome unknown",
 			command: replycommand.Command{CancelRequestedAt: nonNilTime()},
 			attempts: []replycommand.Attempt{{
 				ID: 7, State: replycommand.AttemptOutcomeUnknown, DispatchState: "unknown",
 			}},
-			want: aigateway.TriggerOutcomeUnknown,
+			want: aigateway.TriggerUserStop,
 		},
 		{
 			name:    "terminal provider failure marker",

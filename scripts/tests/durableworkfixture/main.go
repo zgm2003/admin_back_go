@@ -212,7 +212,13 @@ func cancelReply(ctx context.Context, client *database.Client, input options) (m
 	events := modulerealtime.NewGormRepository(client, modulerealtime.DefaultRegistry())
 	sink := modulerealtime.NewDurableEventSink(events, infrarealtime.NoopPublisher{}, slog.Default())
 	repository := replycommand.NewGormRepository(client, replycommand.WithDurableEventSink(sink))
-	command, err := repository.RequestCancel(ctx, input.conversationID, input.userID, input.requestID, time.Now().UTC())
+	result, err := repository.RequestCancel(ctx, replycommand.RequestCancelInput{
+		ConversationID: input.conversationID,
+		UserID:         input.userID,
+		RequestID:      input.requestID,
+		DeliveredSeq:   0,
+		Now:            time.Now().UTC(),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -225,10 +231,16 @@ func cancelReply(ctx context.Context, client *database.Client, input options) (m
 		return nil, err
 	}
 	defer func() { _ = redis.Close() }()
-	if err := replycommand.NewRedisCancelPublisher(redis).PublishCancel(ctx, input.commandID); err != nil {
+	if err := replycommand.NewRedisCancelPublisher(redis).PublishCancel(ctx, result.CommandID); err != nil {
 		return nil, err
 	}
-	return map[string]any{"command_id": command.ID, "state": command.State}, nil
+	return map[string]any{
+		"command_id": result.CommandID, "status": result.Status,
+		"assistant_message_id": result.AssistantMessageID,
+		"settlement_pending":   result.SettlementPending,
+		"delivery_consistent":  result.DeliveryConsistent,
+		"stop_delivery_seq":    result.StopDeliverySeq,
+	}, nil
 }
 
 func resumeEvents(ctx context.Context, client *database.Client, userID int64, after uint64) (map[string]any, error) {

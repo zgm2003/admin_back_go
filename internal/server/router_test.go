@@ -3422,7 +3422,7 @@ func TestRouterInstallsAIRuntimeRESTRoutes(t *testing.T) {
 		{http.MethodDelete, "/api/admin/v1/ai-conversations/1", ""},
 		{http.MethodGet, "/api/admin/v1/ai-conversations/1/messages", ""},
 		{http.MethodPost, "/api/admin/v1/ai-conversations/1/messages", `{"content":"hello","request_id":"rid"}`},
-		{http.MethodPost, "/api/admin/v1/ai-conversations/1/messages/cancel", `{"request_id":"rid"}`},
+		{http.MethodPost, "/api/admin/v1/ai-conversations/1/messages/cancel", `{"request_id":"rid","delivered_seq":0}`},
 	}
 	for _, route := range aiRunReadRouteCases() {
 		cases = append(cases, struct{ method, path, body string }{http.MethodGet, route.requestPath, ""})

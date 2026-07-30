@@ -27,9 +27,6 @@ import (
 )
 
 func deriveChatFinalizationTrigger(command replycommand.Command, attempts []replycommand.Attempt) (aigateway.FinalizationTrigger, error) {
-	if len(attempts) > 0 && attempts[len(attempts)-1].State == replycommand.AttemptOutcomeUnknown {
-		return aigateway.TriggerOutcomeUnknown, nil
-	}
 	if command.CancelRequestedAt != nil {
 		for _, attempt := range attempts {
 			if strings.TrimSpace(attempt.DispatchState) == "dispatched" || strings.TrimSpace(attempt.DispatchState) == "unknown" {

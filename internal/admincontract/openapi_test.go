@@ -376,7 +376,7 @@ func TestWorkflowSchemasCloseBusinessFieldsAndDeclareNullability(t *testing.T) {
 	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIMessageCancelRequest", "request_id", "delivered_seq")
 	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIMessageCancelResult", "conversation_id", "request_id", "status", "assistant_message_id", "settlement_pending")
 	assertNullableProperty(t, document.Components.Schemas["AIMessageCancelResult"], "assistant_message_id")
-	assertSchemaPropertyStringEnum(t, document.Components.Schemas, "AIMessageCancelResult", "status", []string{"already_terminal", "stopped"})
+	assertSchemaPropertyStringEnum(t, document.Components.Schemas, "AIMessageCancelResult", "status", []string{"stopped", "already_terminal"})
 	deliveryState := document.Components.Schemas["AIMessageItem"]["properties"].(map[string]any)["delivery_state"].(map[string]any)
 	deliveryVariants := deliveryState["anyOf"].([]any)
 	if len(deliveryVariants) != 2 || !equalJSONValues(deliveryVariants[0].(map[string]any)["enum"], []any{"completed", "stopped"}) {
