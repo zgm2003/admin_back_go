@@ -290,6 +290,99 @@ func TestHistoryRegenerationRejectsMissingPairWithoutMutation(t *testing.T) {
 	mock.ExpectClose()
 }
 
+func TestHistoryActiveStoppedReplyRejectsRegenerationAndDelete(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		run  func(*GormRepository) error
+	}{
+		{
+			name: "regenerate",
+			run: func(repository *GormRepository) error {
+				_, err := repository.Regenerate(context.Background(), RegenerateInput{
+					UserID: 7, ConversationID: 3, AssistantMessageID: 97, RequestID: "regen-1",
+				})
+				return err
+			},
+		},
+		{
+			name: "delete",
+			run: func(repository *GormRepository) error {
+				_, err := repository.DeleteMessages(context.Background(), DeleteInput{
+					UserID: 7, ConversationID: 3, IDs: []int64{97},
+				})
+				return err
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			db, mock, cleanup := newMessageMockDB(t)
+			defer cleanup()
+			repository := &GormRepository{db: db, history: &fakeHistoryParticipant{}, pricing: testMessagePricingResolver()}
+
+			mock.ExpectBegin()
+			mock.ExpectQuery("SELECT .* FROM `ai_reply_commands`.*state IN.*LIMIT \\?$").
+				WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(61))
+			mock.ExpectRollback()
+
+			if err := test.run(repository); !errors.Is(err, ErrHistoryActiveCommand) {
+				t.Fatalf("active stopped reply error=%v", err)
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatal(err)
+			}
+			mock.ExpectClose()
+		})
+	}
+}
+
+func TestRegenerateStoppedMessageAfterTerminalCommand(t *testing.T) {
+	db, mock, cleanup := newMessageMockDB(t)
+	defer cleanup()
+	now := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
+	participant := &fakeHistoryParticipant{createResult: replycommand.CreateReplyResult{
+		UserMessageID: 101, CommandID: 102, RunID: 103, ChargeID: 104, RequestID: "regen-1", State: replycommand.StatePending,
+	}}
+	repository := &GormRepository{db: db, history: participant, pricing: testMessagePricingResolver(), now: func() time.Time { return now }}
+
+	mock.ExpectBegin()
+	expectNoActiveHistoryCommand(mock, false)
+	expectOwnedConversationLock(mock)
+	expectNoActiveHistoryCommand(mock, true)
+	expectHistoryRuntime(mock, true)
+	mock.ExpectQuery("SELECT COALESCE\\(MAX\\(id\\), 0\\).*FROM `ai_messages`").
+		WillReturnRows(sqlmock.NewRows([]string{"max_id"}).AddRow(97))
+	mock.ExpectQuery("SELECT .* FROM `ai_messages`.*FOR UPDATE").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "conversation_id", "role", "content_type", "content", "reply_command_id", "delivery_state", "is_del", "created_at", "updated_at",
+		}).AddRow(97, 3, enum.AIMessageRoleAssistant, "text", "1234", 61, replycommand.DeliveryStateStopped, enum.CommonNo, now.Add(-time.Minute), now.Add(-time.Minute)))
+	mock.ExpectQuery("SELECT .* FROM `ai_reply_commands`.*FOR UPDATE").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "user_id", "conversation_id", "user_message_id", "assistant_message_id", "state", "finished_at",
+		}).AddRow(61, 7, 3, 41, 97, replycommand.StateCanceled, now.Add(-time.Minute)))
+	mock.ExpectQuery("SELECT .* FROM `ai_messages`.*FOR UPDATE").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "conversation_id", "role", "content_type", "content", "is_del", "created_at", "updated_at",
+		}).AddRow(41, 3, enum.AIMessageRoleUser, "text", "count", enum.CommonNo, now.Add(-2*time.Minute), now.Add(-2*time.Minute)))
+	mock.ExpectExec("UPDATE `ai_messages` SET .*`is_del`=\\?.*conversation_id = \\? AND is_del = \\? AND id >= \\? AND id <= \\?").
+		WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectExec("UPDATE `ai_conversations` SET").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	accepted, err := repository.Regenerate(context.Background(), RegenerateInput{
+		UserID: 7, ConversationID: 3, AssistantMessageID: 97, RequestID: "regen-1",
+	})
+	if err != nil || accepted.Reply.CommandID != 102 || accepted.Replayed {
+		t.Fatalf("accepted=%+v err=%v", accepted, err)
+	}
+	if participant.created.Identity.Operation != HistoryOperationRegeneration || participant.created.Identity.SourceMessageID != 97 || participant.created.Content != "count" {
+		t.Fatalf("regeneration input=%+v", participant.created)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+	mock.ExpectClose()
+}
+
 func TestHistoryDeleteSoftDeletesOnlySubmittedIDsAndPreservesAuditTables(t *testing.T) {
 	db, mock, cleanup := newMessageMockDB(t)
 	defer cleanup()

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	infraai "admin_back_go/internal/infra/ai"
+	"admin_back_go/internal/infra/database"
 	"admin_back_go/internal/module/ai/aigateway"
 	"admin_back_go/internal/module/ai/billing"
 	aichat "admin_back_go/internal/module/ai/chat"
@@ -18,6 +19,7 @@ import (
 	"admin_back_go/internal/module/ai/replycommand"
 	airun "admin_back_go/internal/module/ai/run"
 	walletmodule "admin_back_go/internal/module/payment/wallet"
+	modulerealtime "admin_back_go/internal/module/realtime"
 	"admin_back_go/internal/shared/enum"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -98,6 +100,120 @@ func TestFinalizationWritesSettledAtInTerminalTransaction(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCanceledChatFinalizationWritesStoppedAssistantMessageID(t *testing.T) {
+	db, mock, closeDB := newFinalizerMockDB(t)
+	defer closeDB()
+	now := time.Date(2026, 7, 28, 11, 0, 3, 123456000, time.UTC)
+	startedAt := now.Add(-time.Second)
+	mock.ExpectExec("UPDATE `ai_runs` SET").
+		WithArgs(
+			int64(97), billing.BillingReasonUnbilledUsageIncomplete, billing.BillingStatusUnbilled,
+			uint(0), uint(1000), "用户停止生成", now, uint(0), now, enum.AIRunStatusCanceled, uint(0), now,
+			int64(41), enum.AIRunStatusRunning, billing.BillingStatusPending, billing.BillingStatusHeld,
+		).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE `ai_usage_charges` SET").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("(?is)SELECT EXISTS .* FROM ai_run_dashboard_facts").WillReturnRows(sqlmock.NewRows([]string{"fact_exists"}).AddRow(true))
+
+	err := finalizeChatRunAndCharge(context.Background(), db,
+		airun.Run{ID: 41, StartedAt: &startedAt},
+		billing.UsageCharge{ID: 51},
+		aigateway.FinalizationFacts{},
+		aigateway.SettlementDecision{
+			RunStatus: enum.AIRunStatusCanceled, BillingStatus: billing.BillingStatusUnbilled,
+			BillingReason: billing.BillingReasonUnbilledUsageIncomplete, ChargeStatus: billing.ChargeStatusUnbilled,
+		},
+		&replycommand.PaidCommandFinalizationResult{AssistantMessageID: 97},
+		now,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestChatCommandMatchesCanceledRunRequiresSameStoppedMessage(t *testing.T) {
+	finishedAt := time.Date(2026, 7, 28, 11, 0, 3, 0, time.UTC)
+	commandMessageID := int64(97)
+	runMessageID := int64(97)
+	command := replycommand.Command{
+		UserID: 9, RequestID: "request-1", State: replycommand.StateCanceled,
+		AssistantMessageID: &commandMessageID, FinishedAt: &finishedAt,
+	}
+	run := airun.Run{
+		UserID: 9, RequestID: "request-1", Status: enum.AIRunStatusCanceled,
+		AssistantMessageID: &runMessageID,
+	}
+	if !chatCommandMatchesRunTerminal(command, run) {
+		t.Fatal("matching stopped assistant message was rejected")
+	}
+	runMessageID = 98
+	if chatCommandMatchesRunTerminal(command, run) {
+		t.Fatal("mismatched stopped assistant message was accepted")
+	}
+}
+
+type noopFinalizationEventSink struct{}
+
+func (noopFinalizationEventSink) AppendTx(context.Context, *gorm.DB, modulerealtime.AppendInput) (*modulerealtime.Event, error) {
+	return nil, errors.New("unexpected realtime append during terminal replay")
+}
+
+func (noopFinalizationEventSink) PublishBestEffort(context.Context, *modulerealtime.Event) {}
+
+func TestChatFinalizationCleanupRunsAfterCommitAndDoesNotUndoTerminalFacts(t *testing.T) {
+	db, mock, closeDB := newFinalizerMockDB(t)
+	defer closeDB()
+	finishedAt := time.Date(2026, 7, 28, 11, 0, 3, 0, time.UTC)
+	assistantID := int64(97)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT .* FROM `ai_runs`.*FOR UPDATE").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "user_id", "request_id", "status", "billing_status", "assistant_message_id", "finished_at",
+		}).AddRow(41, 9, "request-1", enum.AIRunStatusCanceled, billing.BillingStatusReleased, assistantID, finishedAt))
+	mock.ExpectQuery("SELECT .* FROM `ai_usage_charges`.*FOR UPDATE").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "run_id", "user_id", "actual_units", "status", "finalized_at",
+		}).AddRow(51, 41, 9, 0, billing.ChargeStatusReleased, finishedAt))
+	mock.ExpectQuery("SELECT .* FROM `user_wallets`.*FOR UPDATE").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	mock.ExpectQuery("SELECT .* FROM `wallet_holds`.*FOR UPDATE").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	mock.ExpectQuery("SELECT .* FROM `ai_reply_commands`.*FOR UPDATE").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "user_id", "request_id", "state", "assistant_message_id", "finished_at",
+		}).AddRow(61, 9, "request-1", replycommand.StateCanceled, assistantID, finishedAt))
+	mock.ExpectQuery("SELECT .* FROM `ai_provider_attempts`.*FOR UPDATE").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	mock.ExpectQuery("(?is)SELECT EXISTS .* FROM ai_run_dashboard_facts").
+		WillReturnRows(sqlmock.NewRows([]string{"fact_exists"}).AddRow(true))
+	mock.ExpectCommit()
+	mock.ExpectExec("DELETE FROM ai_reply_delivery_chunks").
+		WithArgs(uint64(61), 256).
+		WillReturnError(errors.New("temporary cleanup failure"))
+
+	replies := replycommand.NewGormRepository(&database.Client{Gorm: db})
+	store := newGormGatewayFinalizationStore(
+		db,
+		walletmodule.NewGormRepositoryFromDB(db),
+		replies,
+		noopFinalizationEventSink{},
+	)
+	result, err := store.WithLockedSettlement(context.Background(), 41, func(aigateway.FinalizationFacts) (aigateway.SettlementDecision, error) {
+		t.Fatal("terminal replay must not decide settlement again")
+		return aigateway.SettlementDecision{}, nil
+	})
+	if err != nil || result.Applied || !result.Replayed {
+		t.Fatalf("result=%+v err=%v", result, err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

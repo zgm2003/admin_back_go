@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"strings"
 	"time"
@@ -218,6 +219,7 @@ func (store *gormGatewayFinalizationStore) WithLockedSettlement(ctx context.Cont
 	}
 	var applied bool
 	var replayed bool
+	var commandID uint64
 	var durableEvent *modulerealtime.Event
 	err := store.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		run, charge, wallet, hold, err := lockChatSettlementMoneyGraph(ctx, tx, runID)
@@ -228,6 +230,7 @@ func (store *gormGatewayFinalizationStore) WithLockedSettlement(ctx context.Cont
 		if err != nil {
 			return err
 		}
+		commandID = command.ID
 		if terminalChatBilling(run, charge) {
 			if err := validateChatFinalizationReplay(run, charge, wallet, hold, command, attempts); err != nil {
 				return err
@@ -288,6 +291,12 @@ func (store *gormGatewayFinalizationStore) WithLockedSettlement(ctx context.Cont
 	}
 	if durableEvent != nil {
 		store.eventSink.PublishBestEffort(context.WithoutCancel(ctx), durableEvent)
+	}
+	if commandID > 0 {
+		cleanupCtx := context.WithoutCancel(ctx)
+		if cleanupErr := replycommand.CleanupDeliveryChunks(cleanupCtx, store.replies, commandID, 4); cleanupErr != nil {
+			slog.WarnContext(cleanupCtx, "AI reply delivery cleanup deferred to reconciler", "command_id", commandID, "error", cleanupErr)
+		}
 	}
 	return aigateway.FinalizationApplyResult{Applied: applied, Replayed: replayed}, nil
 }
@@ -427,7 +436,7 @@ func chatCommandMatchesRunTerminal(command replycommand.Command, run airun.Run) 
 	case enum.AIRunStatusSuccess:
 		return command.State == replycommand.StateSucceeded && command.AssistantMessageID != nil && run.AssistantMessageID != nil && *command.AssistantMessageID == *run.AssistantMessageID
 	case enum.AIRunStatusCanceled:
-		return command.State == replycommand.StateCanceled && command.AssistantMessageID == nil && run.AssistantMessageID == nil
+		return command.State == replycommand.StateCanceled && command.AssistantMessageID != nil && run.AssistantMessageID != nil && *command.AssistantMessageID == *run.AssistantMessageID
 	case enum.AIRunStatusOutcomeUnknown:
 		return command.State == replycommand.StateOutcomeUnknown && command.AssistantMessageID == nil && run.AssistantMessageID == nil
 	case enum.AIRunStatusFailed:
@@ -542,7 +551,14 @@ func finalizeChatRunAndCharge(ctx context.Context, tx *gorm.DB, run airun.Run, c
 		updates["assistant_message_id"] = commandResult.AssistantMessageID
 		updates["error_message"] = ""
 	} else {
-		updates["assistant_message_id"] = nil
+		if decision.RunStatus == enum.AIRunStatusCanceled {
+			if commandResult == nil || commandResult.AssistantMessageID <= 0 {
+				return errors.New("canceled AI settlement has no assistant message")
+			}
+			updates["assistant_message_id"] = commandResult.AssistantMessageID
+		} else {
+			updates["assistant_message_id"] = nil
+		}
 		_, message := chatFinalizationFailure(facts, decision)
 		if decision.RunStatus == enum.AIRunStatusCanceled {
 			message = "用户停止生成"

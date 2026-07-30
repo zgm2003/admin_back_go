@@ -91,12 +91,14 @@ func (r *GormRepository) FinalizePaidCommandInTransaction(ctx context.Context, t
 		}
 		if errors.Is(messageErr, gorm.ErrRecordNotFound) {
 			commandID := command.ID
+			deliveryState := DeliveryStateCompleted
 			existing = replyMessage{
 				ConversationID: command.ConversationID,
 				ReplyCommandID: &commandID,
 				Role:           enum.AIMessageRoleAssistant,
 				ContentType:    "text",
 				Content:        input.Content,
+				DeliveryState:  &deliveryState,
 				IsDel:          enum.CommonNo,
 				CreatedAt:      input.Now,
 				UpdatedAt:      input.Now,
@@ -117,6 +119,14 @@ func (r *GormRepository) FinalizePaidCommandInTransaction(ctx context.Context, t
 			return nil, ErrPaidCommandFinalizationConflict
 		}
 		result.AssistantMessageID = existing.ID
+	} else if input.State == StateCanceled {
+		if command.CancelRequestedAt == nil || command.StopDeliverySeq == nil || command.AssistantMessageID == nil ||
+			errors.Is(messageErr, gorm.ErrRecordNotFound) || existing.ID != *command.AssistantMessageID ||
+			existing.ConversationID != command.ConversationID || existing.Role != enum.AIMessageRoleAssistant ||
+			existing.DeliveryState == nil || *existing.DeliveryState != DeliveryStateStopped || existing.IsDel != enum.CommonNo {
+			return nil, ErrPaidCommandFinalizationConflict
+		}
+		result.AssistantMessageID = existing.ID
 	} else if !errors.Is(messageErr, gorm.ErrRecordNotFound) || command.AssistantMessageID != nil {
 		return nil, ErrPaidCommandFinalizationConflict
 	}
@@ -134,6 +144,7 @@ func (r *GormRepository) FinalizePaidCommandInTransaction(ctx context.Context, t
 		updates["last_error_message"] = ""
 		updates["outcome_unknown_at"] = nil
 	} else if input.State == StateCanceled {
+		updates["assistant_message_id"] = result.AssistantMessageID
 		updates["last_error_code"] = ""
 		updates["last_error_message"] = ""
 		updates["outcome_unknown_at"] = nil

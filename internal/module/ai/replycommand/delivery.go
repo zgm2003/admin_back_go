@@ -15,6 +15,29 @@ const MaxDeliveryChunkBytes = 16 * 1024
 
 var ErrDeliveryTransactionRequired = errors.New("delivery prefix requires an active transaction")
 
+type DeliveryCleaner interface {
+	DeleteDeliveryChunks(context.Context, uint64, int) (int64, error)
+}
+
+func CleanupDeliveryChunks(ctx context.Context, cleaner DeliveryCleaner, commandID uint64, maxBatches int) error {
+	if cleaner == nil || commandID == 0 || maxBatches <= 0 {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	for batch := 0; batch < maxBatches; batch++ {
+		deleted, err := cleaner.DeleteDeliveryChunks(ctx, commandID, 256)
+		if err != nil {
+			return err
+		}
+		if deleted < 256 {
+			return nil
+		}
+	}
+	return nil
+}
+
 type AppendDeliveryChunkInput struct {
 	CommandID uint64
 	Owner     string

@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"admin_back_go/internal/shared/enum"
+
 	"github.com/DATA-DOG/go-sqlmock"
 )
 
@@ -18,7 +20,9 @@ func TestFinalizePaidCommandInTransactionPublishesAssistantAndClosesLease(t *tes
 			AddRow(41, "request-1", 7, 3, StateRunning))
 	mock.ExpectQuery("SELECT .* FROM `ai_messages`").
 		WillReturnRows(sqlmock.NewRows([]string{"id"}))
-	mock.ExpectExec("INSERT INTO `ai_messages`").WillReturnResult(sqlmock.NewResult(22, 1))
+	mock.ExpectExec("INSERT INTO `ai_messages`").
+		WithArgs(int64(3), uint64(41), enum.AIMessageRoleAssistant, "text", "hello", nil, DeliveryStateCompleted, enum.CommonNo, now, now).
+		WillReturnResult(sqlmock.NewResult(22, 1))
 	mock.ExpectExec("UPDATE `ai_conversations`").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("UPDATE `ai_reply_commands`").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectRollback()
@@ -32,6 +36,42 @@ func TestFinalizePaidCommandInTransactionPublishesAssistantAndClosesLease(t *tes
 	}
 	if err := tx.Rollback().Error; err != nil {
 		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCanceledFinalizationReusesStoppedAssistantMessage(t *testing.T) {
+	repository, db, mock, closeDB := newAttemptMockRepository(t)
+	defer closeDB()
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	requestedAt := now.Add(-2 * time.Second)
+	createdAt := now.Add(-time.Second)
+	stopSeq := uint32(4)
+	assistantID := int64(97)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT .* FROM `ai_reply_commands`").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "request_id", "user_id", "conversation_id", "state", "cancel_requested_at", "stop_delivery_seq", "assistant_message_id",
+		}).AddRow(41, "request-1", 7, 3, StateRunning, requestedAt, stopSeq, assistantID))
+	mock.ExpectQuery("SELECT .* FROM `ai_messages`").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "conversation_id", "reply_command_id", "role", "content_type", "content", "delivery_state", "is_del", "created_at", "updated_at",
+		}).AddRow(assistantID, 3, 41, enum.AIMessageRoleAssistant, "text", "1234", DeliveryStateStopped, enum.CommonNo, createdAt, createdAt))
+	mock.ExpectExec("UPDATE `ai_reply_commands`").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectRollback()
+
+	tx := db.Begin()
+	result, err := repository.FinalizePaidCommandInTransaction(context.Background(), tx, PaidCommandFinalizationInput{
+		CommandID: 41, UserID: 7, RequestID: "request-1", State: StateCanceled, Now: now,
+	})
+	if rollbackErr := tx.Rollback().Error; rollbackErr != nil {
+		t.Fatal(rollbackErr)
+	}
+	if err != nil || result == nil || result.AssistantMessageID != assistantID {
+		t.Fatalf("finalization result=%+v err=%v", result, err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

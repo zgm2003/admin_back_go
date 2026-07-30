@@ -212,3 +212,40 @@ func TestDeleteDeliveryChunksClampsBatchTo256(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+type fakeDeliveryCleaner struct {
+	deleted []int64
+	calls   int
+	err     error
+}
+
+func (f *fakeDeliveryCleaner) DeleteDeliveryChunks(_ context.Context, _ uint64, _ int) (int64, error) {
+	f.calls++
+	if f.err != nil {
+		return 0, f.err
+	}
+	if len(f.deleted) == 0 {
+		return 0, nil
+	}
+	deleted := f.deleted[0]
+	f.deleted = f.deleted[1:]
+	return deleted, nil
+}
+
+func TestCleanupDeliveryChunksUsesBoundedBatches(t *testing.T) {
+	cleaner := &fakeDeliveryCleaner{deleted: []int64{256, 256, 12}}
+	if err := CleanupDeliveryChunks(context.Background(), cleaner, 41, 4); err != nil {
+		t.Fatal(err)
+	}
+	if cleaner.calls != 3 {
+		t.Fatalf("cleanup calls=%d, want 3", cleaner.calls)
+	}
+
+	cleaner = &fakeDeliveryCleaner{deleted: []int64{256, 256, 256}}
+	if err := CleanupDeliveryChunks(context.Background(), cleaner, 41, 2); err != nil {
+		t.Fatal(err)
+	}
+	if cleaner.calls != 2 {
+		t.Fatalf("bounded cleanup calls=%d, want 2", cleaner.calls)
+	}
+}

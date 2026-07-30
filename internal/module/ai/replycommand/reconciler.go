@@ -5,6 +5,8 @@ import (
 	"errors"
 	"time"
 
+	"admin_back_go/internal/shared/enum"
+
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -23,6 +25,17 @@ type OutcomeRepository interface {
 // the same Run/Charge/wallet/Hold settlement transaction as live execution.
 type OutcomeFinalizer interface {
 	FinalizeOutcomeUnknown(context.Context, uint64) error
+}
+
+type DeliveryCleanupCandidate struct {
+	CommandID         uint64 `gorm:"column:command_id"`
+	State             State  `gorm:"column:state"`
+	HasStoppedMessage bool   `gorm:"column:has_stopped_message"`
+}
+
+type DeliveryCleanupRepository interface {
+	DeliveryCleaner
+	ListDeliveryCleanupCandidates(context.Context, int) ([]DeliveryCleanupCandidate, error)
 }
 
 type ReconcilerOptions struct {
@@ -53,10 +66,67 @@ func (r *Reconciler) RunOnce(ctx context.Context) (bool, error) {
 		ctx = context.Background()
 	}
 	work, err := r.repository.ClaimOutcomeUnknown(ctx, ClaimSourceRecovery, r.now())
-	if err != nil || work == nil {
+	if err != nil {
 		return false, err
 	}
-	return true, r.finalizer.FinalizeOutcomeUnknown(ctx, work.CommandID)
+	worked := false
+	if work != nil {
+		if err := r.finalizer.FinalizeOutcomeUnknown(ctx, work.CommandID); err != nil {
+			return true, err
+		}
+		worked = true
+	}
+
+	cleanupRepository, ok := r.repository.(DeliveryCleanupRepository)
+	if !ok {
+		return worked, nil
+	}
+	candidates, err := cleanupRepository.ListDeliveryCleanupCandidates(ctx, 32)
+	if err != nil {
+		return worked, err
+	}
+	for _, candidate := range candidates {
+		if candidate.CommandID == 0 || (!terminalDeliveryState(candidate.State) && !candidate.HasStoppedMessage) {
+			continue
+		}
+		if err := CleanupDeliveryChunks(ctx, cleanupRepository, candidate.CommandID, 4); err != nil {
+			return worked, err
+		}
+		worked = true
+	}
+	return worked, nil
+}
+
+func terminalDeliveryState(state State) bool {
+	switch state {
+	case StateSucceeded, StateFailed, StateCanceled, StateOutcomeUnknown, StateTimedOut:
+		return true
+	default:
+		return false
+	}
+}
+
+func (r *GormRepository) ListDeliveryCleanupCandidates(ctx context.Context, limit int) ([]DeliveryCleanupCandidate, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if limit <= 0 || limit > 64 {
+		limit = 32
+	}
+	terminalStates := []State{StateSucceeded, StateFailed, StateCanceled, StateOutcomeUnknown, StateTimedOut}
+	var candidates []DeliveryCleanupCandidate
+	err := r.db.WithContext(ctx).Table("ai_reply_delivery_chunks AS chunks").
+		Select("DISTINCT chunks.command_id, commands.state, (stopped.id IS NOT NULL) AS has_stopped_message").
+		Joins("JOIN ai_reply_commands AS commands ON commands.id = chunks.command_id").
+		Joins("LEFT JOIN ai_messages AS stopped ON stopped.reply_command_id = commands.id AND stopped.delivery_state = ? AND stopped.is_del = ?", DeliveryStateStopped, enum.CommonNo).
+		Where("commands.state IN ? OR stopped.id IS NOT NULL", terminalStates).
+		Order("chunks.command_id ASC").
+		Limit(limit).
+		Scan(&candidates).Error
+	return candidates, err
 }
 
 func (r *GormRepository) ClaimOutcomeUnknown(ctx context.Context, source ClaimSource, now time.Time) (*OutcomeUnknownWork, error) {

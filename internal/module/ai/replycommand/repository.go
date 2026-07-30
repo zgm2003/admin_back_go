@@ -164,7 +164,7 @@ func (r *GormRepository) RequestCancel(ctx context.Context, input RequestCancelI
 		return RequestCancelResult{}, err
 	}
 	if result.Status == CancelStatusStopped && result.CommandID > 0 {
-		_, _ = r.DeleteDeliveryChunks(context.WithoutCancel(ctx), result.CommandID, 256)
+		_ = CleanupDeliveryChunks(context.WithoutCancel(ctx), r, result.CommandID, 1)
 	}
 	return result, nil
 }

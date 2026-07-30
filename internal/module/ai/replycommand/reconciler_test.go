@@ -12,6 +12,23 @@ type fakeOutcomeRepository struct {
 	now    time.Time
 }
 
+type fakeCleanupRepository struct {
+	fakeOutcomeRepository
+	candidates []DeliveryCleanupCandidate
+	deleted    []uint64
+	limit      int
+}
+
+func (f *fakeCleanupRepository) ListDeliveryCleanupCandidates(_ context.Context, limit int) ([]DeliveryCleanupCandidate, error) {
+	f.limit = limit
+	return append([]DeliveryCleanupCandidate(nil), f.candidates...), nil
+}
+
+func (f *fakeCleanupRepository) DeleteDeliveryChunks(_ context.Context, commandID uint64, _ int) (int64, error) {
+	f.deleted = append(f.deleted, commandID)
+	return 1, nil
+}
+
 func (f *fakeOutcomeRepository) ClaimOutcomeUnknown(_ context.Context, source ClaimSource, now time.Time) (*OutcomeUnknownWork, error) {
 	f.source, f.now = source, now
 	return f.work, nil
@@ -63,5 +80,22 @@ func TestReconcilerRequiresFinalizer(t *testing.T) {
 	reconciler := NewReconciler(ReconcilerOptions{Repository: &fakeOutcomeRepository{}})
 	if worked, err := reconciler.RunOnce(context.Background()); worked || err != ErrReconcilerNotReady {
 		t.Fatalf("worked=%v err=%v", worked, err)
+	}
+}
+
+func TestReconcilerCleansDeliveryChunksOnlyForTerminalOrStoppedCommands(t *testing.T) {
+	repository := &fakeCleanupRepository{candidates: []DeliveryCleanupCandidate{
+		{CommandID: 41, State: StateRunning},
+		{CommandID: 42, State: StateRunning, HasStoppedMessage: true},
+		{CommandID: 43, State: StateSucceeded},
+	}}
+	reconciler := NewReconciler(ReconcilerOptions{Repository: repository, Finalizer: &fakeOutcomeFinalizer{}})
+
+	worked, err := reconciler.RunOnce(context.Background())
+	if err != nil || !worked {
+		t.Fatalf("worked=%v err=%v", worked, err)
+	}
+	if repository.limit <= 0 || len(repository.deleted) != 2 || repository.deleted[0] != 42 || repository.deleted[1] != 43 {
+		t.Fatalf("limit=%d deleted=%v", repository.limit, repository.deleted)
 	}
 }
