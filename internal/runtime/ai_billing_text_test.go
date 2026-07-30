@@ -19,7 +19,36 @@ import (
 	airun "admin_back_go/internal/module/ai/run"
 	aitext "admin_back_go/internal/module/ai/text"
 	aitool "admin_back_go/internal/module/ai/tool"
+
+	"github.com/DATA-DOG/go-sqlmock"
 )
+
+func TestFinalizeTextTaskProjectsTerminalDashboardFacts(t *testing.T) {
+	db, mock, closeDB := newFinalizerMockDB(t)
+	defer closeDB()
+	now := time.Date(2026, 7, 29, 10, 0, 0, 0, time.UTC)
+	startedAt := now.Add(-time.Second)
+	mock.ExpectExec("UPDATE `ai_text_tasks` SET").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE `ai_runs` SET").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE `ai_usage_charges` SET").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("(?is)SELECT EXISTS .* FROM ai_run_dashboard_facts").WillReturnRows(sqlmock.NewRows([]string{"fact_exists"}).AddRow(false))
+	mock.ExpectExec("(?is)INSERT INTO ai_run_dashboard_facts .* WHERE r.id = \\?").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("(?is)INSERT INTO ai_run_dashboard_daily_facts").WillReturnResult(sqlmock.NewResult(0, 1))
+
+	err := finalizeTextTaskRunAndCharge(context.Background(), db,
+		aitext.TextTask{ID: 31, RunID: 41, Status: aitext.StatusRunning},
+		airun.Run{ID: 41, StartedAt: &startedAt}, billing.UsageCharge{ID: 51},
+		aigateway.FinalizationFacts{},
+		aigateway.SettlementDecision{RunStatus: "failed", BillingStatus: billing.BillingStatusReleased, BillingReason: billing.BillingReasonReleasedProviderFailed, ChargeStatus: billing.ChargeStatusReleased},
+		now,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
 
 type fakeTextGateway struct {
 	calls          []string

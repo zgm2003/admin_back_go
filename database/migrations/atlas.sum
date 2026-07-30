@@ -1,4 +1,4 @@
-h1:eju1p833rimnZSfZ8YIPdsqKgi2TS4KWvvWI3FTrW0Y=
+h1:zscQoX236bIiOwMChiVDdx8N+5k7E1zDq6kmL0bvHxo=
 202607150001_baseline.sql h1:elg7qkyR6lLW3sqj22zwsIPT5lz+rWrGmoOMH8qg45c=
 202607150101_ai_reply_durability.sql h1:C9rD6IYDKzwJmBFlSWWDQJwNqYBgcqqg+qq0hGCK8C0=
 202607150102_realtime_retention.sql h1:waqtQw3UdFKVuFeGZsttQi8rz4M/r5KaO/mK/q3ahRc=
@@ -19,3 +19,5 @@ h1:eju1p833rimnZSfZ8YIPdsqKgi2TS4KWvvWI3FTrW0Y=
 202607270102_ai_consumer_interactions.sql h1:EhLmRRaFDusj97rFhYCq/6K8zMSbg9Y0Qh2XKqQoOJU=
 202607280101_ai_official_models.sql h1:5Z5yO3JRnFg8Nyzm2704PnKxDWMCW6+Rpmz8YPhlRD0=
 202607280102_ai_run_latency_timeline.sql h1:FzNMI3lESgrKAh0T8nK1DUyMeXqW1dBao7npnbDjIfs=
+202607290101_ai_run_dashboard_indexes.sql h1:mYmwZD9hSxf2Xt6f2n+lyygiUI3WB+YUsWQxUnN1v9g=
+202607290102_ai_run_dashboard_projection.sql h1:rutkv+rbuqkBpIvsD0bWBKGgkVVB7kP5UhObZYdJxaU=

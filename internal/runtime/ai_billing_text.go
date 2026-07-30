@@ -434,6 +434,9 @@ func (store *gormTextFinalizationStore) WithLockedSettlement(ctx context.Context
 			if err := validateTextFinalizationReplay(run, charge, wallet, hold, task, attempts); err != nil {
 				return err
 			}
+			if err := airun.ProjectTerminalDashboardFacts(ctx, tx, run.ID); err != nil {
+				return err
+			}
 			replayed = true
 			return nil
 		}
@@ -671,7 +674,7 @@ func finalizeTextTaskRunAndCharge(ctx context.Context, tx *gorm.DB, task aitext.
 	if chargeUpdate.RowsAffected != 1 {
 		return errors.New("AI text usage charge terminal compare-and-set was rejected")
 	}
-	return nil
+	return airun.ProjectTerminalDashboardFacts(ctx, tx, run.ID)
 }
 
 func textFinalizationFailure(task aitext.TextTask, facts aigateway.FinalizationFacts, decision aigateway.SettlementDecision) (string, string) {

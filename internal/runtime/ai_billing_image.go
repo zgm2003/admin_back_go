@@ -673,6 +673,9 @@ func (store *gormImageFinalizationStore) WithLockedSettlement(ctx context.Contex
 			if err := validateImageFinalizationReplay(run, charge, wallet, hold, task, attempts, outputs); err != nil {
 				return err
 			}
+			if err := airun.ProjectTerminalDashboardFacts(ctx, tx, run.ID); err != nil {
+				return err
+			}
 			replayed = true
 			return nil
 		}
@@ -941,7 +944,7 @@ func finalizeImageTaskRunAndCharge(ctx context.Context, tx *gorm.DB, task aiimag
 	if chargeUpdate.RowsAffected != 1 {
 		return errors.New("AI image usage charge terminal compare-and-set was rejected")
 	}
-	return nil
+	return airun.ProjectTerminalDashboardFacts(ctx, tx, run.ID)
 }
 
 func imageCandidateAttemptNo(attemptID int64, attempts []replycommand.Attempt) (uint32, error) {

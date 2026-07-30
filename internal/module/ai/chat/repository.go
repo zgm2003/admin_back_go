@@ -248,14 +248,17 @@ func (r *GormRepository) finishRun(ctx context.Context, runID int64, status stri
 			return result.Error
 		}
 		if result.RowsAffected == 0 {
-			return nil
+			return airun.ProjectTerminalDashboardFacts(ctx, tx, runID)
 		}
 		changed = true
 		var maxSeq uint
 		if err := tx.Model(&RunEvent{}).Where("run_id = ?", runID).Select("COALESCE(MAX(seq), 0)").Scan(&maxSeq).Error; err != nil {
 			return err
 		}
-		return tx.Create(&RunEvent{RunID: runID, Seq: maxSeq + 1, EventType: eventType, Message: truncateRunMessage(message)}).Error
+		if err := tx.Create(&RunEvent{RunID: runID, Seq: maxSeq + 1, EventType: eventType, Message: truncateRunMessage(message)}).Error; err != nil {
+			return err
+		}
+		return airun.ProjectTerminalDashboardFacts(ctx, tx, runID)
 	})
 	return changed, err
 }

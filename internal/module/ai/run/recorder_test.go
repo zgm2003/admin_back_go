@@ -95,9 +95,13 @@ func TestRecorderTerminalUpdateIsIdempotent(t *testing.T) {
 	mock.ExpectExec("UPDATE `ai_runs` SET .* WHERE id = \\? AND status = \\?").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery("SELECT COALESCE\\(MAX\\(seq\\), 0\\) FROM `ai_run_events` WHERE run_id = \\?").WillReturnRows(sqlmock.NewRows([]string{"COALESCE(MAX(seq), 0)"}).AddRow(1))
 	mock.ExpectExec("INSERT INTO `ai_run_events` .* VALUES .*").WillReturnResult(sqlmock.NewResult(2, 1))
+	mock.ExpectQuery("(?is)SELECT EXISTS .* FROM ai_run_dashboard_facts").WillReturnRows(sqlmock.NewRows([]string{"fact_exists"}).AddRow(false))
+	mock.ExpectExec("(?is)INSERT INTO ai_run_dashboard_facts .* WHERE r.id = \\?").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("(?is)INSERT INTO ai_run_dashboard_daily_facts").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	mock.ExpectBegin()
 	mock.ExpectExec("UPDATE `ai_runs` SET .* WHERE id = \\? AND status = \\?").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery("(?is)SELECT EXISTS .* FROM ai_run_dashboard_facts").WillReturnRows(sqlmock.NewRows([]string{"fact_exists"}).AddRow(true))
 	mock.ExpectCommit()
 
 	recorder := NewRecorder(&GormRepository{db: db}, func() time.Time { return time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC) })
@@ -110,6 +114,36 @@ func TestRecorderTerminalUpdateIsIdempotent(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("terminal update was not idempotent: %v", err)
+	}
+}
+
+func TestStartRunRejectsTerminalIdempotencyReplay(t *testing.T) {
+	tests := []string{
+		enum.AIRunStatusFailed,
+		enum.AIRunStatusCanceled,
+		enum.AIRunStatusTimeout,
+		enum.AIRunStatusOutcomeUnknown,
+	}
+	for _, status := range tests {
+		t.Run(status, func(t *testing.T) {
+			db, mock, _ := newDashboardRepositoryTestDB(t)
+			mock.ExpectBegin()
+			mock.ExpectQuery("SELECT \\* FROM `ai_runs` WHERE idempotency_key = \\? ORDER BY `ai_runs`.`id` LIMIT \\? FOR UPDATE").
+				WithArgs("reply-command:41", 1).
+				WillReturnRows(sqlmock.NewRows([]string{"id", "status"}).AddRow(41, status))
+			mock.ExpectRollback()
+
+			id, err := (&GormRepository{db: db}).StartRun(context.Background(), StartRecord{
+				IdempotencyKey: "reply-command:41",
+				StartedAt:      time.Date(2026, 7, 30, 9, 0, 0, 0, time.Local),
+			})
+			if id != 0 || !errors.Is(err, ErrTerminalRunCannotRestart) {
+				t.Fatalf("id=%d error=%v", id, err)
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatalf("terminal Run must remain immutable: %v", err)
+			}
+		})
 	}
 }
 

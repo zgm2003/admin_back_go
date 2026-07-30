@@ -31,8 +31,12 @@ var dashboardIndexCandidates = map[string]dashboardIndexSpec{
 	},
 }
 
-// Populate this set only from the disposable database's accepted_indexes.json.
-var evidenceAcceptedDashboardIndexes = map[string]struct{}{}
+// Keep this set synchronized with the disposable database's accepted_indexes.json.
+var evidenceAcceptedDashboardIndexes = map[string]struct{}{
+	"ai_run_dashboard_model_created":   {},
+	"ai_run_dashboard_billing_created": {},
+	"ai_run_dashboard_attempt_error":   {},
+}
 
 func TestAIRunDashboardSchema(t *testing.T) {
 	root := backendRoot(t)
@@ -100,6 +104,45 @@ func TestAIRunDashboardSchema(t *testing.T) {
 		}
 		if strings.Contains(hcl, indexMarker) || strings.Contains(migration, migrationMarker) {
 			t.Errorf("unaccepted index %q must not be present", spec.name)
+		}
+	}
+}
+
+func TestAIRunDashboardProjectionSchema(t *testing.T) {
+	root := backendRoot(t)
+	hcl := normalizeDashboardSchemaText(readOfficialModelSchemaFile(t, filepath.Join(root, "database", "schema", "admin.hcl")))
+	for _, required := range []string{
+		`table "ai_run_dashboard_facts"`,
+		`table "ai_run_dashboard_daily_facts"`,
+		`index "idx_ai_run_dashboard_facts_created"`,
+		`index "idx_ai_run_dashboard_facts_status_created"`,
+		`index "idx_ai_run_dashboard_daily_model_date"`,
+		`index "idx_ai_run_dashboard_daily_provider_date"`,
+		`index "idx_ai_run_dashboard_daily_agent_date"`,
+		`index "idx_ai_run_dashboard_daily_user_date"`,
+	} {
+		if !strings.Contains(hcl, required) {
+			t.Errorf("dashboard projection schema missing %q", required)
+		}
+	}
+	migrationBytes, err := os.ReadFile(filepath.Join(root, "database", "migrations", "202607290102_ai_run_dashboard_projection.sql"))
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	migration := strings.ToLower(string(migrationBytes))
+	for _, required := range []string{
+		"create table `ai_run_dashboard_facts`",
+		"create table `ai_run_dashboard_daily_facts`",
+		"insert into `ai_run_dashboard_facts`",
+		"insert into `ai_run_dashboard_daily_facts`",
+	} {
+		if !strings.Contains(migration, required) {
+			t.Errorf("dashboard projection migration missing %q", required)
+		}
+	}
+	for _, forbidden := range []string{"create trigger", "create procedure", "create event"} {
+		if strings.Contains(migration, forbidden) {
+			t.Errorf("dashboard projection must be maintained explicitly by application transactions, found %q", forbidden)
 		}
 	}
 }

@@ -27,6 +27,54 @@ r.completion_tokens,
 r.total_tokens,
 r.duration_ms`
 
+const dashboardFilteredFactColumns = `
+r.run_id,
+r.fact_date,
+r.run_created_at,
+r.platform,
+r.model_id,
+r.model_display_name,
+r.agent_id,
+r.provider_id,
+r.user_id,
+r.status,
+r.prompt_tokens,
+r.completion_tokens,
+r.total_tokens,
+r.duration_ms,
+r.settled_runs,
+r.actual_units,
+r.released_runs,
+r.released_units,
+r.unbilled_runs,
+r.run_anomaly_code,
+r.billing_anomaly_code,
+r.final_error_code,
+r.ttft_ms`
+
+const dashboardFilteredDailyColumns = `
+d.fact_date,
+d.platform,
+d.model_id,
+d.agent_id,
+d.provider_id,
+d.user_id,
+d.status,
+d.run_anomaly_code,
+d.billing_anomaly_code,
+d.final_error_code,
+d.latest_run_id,
+d.latest_model_display_name,
+d.run_count,
+d.prompt_tokens,
+d.completion_tokens,
+d.total_tokens,
+d.settled_runs,
+d.actual_units,
+d.released_runs,
+d.released_units,
+d.unbilled_runs`
+
 type DashboardQueryStage string
 
 const (
@@ -73,6 +121,46 @@ func applyDashboardFilters(db *gorm.DB, query DashboardQuery) *gorm.DB {
 	}
 	if query.UserID != nil {
 		db = db.Where("r.user_id = ?", *query.UserID)
+	}
+	return db
+}
+
+func applyDashboardFactFilters(db *gorm.DB, query DashboardQuery) *gorm.DB {
+	db = db.Where("r.fact_date >= DATE(?) AND r.fact_date < DATE(?)", query.StartAt, query.EndExclusive)
+	if query.Platform != "" {
+		db = db.Where("r.platform = ?", query.Platform)
+	}
+	if query.ModelID != "" {
+		db = db.Where("r.model_id = ?", query.ModelID)
+	}
+	if query.AgentID != nil {
+		db = db.Where("r.agent_id = ?", *query.AgentID)
+	}
+	if query.ProviderID != nil {
+		db = db.Where("r.provider_id = ?", *query.ProviderID)
+	}
+	if query.UserID != nil {
+		db = db.Where("r.user_id = ?", *query.UserID)
+	}
+	return db
+}
+
+func applyDashboardDailyFilters(db *gorm.DB, query DashboardQuery) *gorm.DB {
+	db = db.Where("d.fact_date >= DATE(?) AND d.fact_date < DATE(?)", query.StartAt, query.EndExclusive)
+	if query.Platform != "" {
+		db = db.Where("d.platform = ?", query.Platform)
+	}
+	if query.ModelID != "" {
+		db = db.Where("d.model_id = ?", query.ModelID)
+	}
+	if query.AgentID != nil {
+		db = db.Where("d.agent_id = ?", *query.AgentID)
+	}
+	if query.ProviderID != nil {
+		db = db.Where("d.provider_id = ?", *query.ProviderID)
+	}
+	if query.UserID != nil {
+		db = db.Where("d.user_id = ?", *query.UserID)
 	}
 	return db
 }
@@ -130,67 +218,84 @@ END`
 
 func dashboardOverviewSQL() string {
 	return fmt.Sprintf(`
-WITH filtered_runs AS (?),
-classified_runs AS (
+WITH terminal_daily AS (?),
+running_runs AS (?),
+running_classified AS (
   SELECT
-    r.id,
     r.status,
     r.billing_status,
-    r.billing_reason,
     r.prompt_tokens,
     r.completion_tokens,
     r.total_tokens,
-    charge.status AS charge_status,
-    charge.held_units,
-    charge.actual_units,
-    charge.finalized_at,
     %s AS run_anomaly,
     %s AS billing_anomaly
-  FROM filtered_runs r
+  FROM running_runs r
   LEFT JOIN ai_usage_charges charge ON charge.run_id = r.id
 ),
-overview AS (
+terminal_summary AS (
   SELECT
-    COUNT(*) AS total_runs,
-    COALESCE(SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END), 0) AS running_runs,
-    COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0) AS success_runs,
-    COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS failed_runs,
-    COALESCE(SUM(CASE WHEN status = 'canceled' THEN 1 ELSE 0 END), 0) AS canceled_runs,
-    COALESCE(SUM(CASE WHEN status = 'timeout' THEN 1 ELSE 0 END), 0) AS timeout_runs,
-    COALESCE(SUM(CASE WHEN status = 'outcome_unknown' THEN 1 ELSE 0 END), 0) AS outcome_unknown_runs,
+    COALESCE(SUM(run_count), 0) AS total_runs,
+    COALESCE(SUM(CASE WHEN status = 'success' THEN run_count ELSE 0 END), 0) AS success_runs,
+    COALESCE(SUM(CASE WHEN status = 'failed' THEN run_count ELSE 0 END), 0) AS failed_runs,
+    COALESCE(SUM(CASE WHEN status = 'canceled' THEN run_count ELSE 0 END), 0) AS canceled_runs,
+    COALESCE(SUM(CASE WHEN status = 'timeout' THEN run_count ELSE 0 END), 0) AS timeout_runs,
+    COALESCE(SUM(CASE WHEN status = 'outcome_unknown' THEN run_count ELSE 0 END), 0) AS outcome_unknown_runs,
     COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
     COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
     COALESCE(SUM(total_tokens), 0) AS total_tokens,
-    COALESCE(SUM(CASE
-      WHEN billing_status = 'settled'
-       AND billing_reason = 'settled_complete_usage'
-       AND charge_status = 'settled'
-       AND finalized_at IS NOT NULL
-       AND (billing_anomaly IS NULL OR billing_anomaly <> 'state_inconsistent')
-      THEN 1 ELSE 0 END), 0) AS settled_runs,
-    COALESCE(SUM(CASE
-      WHEN billing_status = 'settled'
-       AND billing_reason = 'settled_complete_usage'
-       AND charge_status = 'settled'
-       AND finalized_at IS NOT NULL
-       AND (billing_anomaly IS NULL OR billing_anomaly <> 'state_inconsistent')
-      THEN actual_units ELSE 0 END), 0) AS actual_units,
-    COALESCE(SUM(CASE
-      WHEN billing_status = 'released'
-       AND billing_reason IN ('released_before_dispatch', 'released_insufficient_balance', 'released_provider_failed', 'released_outcome_unknown')
-       AND charge_status = 'released'
-       AND finalized_at IS NOT NULL
-       AND (billing_anomaly IS NULL OR billing_anomaly <> 'state_inconsistent')
-      THEN 1 ELSE 0 END), 0) AS released_runs,
-    COALESCE(SUM(CASE
-      WHEN billing_status = 'released'
-       AND billing_reason IN ('released_before_dispatch', 'released_insufficient_balance', 'released_provider_failed', 'released_outcome_unknown')
-       AND charge_status = 'released'
-       AND finalized_at IS NOT NULL
-       AND (billing_anomaly IS NULL OR billing_anomaly <> 'state_inconsistent')
-      THEN held_units ELSE 0 END), 0) AS released_units,
-    COALESCE(SUM(CASE WHEN billing_status = 'unbilled' THEN 1 ELSE 0 END), 0) AS unbilled_runs
-  FROM classified_runs
+    COALESCE(SUM(settled_runs), 0) AS settled_runs,
+    COALESCE(SUM(actual_units), 0) AS actual_units,
+    COALESCE(SUM(released_runs), 0) AS released_runs,
+    COALESCE(SUM(released_units), 0) AS released_units,
+    COALESCE(SUM(unbilled_runs), 0) AS unbilled_runs,
+    COALESCE(SUM(CASE WHEN run_anomaly_code = 'failed' THEN run_count ELSE 0 END), 0) AS run_failed_count,
+    COALESCE(SUM(CASE WHEN run_anomaly_code = 'timeout' THEN run_count ELSE 0 END), 0) AS run_timeout_count,
+    COALESCE(SUM(CASE WHEN run_anomaly_code = 'outcome_unknown' THEN run_count ELSE 0 END), 0) AS run_outcome_unknown_count,
+    COALESCE(SUM(CASE WHEN billing_anomaly_code = 'state_inconsistent' THEN run_count ELSE 0 END), 0) AS billing_state_inconsistent_count,
+    COALESCE(SUM(CASE WHEN billing_anomaly_code = 'open_overdue' THEN run_count ELSE 0 END), 0) AS billing_open_overdue_count,
+    COALESCE(SUM(CASE WHEN billing_anomaly_code = 'pricing_snapshot_missing' THEN run_count ELSE 0 END), 0) AS billing_pricing_snapshot_missing_count,
+    COALESCE(SUM(CASE WHEN billing_anomaly_code = 'legacy_unpriced' THEN run_count ELSE 0 END), 0) AS billing_legacy_unpriced_count,
+    COALESCE(SUM(CASE WHEN billing_anomaly_code = 'unbilled_usage_incomplete' THEN run_count ELSE 0 END), 0) AS billing_unbilled_usage_incomplete_count,
+    COALESCE(SUM(CASE WHEN billing_anomaly_code = 'unbilled_over_hold' THEN run_count ELSE 0 END), 0) AS billing_unbilled_over_hold_count
+  FROM terminal_daily
+),
+running_summary AS (
+  SELECT
+    COUNT(*) AS total_runs,
+    COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
+    COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
+    COALESCE(SUM(total_tokens), 0) AS total_tokens,
+    COALESCE(SUM(CASE WHEN billing_status = 'unbilled' THEN 1 ELSE 0 END), 0) AS unbilled_runs,
+    COALESCE(SUM(CASE WHEN run_anomaly = 'stale_running' THEN 1 ELSE 0 END), 0) AS run_stale_running_count,
+    COALESCE(SUM(CASE WHEN billing_anomaly = 'state_inconsistent' THEN 1 ELSE 0 END), 0) AS billing_state_inconsistent_count,
+    COALESCE(SUM(CASE WHEN billing_anomaly = 'open_overdue' THEN 1 ELSE 0 END), 0) AS billing_open_overdue_count,
+    COALESCE(SUM(CASE WHEN billing_anomaly = 'pricing_snapshot_missing' THEN 1 ELSE 0 END), 0) AS billing_pricing_snapshot_missing_count,
+    COALESCE(SUM(CASE WHEN billing_anomaly = 'legacy_unpriced' THEN 1 ELSE 0 END), 0) AS billing_legacy_unpriced_count,
+    COALESCE(SUM(CASE WHEN billing_anomaly = 'unbilled_usage_incomplete' THEN 1 ELSE 0 END), 0) AS billing_unbilled_usage_incomplete_count,
+    COALESCE(SUM(CASE WHEN billing_anomaly = 'unbilled_over_hold' THEN 1 ELSE 0 END), 0) AS billing_unbilled_over_hold_count
+  FROM running_classified
+),
+overview AS (
+  SELECT
+    terminal_summary.total_runs + running_summary.total_runs AS total_runs,
+    running_summary.total_runs AS running_runs,
+    terminal_summary.success_runs, terminal_summary.failed_runs, terminal_summary.canceled_runs,
+    terminal_summary.timeout_runs, terminal_summary.outcome_unknown_runs,
+    terminal_summary.prompt_tokens + running_summary.prompt_tokens AS prompt_tokens,
+    terminal_summary.completion_tokens + running_summary.completion_tokens AS completion_tokens,
+    terminal_summary.total_tokens + running_summary.total_tokens AS total_tokens,
+    terminal_summary.settled_runs, terminal_summary.actual_units,
+    terminal_summary.released_runs, terminal_summary.released_units,
+    terminal_summary.unbilled_runs + running_summary.unbilled_runs AS unbilled_runs,
+    terminal_summary.run_failed_count, terminal_summary.run_timeout_count, terminal_summary.run_outcome_unknown_count,
+    running_summary.run_stale_running_count,
+    terminal_summary.billing_state_inconsistent_count + running_summary.billing_state_inconsistent_count AS billing_state_inconsistent_count,
+    terminal_summary.billing_open_overdue_count + running_summary.billing_open_overdue_count AS billing_open_overdue_count,
+    terminal_summary.billing_pricing_snapshot_missing_count + running_summary.billing_pricing_snapshot_missing_count AS billing_pricing_snapshot_missing_count,
+    terminal_summary.billing_legacy_unpriced_count + running_summary.billing_legacy_unpriced_count AS billing_legacy_unpriced_count,
+    terminal_summary.billing_unbilled_usage_incomplete_count + running_summary.billing_unbilled_usage_incomplete_count AS billing_unbilled_usage_incomplete_count,
+    terminal_summary.billing_unbilled_over_hold_count + running_summary.billing_unbilled_over_hold_count AS billing_unbilled_over_hold_count
+  FROM terminal_summary CROSS JOIN running_summary
 )
 SELECT
   'summary' AS row_type,
@@ -210,54 +315,30 @@ SELECT
   actual_units,
   released_runs,
   released_units,
-  unbilled_runs
-FROM overview
-UNION ALL
-SELECT
-  'run_anomaly',
-  run_anomaly,
-  COUNT(*),
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-FROM classified_runs
-WHERE run_anomaly IS NOT NULL
-GROUP BY run_anomaly
-UNION ALL
-SELECT
-  'billing_anomaly',
-  billing_anomaly,
-  COUNT(*),
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-FROM classified_runs
-WHERE billing_anomaly IS NOT NULL
-GROUP BY billing_anomaly`, dashboardRunAnomalyCaseSQL(), dashboardBillingAnomalyCaseSQL())
+  unbilled_runs,
+  run_failed_count,
+  run_timeout_count,
+  run_outcome_unknown_count,
+  run_stale_running_count,
+  billing_state_inconsistent_count,
+  billing_open_overdue_count,
+  billing_pricing_snapshot_missing_count,
+  billing_legacy_unpriced_count,
+  billing_unbilled_usage_incomplete_count,
+  billing_unbilled_over_hold_count
+FROM overview`, dashboardRunAnomalyCaseSQL(), dashboardBillingAnomalyCaseSQL())
 }
 
 func dashboardPerformanceSQL() string {
 	return `
-WITH filtered_runs AS (?),
-ranked_attempts AS (
-  SELECT
-    attempt.run_id,
-    ROW_NUMBER() OVER (PARTITION BY attempt.run_id ORDER BY attempt.attempt_no DESC, attempt.id DESC) AS final_rank,
-    CASE
-      WHEN attempt.state = 'succeeded'
-       AND attempt.dispatched_at IS NOT NULL
-       AND attempt.first_delta_at IS NOT NULL
-       AND attempt.first_delta_at >= attempt.dispatched_at
-      THEN TIMESTAMPDIFF(MICROSECOND, attempt.dispatched_at, attempt.first_delta_at) DIV 1000
-      ELSE NULL
-    END AS ttft_ms
-  FROM filtered_runs r
-  JOIN ai_provider_attempts attempt ON attempt.run_id = r.id
-  WHERE r.status = 'success'
-),
+WITH filtered_facts AS (?),
 performance_samples AS (
-  SELECT 'ttft' AS metric, ttft_ms AS value_ms
-  FROM ranked_attempts
-  WHERE final_rank = 1 AND ttft_ms IS NOT NULL AND ttft_ms >= 0
+  SELECT 'ttft' AS metric, r.ttft_ms AS value_ms
+  FROM filtered_facts r
+  WHERE r.status = 'success' AND r.ttft_ms IS NOT NULL AND r.ttft_ms >= 0
   UNION ALL
   SELECT 'end_to_end', r.duration_ms
-  FROM filtered_runs r
+  FROM filtered_facts r
   WHERE r.status = 'success' AND r.duration_ms IS NOT NULL AND r.duration_ms >= 0
 ),
 ranked_samples AS (
@@ -280,51 +361,56 @@ ORDER BY metric ASC`
 
 func dashboardTrendSQL() string {
 	return `
-WITH filtered_runs AS (?),
-daily_runs AS (
+WITH terminal_daily AS (?),
+filtered_facts AS (?),
+running_runs AS (?),
+terminal_daily_runs AS (
+  SELECT
+    d.fact_date AS run_date,
+    COALESCE(SUM(d.run_count), 0) AS total_runs,
+    0 AS running_runs,
+    COALESCE(SUM(CASE WHEN d.status = 'success' THEN d.run_count ELSE 0 END), 0) AS success_runs,
+    COALESCE(SUM(CASE WHEN d.status = 'failed' THEN d.run_count ELSE 0 END), 0) AS failed_runs,
+    COALESCE(SUM(CASE WHEN d.status = 'canceled' THEN d.run_count ELSE 0 END), 0) AS canceled_runs,
+    COALESCE(SUM(CASE WHEN d.status = 'timeout' THEN d.run_count ELSE 0 END), 0) AS timeout_runs,
+    COALESCE(SUM(CASE WHEN d.status = 'outcome_unknown' THEN d.run_count ELSE 0 END), 0) AS outcome_unknown_runs,
+    COALESCE(SUM(d.actual_units), 0) AS actual_units
+  FROM terminal_daily d
+  GROUP BY d.fact_date
+),
+running_daily_runs AS (
   SELECT
     DATE(r.created_at) AS run_date,
-    COUNT(*) AS total_runs,
-    COALESCE(SUM(CASE WHEN r.status = 'running' THEN 1 ELSE 0 END), 0) AS running_runs,
-    COALESCE(SUM(CASE WHEN r.status = 'success' THEN 1 ELSE 0 END), 0) AS success_runs,
-    COALESCE(SUM(CASE WHEN r.status = 'failed' THEN 1 ELSE 0 END), 0) AS failed_runs,
-    COALESCE(SUM(CASE WHEN r.status = 'canceled' THEN 1 ELSE 0 END), 0) AS canceled_runs,
-    COALESCE(SUM(CASE WHEN r.status = 'timeout' THEN 1 ELSE 0 END), 0) AS timeout_runs,
-    COALESCE(SUM(CASE WHEN r.status = 'outcome_unknown' THEN 1 ELSE 0 END), 0) AS outcome_unknown_runs,
-    COALESCE(SUM(CASE
-      WHEN r.billing_status = 'settled'
-       AND r.billing_reason = 'settled_complete_usage'
-       AND charge.status = 'settled' AND charge.finalized_at IS NOT NULL
-       AND r.status <> 'running'
-      THEN charge.actual_units ELSE 0 END), 0) AS actual_units
-  FROM filtered_runs r
-  LEFT JOIN ai_usage_charges charge ON charge.run_id = r.id
+    COUNT(*) AS total_runs, COUNT(*) AS running_runs,
+    0 AS success_runs, 0 AS failed_runs, 0 AS canceled_runs, 0 AS timeout_runs, 0 AS outcome_unknown_runs,
+    0 AS actual_units
+  FROM running_runs r
+  WHERE r.status = 'running'
   GROUP BY DATE(r.created_at)
 ),
-ranked_attempts AS (
+daily_runs AS (
   SELECT
-    DATE(r.created_at) AS run_date,
-    attempt.run_id,
-    ROW_NUMBER() OVER (PARTITION BY attempt.run_id ORDER BY attempt.attempt_no DESC, attempt.id DESC) AS final_rank,
-    CASE
-      WHEN attempt.state = 'succeeded'
-       AND attempt.dispatched_at IS NOT NULL
-       AND attempt.first_delta_at IS NOT NULL
-       AND attempt.first_delta_at >= attempt.dispatched_at
-      THEN TIMESTAMPDIFF(MICROSECOND, attempt.dispatched_at, attempt.first_delta_at) DIV 1000
-      ELSE NULL
-    END AS ttft_ms
-  FROM filtered_runs r
-  JOIN ai_provider_attempts attempt ON attempt.run_id = r.id
-  WHERE r.status = 'success'
+    run_date, SUM(total_runs) AS total_runs, SUM(running_runs) AS running_runs,
+    SUM(success_runs) AS success_runs, SUM(failed_runs) AS failed_runs, SUM(canceled_runs) AS canceled_runs,
+    SUM(timeout_runs) AS timeout_runs, SUM(outcome_unknown_runs) AS outcome_unknown_runs, SUM(actual_units) AS actual_units
+  FROM (
+    SELECT run_date, total_runs, running_runs, success_runs, failed_runs, canceled_runs,
+      timeout_runs, outcome_unknown_runs, actual_units
+    FROM terminal_daily_runs
+    UNION ALL
+    SELECT run_date, total_runs, running_runs, success_runs, failed_runs, canceled_runs,
+      timeout_runs, outcome_unknown_runs, actual_units
+    FROM running_daily_runs
+  ) daily_sources
+  GROUP BY run_date
 ),
 trend_samples AS (
-  SELECT run_date, 'ttft' AS metric, ttft_ms AS value_ms
-  FROM ranked_attempts
-  WHERE final_rank = 1 AND ttft_ms IS NOT NULL AND ttft_ms >= 0
+  SELECT DATE(r.run_created_at) AS run_date, 'ttft' AS metric, r.ttft_ms AS value_ms
+  FROM filtered_facts r
+  WHERE r.status = 'success' AND r.ttft_ms IS NOT NULL AND r.ttft_ms >= 0
   UNION ALL
-  SELECT DATE(r.created_at), 'end_to_end', r.duration_ms
-  FROM filtered_runs r
+  SELECT DATE(r.run_created_at), 'end_to_end', r.duration_ms
+  FROM filtered_facts r
   WHERE r.status = 'success' AND r.duration_ms IS NOT NULL AND r.duration_ms >= 0
 ),
 ranked_trend_samples AS (
@@ -382,69 +468,73 @@ LIMIT 90`
 
 func dashboardAttributionsSQL() string {
 	return fmt.Sprintf(`
-WITH filtered_runs AS (?),
-ranked_runs AS (
+WITH terminal_daily AS (?),
+running_runs AS (?),
+running_classified AS (
   SELECT
-    r.id,
-    r.created_at,
-    r.started_at,
+    r.id AS latest_run_id,
     r.model_id,
-    r.model_display_name,
+    r.model_display_name AS latest_model_display_name,
     r.agent_id,
     r.provider_id,
     r.user_id,
     r.status,
-    r.billing_status,
-    r.billing_reason,
+    1 AS run_count,
     r.total_tokens,
-    ROW_NUMBER() OVER (PARTITION BY r.model_id ORDER BY r.created_at DESC, r.id DESC) AS model_name_rank
-  FROM filtered_runs r
-),
-classified_runs AS (
-  SELECT
-    r.id,
-    r.created_at,
-    r.started_at,
-    r.model_id,
-    r.model_display_name,
-    r.model_name_rank,
-    r.agent_id,
-    r.provider_id,
-    r.user_id,
-    r.status,
-    r.billing_status,
-    r.billing_reason,
-    r.total_tokens,
-    charge.status AS charge_status,
-    charge.actual_units AS charge_actual_units,
-    charge.finalized_at,
-    %s AS run_anomaly,
-    %s AS billing_anomaly
-  FROM ranked_runs r
+    0 AS actual_units,
+    COALESCE(%s, '') AS run_anomaly_code,
+    COALESCE(%s, '') AS billing_anomaly_code
+  FROM running_runs r
   LEFT JOIN ai_usage_charges charge ON charge.run_id = r.id
+),
+running_aggregated AS (
+  SELECT
+    MAX(r.latest_run_id) AS latest_run_id,
+    r.model_id,
+    SUBSTRING(MAX(CONCAT(LPAD(r.latest_run_id, 20, '0'), r.latest_model_display_name)), 21) AS latest_model_display_name,
+    r.agent_id,
+    r.provider_id,
+    r.user_id,
+    r.status,
+    COUNT(*) AS run_count,
+    COALESCE(SUM(r.total_tokens), 0) AS total_tokens,
+    0 AS actual_units,
+    r.run_anomaly_code,
+    r.billing_anomaly_code
+  FROM running_classified r
+  GROUP BY r.model_id, r.agent_id, r.provider_id, r.user_id, r.status, r.run_anomaly_code, r.billing_anomaly_code
+),
+attribution_facts AS (
+  SELECT
+    d.latest_run_id, d.model_id, d.latest_model_display_name, d.agent_id, d.provider_id, d.user_id,
+    d.status, d.run_count, d.total_tokens, d.actual_units, d.run_anomaly_code, d.billing_anomaly_code
+  FROM terminal_daily d
+  UNION ALL
+  SELECT
+    r.latest_run_id, r.model_id, r.latest_model_display_name, r.agent_id, r.provider_id, r.user_id,
+    r.status, r.run_count, r.total_tokens, r.actual_units, r.run_anomaly_code, r.billing_anomaly_code
+  FROM running_aggregated r
+),
+model_name_candidates AS (
+  SELECT r.*, ROW_NUMBER() OVER (PARTITION BY model_id ORDER BY latest_run_id DESC) AS model_name_rank
+  FROM attribution_facts r
 ),
 model_attributions AS (
   SELECT
     'model' AS dimension,
     r.model_id AS stable_key,
     0 AS attribution_id,
-    COALESCE(MAX(CASE WHEN r.model_name_rank = 1 THEN r.model_display_name END), '') AS attribution_name,
-    COUNT(*) AS total_runs,
-    COALESCE(SUM(CASE WHEN r.status = 'success' THEN 1 ELSE 0 END), 0) AS success_runs,
-    COALESCE(SUM(CASE WHEN r.status = 'failed' THEN 1 ELSE 0 END), 0) AS failed_runs,
-    COALESCE(SUM(CASE WHEN r.status = 'timeout' THEN 1 ELSE 0 END), 0) AS timeout_runs,
-    COALESCE(SUM(CASE WHEN r.status = 'outcome_unknown' THEN 1 ELSE 0 END), 0) AS outcome_unknown_runs,
+    COALESCE(MAX(CASE WHEN r.model_name_rank = 1 THEN r.latest_model_display_name END), '') AS attribution_name,
+    COALESCE(SUM(r.run_count), 0) AS total_runs,
+    COALESCE(SUM(CASE WHEN r.status = 'success' THEN r.run_count ELSE 0 END), 0) AS success_runs,
+    COALESCE(SUM(CASE WHEN r.status = 'failed' THEN r.run_count ELSE 0 END), 0) AS failed_runs,
+    COALESCE(SUM(CASE WHEN r.status = 'timeout' THEN r.run_count ELSE 0 END), 0) AS timeout_runs,
+    COALESCE(SUM(CASE WHEN r.status = 'outcome_unknown' THEN r.run_count ELSE 0 END), 0) AS outcome_unknown_runs,
     COALESCE(SUM(r.total_tokens), 0) AS total_tokens,
-    COALESCE(SUM(CASE
-      WHEN r.billing_status = 'settled'
-       AND r.billing_reason = 'settled_complete_usage'
-       AND r.charge_status = 'settled'
-       AND r.finalized_at IS NOT NULL
-       AND (r.billing_anomaly IS NULL OR r.billing_anomaly <> 'state_inconsistent')
-      THEN r.charge_actual_units ELSE 0 END), 0) AS actual_units,
-    COALESCE(SUM(CASE WHEN r.run_anomaly IS NOT NULL THEN 1 ELSE 0 END), 0) AS run_anomaly_count,
-    COALESCE(SUM(CASE WHEN r.billing_anomaly IS NOT NULL THEN 1 ELSE 0 END), 0) AS billing_anomaly_count
-  FROM classified_runs r
+    COALESCE(SUM(r.actual_units), 0) AS actual_units,
+    COALESCE(SUM(CASE WHEN r.run_anomaly_code <> '' THEN r.run_count ELSE 0 END), 0) AS run_anomaly_count,
+    COALESCE(SUM(CASE WHEN r.billing_anomaly_code <> '' THEN r.run_count ELSE 0 END), 0) AS billing_anomaly_count
+  FROM model_name_candidates r
   GROUP BY r.model_id
   ORDER BY actual_units DESC, total_runs DESC, stable_key ASC LIMIT 20
 ),
@@ -454,22 +544,16 @@ provider_attributions AS (
     CAST(r.provider_id AS CHAR) AS stable_key,
     r.provider_id AS attribution_id,
     COALESCE(MAX(provider.name), '') AS attribution_name,
-    COUNT(*) AS total_runs,
-    COALESCE(SUM(CASE WHEN r.status = 'success' THEN 1 ELSE 0 END), 0) AS success_runs,
-    COALESCE(SUM(CASE WHEN r.status = 'failed' THEN 1 ELSE 0 END), 0) AS failed_runs,
-    COALESCE(SUM(CASE WHEN r.status = 'timeout' THEN 1 ELSE 0 END), 0) AS timeout_runs,
-    COALESCE(SUM(CASE WHEN r.status = 'outcome_unknown' THEN 1 ELSE 0 END), 0) AS outcome_unknown_runs,
+    COALESCE(SUM(r.run_count), 0) AS total_runs,
+    COALESCE(SUM(CASE WHEN r.status = 'success' THEN r.run_count ELSE 0 END), 0) AS success_runs,
+    COALESCE(SUM(CASE WHEN r.status = 'failed' THEN r.run_count ELSE 0 END), 0) AS failed_runs,
+    COALESCE(SUM(CASE WHEN r.status = 'timeout' THEN r.run_count ELSE 0 END), 0) AS timeout_runs,
+    COALESCE(SUM(CASE WHEN r.status = 'outcome_unknown' THEN r.run_count ELSE 0 END), 0) AS outcome_unknown_runs,
     COALESCE(SUM(r.total_tokens), 0) AS total_tokens,
-    COALESCE(SUM(CASE
-      WHEN r.billing_status = 'settled'
-       AND r.billing_reason = 'settled_complete_usage'
-       AND r.charge_status = 'settled'
-       AND r.finalized_at IS NOT NULL
-       AND (r.billing_anomaly IS NULL OR r.billing_anomaly <> 'state_inconsistent')
-      THEN r.charge_actual_units ELSE 0 END), 0) AS actual_units,
-    COALESCE(SUM(CASE WHEN r.run_anomaly IS NOT NULL THEN 1 ELSE 0 END), 0) AS run_anomaly_count,
-    COALESCE(SUM(CASE WHEN r.billing_anomaly IS NOT NULL THEN 1 ELSE 0 END), 0) AS billing_anomaly_count
-  FROM classified_runs r
+    COALESCE(SUM(r.actual_units), 0) AS actual_units,
+    COALESCE(SUM(CASE WHEN r.run_anomaly_code <> '' THEN r.run_count ELSE 0 END), 0) AS run_anomaly_count,
+    COALESCE(SUM(CASE WHEN r.billing_anomaly_code <> '' THEN r.run_count ELSE 0 END), 0) AS billing_anomaly_count
+  FROM attribution_facts r
   LEFT JOIN ai_providers provider ON provider.id = r.provider_id
   GROUP BY r.provider_id
   ORDER BY actual_units DESC, total_runs DESC, stable_key ASC LIMIT 20
@@ -480,22 +564,16 @@ agent_attributions AS (
     CAST(r.agent_id AS CHAR) AS stable_key,
     r.agent_id AS attribution_id,
     COALESCE(MAX(agent.name), '') AS attribution_name,
-    COUNT(*) AS total_runs,
-    COALESCE(SUM(CASE WHEN r.status = 'success' THEN 1 ELSE 0 END), 0) AS success_runs,
-    COALESCE(SUM(CASE WHEN r.status = 'failed' THEN 1 ELSE 0 END), 0) AS failed_runs,
-    COALESCE(SUM(CASE WHEN r.status = 'timeout' THEN 1 ELSE 0 END), 0) AS timeout_runs,
-    COALESCE(SUM(CASE WHEN r.status = 'outcome_unknown' THEN 1 ELSE 0 END), 0) AS outcome_unknown_runs,
+    COALESCE(SUM(r.run_count), 0) AS total_runs,
+    COALESCE(SUM(CASE WHEN r.status = 'success' THEN r.run_count ELSE 0 END), 0) AS success_runs,
+    COALESCE(SUM(CASE WHEN r.status = 'failed' THEN r.run_count ELSE 0 END), 0) AS failed_runs,
+    COALESCE(SUM(CASE WHEN r.status = 'timeout' THEN r.run_count ELSE 0 END), 0) AS timeout_runs,
+    COALESCE(SUM(CASE WHEN r.status = 'outcome_unknown' THEN r.run_count ELSE 0 END), 0) AS outcome_unknown_runs,
     COALESCE(SUM(r.total_tokens), 0) AS total_tokens,
-    COALESCE(SUM(CASE
-      WHEN r.billing_status = 'settled'
-       AND r.billing_reason = 'settled_complete_usage'
-       AND r.charge_status = 'settled'
-       AND r.finalized_at IS NOT NULL
-       AND (r.billing_anomaly IS NULL OR r.billing_anomaly <> 'state_inconsistent')
-      THEN r.charge_actual_units ELSE 0 END), 0) AS actual_units,
-    COALESCE(SUM(CASE WHEN r.run_anomaly IS NOT NULL THEN 1 ELSE 0 END), 0) AS run_anomaly_count,
-    COALESCE(SUM(CASE WHEN r.billing_anomaly IS NOT NULL THEN 1 ELSE 0 END), 0) AS billing_anomaly_count
-  FROM classified_runs r
+    COALESCE(SUM(r.actual_units), 0) AS actual_units,
+    COALESCE(SUM(CASE WHEN r.run_anomaly_code <> '' THEN r.run_count ELSE 0 END), 0) AS run_anomaly_count,
+    COALESCE(SUM(CASE WHEN r.billing_anomaly_code <> '' THEN r.run_count ELSE 0 END), 0) AS billing_anomaly_count
+  FROM attribution_facts r
   LEFT JOIN ai_agents agent ON agent.id = r.agent_id
   GROUP BY r.agent_id
   ORDER BY actual_units DESC, total_runs DESC, stable_key ASC LIMIT 20
@@ -506,22 +584,16 @@ user_attributions AS (
     CAST(r.user_id AS CHAR) AS stable_key,
     r.user_id AS attribution_id,
     COALESCE(MAX(user_row.username), '') AS attribution_name,
-    COUNT(*) AS total_runs,
-    COALESCE(SUM(CASE WHEN r.status = 'success' THEN 1 ELSE 0 END), 0) AS success_runs,
-    COALESCE(SUM(CASE WHEN r.status = 'failed' THEN 1 ELSE 0 END), 0) AS failed_runs,
-    COALESCE(SUM(CASE WHEN r.status = 'timeout' THEN 1 ELSE 0 END), 0) AS timeout_runs,
-    COALESCE(SUM(CASE WHEN r.status = 'outcome_unknown' THEN 1 ELSE 0 END), 0) AS outcome_unknown_runs,
+    COALESCE(SUM(r.run_count), 0) AS total_runs,
+    COALESCE(SUM(CASE WHEN r.status = 'success' THEN r.run_count ELSE 0 END), 0) AS success_runs,
+    COALESCE(SUM(CASE WHEN r.status = 'failed' THEN r.run_count ELSE 0 END), 0) AS failed_runs,
+    COALESCE(SUM(CASE WHEN r.status = 'timeout' THEN r.run_count ELSE 0 END), 0) AS timeout_runs,
+    COALESCE(SUM(CASE WHEN r.status = 'outcome_unknown' THEN r.run_count ELSE 0 END), 0) AS outcome_unknown_runs,
     COALESCE(SUM(r.total_tokens), 0) AS total_tokens,
-    COALESCE(SUM(CASE
-      WHEN r.billing_status = 'settled'
-       AND r.billing_reason = 'settled_complete_usage'
-       AND r.charge_status = 'settled'
-       AND r.finalized_at IS NOT NULL
-       AND (r.billing_anomaly IS NULL OR r.billing_anomaly <> 'state_inconsistent')
-      THEN r.charge_actual_units ELSE 0 END), 0) AS actual_units,
-    COALESCE(SUM(CASE WHEN r.run_anomaly IS NOT NULL THEN 1 ELSE 0 END), 0) AS run_anomaly_count,
-    COALESCE(SUM(CASE WHEN r.billing_anomaly IS NOT NULL THEN 1 ELSE 0 END), 0) AS billing_anomaly_count
-  FROM classified_runs r
+    COALESCE(SUM(r.actual_units), 0) AS actual_units,
+    COALESCE(SUM(CASE WHEN r.run_anomaly_code <> '' THEN r.run_count ELSE 0 END), 0) AS run_anomaly_count,
+    COALESCE(SUM(CASE WHEN r.billing_anomaly_code <> '' THEN r.run_count ELSE 0 END), 0) AS billing_anomaly_count
+  FROM attribution_facts r
   LEFT JOIN users user_row ON user_row.id = r.user_id
   GROUP BY r.user_id
   ORDER BY actual_units DESC, total_runs DESC, stable_key ASC LIMIT 20
@@ -562,23 +634,13 @@ ORDER BY FIELD(dimension, 'model', 'provider', 'agent', 'user'), actual_units DE
 
 func dashboardErrorsSQL() string {
 	return `
-WITH filtered_runs AS (?),
-ranked_terminal_attempts AS (
-  SELECT
-    attempt.run_id,
-    attempt.error_code,
-    ROW_NUMBER() OVER (PARTITION BY attempt.run_id ORDER BY attempt.attempt_no DESC, attempt.id DESC) AS final_rank
-  FROM filtered_runs r
-  JOIN ai_provider_attempts attempt ON attempt.run_id = r.id
-  WHERE r.status IN ('failed', 'timeout', 'outcome_unknown')
-    AND attempt.state IN ('succeeded', 'failed', 'canceled', 'outcome_unknown')
-)
+WITH terminal_daily AS (?)
 SELECT
-  COALESCE(NULLIF(TRIM(error_code), ''), 'unclassified') AS error_code,
-  COUNT(*) AS count
-FROM ranked_terminal_attempts
-WHERE final_rank = 1
-GROUP BY COALESCE(NULLIF(TRIM(error_code), ''), 'unclassified')
+  d.final_error_code AS error_code,
+  SUM(d.run_count) AS count
+FROM terminal_daily d
+WHERE d.final_error_code <> ''
+GROUP BY d.final_error_code
 ORDER BY count DESC, error_code ASC
 LIMIT 20`
 }
@@ -597,6 +659,7 @@ filtered_tool_calls AS (
     ROW_NUMBER() OVER (PARTITION BY tool_call.tool_code ORDER BY tool_call.started_at DESC, tool_call.id DESC) AS tool_name_rank
   FROM filtered_runs r
   JOIN ai_tool_calls tool_call ON tool_call.run_id = r.id
+  WHERE tool_call.status IN ('success', 'failed', 'timeout')
 ),
 tool_totals AS (
   SELECT
@@ -650,31 +713,38 @@ LIMIT 20`
 func dashboardOverviewQuery(db *gorm.DB, query DashboardQuery) *gorm.DB {
 	return db.Raw(
 		dashboardOverviewSQL(),
-		dashboardFilteredRuns(db, query),
+		dashboardFilteredDailyFacts(db, query),
+		dashboardRunningRuns(db, query),
 		query.StaleBefore,
 		query.StaleBefore,
 	)
 }
 
 func dashboardPerformanceQuery(db *gorm.DB, query DashboardQuery) *gorm.DB {
-	return db.Raw(dashboardPerformanceSQL(), dashboardFilteredRuns(db, query))
+	return db.Raw(dashboardPerformanceSQL(), dashboardFilteredFacts(db, query))
 }
 
 func dashboardTrendQuery(db *gorm.DB, query DashboardQuery) *gorm.DB {
-	return db.Raw(dashboardTrendSQL(), dashboardFilteredRuns(db, query))
+	return db.Raw(
+		dashboardTrendSQL(),
+		dashboardFilteredDailyFacts(db, query),
+		dashboardFilteredFacts(db, query),
+		dashboardRunningRuns(db, query),
+	)
 }
 
 func dashboardAttributionsQuery(db *gorm.DB, query DashboardQuery) *gorm.DB {
 	return db.Raw(
 		dashboardAttributionsSQL(),
-		dashboardFilteredRuns(db, query),
+		dashboardFilteredDailyFacts(db, query),
+		dashboardRunningRuns(db, query),
 		query.StaleBefore,
 		query.StaleBefore,
 	)
 }
 
 func dashboardErrorsQuery(db *gorm.DB, query DashboardQuery) *gorm.DB {
-	return db.Raw(dashboardErrorsSQL(), dashboardFilteredRuns(db, query))
+	return db.Raw(dashboardErrorsSQL(), dashboardFilteredDailyFacts(db, query))
 }
 
 func dashboardToolsQuery(db *gorm.DB, query DashboardQuery) *gorm.DB {
@@ -720,24 +790,34 @@ func scanDashboardQueries(tx *gorm.DB, query DashboardQuery, result *DashboardRe
 }
 
 type dashboardOverviewScanRow struct {
-	RowType            string
-	Code               string
-	CountValue         int64
-	TotalRuns          int64
-	RunningRuns        int64
-	SuccessRuns        int64
-	FailedRuns         int64
-	CanceledRuns       int64
-	TimeoutRuns        int64
-	OutcomeUnknownRuns int64
-	PromptTokens       int64
-	CompletionTokens   int64
-	TotalTokens        int64
-	SettledRuns        int64
-	ActualUnits        int64
-	ReleasedRuns       int64
-	ReleasedUnits      int64
-	UnbilledRuns       int64
+	RowType                             string
+	Code                                string
+	CountValue                          int64
+	TotalRuns                           int64
+	RunningRuns                         int64
+	SuccessRuns                         int64
+	FailedRuns                          int64
+	CanceledRuns                        int64
+	TimeoutRuns                         int64
+	OutcomeUnknownRuns                  int64
+	PromptTokens                        int64
+	CompletionTokens                    int64
+	TotalTokens                         int64
+	SettledRuns                         int64
+	ActualUnits                         int64
+	ReleasedRuns                        int64
+	ReleasedUnits                       int64
+	UnbilledRuns                        int64
+	RunFailedCount                      int64
+	RunTimeoutCount                     int64
+	RunOutcomeUnknownCount              int64
+	RunStaleRunningCount                int64
+	BillingStateInconsistentCount       int64
+	BillingOpenOverdueCount             int64
+	BillingPricingSnapshotMissingCount  int64
+	BillingLegacyUnpricedCount          int64
+	BillingUnbilledUsageIncompleteCount int64
+	BillingUnbilledOverHoldCount        int64
 }
 
 func scanDashboardOverview(tx *gorm.DB, query DashboardQuery, result *DashboardRepositoryResult) error {
@@ -758,6 +838,16 @@ func scanDashboardOverview(tx *gorm.DB, query DashboardQuery, result *DashboardR
 				SettledRuns: row.SettledRuns, ActualUnits: row.ActualUnits, ReleasedRuns: row.ReleasedRuns,
 				ReleasedUnits: row.ReleasedUnits, UnbilledRuns: row.UnbilledRuns,
 			}
+			appendDashboardCount(&result.RunAnomalies, "failed", row.RunFailedCount)
+			appendDashboardCount(&result.RunAnomalies, "timeout", row.RunTimeoutCount)
+			appendDashboardCount(&result.RunAnomalies, "outcome_unknown", row.RunOutcomeUnknownCount)
+			appendDashboardCount(&result.RunAnomalies, "stale_running", row.RunStaleRunningCount)
+			appendDashboardCount(&result.BillingAnomalies, "state_inconsistent", row.BillingStateInconsistentCount)
+			appendDashboardCount(&result.BillingAnomalies, "open_overdue", row.BillingOpenOverdueCount)
+			appendDashboardCount(&result.BillingAnomalies, "pricing_snapshot_missing", row.BillingPricingSnapshotMissingCount)
+			appendDashboardCount(&result.BillingAnomalies, "legacy_unpriced", row.BillingLegacyUnpricedCount)
+			appendDashboardCount(&result.BillingAnomalies, "unbilled_usage_incomplete", row.BillingUnbilledUsageIncompleteCount)
+			appendDashboardCount(&result.BillingAnomalies, "unbilled_over_hold", row.BillingUnbilledOverHoldCount)
 		case "run_anomaly":
 			result.RunAnomalies = append(result.RunAnomalies, DashboardCountRow{Code: row.Code, Count: row.CountValue})
 		case "billing_anomaly":
@@ -767,6 +857,12 @@ func scanDashboardOverview(tx *gorm.DB, query DashboardQuery, result *DashboardR
 		}
 	}
 	return nil
+}
+
+func appendDashboardCount(rows *[]DashboardCountRow, code string, count int64) {
+	if count > 0 {
+		*rows = append(*rows, DashboardCountRow{Code: code, Count: count})
+	}
 }
 
 type dashboardDistributionScanRow struct {
@@ -899,4 +995,18 @@ func scanDashboardTools(tx *gorm.DB, query DashboardQuery, result *DashboardRepo
 func dashboardFilteredRuns(db *gorm.DB, query DashboardQuery) *gorm.DB {
 	base := db.Session(&gorm.Session{NewDB: true}).Table("ai_runs r").Select(strings.TrimSpace(dashboardFilteredRunColumns))
 	return applyDashboardFilters(base, query)
+}
+
+func dashboardRunningRuns(db *gorm.DB, query DashboardQuery) *gorm.DB {
+	return dashboardFilteredRuns(db, query).Where("r.status = 'running'")
+}
+
+func dashboardFilteredFacts(db *gorm.DB, query DashboardQuery) *gorm.DB {
+	base := db.Session(&gorm.Session{NewDB: true}).Table("ai_run_dashboard_facts r").Select(strings.TrimSpace(dashboardFilteredFactColumns))
+	return applyDashboardFactFilters(base, query)
+}
+
+func dashboardFilteredDailyFacts(db *gorm.DB, query DashboardQuery) *gorm.DB {
+	base := db.Session(&gorm.Session{NewDB: true}).Table("ai_run_dashboard_daily_facts d").Select(strings.TrimSpace(dashboardFilteredDailyColumns))
+	return applyDashboardDailyFilters(base, query)
 }

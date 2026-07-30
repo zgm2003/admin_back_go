@@ -13,6 +13,8 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+var ErrTerminalRunCannotRestart = errors.New("terminal AI run cannot be restarted")
+
 func (r *GormRepository) StartRun(ctx context.Context, input StartRecord) (int64, error) {
 	if r == nil || r.db == nil {
 		return 0, ErrRepositoryNotConfigured
@@ -32,25 +34,7 @@ func (r *GormRepository) StartRun(ctx context.Context, input StartRecord) (int64
 				if existing.Status == enum.AIRunStatusRunning || existing.Status == enum.AIRunStatusSuccess {
 					return nil
 				}
-				updates := map[string]any{
-					"status":               enum.AIRunStatusRunning,
-					"assistant_message_id": nil,
-					"prompt_tokens":        0,
-					"completion_tokens":    0,
-					"total_tokens":         0,
-					"duration_ms":          nil,
-					"error_message":        "",
-					"started_at":           startedAt,
-					"finished_at":          nil,
-				}
-				if err := tx.Model(&Run{}).Where("id = ?", existing.ID).Updates(updates).Error; err != nil {
-					return err
-				}
-				var maxSeq uint
-				if err := tx.Model(&RunEvent{}).Where("run_id = ?", existing.ID).Select("COALESCE(MAX(seq), 0)").Scan(&maxSeq).Error; err != nil {
-					return err
-				}
-				return tx.Create(&RunEvent{RunID: existing.ID, Seq: maxSeq + 1, EventType: enum.AIRunEventStart, Message: enum.AIRunEventLabels[enum.AIRunEventStart]}).Error
+				return ErrTerminalRunCannotRestart
 			}
 			if !errors.Is(err, gorm.ErrRecordNotFound) {
 				return err
@@ -131,14 +115,17 @@ func (r *GormRepository) finishRecorderRun(ctx context.Context, runID int64, sta
 			return result.Error
 		}
 		if result.RowsAffected == 0 {
-			return nil
+			return ProjectTerminalDashboardFacts(ctx, tx, runID)
 		}
 		changed = true
 		var maxSeq uint
 		if err := tx.Model(&RunEvent{}).Where("run_id = ?", runID).Select("COALESCE(MAX(seq), 0)").Scan(&maxSeq).Error; err != nil {
 			return err
 		}
-		return tx.Create(&RunEvent{RunID: runID, Seq: maxSeq + 1, EventType: eventType, Message: truncateRecorderRunMessage(message)}).Error
+		if err := tx.Create(&RunEvent{RunID: runID, Seq: maxSeq + 1, EventType: eventType, Message: truncateRecorderRunMessage(message)}).Error; err != nil {
+			return err
+		}
+		return ProjectTerminalDashboardFacts(ctx, tx, runID)
 	})
 	return changed, err
 }

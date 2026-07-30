@@ -17,11 +17,11 @@ import (
 )
 
 const (
-	dashboardOverviewQueryPattern     = `(?i)WITH filtered_runs AS .*overview AS`
-	dashboardPerformanceQueryPattern  = `(?i)WITH filtered_runs AS .*performance_samples AS`
-	dashboardTrendQueryPattern        = `(?i)WITH filtered_runs AS .*daily_runs AS`
-	dashboardAttributionsQueryPattern = `(?i)WITH filtered_runs AS .*model_attributions AS`
-	dashboardErrorsQueryPattern       = `(?i)WITH filtered_runs AS .*ranked_terminal_attempts AS`
+	dashboardOverviewQueryPattern     = `(?i)WITH terminal_daily AS .*terminal_summary AS`
+	dashboardPerformanceQueryPattern  = `(?i)WITH filtered_facts AS .*performance_samples AS`
+	dashboardTrendQueryPattern        = `(?i)WITH terminal_daily AS .*daily_runs AS`
+	dashboardAttributionsQueryPattern = `(?i)WITH terminal_daily AS .*model_attributions AS`
+	dashboardErrorsQueryPattern       = `(?i)WITH terminal_daily AS .*final_error_code`
 	dashboardToolsQueryPattern        = `(?i)WITH filtered_runs AS .*filtered_tool_calls AS`
 )
 
@@ -29,18 +29,29 @@ func TestDashboardOverviewUsesTerminalDeliveryAndSettledChargeFacts(t *testing.T
 	sql := renderDashboardQuerySQL(t, dashboardOverviewQuery)
 
 	assertDashboardSQLContains(t, sql,
+		"from ai_run_dashboard_daily_facts d",
+		"d.fact_date >= date(?) and d.fact_date < date(?)",
+		"from ai_runs r",
 		"r.created_at >= ? and r.created_at < ?",
+		"r.status = 'running'",
 		"charge.id is null",
 		"r.status = 'running' and r.billing_status in ('settled', 'released', 'unbilled')",
-		"r.status in ('success', 'failed', 'canceled', 'timeout', 'outcome_unknown')",
 		"r.started_at < ?",
-		"r.billing_status = 'settled'",
-		"charge.status = 'settled' and charge.finalized_at is not null",
-		"r.billing_status = 'released'",
-		"charge.status = 'released' and charge.finalized_at is not null",
-		"r.billing_status = 'unbilled'",
 		"charge.pricing_version",
 		"r.billing_status <> 'released' and (charge.pricing_version is null or trim(charge.pricing_version) = '')",
+		"left join ai_usage_charges charge on charge.run_id = r.id",
+		"sum(case when status = 'success' then run_count else 0 end)",
+		"sum(actual_units)",
+		"as run_failed_count",
+		"as run_timeout_count",
+		"as run_outcome_unknown_count",
+		"as run_stale_running_count",
+		"as billing_state_inconsistent_count",
+		"as billing_open_overdue_count",
+		"as billing_pricing_snapshot_missing_count",
+		"as billing_legacy_unpriced_count",
+		"as billing_unbilled_usage_incomplete_count",
+		"as billing_unbilled_over_hold_count",
 	)
 
 	matrix := []string{
@@ -73,8 +84,8 @@ func TestDashboardOverviewUsesTerminalDeliveryAndSettledChargeFacts(t *testing.T
 	if strings.Contains(sql, "then 'released'") {
 		t.Fatalf("normal released billing must not be classified as an anomaly, sql=%s", sql)
 	}
-	if strings.Count(sql, "union all") != 2 {
-		t.Fatalf("overview must return summary and both anomaly groups in one statement, sql=%s", sql)
+	if strings.Contains(sql, "union all") {
+		t.Fatalf("overview must aggregate summary and closed anomaly counters in one pass, sql=%s", sql)
 	}
 }
 
@@ -82,18 +93,19 @@ func TestDashboardPerformanceUsesSuccessfulRunsAndNearestRank(t *testing.T) {
 	sql := renderDashboardQuerySQL(t, dashboardPerformanceQuery)
 
 	assertDashboardSQLContains(t, sql,
-		"r.created_at >= ? and r.created_at < ?",
+		"from ai_run_dashboard_facts r",
+		"r.fact_date >= date(?) and r.fact_date < date(?)",
 		"r.status = 'success'",
-		"attempt.state = 'succeeded'",
-		"row_number() over (partition by attempt.run_id order by attempt.attempt_no desc, attempt.id desc)",
-		"final_rank = 1",
-		"attempt.first_delta_at >= attempt.dispatched_at",
+		"r.ttft_ms >= 0",
 		"r.duration_ms >= 0",
 		"row_number() over (partition by metric order by value_ms asc)",
 		"count(*) over (partition by metric)",
 		"ceil(0.50 * sample_count)",
 		"ceil(0.95 * sample_count)",
 	)
+	if strings.Contains(sql, "ai_provider_attempts") {
+		t.Fatalf("dashboard performance must read the exact terminal latency projection, sql=%s", sql)
+	}
 	if strings.Contains(sql, "p99") || strings.Contains(sql, "0.99") {
 		t.Fatalf("dashboard performance only publishes P50/P95, sql=%s", sql)
 	}
@@ -103,11 +115,15 @@ func TestDashboardTrendUsesShanghaiDayBucketsAndNinetyRowLimit(t *testing.T) {
 	sql := renderDashboardQuerySQL(t, dashboardTrendQuery)
 
 	assertDashboardSQLContains(t, sql,
+		"from ai_run_dashboard_daily_facts d",
+		"from ai_run_dashboard_facts r",
+		"from ai_runs r",
 		"r.created_at >= ? and r.created_at < ?",
-		"date(r.created_at)",
+		"r.status = 'running'",
+		"r.fact_date >= date(?) and r.fact_date < date(?)",
+		"date(r.run_created_at)",
 		"date_format(daily_runs.run_date, '%y-%m-%d')",
 		"r.status = 'success'",
-		"attempt.state = 'succeeded'",
 		"ceil(0.50 * sample_count)",
 		"ceil(0.95 * sample_count)",
 		"order by daily_runs.run_date asc",
@@ -124,17 +140,23 @@ func TestDashboardAttributionsUseFourUnionedDimensionsAndTopTwenty(t *testing.T)
 	sql := renderDashboardQuerySQL(t, dashboardAttributionsQuery)
 
 	assertDashboardSQLContains(t, sql,
+		"from ai_run_dashboard_daily_facts d",
+		"from ai_runs r",
 		"r.created_at >= ? and r.created_at < ?",
-		"row_number() over (partition by r.model_id order by r.created_at desc, r.id desc) as model_name_rank",
+		"r.status = 'running'",
+		"running_aggregated as",
+		"count(*) as run_count",
+		"group by r.model_id, r.agent_id, r.provider_id, r.user_id, r.status, r.run_anomaly_code, r.billing_anomaly_code",
+		"row_number() over (partition by model_id order by latest_run_id desc) as model_name_rank",
 		"group by r.model_id",
-		"max(case when r.model_name_rank = 1 then r.model_display_name end)",
+		"max(case when r.model_name_rank = 1 then r.latest_model_display_name end)",
 		"'model' as dimension",
 		"'provider' as dimension",
 		"'agent' as dimension",
 		"'user' as dimension",
 	)
-	if strings.Count(sql, "union all") != 3 {
-		t.Fatalf("attribution query must union exactly four dimensions, sql=%s", sql)
+	if strings.Count(sql, "union all") < 4 {
+		t.Fatalf("attribution query must combine terminal/live facts and union four dimensions, sql=%s", sql)
 	}
 	if strings.Count(sql, "order by actual_units desc, total_runs desc, stable_key asc limit 20") != 4 {
 		t.Fatalf("each attribution dimension must independently select its top twenty, sql=%s", sql)
@@ -148,15 +170,13 @@ func TestDashboardErrorsUseLastTerminalAttemptOnly(t *testing.T) {
 	sql := renderDashboardQuerySQL(t, dashboardErrorsQuery)
 
 	assertDashboardSQLContains(t, sql,
-		"r.status in ('failed', 'timeout', 'outcome_unknown')",
-		"attempt.state in ('succeeded', 'failed', 'canceled', 'outcome_unknown')",
-		"row_number() over (partition by attempt.run_id order by attempt.attempt_no desc, attempt.id desc) as final_rank",
-		"final_rank = 1",
-		"coalesce(nullif(trim(error_code), ''), 'unclassified')",
-		"group by coalesce(nullif(trim(error_code), ''), 'unclassified')",
+		"from ai_run_dashboard_daily_facts d",
+		"d.final_error_code <> ''",
+		"sum(d.run_count) as count",
+		"group by d.final_error_code",
 	)
-	if strings.Contains(sql, "error_message") {
-		t.Fatalf("dashboard errors must not group by unstable messages, sql=%s", sql)
+	if strings.Contains(sql, "error_message") || strings.Contains(sql, "ai_provider_attempts") {
+		t.Fatalf("dashboard errors must read the projected final error code without unstable messages, sql=%s", sql)
 	}
 }
 
@@ -165,6 +185,7 @@ func TestDashboardToolsExcludeRunningAndUseSuccessfulDurations(t *testing.T) {
 
 	assertDashboardSQLContains(t, sql,
 		"join ai_tool_calls tool_call on tool_call.run_id = r.id",
+		"where tool_call.status in ('success', 'failed', 'timeout')",
 		"row_number() over (partition by tool_call.tool_code order by tool_call.started_at desc, tool_call.id desc) as tool_name_rank",
 		"max(case when tool_name_rank = 1 then tool_name end)",
 		"coalesce(sum(case when status = 'success' then 1 else 0 end), 0) as success_calls",
@@ -221,6 +242,7 @@ func TestDashboardRollsBackAndReturnsNoPartialResultWhenAnyQueryFails(t *testing
 	mock.ExpectBegin()
 	mock.ExpectQuery(dashboardOverviewQueryPattern).WillReturnRows(dashboardOverviewRows().AddRow(
 		"summary", "", 0, 9, 0, 8, 1, 0, 0, 0, 10, 11, 21, 1, 100, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	))
 	mock.ExpectQuery(dashboardPerformanceQueryPattern).WillReturnRows(dashboardPerformanceRows())
 	mock.ExpectQuery(dashboardTrendQueryPattern).WillReturnRows(dashboardTrendRows())
@@ -265,6 +287,28 @@ func TestDashboardQueriesDoNotSelectLargeJSONColumns(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestDashboardQueriesUseTerminalProjectionAndOnlyReadRawRunningTail(t *testing.T) {
+	queries := map[string]string{
+		"overview":     renderDashboardQuerySQL(t, dashboardOverviewQuery),
+		"performance":  renderDashboardQuerySQL(t, dashboardPerformanceQuery),
+		"trend":        renderDashboardQuerySQL(t, dashboardTrendQuery),
+		"attributions": renderDashboardQuerySQL(t, dashboardAttributionsQuery),
+		"errors":       renderDashboardQuerySQL(t, dashboardErrorsQuery),
+	}
+	for name, query := range queries {
+		normalized := normalizeDashboardSQL(query)
+		if !strings.Contains(normalized, "ai_run_dashboard_facts") && !strings.Contains(normalized, "ai_run_dashboard_daily_facts") {
+			t.Errorf("%s query does not use the bounded dashboard projection: %s", name, normalized)
+		}
+	}
+	for _, name := range []string{"overview", "trend", "attributions"} {
+		normalized := normalizeDashboardSQL(queries[name])
+		if !strings.Contains(normalized, "r.status = 'running'") {
+			t.Errorf("%s query must merge the live running tail: %s", name, normalized)
+		}
 	}
 }
 
@@ -344,6 +388,7 @@ func (connection *dashboardRecordingConn) CheckNamedValue(value *driver.NamedVal
 func expectSuccessfulDashboardQueries(mock sqlmock.Sqlmock) {
 	mock.ExpectQuery(dashboardOverviewQueryPattern).WillReturnRows(dashboardOverviewRows().AddRow(
 		"summary", "", 0, 9, 0, 8, 1, 0, 0, 0, 10, 11, 21, 1, 100, 0, 0, 0,
+		1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
 	))
 	mock.ExpectQuery(dashboardPerformanceQueryPattern).WillReturnRows(dashboardPerformanceRows().
 		AddRow("ttft", 21, 10, 20).
@@ -365,6 +410,9 @@ func dashboardOverviewRows() *sqlmock.Rows {
 		"row_type", "code", "count_value", "total_runs", "running_runs", "success_runs", "failed_runs", "canceled_runs",
 		"timeout_runs", "outcome_unknown_runs", "prompt_tokens", "completion_tokens", "total_tokens", "settled_runs", "actual_units",
 		"released_runs", "released_units", "unbilled_runs",
+		"run_failed_count", "run_timeout_count", "run_outcome_unknown_count", "run_stale_running_count",
+		"billing_state_inconsistent_count", "billing_open_overdue_count", "billing_pricing_snapshot_missing_count",
+		"billing_legacy_unpriced_count", "billing_unbilled_usage_incomplete_count", "billing_unbilled_over_hold_count",
 	})
 }
 

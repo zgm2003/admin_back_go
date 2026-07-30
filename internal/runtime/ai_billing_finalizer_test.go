@@ -84,6 +84,9 @@ func TestFinalizationWritesSettledAtInTerminalTransaction(t *testing.T) {
 	mock.ExpectExec("UPDATE `ai_runs` SET .*`settled_at`=\\?.* WHERE id = \\? AND status = \\? AND billing_status IN \\(\\?,\\?\\)").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("UPDATE `ai_usage_charges` SET").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("(?is)SELECT EXISTS .* FROM ai_run_dashboard_facts").WillReturnRows(sqlmock.NewRows([]string{"fact_exists"}).AddRow(false))
+	mock.ExpectExec("(?is)INSERT INTO ai_run_dashboard_facts .* WHERE r.id = \\?").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("(?is)INSERT INTO ai_run_dashboard_daily_facts").WillReturnResult(sqlmock.NewResult(0, 1))
 
 	err := finalizeChatRunAndCharge(context.Background(), db,
 		airun.Run{ID: 41, StartedAt: &startedAt},

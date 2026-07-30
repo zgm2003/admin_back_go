@@ -232,6 +232,9 @@ func (store *gormGatewayFinalizationStore) WithLockedSettlement(ctx context.Cont
 			if err := validateChatFinalizationReplay(run, charge, wallet, hold, command, attempts); err != nil {
 				return err
 			}
+			if err := airun.ProjectTerminalDashboardFacts(ctx, tx, run.ID); err != nil {
+				return err
+			}
 			replayed = true
 			return nil
 		}
@@ -571,7 +574,7 @@ func finalizeChatRunAndCharge(ctx context.Context, tx *gorm.DB, run airun.Run, c
 	if chargeUpdate.RowsAffected != 1 {
 		return errors.New("AI usage charge terminal compare-and-set was rejected")
 	}
-	return nil
+	return airun.ProjectTerminalDashboardFacts(ctx, tx, run.ID)
 }
 
 func finalizationTokenTotals(facts aigateway.FinalizationFacts) (uint, uint, uint, error) {

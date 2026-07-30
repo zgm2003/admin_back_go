@@ -1638,6 +1638,9 @@ table "ai_provider_attempts" {
   index "idx_ai_attempt_command" {
     columns = [column.command_id, column.attempt_no]
   }
+  index "idx_ai_provider_attempts_error_run" {
+    columns = [column.error_code, column.run_id, column.id]
+  }
   index "uk_ai_attempt_run_no" {
     unique  = true
     columns = [column.run_id, column.attempt_no]
@@ -2272,11 +2275,17 @@ table "ai_runs" {
   index "idx_ai_runs_agent_created" {
     columns = [column.agent_id, column.created_at, column.id]
   }
+  index "idx_ai_runs_billing_created" {
+    columns = [column.billing_status, column.billing_reason, column.created_at, column.id]
+  }
   index "idx_ai_runs_conversation_created" {
     columns = [column.conversation_id, column.created_at, column.id]
   }
   index "idx_ai_runs_created" {
     columns = [column.created_at, column.id]
+  }
+  index "idx_ai_runs_model_created" {
+    columns = [column.model_id, column.created_at, column.id]
   }
   index "idx_ai_runs_provider_created" {
     columns = [column.provider_id, column.created_at, column.id]
@@ -6432,6 +6441,301 @@ table "ai_billing_migration_metadata" {
   }
   primary_key {
     columns = [column.migration_key]
+  }
+}
+table "ai_run_dashboard_facts" {
+  schema  = schema.admin
+  comment = "Immutable terminal Run projection for exact AI dashboard analytics"
+  column "run_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "fact_date" {
+    null = false
+    type = date
+  }
+  column "run_created_at" {
+    null = false
+    type = datetime
+  }
+  column "platform" {
+    null = false
+    type = varchar(32)
+  }
+  column "model_id" {
+    null = false
+    type = varchar(191)
+  }
+  column "model_display_name" {
+    null    = false
+    type    = varchar(191)
+    default = ""
+  }
+  column "agent_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "provider_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "user_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "status" {
+    null = false
+    type = varchar(16)
+  }
+  column "prompt_tokens" {
+    null     = false
+    type     = bigint
+    default  = 0
+    unsigned = true
+  }
+  column "completion_tokens" {
+    null     = false
+    type     = bigint
+    default  = 0
+    unsigned = true
+  }
+  column "total_tokens" {
+    null     = false
+    type     = bigint
+    default  = 0
+    unsigned = true
+  }
+  column "duration_ms" {
+    null     = true
+    type     = bigint
+    unsigned = true
+  }
+  column "settled_runs" {
+    null     = false
+    type     = tinyint
+    default  = 0
+    unsigned = true
+  }
+  column "actual_units" {
+    null    = false
+    type    = bigint
+    default = 0
+  }
+  column "released_runs" {
+    null     = false
+    type     = tinyint
+    default  = 0
+    unsigned = true
+  }
+  column "released_units" {
+    null    = false
+    type    = bigint
+    default = 0
+  }
+  column "unbilled_runs" {
+    null     = false
+    type     = tinyint
+    default  = 0
+    unsigned = true
+  }
+  column "run_anomaly_code" {
+    null    = false
+    type    = varchar(32)
+    default = ""
+  }
+  column "billing_anomaly_code" {
+    null    = false
+    type    = varchar(32)
+    default = ""
+  }
+  column "final_error_code" {
+    null    = false
+    type    = varchar(64)
+    default = ""
+  }
+  column "ttft_ms" {
+    null     = true
+    type     = bigint
+    unsigned = true
+  }
+  primary_key {
+    columns = [column.run_id]
+  }
+  foreign_key "fk_ai_run_dashboard_facts_run" {
+    columns     = [column.run_id]
+    ref_columns = [table.ai_runs.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  index "idx_ai_run_dashboard_facts_created" {
+    columns = [column.fact_date, column.run_id]
+  }
+  index "idx_ai_run_dashboard_facts_status_created" {
+    columns = [column.status, column.fact_date, column.run_id]
+  }
+  index "idx_ai_run_dashboard_facts_model_created" {
+    columns = [column.model_id, column.fact_date, column.run_id]
+  }
+  index "idx_ai_run_dashboard_facts_platform_created" {
+    columns = [column.platform, column.fact_date, column.run_id]
+  }
+  index "idx_ai_run_dashboard_facts_agent_created" {
+    columns = [column.agent_id, column.fact_date, column.run_id]
+  }
+  index "idx_ai_run_dashboard_facts_provider_created" {
+    columns = [column.provider_id, column.fact_date, column.run_id]
+  }
+  index "idx_ai_run_dashboard_facts_user_created" {
+    columns = [column.user_id, column.fact_date, column.run_id]
+  }
+  check "chk_ai_run_dashboard_facts_status" {
+    expr = "(`status` in (_utf8mb4'success',_utf8mb4'failed',_utf8mb4'canceled',_utf8mb4'timeout',_utf8mb4'outcome_unknown'))"
+  }
+  check "chk_ai_run_dashboard_facts_nonnegative" {
+    expr = "((`actual_units` >= 0) and (`released_units` >= 0) and (`settled_runs` between 0 and 1) and (`released_runs` between 0 and 1) and (`unbilled_runs` between 0 and 1))"
+  }
+}
+table "ai_run_dashboard_daily_facts" {
+  schema  = schema.admin
+  comment = "Daily terminal Run aggregate for bounded AI dashboard analytics"
+  column "fact_date" {
+    null = false
+    type = date
+  }
+  column "platform" {
+    null = false
+    type = varchar(32)
+  }
+  column "model_id" {
+    null = false
+    type = varchar(191)
+  }
+  column "agent_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "provider_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "user_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "status" {
+    null = false
+    type = varchar(16)
+  }
+  column "run_anomaly_code" {
+    null    = false
+    type    = varchar(32)
+    default = ""
+  }
+  column "billing_anomaly_code" {
+    null    = false
+    type    = varchar(32)
+    default = ""
+  }
+  column "final_error_code" {
+    null    = false
+    type    = varchar(64)
+    default = ""
+  }
+  column "latest_run_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "latest_model_display_name" {
+    null    = false
+    type    = varchar(191)
+    default = ""
+  }
+  column "run_count" {
+    null     = false
+    type     = bigint
+    default  = 0
+    unsigned = true
+  }
+  column "prompt_tokens" {
+    null     = false
+    type     = bigint
+    default  = 0
+    unsigned = true
+  }
+  column "completion_tokens" {
+    null     = false
+    type     = bigint
+    default  = 0
+    unsigned = true
+  }
+  column "total_tokens" {
+    null     = false
+    type     = bigint
+    default  = 0
+    unsigned = true
+  }
+  column "settled_runs" {
+    null     = false
+    type     = bigint
+    default  = 0
+    unsigned = true
+  }
+  column "actual_units" {
+    null    = false
+    type    = bigint
+    default = 0
+  }
+  column "released_runs" {
+    null     = false
+    type     = bigint
+    default  = 0
+    unsigned = true
+  }
+  column "released_units" {
+    null    = false
+    type    = bigint
+    default = 0
+  }
+  column "unbilled_runs" {
+    null     = false
+    type     = bigint
+    default  = 0
+    unsigned = true
+  }
+  primary_key {
+    columns = [column.fact_date, column.platform, column.model_id, column.agent_id, column.provider_id, column.user_id, column.status, column.run_anomaly_code, column.billing_anomaly_code, column.final_error_code]
+  }
+  index "idx_ai_run_dashboard_daily_model_date" {
+    columns = [column.model_id, column.fact_date]
+  }
+  index "idx_ai_run_dashboard_daily_platform_date" {
+    columns = [column.platform, column.fact_date]
+  }
+  index "idx_ai_run_dashboard_daily_provider_date" {
+    columns = [column.provider_id, column.fact_date]
+  }
+  index "idx_ai_run_dashboard_daily_agent_date" {
+    columns = [column.agent_id, column.fact_date]
+  }
+  index "idx_ai_run_dashboard_daily_user_date" {
+    columns = [column.user_id, column.fact_date]
+  }
+  index "idx_ai_run_dashboard_daily_error_date" {
+    columns = [column.final_error_code, column.fact_date]
+  }
+  check "chk_ai_run_dashboard_daily_status" {
+    expr = "(`status` in (_utf8mb4'success',_utf8mb4'failed',_utf8mb4'canceled',_utf8mb4'timeout',_utf8mb4'outcome_unknown'))"
+  }
+  check "chk_ai_run_dashboard_daily_nonnegative" {
+    expr = "((`actual_units` >= 0) and (`released_units` >= 0))"
   }
 }
 schema "admin" {

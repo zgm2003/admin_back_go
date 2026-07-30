@@ -67,6 +67,28 @@ func TestRunningRunUpdateDBUsesCompareAndSetStatus(t *testing.T) {
 	}
 }
 
+func TestFinishRunProjectsTerminalDashboardFactsInTransaction(t *testing.T) {
+	db, mock := noWriteGormDB(t)
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `ai_runs` SET .* WHERE id = \\? AND status = \\?").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("SELECT COALESCE\\(MAX\\(seq\\), 0\\) FROM `ai_run_events` WHERE run_id = \\?").WillReturnRows(sqlmock.NewRows([]string{"COALESCE(MAX(seq), 0)"}).AddRow(1))
+	mock.ExpectExec("INSERT INTO `ai_run_events` .* VALUES .*").WillReturnResult(sqlmock.NewResult(2, 1))
+	mock.ExpectQuery("(?is)SELECT EXISTS .* FROM ai_run_dashboard_facts").WillReturnRows(sqlmock.NewRows([]string{"fact_exists"}).AddRow(false))
+	mock.ExpectExec("(?is)INSERT INTO ai_run_dashboard_facts .* WHERE r.id = \\?").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("(?is)INSERT INTO ai_run_dashboard_daily_facts").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	err := (&GormRepository{db: db}).FinishRun(context.Background(), FinishRunRecord{
+		RunID: 42, Status: enum.AIRunStatusFailed, Message: "provider failed", FinishedAt: time.Now(), DurationMS: 20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCreateRunRecordMapsBillingIdentityFacts(t *testing.T) {
 	startedAt := time.Date(2026, 7, 25, 20, 0, 0, 0, time.UTC)
 	input := validCreateRunRecord()

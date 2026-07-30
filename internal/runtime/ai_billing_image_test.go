@@ -24,7 +24,38 @@ import (
 	"admin_back_go/internal/module/ai/replycommand"
 	airun "admin_back_go/internal/module/ai/run"
 	walletmodule "admin_back_go/internal/module/payment/wallet"
+
+	"github.com/DATA-DOG/go-sqlmock"
 )
+
+func TestFinalizeImageTaskProjectsTerminalDashboardFacts(t *testing.T) {
+	db, mock, closeDB := newFinalizerMockDB(t)
+	defer closeDB()
+	now := time.Date(2026, 7, 29, 10, 0, 0, 0, time.UTC)
+	startedAt := now.Add(-time.Second)
+	leaseOwner := "worker-1"
+	leaseExpiresAt := now.Add(time.Minute)
+	mock.ExpectExec("UPDATE `ai_image_tasks` SET").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE `ai_runs` SET").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE `ai_usage_charges` SET").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("(?is)SELECT EXISTS .* FROM ai_run_dashboard_facts").WillReturnRows(sqlmock.NewRows([]string{"fact_exists"}).AddRow(false))
+	mock.ExpectExec("(?is)INSERT INTO ai_run_dashboard_facts .* WHERE r.id = \\?").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("(?is)INSERT INTO ai_run_dashboard_daily_facts").WillReturnResult(sqlmock.NewResult(0, 1))
+
+	err := finalizeImageTaskRunAndCharge(context.Background(), db,
+		aiimage.ImageTask{ID: 31, RunID: 41, Status: aiimage.StatusRunning, LeaseOwner: &leaseOwner, LeaseToken: 1, LeaseExpiresAt: &leaseExpiresAt},
+		nil, airun.Run{ID: 41, StartedAt: &startedAt}, billing.UsageCharge{ID: 51},
+		aigateway.FinalizationFacts{},
+		aigateway.SettlementDecision{RunStatus: "failed", BillingStatus: billing.BillingStatusReleased, BillingReason: billing.BillingReasonReleasedProviderFailed, ChargeStatus: billing.ChargeStatusReleased},
+		now,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
 
 type fakeImageGateway struct {
 	calls          []string
