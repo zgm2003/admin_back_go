@@ -22,6 +22,9 @@ coverage.out
 # IDE/editor metadata
 .idea/
 
+# Isolated feature worktrees
+.worktrees/
+
 deploy/docker-first/.docker-bin/
 deploy/docker-first/.env
 deploy/docker-first/admin-go.env
