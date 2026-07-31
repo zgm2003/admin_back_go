@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -83,6 +84,85 @@ type UsageSnapshot struct {
 	RawProviderJSON json.RawMessage `json:"raw_provider_json,omitempty"`
 	Items           []UsageItem     `json:"items,omitempty"`
 	ResponseSHA256  [32]byte        `json:"response_sha256,omitempty"`
+}
+
+type usageSnapshotJSON struct {
+	Status           string          `json:"status"`
+	RawProviderJSON  json.RawMessage `json:"raw_provider_json,omitempty"`
+	RawProviderBytes []byte          `json:"raw_provider_bytes,omitempty"`
+	Items            []UsageItem     `json:"items,omitempty"`
+	ResponseSHA256   [32]byte        `json:"response_sha256,omitempty"`
+}
+
+// MarshalJSON retains the historical JSON projection and an exact byte copy.
+// encoding/json compacts RawMessage values, which otherwise breaks its hash.
+func (s UsageSnapshot) MarshalJSON() ([]byte, error) {
+	return json.Marshal(usageSnapshotJSON{
+		Status:           s.Status,
+		RawProviderJSON:  append(json.RawMessage(nil), s.RawProviderJSON...),
+		RawProviderBytes: append([]byte(nil), s.RawProviderJSON...),
+		Items:            s.Items,
+		ResponseSHA256:   s.ResponseSHA256,
+	})
+}
+
+func (s *UsageSnapshot) UnmarshalJSON(data []byte) error {
+	var encoded usageSnapshotJSON
+	if err := json.Unmarshal(data, &encoded); err != nil {
+		return err
+	}
+	raw := append(json.RawMessage(nil), encoded.RawProviderJSON...)
+	if len(encoded.RawProviderBytes) > 0 {
+		if !json.Valid(encoded.RawProviderBytes) {
+			return errors.New("raw provider bytes must contain valid JSON")
+		}
+		if len(raw) > 0 {
+			var compactRaw bytes.Buffer
+			if err := json.Compact(&compactRaw, raw); err != nil {
+				return fmt.Errorf("raw provider JSON is invalid: %w", err)
+			}
+			projectedBytes, err := json.Marshal(json.RawMessage(encoded.RawProviderBytes))
+			if err != nil {
+				return fmt.Errorf("project raw provider bytes: %w", err)
+			}
+			if !bytes.Equal(compactRaw.Bytes(), projectedBytes) {
+				return errors.New("raw provider JSON and exact bytes disagree")
+			}
+		}
+		raw = append(json.RawMessage(nil), encoded.RawProviderBytes...)
+	} else {
+		raw = restoreHashVerifiedLegacyProviderBytes(raw, encoded.ResponseSHA256)
+	}
+	*s = UsageSnapshot{
+		Status:          encoded.Status,
+		RawProviderJSON: raw,
+		Items:           encoded.Items,
+		ResponseSHA256:  encoded.ResponseSHA256,
+	}
+	return nil
+}
+
+func restoreHashVerifiedLegacyProviderBytes(raw json.RawMessage, expected [sha256.Size]byte) json.RawMessage {
+	if len(raw) == 0 || expected == ([sha256.Size]byte{}) || sha256.Sum256(raw) == expected {
+		return raw
+	}
+	restored := append(json.RawMessage(nil), raw...)
+	for _, replacement := range []struct {
+		from string
+		to   string
+	}{
+		{`\u003c`, "<"},
+		{`\u003e`, ">"},
+		{`\u0026`, "&"},
+		{`\u2028`, "\u2028"},
+		{`\u2029`, "\u2029"},
+	} {
+		restored = bytes.ReplaceAll(restored, []byte(replacement.from), []byte(replacement.to))
+	}
+	if sha256.Sum256(restored) == expected {
+		return restored
+	}
+	return raw
 }
 
 type UsageIdentity struct {

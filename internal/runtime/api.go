@@ -98,7 +98,7 @@ func productionAPIHooks(cfg config.Config, logger *slog.Logger, keys *secretkey.
 			return opened.Health, opened.Close, nil
 		},
 		buildProviders: func(context.Context) (CleanupFunc, error) {
-			built, err := BuildProviders(cfg, keys, recorder)
+			built, err := BuildProviders(cfg, keys, logger, recorder)
 			if err != nil {
 				return nil, err
 			}

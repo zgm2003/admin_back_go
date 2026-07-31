@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -23,7 +24,7 @@ func TestBuildProvidersExposesChatTransportCapabilities(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	providers, err := BuildProviders(config.Config{}, ring)
+	providers, err := BuildProviders(config.Config{}, ring, slog.Default())
 	if err != nil {
 		t.Fatalf("BuildProviders: %v", err)
 	}
@@ -41,7 +42,7 @@ func TestBuildProvidersBuildsDedicatedMailDiagnosticBoxCurrentOnly(t *testing.T)
 	if err != nil {
 		t.Fatalf("current key ring: %v", err)
 	}
-	providers, err := BuildProviders(config.Config{}, ring)
+	providers, err := BuildProviders(config.Config{}, ring, slog.Default())
 	if err != nil {
 		t.Fatalf("BuildProviders: %v", err)
 	}
@@ -79,7 +80,7 @@ func TestBuildProvidersBuildsDedicatedMailDiagnosticBoxCurrentPrevious(t *testin
 	if err != nil {
 		t.Fatalf("dual key ring: %v", err)
 	}
-	providers, err := BuildProviders(config.Config{}, dualRing)
+	providers, err := BuildProviders(config.Config{}, dualRing, slog.Default())
 	if err != nil {
 		t.Fatalf("BuildProviders: %v", err)
 	}
@@ -102,7 +103,7 @@ func TestBuildProvidersBuildsDedicatedMailDiagnosticBoxWithPurposeSeparation(t *
 	if err != nil {
 		t.Fatalf("key ring: %v", err)
 	}
-	providers, err := BuildProviders(config.Config{}, ring)
+	providers, err := BuildProviders(config.Config{}, ring, slog.Default())
 	if err != nil {
 		t.Fatalf("BuildProviders: %v", err)
 	}

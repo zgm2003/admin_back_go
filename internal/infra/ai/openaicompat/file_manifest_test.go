@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -265,6 +266,50 @@ func TestFileManifestExplicitHTTPRejectionHasStableFilePartError(t *testing.T) {
 	if !errors.As(err, &appErr) || appErr.Code != "ai.provider.file_part_rejected" || appErr.Category != apperror.CategoryDependency ||
 		appErr.HTTPStatus != http.StatusBadGateway || appErr.Retry != apperror.Permanent {
 		t.Fatalf("stable file rejection error=%#v wrapped=%v", appErr, err)
+	}
+}
+
+func TestFileManifestHTTPRejectionWritesRedactedOperatorDiagnostics(t *testing.T) {
+	manifest := testPreparedFileManifest(t)
+	prepared, err := infraai.MarshalPreparedChatFileManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		_, _ = io.Copy(io.Discard, request.Body)
+		writer.Header().Set("Content-Type", "application/json")
+		writer.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(writer, `{"error":{"message":"file type rejected for secret","type":"invalid_request_error","code":"unsupported_file","param":"input[0].content[1]"}}`)
+	}))
+	defer server.Close()
+
+	var logs bytes.Buffer
+	client := New(Config{
+		BaseURL: server.URL, APIKey: "secret", StreamHTTPClient: server.Client(),
+		FileOpener: testPreparedFileOpener(), Logger: slog.New(slog.NewTextHandler(&logs, nil)),
+	})
+	_, err = client.StreamPreparedChat(context.Background(), infraai.PreparedChatRequest{
+		Body: prepared, IdempotencyKey: "attempt-file-diagnostic",
+	}, nil)
+	if err == nil {
+		t.Fatal("provider rejection returned no error")
+	}
+
+	logged := logs.String()
+	for _, expected := range []string{
+		"AI provider request rejected",
+		"status_code=400",
+		"error_code=unsupported_file",
+		"error_type=invalid_request_error",
+		"error_param=input[0].content[1]",
+		"[redacted]",
+	} {
+		if !strings.Contains(logged, expected) {
+			t.Fatalf("operator log %q does not contain %q", logged, expected)
+		}
+	}
+	if strings.Contains(logged, "secret") {
+		t.Fatalf("operator log leaked API key: %q", logged)
 	}
 }
 

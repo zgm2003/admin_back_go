@@ -123,7 +123,7 @@ func productionWorkerHooks(cfg config.Config, logger *slog.Logger, keys *secretk
 			}, opened.Close, nil
 		},
 		buildProviders: func(context.Context) (CleanupFunc, error) {
-			built, err := BuildProviders(cfg, keys, recorder)
+			built, err := BuildProviders(cfg, keys, logger, recorder)
 			if err != nil {
 				return nil, err
 			}

@@ -1810,6 +1810,8 @@ Recovery source: persisted manifest only.
 Financial proof: native_file_context_window_v1.
 Settlement source: complete upstream usage only.
 Forbidden persistence: file bytes, Base64, materialized request, temporary credentials.
+Historical chat context forwards text only. File and image attachments are materialized only from the current user message; an attachment is not resent on every later turn.
+Usage evidence keeps the historical raw_provider_json projection plus exact raw_provider_bytes. Legacy rows may reverse encoding/json HTML escaping only when the restored terminal bytes match their embedded SHA-256; unmatched evidence remains invalid.
 ai_run_events exposes lifecycle events only. The internal durable file_materialized_v1 event stores exactly three non-negative integer metrics (COS HEAD ms, COS stream ms, and materialized request bytes), is validated against the Run duration before aggregation, and is always filtered from public Run events.
 ai_tool_calls records tool execution audit and is shown on run detail; tool calls are not stuffed into ai_run_events.
 ai_knowledge_retrievals and ai_knowledge_retrieval_hits record knowledge retrieval audit and are shown on run detail; knowledge retrievals are not stuffed into ai_run_events.

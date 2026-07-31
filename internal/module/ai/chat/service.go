@@ -182,14 +182,13 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	if err != nil {
 		return nil, err
 	}
-	selectedContext := selectedChatContext(history, input.UserMessageID, maxHistoryFromMeta(metaForMessage(history, input.UserMessageID)))
-	if appErr := requireNativeFileContextWithinLimit(selectedContext); appErr != nil {
-		return nil, appErr
-	}
 	userMessage, ok := userMessageForID(history, input.UserMessageID)
 	if !ok {
 		msg := "用户消息不存在"
 		appErr := apperror.BadRequest(msg)
+		return nil, appErr
+	}
+	if appErr := requireNativeFileContextWithinLimit(userMessage); appErr != nil {
 		return nil, appErr
 	}
 	userContent := userMessage.Content
@@ -1316,11 +1315,7 @@ func chatHistoryInputsWithLimit(rows []MessageHistory, currentUserMessageID int6
 		if row.Role == enum.AIMessageRoleUser {
 			role = "user"
 		}
-		message := map[string]any{"role": role, "content": row.Content}
-		if attachments := messageAttachments(row); len(attachments) > 0 {
-			message["attachments"] = attachments
-		}
-		history = append(history, message)
+		history = append(history, map[string]any{"role": role, "content": row.Content})
 	}
 	return history
 }
@@ -1350,25 +1345,23 @@ func chatInputs(agent AgentEngineConfig, history []MessageHistory, userMessageID
 	return inputs
 }
 
-func requireNativeFileContextWithinLimit(messages []MessageHistory) *apperror.Error {
+func requireNativeFileContextWithinLimit(message MessageHistory) *apperror.Error {
 	var total int64
-	for _, message := range messages {
-		for _, attachment := range messageAttachments(message) {
-			item, ok := attachment.(map[string]any)
-			typeValue, _ := item["type"].(string)
-			if !ok || strings.TrimSpace(typeValue) != "file" {
-				continue
-			}
-			sizeValue, ok := numberFromAny(item["size"])
-			if !ok || sizeValue <= 0 || sizeValue > math.MaxInt64 || sizeValue != math.Trunc(sizeValue) {
-				return nativeFileContextTooLargeError()
-			}
-			size := int64(sizeValue)
-			if size > capability.MaxRequestNativeFileBytes-total {
-				return nativeFileContextTooLargeError()
-			}
-			total += size
+	for _, attachment := range messageAttachments(message) {
+		item, ok := attachment.(map[string]any)
+		typeValue, _ := item["type"].(string)
+		if !ok || strings.TrimSpace(typeValue) != "file" {
+			continue
 		}
+		sizeValue, ok := numberFromAny(item["size"])
+		if !ok || sizeValue <= 0 || sizeValue > math.MaxInt64 || sizeValue != math.Trunc(sizeValue) {
+			return nativeFileContextTooLargeError()
+		}
+		size := int64(sizeValue)
+		if size > capability.MaxRequestNativeFileBytes-total {
+			return nativeFileContextTooLargeError()
+		}
+		total += size
 	}
 	return nil
 }

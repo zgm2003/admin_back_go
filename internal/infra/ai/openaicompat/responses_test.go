@@ -1,12 +1,14 @@
 package openaicompat
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -332,6 +334,35 @@ func TestResponsesTerminalFailuresReturnDispatchEvidence(t *testing.T) {
 				t.Fatalf("terminal usage evidence=%+v", result.Usage)
 			}
 		})
+	}
+}
+
+func TestResponsesFailedWritesRedactedOperatorDiagnostics(t *testing.T) {
+	const apiKey = "sk-sensitive"
+	stream := `data: {"type":"response.failed","response":{"id":"resp_failed","status":"failed","error":{"code":"unsupported_file","message":"file rejected for sk-sensitive"}}}` + "\n\n"
+	var logs bytes.Buffer
+	client := New(Config{
+		APIKey: apiKey,
+		Logger: slog.New(slog.NewTextHandler(&logs, nil)),
+	})
+
+	_, err := client.readResponsesStream(context.Background(), strings.NewReader(stream), nil, nil)
+	if err == nil {
+		t.Fatal("response.failed returned no error")
+	}
+	logged := logs.String()
+	for _, expected := range []string{
+		"AI provider stream failed",
+		"event_type=response.failed",
+		"error_code=unsupported_file",
+		"[redacted]",
+	} {
+		if !strings.Contains(logged, expected) {
+			t.Fatalf("operator log %q does not contain %q", logged, expected)
+		}
+	}
+	if strings.Contains(logged, apiKey) {
+		t.Fatalf("operator log leaked API key: %q", logged)
 	}
 }
 

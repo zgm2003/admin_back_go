@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"admin_back_go/internal/config"
@@ -48,9 +49,12 @@ type Providers struct {
 	PaymentCertStore    paymentcore.LocalCertStore
 }
 
-func BuildProviders(cfg config.Config, keys *secretkey.KeyRing, recorders ...telemetry.Recorder) (Providers, error) {
+func BuildProviders(cfg config.Config, keys *secretkey.KeyRing, logger *slog.Logger, recorders ...telemetry.Recorder) (Providers, error) {
 	if keys == nil || len(keys.SecretboxKey()) == 0 {
 		return Providers{}, errors.New("runtime providers require a key ring")
+	}
+	if logger == nil {
+		logger = slog.Default()
 	}
 	recorder := telemetry.Noop()
 	if len(recorders) > 0 && recorders[0] != nil {
@@ -66,10 +70,10 @@ func BuildProviders(cfg config.Config, keys *secretkey.KeyRing, recorders ...tel
 		MailDiagnosticBox:  diagnosticBox,
 		MailSender:         newMailSender(),
 		SMSSender:          newSMSSender(),
-		AIConnectionTester: aiConnectionTester{recorder: recorder},
-		AIChatFactory:      aiChatEngineFactory{streamIdleTimeout: positiveProviderDuration(cfg.AI.ChatStreamIdleTimeout, config.DefaultAIChatStreamIdleTimeout), recorder: recorder},
+		AIConnectionTester: aiConnectionTester{logger: logger, recorder: recorder},
+		AIChatFactory:      aiChatEngineFactory{logger: logger, streamIdleTimeout: positiveProviderDuration(cfg.AI.ChatStreamIdleTimeout, config.DefaultAIChatStreamIdleTimeout), recorder: recorder},
 		AIImageFactory:     aiImageEngineFactory{recorder: recorder},
-		AIToolFactory:      aiToolEngineFactory{recorder: recorder},
+		AIToolFactory:      aiToolEngineFactory{logger: logger, recorder: recorder},
 		AITransportCapabilities: infraai.TransportCapabilityResolverFunc(func(engineType infraai.EngineType) (infraai.CapabilityMetadata, bool) {
 			return infraai.DefaultTransportCapabilities(engineType)
 		}),
@@ -124,6 +128,7 @@ func newSMSSender() sms.Sender {
 }
 
 type aiConnectionTester struct {
+	logger   *slog.Logger
 	recorder telemetry.Recorder
 }
 
@@ -134,6 +139,7 @@ func (tester aiConnectionTester) TestConnection(ctx context.Context, input infra
 			BaseURL: input.BaseURL,
 			APIKey:  input.APIKey,
 			Timeout: time.Duration(input.TimeoutMs) * time.Millisecond,
+			Logger:  tester.logger,
 		})
 		return infraai.InstrumentEngine(string(input.EngineType), "connection", engine, tester.recorder).TestConnection(ctx, input)
 	default:
@@ -142,6 +148,7 @@ func (tester aiConnectionTester) TestConnection(ctx context.Context, input infra
 }
 
 type aiChatEngineFactory struct {
+	logger            *slog.Logger
 	streamIdleTimeout time.Duration
 	recorder          telemetry.Recorder
 }
@@ -156,6 +163,7 @@ func (factory aiChatEngineFactory) NewEngine(_ context.Context, input aichat.Eng
 			StreamIdleTimeout: factory.streamIdleTimeout,
 			APIProtocol:       input.APIProtocol,
 			FileOpener:        input.FileOpener,
+			Logger:            factory.logger,
 		})
 		return infraai.InstrumentEngine(string(input.EngineType), "chat", engine, factory.recorder), nil
 	default:
@@ -176,6 +184,7 @@ func (factory aiImageEngineFactory) NewImageEngine(input aiimage.ImageEngineConf
 }
 
 type aiToolEngineFactory struct {
+	logger   *slog.Logger
 	recorder telemetry.Recorder
 }
 
@@ -183,7 +192,7 @@ func (factory aiToolEngineFactory) NewEngine(_ context.Context, input aitool.Eng
 	if input.EngineType != infraai.EngineTypeOpenAI {
 		return nil, infraai.ErrInvalidConfig
 	}
-	engine := openaicompat.New(openaicompat.Config{BaseURL: input.BaseURL, APIKey: input.APIKey, Timeout: 30 * time.Second, APIProtocol: input.APIProtocol})
+	engine := openaicompat.New(openaicompat.Config{BaseURL: input.BaseURL, APIKey: input.APIKey, Timeout: 30 * time.Second, APIProtocol: input.APIProtocol, Logger: factory.logger})
 	return infraai.InstrumentEngine(string(input.EngineType), "tool", engine, factory.recorder), nil
 }
 

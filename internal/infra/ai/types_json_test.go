@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -147,5 +148,69 @@ func TestUsageSnapshotAllowsExplicitZeroQuantity(t *testing.T) {
 	}
 	if !snapshot.Complete() {
 		t.Fatalf("explicit zero usage item is not complete: %+v", snapshot)
+	}
+}
+
+func TestUsageSnapshotJSONRoundTripPreservesRawProviderBytes(t *testing.T) {
+	raw := []byte("{\n  \"type\": \"response.completed\",\n  \"output\": \"<think>&done</think>\",\n  \"usage\": { \"input_tokens\": 1 }\n}")
+	snapshot, err := NewUsageSnapshot(UsageStatusComplete, raw, []UsageItem{{
+		Category: UsageCategoryInput,
+		Unit:     "token",
+		Quantity: 1,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	encoded, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored UsageSnapshot
+	if err := json.Unmarshal(encoded, &restored); err != nil {
+		t.Fatal(err)
+	}
+
+	if !bytes.Equal(restored.RawProviderJSON, raw) {
+		t.Fatalf("raw provider evidence changed across persistence: got %q want %q", restored.RawProviderJSON, raw)
+	}
+	if restored.ResponseSHA256 != snapshot.ResponseSHA256 {
+		t.Fatalf("provider evidence hash changed across persistence: got %x want %x", restored.ResponseSHA256, snapshot.ResponseSHA256)
+	}
+}
+
+func TestUsageSnapshotUnmarshalRestoresHashVerifiedLegacyHTMLEscapes(t *testing.T) {
+	raw := []byte(`{"type":"response.completed","response":{"output":[{"text":"<think>&done</think>"}],"usage":{"input_tokens":1}}}`)
+	snapshot, err := NewUsageSnapshot(UsageStatusComplete, raw, []UsageItem{{
+		Category: UsageCategoryInput,
+		Unit:     "token",
+		Quantity: 1,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := struct {
+		Status          string          `json:"status"`
+		RawProviderJSON json.RawMessage `json:"raw_provider_json,omitempty"`
+		Items           []UsageItem     `json:"items,omitempty"`
+		ResponseSHA256  [32]byte        `json:"response_sha256,omitempty"`
+	}{
+		Status: snapshot.Status, RawProviderJSON: snapshot.RawProviderJSON,
+		Items: snapshot.Items, ResponseSHA256: snapshot.ResponseSHA256,
+	}
+	encoded, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(encoded, []byte(`\u003c`)) || !bytes.Contains(encoded, []byte(`\u0026`)) {
+		t.Fatalf("legacy fixture did not reproduce encoding/json HTML escaping: %s", encoded)
+	}
+
+	var restored UsageSnapshot
+	if err := json.Unmarshal(encoded, &restored); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(restored.RawProviderJSON, raw) {
+		t.Fatalf("legacy provider evidence was not restored: got %q want %q", restored.RawProviderJSON, raw)
 	}
 }

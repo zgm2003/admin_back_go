@@ -1154,6 +1154,50 @@ func TestExecuteConversationReplyAllowsImageOnlyUserMessage(t *testing.T) {
 	}
 }
 
+func TestExecuteConversationReplySendsOnlyCurrentMessageAttachments(t *testing.T) {
+	agent, box := validAgentConfig(t)
+	historyMeta := `{"attachments":[{"type":"file","object_key":"ai_chat_attachments/history.pdf","etag":"\"h1\"","mime_type":"application/pdf","name":"history.pdf","size":52428800}]}`
+	currentMeta := `{"attachments":[{"type":"file","object_key":"ai_chat_attachments/current.txt","etag":"\"c1\"","mime_type":"text/plain","name":"current.txt","size":1}]}`
+	engine := &captureEngine{}
+	repo := &fakeRepository{
+		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5, IsDel: enum.CommonNo},
+		agent:        agent,
+		history: []MessageHistory{
+			{ID: 1, Role: enum.AIMessageRoleUser, ContentType: "text", Content: "historical question", MetaJSON: &historyMeta},
+			{ID: 2, Role: enum.AIMessageRoleAssistant, ContentType: "text", Content: "historical answer"},
+			{ID: 9, Role: enum.AIMessageRoleUser, ContentType: "text", Content: "current question", MetaJSON: &currentMeta},
+		},
+	}
+
+	_, err := newTestChatService(Dependencies{
+		Repository: repo, AssistantPublisher: repo, Publisher: &fakePublisher{}, RunRecorder: &fakeRunRecorder{nextID: 100},
+		EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box,
+	}).ExecuteConversationReply(context.Background(), ConversationReplyInput{
+		ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid-current-attachment",
+	})
+	if err != nil {
+		t.Fatalf("historical attachment must not consume the current request file limit: %v", err)
+	}
+
+	history, ok := engine.input.Inputs["history"].([]map[string]any)
+	if !ok || len(history) != 2 || history[0]["content"] != "historical question" || history[1]["content"] != "historical answer" {
+		t.Fatalf("historical text was not preserved: %#v", engine.input.Inputs["history"])
+	}
+	for _, message := range history {
+		if _, exists := message["attachments"]; exists {
+			t.Fatalf("historical attachment was resent: %#v", history)
+		}
+	}
+	attachments, ok := engine.input.Inputs["attachments"].([]any)
+	if !ok || len(attachments) != 1 {
+		t.Fatalf("current attachments were not preserved: %#v", engine.input.Inputs["attachments"])
+	}
+	attachment, ok := attachments[0].(map[string]any)
+	if !ok || attachment["object_key"] != "ai_chat_attachments/current.txt" {
+		t.Fatalf("unexpected current attachment: %#v", attachments[0])
+	}
+}
+
 func TestAssistantMessageZeroValueMetaJSONIsNil(t *testing.T) {
 	message := Message{ConversationID: 3, Role: enum.AIMessageRoleAssistant, ContentType: "text", Content: "ok", IsDel: enum.CommonNo}
 	if message.MetaJSON != nil {
@@ -1285,31 +1329,17 @@ func TestChatInputsExtractsAttachmentsAndRuntimeParamsFromCurrentMessageMeta(t *
 	}
 }
 
-func TestNativeFileContextIncludesSelectedHistoryAndCurrentMessage(t *testing.T) {
-	historyMeta := `{"attachments":[{"type":"file","object_key":"ai_chat_attachments/history.pdf","etag":"\"h1\"","mime_type":"application/pdf","name":"history.pdf","size":26214400,"url":"https://example.test/history.pdf"}]}`
+func TestNativeFileContextLimitChecksCurrentMessage(t *testing.T) {
 	currentAtLimit := `{"attachments":[{"type":"file","object_key":"ai_chat_attachments/current.pdf","etag":"\"c1\"","mime_type":"application/pdf","name":"current.pdf","size":26214400,"url":"https://example.test/current.pdf"}]}`
-	currentOverLimit := `{"attachments":[{"type":"file","object_key":"ai_chat_attachments/current.pdf","etag":"\"c1\"","mime_type":"application/pdf","name":"current.pdf","size":26214401,"url":"https://example.test/current.pdf"}]}`
+	currentOverLimit := `{"attachments":[{"type":"file","object_key":"ai_chat_attachments/one.pdf","etag":"\"c1\"","mime_type":"application/pdf","name":"one.pdf","size":26214401},{"type":"file","object_key":"ai_chat_attachments/two.pdf","etag":"\"c2\"","mime_type":"application/pdf","name":"two.pdf","size":26214400}]}`
 
-	messages := []MessageHistory{
-		{ID: 1, Role: enum.AIMessageRoleUser, Content: "history", MetaJSON: &historyMeta},
-		{ID: 2, Role: enum.AIMessageRoleAssistant, Content: "answer"},
-		{ID: 3, Role: enum.AIMessageRoleUser, Content: "current", MetaJSON: &currentAtLimit},
-	}
-	if appErr := requireNativeFileContextWithinLimit(messages); appErr != nil {
-		t.Fatalf("exactly 50 MiB was rejected: %#v", appErr)
-	}
-	inputs := chatInputs(AgentEngineConfig{ModelID: "gpt-test"}, messages, 3)
-	selected, ok := inputs["history"].([]map[string]any)
-	if !ok || len(selected) != 2 {
-		t.Fatalf("selected history=%#v", inputs["history"])
-	}
-	attachments, ok := selected[0]["attachments"].([]any)
-	if !ok || len(attachments) != 1 {
-		t.Fatalf("history attachments=%#v", selected[0]["attachments"])
+	current := MessageHistory{ID: 3, Role: enum.AIMessageRoleUser, Content: "current", MetaJSON: &currentAtLimit}
+	if appErr := requireNativeFileContextWithinLimit(current); appErr != nil {
+		t.Fatalf("current message within the limit was rejected: %#v", appErr)
 	}
 
-	messages[2].MetaJSON = &currentOverLimit
-	appErr := requireNativeFileContextWithinLimit(messages)
+	current.MetaJSON = &currentOverLimit
+	appErr := requireNativeFileContextWithinLimit(current)
 	if appErr == nil || appErr.Code != "ai.attachment.context_total_too_large" || appErr.Category != apperror.CategoryValidation ||
 		appErr.HTTPStatus != 400 || appErr.Retry != apperror.Permanent || appErr.Message != "当前对话文件上下文超过 50 MB，请新建对话或减少历史范围" {
 		t.Fatalf("over-limit error=%#v", appErr)

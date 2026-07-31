@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"log/slog"
 	"math"
 	"net/http"
 	"strings"
@@ -36,6 +37,7 @@ type Config struct {
 	StreamIdleTimeout time.Duration
 	APIProtocol       string
 	FileOpener        infraai.PreparedFileOpener
+	Logger            *slog.Logger
 }
 
 type Client struct {
@@ -47,6 +49,7 @@ type Client struct {
 	streamIdleTimeout time.Duration
 	apiProtocol       string
 	fileOpener        infraai.PreparedFileOpener
+	logger            *slog.Logger
 }
 
 func New(config Config) *Client {
@@ -66,6 +69,10 @@ func New(config Config) *Client {
 	if streamHTTPClient == nil {
 		streamHTTPClient = &http.Client{}
 	}
+	logger := config.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
 	return &Client{
 		baseURL:           strings.TrimRight(strings.TrimSpace(config.BaseURL), "/"),
 		apiKey:            strings.TrimSpace(config.APIKey),
@@ -75,6 +82,7 @@ func New(config Config) *Client {
 		streamIdleTimeout: streamIdleTimeout,
 		apiProtocol:       normalizeAPIProtocol(config.APIProtocol),
 		fileOpener:        config.FileOpener,
+		logger:            logger,
 	}
 }
 
@@ -116,7 +124,7 @@ func (c *Client) TestConnection(ctx context.Context, input infraai.TestConnectio
 		return nil, fmt.Errorf("%w: %v", infraai.ErrUpstreamFailed, err)
 	}
 	defer resp.Body.Close()
-	if err := client.requireSuccess(resp); err != nil {
+	if err := client.requireSuccess(ctx, resp); err != nil {
 		return &infraai.TestConnectionResult{OK: false, Status: resp.Status, LatencyMs: latency, Message: err.Error()}, err
 	}
 	return &infraai.TestConnectionResult{OK: true, Status: resp.Status, LatencyMs: latency, Message: "ok"}, nil
@@ -354,7 +362,7 @@ func (c *Client) streamPreparedChat(ctx context.Context, input infraai.PreparedC
 	}
 	defer resp.Body.Close()
 	providerRequestID := strings.TrimSpace(resp.Header.Get("X-Request-Id"))
-	if err := c.requireSuccess(resp); err != nil {
+	if err := c.requireSuccess(ctx, resp); err != nil {
 		if (schema == infraai.PreparedChatSchemaFileManifestV1 || schema == infraai.PreparedChatSchemaResponsesFileManifestV1) && isExplicitFilePartRejection(err) {
 			err = apperror.Wrap(
 				"ai.provider.file_part_rejected", apperror.CategoryDependency, http.StatusBadGateway, apperror.Permanent,
@@ -506,7 +514,7 @@ func (w *streamIdleWatcher) TimedOut() bool {
 	return w != nil && w.timedOut.Load()
 }
 
-func (c *Client) requireSuccess(resp *http.Response) error {
+func (c *Client) requireSuccess(ctx context.Context, resp *http.Response) error {
 	if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
 		return nil
 	}
@@ -516,12 +524,25 @@ func (c *Client) requireSuccess(resp *http.Response) error {
 	}
 	message := upstreamHTTPErrorMessage(body, c.apiKey)
 	metadata := extractUpstreamErrorMetadata(body)
+	metadata.code = sanitizeBody([]byte(metadata.code), c.apiKey)
+	metadata.kind = sanitizeBody([]byte(metadata.kind), c.apiKey)
+	metadata.param = sanitizeBody([]byte(metadata.param), c.apiKey)
 	cause := error(infraai.ErrUpstreamFailed)
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 		cause = infraai.ErrUnauthorized
 	}
 	if resp.StatusCode == http.StatusTooManyRequests {
 		cause = infraai.ErrRateLimited
+	}
+	if c.logger != nil {
+		c.logger.WarnContext(ctx, "AI provider request rejected",
+			"status_code", resp.StatusCode,
+			"provider_status", resp.Status,
+			"error_code", metadata.code,
+			"error_type", metadata.kind,
+			"error_param", metadata.param,
+			"message", message,
+		)
 	}
 	return &upstreamResponseError{
 		cause: cause, statusCode: resp.StatusCode, status: resp.Status, message: message,

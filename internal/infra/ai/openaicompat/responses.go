@@ -534,6 +534,7 @@ func (c *Client) readResponsesStream(ctx context.Context, body io.Reader, sink i
 			if id := strings.TrimSpace(event.Response.ID); id != "" {
 				result.EngineTaskID = id
 			}
+			c.logResponsesStreamFailure(ctx, event.Type, event.Response.Error)
 			finalizeResponsesStreamResult(result, streamDigest, hasStreamData)
 			return result, &responsesTerminalStreamError{cause: responsesStreamError(event.Response.Error)}
 		case "error":
@@ -541,6 +542,7 @@ func (c *Client) readResponsesStream(ctx context.Context, body io.Reader, sink i
 			if streamError == nil {
 				streamError = &responsesError{Code: event.Code, Message: event.Message}
 			}
+			c.logResponsesStreamFailure(ctx, event.Type, streamError)
 			finalizeResponsesStreamResult(result, streamDigest, hasStreamData)
 			return result, &responsesTerminalStreamError{cause: responsesStreamError(streamError)}
 		}
@@ -549,6 +551,22 @@ func (c *Client) readResponsesStream(ctx context.Context, body io.Reader, sink i
 		return nil, fmt.Errorf("read OpenAI Responses stream: %w", err)
 	}
 	return nil, fmt.Errorf("OpenAI Responses stream ended without a terminal response event")
+}
+
+func (c *Client) logResponsesStreamFailure(ctx context.Context, eventType string, value *responsesError) {
+	if c == nil || c.logger == nil {
+		return
+	}
+	code, message := "", ""
+	if value != nil {
+		code = sanitizeBody([]byte(value.Code), c.apiKey)
+		message = sanitizeBody([]byte(value.Message), c.apiKey)
+	}
+	c.logger.WarnContext(ctx, "AI provider stream failed",
+		"event_type", strings.TrimSpace(eventType),
+		"error_code", code,
+		"message", message,
+	)
 }
 
 func decodeResponsesOutputItem(raw json.RawMessage) (responsesOutputItem, error) {
