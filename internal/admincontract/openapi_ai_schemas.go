@@ -44,14 +44,17 @@ func aiWorkflowSchemas() map[string]any {
 			"temperature": schemaWith(numberSchema(), "minimum", 0, "maximum", 2),
 			"max_history": integerRangeSchema(1, 50),
 		}),
-		"AIAttachmentRequest": closedObjectSchema([]string{"type", "object_key"}, map[string]any{
-			"type":       map[string]any{"type": "string", "const": "image"},
-			"object_key": nonEmptyStringSchema(),
-			"name":       stringSchema(),
+		"AIAttachmentRequest": closedObjectAllProperties(map[string]any{
+			"type":       stringEnumSchema("image", "file"),
+			"object_key": schemaWith(maxStringSchema(1024), "minLength", 1),
+			"mime_type":  schemaWith(maxStringSchema(255), "minLength", 1),
+			"url":        schemaWith(maxStringSchema(2048), "minLength", 1),
+			"name":       schemaWith(maxStringSchema(255), "minLength", 1),
+			"size":       positiveIntegerSchema(),
 		}),
 		"AIMessageSendRequest": aiMessageSendRequestSchema(),
 		"AIMessageMetaAttachment": closedObjectSchema([]string{"type", "url", "name", "size"}, map[string]any{
-			"type":       map[string]any{"type": "string", "const": "image"},
+			"type":       stringEnumSchema("image", "file"),
 			"object_key": nonEmptyStringSchema(),
 			"mime_type":  nonEmptyStringSchema(),
 			"url":        nonEmptyStringSchema(),
@@ -95,9 +98,14 @@ func aiWorkflowSchemas() map[string]any {
 			),
 		}),
 		"AIMessageSendSuccessEnvelope": successEnvelopeWithData(schemaReference("AIMessageSendResult")),
-		"AIMessageRevisionRequest": closedObjectAllProperties(map[string]any{
+		"AIMessageRevisionRequest": closedObjectSchema([]string{"content", "request_id"}, map[string]any{
 			"content":    schemaWith(maxStringSchema(20000), "minLength", 1, "description", "Trimmed content must be non-empty."),
 			"request_id": schemaWith(maxStringSchema(128), "minLength", 1),
+			"attachments": schemaWith(
+				arraySchema(schemaReference("AIAttachmentRequest")),
+				"maxItems", 5,
+				"description", "Omit to preserve existing attachments; send an empty array to remove all attachments.",
+			),
 		}),
 		"AIMessageRegenerationRequest": closedObjectAllProperties(map[string]any{
 			"request_id": schemaWith(maxStringSchema(128), "minLength", 1),
@@ -209,7 +217,7 @@ func aiMessageSendRequestSchema() map[string]any {
 		"attachments":    schemaWith(arraySchema(schemaReference("AIAttachmentRequest")), "maxItems", 5),
 		"runtime_params": schemaReference("AIRuntimeParams"),
 	})
-	schema["description"] = "request_id is required; additionally, trimmed content must be non-empty or attachments must contain at least one image. The cross-field rule is also published on the operation."
+	schema["description"] = "request_id is required; additionally, trimmed content must be non-empty or attachments must contain at least one attachment. The cross-field rule is also published on the operation."
 	return schema
 }
 
@@ -412,7 +420,7 @@ func aiRunLatencyBreakdownSchema() map[string]any {
 	properties := map[string]any{
 		"claim_source": stringEnumSchema("", "wake", "poll", "recovery"),
 	}
-	for _, field := range []string{"accept_ms", "queue_ms", "prepare_ms", "ttft_ms", "provider_total_ms", "settlement_ms", "end_to_end_ms"} {
+	for _, field := range []string{"accept_ms", "queue_ms", "prepare_ms", "cos_head_ms", "cos_stream_ms", "ttft_ms", "provider_total_ms", "settlement_ms", "end_to_end_ms"} {
 		properties[field] = nullableSchema(nonNegativeIntegerSchema())
 	}
 	return closedObjectAllProperties(properties)
@@ -420,10 +428,16 @@ func aiRunLatencyBreakdownSchema() map[string]any {
 
 func aiRunRequestSummarySchema() map[string]any {
 	return closedObjectAllProperties(map[string]any{
-		"provider_attempt_count": nonNegativeIntegerSchema(),
-		"tool_call_count":        nonNegativeIntegerSchema(),
-		"prepared_request_bytes": nonNegativeIntegerSchema(),
-		"message_count":          nullableSchema(nonNegativeIntegerSchema()),
+		"provider_attempt_count":     nonNegativeIntegerSchema(),
+		"tool_call_count":            nonNegativeIntegerSchema(),
+		"prepared_request_bytes":     nonNegativeIntegerSchema(),
+		"message_count":              nullableSchema(nonNegativeIntegerSchema()),
+		"attachment_count":           nonNegativeIntegerSchema(),
+		"native_file_count":          nonNegativeIntegerSchema(),
+		"native_file_bytes":          nonNegativeIntegerSchema(),
+		"prepared_manifest_bytes":    nonNegativeIntegerSchema(),
+		"materialized_request_bytes": nonNegativeIntegerSchema(),
+		"file_input_mode":            stringEnumSchema("", "chat_completions"),
 	})
 }
 

@@ -300,7 +300,6 @@ func TestWorkflowSchemasCloseBusinessFieldsAndDeclareNullability(t *testing.T) {
 		t.Fatalf("AIMessageDeleteResult.deleted_ids=%#v", deletedIDs)
 	}
 	for schemaName, fields := range map[string][]string{
-		"AIMessageRevisionRequest":        {"content", "request_id"},
 		"AIMessageRegenerationRequest":    {"request_id"},
 		"AIMessageDeleteRequest":          {"ids"},
 		"AIMessageDeleteResult":           {"deleted_ids"},
@@ -318,6 +317,14 @@ func TestWorkflowSchemasCloseBusinessFieldsAndDeclareNullability(t *testing.T) {
 			t.Fatalf("%s required=%v want=%v", schemaName, got, fields)
 		}
 	}
+	revision := document.Components.Schemas["AIMessageRevisionRequest"]
+	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIMessageRevisionRequest", "content", "request_id")
+	if got := sortedMapKeys(revision["properties"].(map[string]any)); !reflect.DeepEqual(got, []string{"attachments", "content", "request_id"}) {
+		t.Fatalf("AIMessageRevisionRequest properties=%v", got)
+	}
+	if containsString(anyStrings(revision["required"]), "attachments") {
+		t.Fatal("AIMessageRevisionRequest.attachments must remain optional so omission preserves existing attachments")
+	}
 	assertNullableProperty(t, document.Components.Schemas["AIRunUserFeedbackResult"], "liked_at")
 	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIRunDetail", "id", "user_message", "assistant_message", "events", "knowledge_retrievals", "tool_calls")
 	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIRunDetail", "liked", "liked_at")
@@ -334,8 +341,8 @@ func TestWorkflowSchemasCloseBusinessFieldsAndDeclareNullability(t *testing.T) {
 		"AIRunPricingRate":      {"category", "price", "tier_key", "unit", "unit_scale"},
 		"AIRunUsageItem":        {"amount", "attempt_no", "billable", "category", "quantity", "tier_key", "unit", "unit_price", "unit_scale"},
 		"AIRunProviderAttempt":  {"attempt_no", "provider_request_id", "state", "usage_status"},
-		"AIRunLatencyBreakdown": {"accept_ms", "claim_source", "end_to_end_ms", "prepare_ms", "provider_total_ms", "queue_ms", "settlement_ms", "ttft_ms"},
-		"AIRunRequestSummary":   {"message_count", "prepared_request_bytes", "provider_attempt_count", "tool_call_count"},
+		"AIRunLatencyBreakdown": {"accept_ms", "claim_source", "cos_head_ms", "cos_stream_ms", "end_to_end_ms", "prepare_ms", "provider_total_ms", "queue_ms", "settlement_ms", "ttft_ms"},
+		"AIRunRequestSummary":   {"attachment_count", "file_input_mode", "materialized_request_bytes", "message_count", "native_file_bytes", "native_file_count", "prepared_manifest_bytes", "prepared_request_bytes", "provider_attempt_count", "tool_call_count"},
 	} {
 		properties := document.Components.Schemas[name]["properties"].(map[string]any)
 		if got := sortedMapKeys(properties); !reflect.DeepEqual(got, fields) {
@@ -345,11 +352,12 @@ func TestWorkflowSchemasCloseBusinessFieldsAndDeclareNullability(t *testing.T) {
 			t.Fatalf("%s required=%v want=%v", name, got, fields)
 		}
 	}
-	for _, field := range []string{"accept_ms", "queue_ms", "prepare_ms", "ttft_ms", "provider_total_ms", "settlement_ms", "end_to_end_ms"} {
+	for _, field := range []string{"accept_ms", "queue_ms", "prepare_ms", "cos_head_ms", "cos_stream_ms", "ttft_ms", "provider_total_ms", "settlement_ms", "end_to_end_ms"} {
 		assertNullableProperty(t, document.Components.Schemas["AIRunLatencyBreakdown"], field)
 	}
 	assertNullableProperty(t, document.Components.Schemas["AIRunRequestSummary"], "message_count")
 	assertSchemaPropertyStringEnum(t, document.Components.Schemas, "AIRunLatencyBreakdown", "claim_source", []string{"", "wake", "poll", "recovery"})
+	assertSchemaPropertyStringEnum(t, document.Components.Schemas, "AIRunRequestSummary", "file_input_mode", []string{"", "chat_completions"})
 	assertSchemaPropertyStringEnum(t, document.Components.Schemas, "AIRunDetail", "billing_status", []string{"pending", "held", "settled", "released", "unbilled"})
 	assertSchemaPropertyStringEnum(t, document.Components.Schemas, "AIRunDetail", "billing_reason", []string{"pending", "held", "settled_complete_usage", "released_before_dispatch", "released_insufficient_balance", "released_provider_failed", "released_outcome_unknown", "unbilled_usage_incomplete", "unbilled_over_hold", "legacy_unpriced"})
 	assertSchemaPropertyStringEnum(t, document.Components.Schemas, "AIRunProviderAttempt", "state", []string{"prepared", "dispatched", "succeeded", "failed", "canceled", "outcome_unknown"})
@@ -408,10 +416,11 @@ func TestWorkflowSchemasCloseBusinessFieldsAndDeclareNullability(t *testing.T) {
 		t.Fatalf("AIRuntimeParams properties=%v", got)
 	}
 	attachment := document.Components.Schemas["AIAttachmentRequest"]
-	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIAttachmentRequest", "type", "object_key")
-	if got := sortedMapKeys(attachment["properties"].(map[string]any)); !reflect.DeepEqual(got, []string{"name", "object_key", "type"}) {
+	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIAttachmentRequest", "type", "object_key", "mime_type", "url", "name", "size")
+	if got := sortedMapKeys(attachment["properties"].(map[string]any)); !reflect.DeepEqual(got, []string{"mime_type", "name", "object_key", "size", "type", "url"}) {
 		t.Fatalf("AIAttachmentRequest properties=%v", got)
 	}
+	assertSchemaPropertyStringEnum(t, document.Components.Schemas, "AIAttachmentRequest", "type", []string{"image", "file"})
 	metaAttachment := document.Components.Schemas["AIMessageMetaAttachment"]
 	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIMessageMetaAttachment", "type", "url", "name", "size")
 	if got := anyStrings(metaAttachment["required"]); !reflect.DeepEqual(got, []string{"type", "url", "name", "size"}) {
@@ -422,6 +431,7 @@ func TestWorkflowSchemasCloseBusinessFieldsAndDeclareNullability(t *testing.T) {
 			t.Fatalf("AIMessageMetaAttachment.%s must remain optional for historical messages", optional)
 		}
 	}
+	assertSchemaPropertyStringEnum(t, document.Components.Schemas, "AIMessageMetaAttachment", "type", []string{"image", "file"})
 
 	sendRequest := document.Components.Schemas["AIMessageSendRequest"]
 	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIMessageSendRequest", "request_id")
