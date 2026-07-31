@@ -3584,12 +3584,20 @@
           "image": {
             "$ref": "#/components/schemas/Go_internal_module_ai_agent_ImageAttachmentCapability_Output"
           },
+          "max_attachments_per_message": {
+            "type": "integer"
+          },
+          "max_message_attachment_bytes": {
+            "type": "integer"
+          },
           "native_file": {
             "$ref": "#/components/schemas/Go_internal_module_ai_agent_NativeFileAttachmentCapability_Output"
           }
         },
         "required": [
           "image",
+          "max_attachments_per_message",
+          "max_message_attachment_bytes",
           "native_file"
         ],
         "type": "object"
@@ -4037,12 +4045,35 @@
       "Go_internal_module_ai_agent_NativeFileAttachmentCapability_Output": {
         "additionalProperties": false,
         "properties": {
+          "accepted_extensions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "disabled_reason": {
+            "type": "string"
+          },
           "enabled": {
             "type": "boolean"
+          },
+          "max_file_bytes_exclusive": {
+            "type": "integer"
+          },
+          "max_files_per_message": {
+            "type": "integer"
+          },
+          "max_request_file_bytes": {
+            "type": "integer"
           }
         },
         "required": [
-          "enabled"
+          "accepted_extensions",
+          "disabled_reason",
+          "enabled",
+          "max_file_bytes_exclusive",
+          "max_files_per_message",
+          "max_request_file_bytes"
         ],
         "type": "object"
       },
@@ -5272,6 +5303,26 @@
         ],
         "type": "object"
       },
+      "Go_internal_module_ai_provider_FileInputModeOption_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "value": {
+            "enum": [
+              "disabled",
+              "chat_completions"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "value"
+        ],
+        "type": "object"
+      },
       "Go_internal_module_ai_provider_InitDict_Output": {
         "additionalProperties": false,
         "properties": {
@@ -5284,6 +5335,12 @@
           "engine_type_arr": {
             "items": {
               "$ref": "#/components/schemas/Go_internal_shared_dict_Option_string_Output"
+            },
+            "type": "array"
+          },
+          "file_input_mode_arr": {
+            "items": {
+              "$ref": "#/components/schemas/Go_internal_module_ai_provider_FileInputModeOption_Output"
             },
             "type": "array"
           },
@@ -5303,6 +5360,7 @@
         "required": [
           "common_status_arr",
           "engine_type_arr",
+          "file_input_mode_arr",
           "health_status_arr",
           "model_sync_arr"
         ],
@@ -5422,6 +5480,13 @@
           "engine_type_name": {
             "type": "string"
           },
+          "file_input_mode": {
+            "enum": [
+              "disabled",
+              "chat_completions"
+            ],
+            "type": "string"
+          },
           "health_status": {
             "type": "string"
           },
@@ -5470,6 +5535,7 @@
           "enabled_model_count",
           "engine_type",
           "engine_type_name",
+          "file_input_mode",
           "health_status",
           "id",
           "last_check_error",
@@ -9667,6 +9733,95 @@
           },
           "file_exts": {
             "items": {
+              "enum": [
+                "pdf",
+                "doc",
+                "docx",
+                "dot",
+                "odt",
+                "rtf",
+                "ppt",
+                "pptx",
+                "pot",
+                "ppa",
+                "pps",
+                "pwz",
+                "wiz",
+                "xla",
+                "xlb",
+                "xlc",
+                "xlm",
+                "xls",
+                "xlsx",
+                "xlt",
+                "xlw",
+                "csv",
+                "tsv",
+                "iif",
+                "txt",
+                "text",
+                "md",
+                "markdown",
+                "json",
+                "html",
+                "htm",
+                "xml",
+                "css",
+                "asm",
+                "bat",
+                "c",
+                "cc",
+                "cpp",
+                "cxx",
+                "h",
+                "hh",
+                "def",
+                "in",
+                "js",
+                "mjs",
+                "jsx",
+                "ts",
+                "tsx",
+                "py",
+                "go",
+                "java",
+                "cs",
+                "php",
+                "rb",
+                "rs",
+                "sh",
+                "bash",
+                "zsh",
+                "ksh",
+                "ps1",
+                "sql",
+                "pl",
+                "lua",
+                "r",
+                "scala",
+                "swift",
+                "kt",
+                "kts",
+                "yaml",
+                "yml",
+                "toml",
+                "ini",
+                "conf",
+                "properties",
+                "proto",
+                "eml",
+                "log",
+                "rst",
+                "srt",
+                "vtt",
+                "ics",
+                "ifb",
+                "vcf",
+                "diff",
+                "patch",
+                "zip",
+                "tar"
+              ],
               "type": "string"
             },
             "type": "array"
@@ -9676,6 +9831,22 @@
           },
           "image_exts": {
             "items": {
+              "enum": [
+                "jpeg",
+                "jpg",
+                "jfif",
+                "pjpeg",
+                "png",
+                "gif",
+                "webp",
+                "bmp",
+                "tif",
+                "tiff",
+                "svg",
+                "ico",
+                "psd",
+                "avif"
+              ],
               "type": "string"
             },
             "type": "array"
@@ -9725,13 +9896,13 @@
         "properties": {
           "upload_file_ext_arr": {
             "items": {
-              "$ref": "#/components/schemas/Go_internal_shared_dict_Option_string_Output"
+              "$ref": "#/components/schemas/Go_internal_module_uploadconfig_UploadFileExtOption_Output"
             },
             "type": "array"
           },
           "upload_image_ext_arr": {
             "items": {
-              "$ref": "#/components/schemas/Go_internal_shared_dict_Option_string_Output"
+              "$ref": "#/components/schemas/Go_internal_module_uploadconfig_UploadImageExtOption_Output"
             },
             "type": "array"
           }
@@ -9859,6 +10030,143 @@
         },
         "required": [
           "dict"
+        ],
+        "type": "object"
+      },
+      "Go_internal_module_uploadconfig_UploadFileExtOption_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "value": {
+            "enum": [
+              "pdf",
+              "doc",
+              "docx",
+              "dot",
+              "odt",
+              "rtf",
+              "ppt",
+              "pptx",
+              "pot",
+              "ppa",
+              "pps",
+              "pwz",
+              "wiz",
+              "xla",
+              "xlb",
+              "xlc",
+              "xlm",
+              "xls",
+              "xlsx",
+              "xlt",
+              "xlw",
+              "csv",
+              "tsv",
+              "iif",
+              "txt",
+              "text",
+              "md",
+              "markdown",
+              "json",
+              "html",
+              "htm",
+              "xml",
+              "css",
+              "asm",
+              "bat",
+              "c",
+              "cc",
+              "cpp",
+              "cxx",
+              "h",
+              "hh",
+              "def",
+              "in",
+              "js",
+              "mjs",
+              "jsx",
+              "ts",
+              "tsx",
+              "py",
+              "go",
+              "java",
+              "cs",
+              "php",
+              "rb",
+              "rs",
+              "sh",
+              "bash",
+              "zsh",
+              "ksh",
+              "ps1",
+              "sql",
+              "pl",
+              "lua",
+              "r",
+              "scala",
+              "swift",
+              "kt",
+              "kts",
+              "yaml",
+              "yml",
+              "toml",
+              "ini",
+              "conf",
+              "properties",
+              "proto",
+              "eml",
+              "log",
+              "rst",
+              "srt",
+              "vtt",
+              "ics",
+              "ifb",
+              "vcf",
+              "diff",
+              "patch",
+              "zip",
+              "tar"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "value"
+        ],
+        "type": "object"
+      },
+      "Go_internal_module_uploadconfig_UploadImageExtOption_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "value": {
+            "enum": [
+              "jpeg",
+              "jpg",
+              "jfif",
+              "pjpeg",
+              "png",
+              "gif",
+              "webp",
+              "bmp",
+              "tif",
+              "tiff",
+              "svg",
+              "ico",
+              "psd",
+              "avif"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "value"
         ],
         "type": "object"
       },
@@ -14480,6 +14788,13 @@
             ],
             "type": "string"
           },
+          "file_input_mode": {
+            "enum": [
+              "disabled",
+              "chat_completions"
+            ],
+            "type": "string"
+          },
           "model_display_names": {
             "additionalProperties": {
               "type": "string"
@@ -14508,6 +14823,7 @@
         },
         "required": [
           "engine_type",
+          "file_input_mode",
           "model_ids",
           "name",
           "status"
@@ -16105,19 +16421,93 @@
           "file_exts": {
             "items": {
               "enum": [
-                "docx",
                 "pdf",
-                "txt",
-                "html",
-                "zip",
-                "tar",
                 "doc",
-                "css",
-                "csv",
+                "docx",
+                "dot",
+                "odt",
+                "rtf",
                 "ppt",
-                "xlsx",
+                "pptx",
+                "pot",
+                "ppa",
+                "pps",
+                "pwz",
+                "wiz",
+                "xla",
+                "xlb",
+                "xlc",
+                "xlm",
                 "xls",
-                "xml"
+                "xlsx",
+                "xlt",
+                "xlw",
+                "csv",
+                "tsv",
+                "iif",
+                "txt",
+                "text",
+                "md",
+                "markdown",
+                "json",
+                "html",
+                "htm",
+                "xml",
+                "css",
+                "asm",
+                "bat",
+                "c",
+                "cc",
+                "cpp",
+                "cxx",
+                "h",
+                "hh",
+                "def",
+                "in",
+                "js",
+                "mjs",
+                "jsx",
+                "ts",
+                "tsx",
+                "py",
+                "go",
+                "java",
+                "cs",
+                "php",
+                "rb",
+                "rs",
+                "sh",
+                "bash",
+                "zsh",
+                "ksh",
+                "ps1",
+                "sql",
+                "pl",
+                "lua",
+                "r",
+                "scala",
+                "swift",
+                "kt",
+                "kts",
+                "yaml",
+                "yml",
+                "toml",
+                "ini",
+                "conf",
+                "properties",
+                "proto",
+                "eml",
+                "log",
+                "rst",
+                "srt",
+                "vtt",
+                "ics",
+                "ifb",
+                "vcf",
+                "diff",
+                "patch",
+                "zip",
+                "tar"
               ],
               "type": "string"
             },
@@ -16128,17 +16518,18 @@
               "enum": [
                 "jpeg",
                 "jpg",
-                "gif",
+                "jfif",
+                "pjpeg",
                 "png",
+                "gif",
+                "webp",
+                "bmp",
+                "tif",
+                "tiff",
                 "svg",
                 "ico",
-                "doc",
                 "psd",
-                "bmp",
-                "tiff",
-                "webp",
-                "tif",
-                "pjpeg"
+                "avif"
               ],
               "type": "string"
             },
@@ -16258,6 +16649,7 @@
               "cover_images",
               "ai-agents",
               "ai_chat_images",
+              "ai_chat_attachments",
               "exports",
               "reconcile_reports"
             ],
@@ -16676,6 +17068,13 @@
             ],
             "type": "string"
           },
+          "file_input_mode": {
+            "enum": [
+              "disabled",
+              "chat_completions"
+            ],
+            "type": "string"
+          },
           "model_display_names": {
             "additionalProperties": {
               "type": "string"
@@ -16704,6 +17103,7 @@
         },
         "required": [
           "engine_type",
+          "file_input_mode",
           "model_ids",
           "name",
           "status"
@@ -17847,19 +18247,93 @@
           "file_exts": {
             "items": {
               "enum": [
-                "docx",
                 "pdf",
-                "txt",
-                "html",
-                "zip",
-                "tar",
                 "doc",
-                "css",
-                "csv",
+                "docx",
+                "dot",
+                "odt",
+                "rtf",
                 "ppt",
-                "xlsx",
+                "pptx",
+                "pot",
+                "ppa",
+                "pps",
+                "pwz",
+                "wiz",
+                "xla",
+                "xlb",
+                "xlc",
+                "xlm",
                 "xls",
-                "xml"
+                "xlsx",
+                "xlt",
+                "xlw",
+                "csv",
+                "tsv",
+                "iif",
+                "txt",
+                "text",
+                "md",
+                "markdown",
+                "json",
+                "html",
+                "htm",
+                "xml",
+                "css",
+                "asm",
+                "bat",
+                "c",
+                "cc",
+                "cpp",
+                "cxx",
+                "h",
+                "hh",
+                "def",
+                "in",
+                "js",
+                "mjs",
+                "jsx",
+                "ts",
+                "tsx",
+                "py",
+                "go",
+                "java",
+                "cs",
+                "php",
+                "rb",
+                "rs",
+                "sh",
+                "bash",
+                "zsh",
+                "ksh",
+                "ps1",
+                "sql",
+                "pl",
+                "lua",
+                "r",
+                "scala",
+                "swift",
+                "kt",
+                "kts",
+                "yaml",
+                "yml",
+                "toml",
+                "ini",
+                "conf",
+                "properties",
+                "proto",
+                "eml",
+                "log",
+                "rst",
+                "srt",
+                "vtt",
+                "ics",
+                "ifb",
+                "vcf",
+                "diff",
+                "patch",
+                "zip",
+                "tar"
               ],
               "type": "string"
             },
@@ -17870,17 +18344,18 @@
               "enum": [
                 "jpeg",
                 "jpg",
-                "gif",
+                "jfif",
+                "pjpeg",
                 "png",
+                "gif",
+                "webp",
+                "bmp",
+                "tif",
+                "tiff",
                 "svg",
                 "ico",
-                "doc",
                 "psd",
-                "bmp",
-                "tiff",
-                "webp",
-                "tif",
-                "pjpeg"
+                "avif"
               ],
               "type": "string"
             },
