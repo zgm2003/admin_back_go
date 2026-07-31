@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/module/ai/requestidentity"
+	"admin_back_go/internal/shared/uploadpolicy"
 )
 
 type State string
@@ -139,6 +140,7 @@ type CreateReplyInput struct {
 	RequestFingerprint    [32]byte
 	RequestIdentityStatus requestidentity.IdentityStatus
 	RequestIdentityMarker string
+	UploadRuleToken       uploadpolicy.ConsistencyToken
 }
 
 type CreateReplyResult struct {

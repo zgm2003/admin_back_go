@@ -18,6 +18,7 @@ import (
 	airun "admin_back_go/internal/module/ai/run"
 	modulerealtime "admin_back_go/internal/module/realtime"
 	"admin_back_go/internal/shared/enum"
+	"admin_back_go/internal/shared/uploadpolicy"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -27,6 +28,7 @@ var (
 	ErrRepositoryNotConfigured    = errors.New("reply command repository not configured")
 	ErrConversationUnavailable    = errors.New("owned active conversation not found")
 	ErrCreateInputInvalid         = errors.New("reply command create input is invalid")
+	ErrUploadRuleChanged          = errors.New("reply command upload rule changed")
 	ErrReplyCommandNotFound       = errors.New("reply command not found")
 	ErrAttemptNotFound            = errors.New("provider attempt not found")
 	ErrAttemptTransactionRequired = errors.New("provider attempt requires an active outer transaction")
@@ -47,6 +49,14 @@ type Repository interface {
 	PrepareLegacyAttempt(context.Context, LegacyPrepareAttemptInput) (*Attempt, bool, error)
 	MarkAttemptDispatched(context.Context, uint64, uint64, string, uint64, time.Time) (bool, error)
 	FinishAttempt(context.Context, FinishAttemptInput) (bool, error)
+}
+
+type UploadRuleTransactionGuard interface {
+	GuardActiveInTransaction(context.Context, *gorm.DB, uploadpolicy.ConsistencyToken) error
+}
+
+type UploadRuleGuardedRepository interface {
+	CreateReplyWithUploadRuleGuard(context.Context, CreateReplyInput, UploadRuleTransactionGuard) (CreateReplyResult, error)
 }
 
 func (r *GormRepository) RequestCancel(ctx context.Context, input RequestCancelInput) (RequestCancelResult, error) {
@@ -229,6 +239,14 @@ func newGormRepository(db *gorm.DB) *GormRepository {
 }
 
 func (r *GormRepository) CreateReply(ctx context.Context, input CreateReplyInput) (CreateReplyResult, error) {
+	return r.createReply(ctx, input, nil)
+}
+
+func (r *GormRepository) CreateReplyWithUploadRuleGuard(ctx context.Context, input CreateReplyInput, guard UploadRuleTransactionGuard) (CreateReplyResult, error) {
+	return r.createReply(ctx, input, guard)
+}
+
+func (r *GormRepository) createReply(ctx context.Context, input CreateReplyInput, guard UploadRuleTransactionGuard) (CreateReplyResult, error) {
 	if r == nil || r.db == nil {
 		return CreateReplyResult{}, ErrRepositoryNotConfigured
 	}
@@ -273,6 +291,17 @@ func (r *GormRepository) CreateReply(ctx context.Context, input CreateReplyInput
 		}
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
+		}
+		if input.UploadRuleToken != (uploadpolicy.ConsistencyToken{}) {
+			if guard == nil {
+				return ErrUploadRuleChanged
+			}
+			if guardErr := guard.GuardActiveInTransaction(ctx, tx, input.UploadRuleToken); guardErr != nil {
+				if errors.Is(guardErr, uploadpolicy.ErrRuleSnapshotChanged) {
+					return ErrUploadRuleChanged
+				}
+				return guardErr
+			}
 		}
 
 		var conversation replyConversation

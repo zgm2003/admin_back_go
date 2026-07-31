@@ -73,6 +73,30 @@ type fakeRepository struct {
 	cancelErr            error
 }
 
+type fakeGuardedReplyRepository struct {
+	replycommand.Repository
+	guardedCalls int
+	input        replycommand.CreateReplyInput
+	guard        replycommand.UploadRuleTransactionGuard
+}
+
+func (f *fakeGuardedReplyRepository) CreateReply(context.Context, replycommand.CreateReplyInput) (replycommand.CreateReplyResult, error) {
+	return replycommand.CreateReplyResult{}, errors.New("unguarded create called")
+}
+
+func (f *fakeGuardedReplyRepository) CreateReplyWithUploadRuleGuard(_ context.Context, input replycommand.CreateReplyInput, guard replycommand.UploadRuleTransactionGuard) (replycommand.CreateReplyResult, error) {
+	f.guardedCalls++
+	f.input = input
+	f.guard = guard
+	return replycommand.CreateReplyResult{CommandID: 99, RequestID: input.RequestID}, nil
+}
+
+type captureSendUploadRuleGuard struct{}
+
+func (*captureSendUploadRuleGuard) GuardActiveInTransaction(context.Context, *gorm.DB, uploadpolicy.ConsistencyToken) error {
+	return nil
+}
+
 func (f *fakeRepository) RequestCancel(_ context.Context, input replycommand.RequestCancelInput) (replycommand.RequestCancelResult, error) {
 	f.cancelConversationID = input.ConversationID
 	f.cancelUserID = input.UserID
@@ -670,7 +694,7 @@ func TestSendNormalizesMixedAttachmentsFromTrustedHEAD(t *testing.T) {
 		}}),
 		WithObjectInspector(inspector),
 		WithUploadRuleResolver(uploadpolicy.ResolverFunc(func(context.Context) (uploadpolicy.Rule, error) {
-			return uploadpolicy.Rule{MaxFileBytes: 100 << 20, ImageExtensions: []string{"png"}, FileExtensions: []string{"pdf"}}, nil
+			return uploadpolicy.Rule{MaxFileBytes: 100 << 20, ImageExtensions: []string{"png"}, FileExtensions: []string{"pdf"}, ConsistencyToken: uploadpolicy.ConsistencyToken{1}}, nil
 		})),
 	)
 	_, appErr := service.Send(context.Background(), 7, SendInput{
@@ -688,6 +712,54 @@ func TestSendNormalizesMixedAttachmentsFromTrustedHEAD(t *testing.T) {
 	}
 	if repo.replyInput.MetaJSON == nil || json.Unmarshal([]byte(*repo.replyInput.MetaJSON), &meta) != nil || !reflect.DeepEqual(meta.Attachments, []Attachment{want}) {
 		t.Fatalf("attachment meta=%#v raw=%v", meta.Attachments, repo.replyInput.MetaJSON)
+	}
+}
+
+func TestSendPropagatesUploadRuleTokenAndMapsTransactionalDrift(t *testing.T) {
+	agent := validFileMessageAgent()
+	repo := &fakeRepository{
+		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5}, agent: &agent,
+		replyErr: replycommand.ErrUploadRuleChanged,
+	}
+	key := "ai_chat_attachments/2026/07/report.pdf"
+	inspector := &fakeMessageObjectInspector{metadata: map[string]storagecos.ObjectMetadata{
+		key: {Key: key, MIMEType: "application/pdf", Size: 4096, ETag: `"v1"`, TrustedURL: "https://trusted.test/report.pdf"},
+	}}
+	capabilities := officialmodel.Capabilities{
+		InputModalities: []string{"text", "file"}, OutputModalities: []string{"text"}, SupportsStreaming: true, NativeFileInput: true,
+	}
+	service := NewService(repo,
+		WithPricingResolver(testMessagePricingResolverWithCapabilities(capabilities)),
+		WithTransportCapabilityResolver(staticTransportCapabilityResolver{ok: true, metadata: infraai.CapabilityMetadata{
+			InputModalities: []string{"text", "file"}, OutputModalities: []string{"text"}, SupportsStreaming: true,
+		}}),
+		WithObjectInspector(inspector), WithUploadRuleResolver(testMessageUploadRuleResolver()),
+	)
+
+	_, appErr := service.Send(context.Background(), 7, SendInput{
+		ConversationID: 3, RequestID: "rule-drift", Content: "总结文件",
+		Attachments: []Attachment{{Type: "file", ObjectKey: key, Name: "report.pdf"}},
+	})
+	if appErr == nil || appErr.HTTPStatus != 409 || appErr.MessageID != "aimessage.attachments.upload_rule_changed" {
+		t.Fatalf("upload rule drift error=%#v", appErr)
+	}
+	if repo.replyInput.UploadRuleToken != (uploadpolicy.ConsistencyToken{1}) {
+		t.Fatalf("upload rule token=%x", repo.replyInput.UploadRuleToken)
+	}
+}
+
+func TestMessageRepositoryDelegatesAttachmentCreateWithConfiguredTransactionGuard(t *testing.T) {
+	delegate := &fakeGuardedReplyRepository{}
+	guard := &captureSendUploadRuleGuard{}
+	repository := &GormRepository{replies: delegate, uploadRuleGuard: guard}
+	input := replycommand.CreateReplyInput{RequestID: "guarded", UploadRuleToken: uploadpolicy.ConsistencyToken{7}}
+
+	result, err := repository.CreateReply(context.Background(), input)
+	if err != nil || result.CommandID != 99 {
+		t.Fatalf("CreateReply result=%+v err=%v", result, err)
+	}
+	if delegate.guardedCalls != 1 || delegate.guard != guard || delegate.input.UploadRuleToken != input.UploadRuleToken {
+		t.Fatalf("guarded delegation calls=%d guard=%T input=%+v", delegate.guardedCalls, delegate.guard, delegate.input)
 	}
 }
 
@@ -726,7 +798,7 @@ func TestSendEnforcesTrustedAttachmentByteLimits(t *testing.T) {
 				}}),
 				WithObjectInspector(inspector),
 				WithUploadRuleResolver(uploadpolicy.ResolverFunc(func(context.Context) (uploadpolicy.Rule, error) {
-					return uploadpolicy.Rule{MaxFileBytes: test.systemMax, FileExtensions: []string{"pdf"}}, nil
+					return uploadpolicy.Rule{MaxFileBytes: test.systemMax, FileExtensions: []string{"pdf"}, ConsistencyToken: uploadpolicy.ConsistencyToken{1}}, nil
 				})),
 			)
 			_, appErr := service.Send(context.Background(), 7, SendInput{

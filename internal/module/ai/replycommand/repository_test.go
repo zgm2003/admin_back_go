@@ -13,8 +13,10 @@ import (
 	"admin_back_go/internal/config"
 	"admin_back_go/internal/infra/database"
 	"admin_back_go/internal/module/ai/requestidentity"
+	"admin_back_go/internal/shared/uploadpolicy"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"gorm.io/gorm"
 )
 
 const durableWorkIntegrationEnv = "ADMIN_DURABLE_WORK_INTEGRATION"
@@ -33,6 +35,8 @@ func TestCreateReplyReplayLocksCanonicalCommandBeforeConversation(t *testing.T) 
 	repository, _, mock, closeDB := newAttemptMockRepository(t)
 	defer closeDB()
 	input := testCreateReplyInput(3, 7, "request-1", "hello")
+	input.UploadRuleToken = uploadpolicy.ConsistencyToken{1}
+	guard := &fakeCreateUploadRuleGuard{err: uploadpolicy.ErrRuleSnapshotChanged}
 	now := time.Date(2026, 7, 26, 10, 0, 0, 0, time.UTC)
 
 	mock.ExpectBegin()
@@ -48,13 +52,58 @@ func TestCreateReplyReplayLocksCanonicalCommandBeforeConversation(t *testing.T) 
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(71))
 	mock.ExpectCommit()
 
-	result, err := repository.CreateReply(context.Background(), input)
+	result, err := repository.CreateReplyWithUploadRuleGuard(context.Background(), input, guard)
 	if err != nil || result.CommandID != 41 || result.UserMessageID != 51 || result.RunID != 61 || result.ChargeID != 71 {
 		t.Fatalf("replay=%+v err=%v now=%v", result, err, now)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
 	}
+	if guard.calls != 0 {
+		t.Fatalf("idempotent replay rechecked changed upload rule: calls=%d", guard.calls)
+	}
+}
+
+func TestCreateReplyGuardsUploadRuleInsideTransactionBeforePersistence(t *testing.T) {
+	repository, _, mock, closeDB := newAttemptMockRepository(t)
+	defer closeDB()
+	input := testCreateReplyInput(3, 7, "rule-drift", "hello")
+	input.UploadRuleToken = uploadpolicy.ConsistencyToken{9}
+	guard := &fakeCreateUploadRuleGuard{err: uploadpolicy.ErrRuleSnapshotChanged}
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT .* FROM `ai_reply_commands`").
+		WithArgs(int64(7), "rule-drift", 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	mock.ExpectRollback()
+	mock.ExpectQuery("SELECT .* FROM `ai_reply_commands`").
+		WithArgs(int64(7), "rule-drift", 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+
+	_, err := repository.CreateReplyWithUploadRuleGuard(context.Background(), input, guard)
+	if !errors.Is(err, ErrUploadRuleChanged) {
+		t.Fatalf("upload rule drift error=%v", err)
+	}
+	if guard.calls != 1 || guard.tx == nil || guard.token != input.UploadRuleToken {
+		t.Fatalf("guard calls=%d tx=%p token=%x", guard.calls, guard.tx, guard.token)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+type fakeCreateUploadRuleGuard struct {
+	calls int
+	tx    *gorm.DB
+	token uploadpolicy.ConsistencyToken
+	err   error
+}
+
+func (guard *fakeCreateUploadRuleGuard) GuardActiveInTransaction(_ context.Context, tx *gorm.DB, token uploadpolicy.ConsistencyToken) error {
+	guard.calls++
+	guard.tx = tx
+	guard.token = token
+	return guard.err
 }
 
 func TestCreateReplyRejectsNonEmptyIdentityMarkerBeforeDatabaseAccess(t *testing.T) {

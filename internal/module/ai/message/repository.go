@@ -27,9 +27,7 @@ type GormRepository struct {
 
 type RepositoryOption func(*GormRepository)
 
-type UploadRuleTransactionGuard interface {
-	GuardActiveInTransaction(context.Context, *gorm.DB, uploadpolicy.ConsistencyToken) error
-}
+type UploadRuleTransactionGuard = replycommand.UploadRuleTransactionGuard
 
 func WithRepositoryPricingResolver(resolver officialmodel.Resolver) RepositoryOption {
 	return func(repository *GormRepository) { repository.pricing = resolver }
@@ -55,6 +53,13 @@ func NewGormRepository(client *database.Client, replies replycommand.Repository,
 func (r *GormRepository) CreateReply(ctx context.Context, input replycommand.CreateReplyInput) (replycommand.CreateReplyResult, error) {
 	if r == nil || r.replies == nil {
 		return replycommand.CreateReplyResult{}, ErrRepositoryNotConfigured
+	}
+	if input.UploadRuleToken != (uploadpolicy.ConsistencyToken{}) {
+		guarded, ok := r.replies.(replycommand.UploadRuleGuardedRepository)
+		if !ok || r.uploadRuleGuard == nil {
+			return replycommand.CreateReplyResult{}, replycommand.ErrUploadRuleChanged
+		}
+		return guarded.CreateReplyWithUploadRuleGuard(ctx, input, r.uploadRuleGuard)
 	}
 	return r.replies.CreateReply(ctx, input)
 }

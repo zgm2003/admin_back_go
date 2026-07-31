@@ -167,7 +167,7 @@ func (s *Service) Send(ctx context.Context, userID int64, input SendInput) (*Sen
 	if _, overridden := runtimeParams["temperature"]; overridden && !containsCapability(effectiveCapabilities.SupportedParameters, officialmodel.ParameterTemperature) {
 		return nil, apperror.BadRequest("当前模型不支持temperature")
 	}
-	attachments, _, appErr := s.inspectAttachments(ctx, *agent, resolvedModel.Model.Capabilities, effectiveCapabilities, input.Attachments)
+	attachments, uploadRuleToken, appErr := s.inspectAttachments(ctx, *agent, resolvedModel.Model.Capabilities, effectiveCapabilities, input.Attachments)
 	if appErr != nil {
 		return nil, appErr
 	}
@@ -199,10 +199,14 @@ func (s *Service) Send(ctx context.Context, userID int64, input SendInput) (*Sen
 		EffectiveMaxTokens:    effectiveMaxOutputTokens,
 		RequestFingerprint:    fingerprint,
 		RequestIdentityStatus: requestidentity.IdentityStatusReplayable,
+		UploadRuleToken:       uploadRuleToken,
 	})
 	if err != nil {
 		if errors.Is(err, requestidentity.ErrRequestIdentityConflict) || errors.Is(err, requestidentity.ErrRequestIdentityNotReplayable) {
 			return nil, apperror.Wrap(requestidentity.ErrorCodeFingerprintConflict, apperror.CategoryConflict, 409, apperror.Permanent, "", nil, "request_id与原请求内容冲突", err)
+		}
+		if errors.Is(err, replycommand.ErrUploadRuleChanged) {
+			return nil, apperror.Wrap("ai.message.acceptance_changed", apperror.CategoryConflict, 409, apperror.Permanent, "aimessage.attachments.upload_rule_changed", nil, "当前上传规则已变化，请刷新后重试", err)
 		}
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "提交AI回复任务失败", err)
 	}
@@ -288,6 +292,9 @@ func (s *Service) inspectAttachments(
 	}
 	uploadRule, err := s.uploadRules.ResolveActive(ctx)
 	if err != nil {
+		return nil, uploadpolicy.ConsistencyToken{}, apperror.BadRequestKey("aimessage.attachments.upload_rule_unavailable", nil, "当前上传规则不可用")
+	}
+	if uploadRule.ConsistencyToken == (uploadpolicy.ConsistencyToken{}) {
 		return nil, uploadpolicy.ConsistencyToken{}, apperror.BadRequestKey("aimessage.attachments.upload_rule_unavailable", nil, "当前上传规则不可用")
 	}
 	if s.objectInspector == nil {
