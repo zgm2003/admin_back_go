@@ -4,21 +4,46 @@
       "AIAttachmentRequest": {
         "additionalProperties": false,
         "properties": {
-          "name": {
-            "type": "string"
-          },
-          "object_key": {
+          "mime_type": {
+            "maxLength": 255,
             "minLength": 1,
             "type": "string"
           },
+          "name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+          },
+          "object_key": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          },
+          "size": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
           "type": {
-            "const": "image",
+            "enum": [
+              "image",
+              "file"
+            ],
+            "type": "string"
+          },
+          "url": {
+            "maxLength": 2048,
+            "minLength": 1,
             "type": "string"
           }
         },
         "required": [
+          "mime_type",
+          "name",
+          "object_key",
+          "size",
           "type",
-          "object_key"
+          "url"
         ],
         "type": "object"
       },
@@ -619,7 +644,10 @@
             "type": "integer"
           },
           "type": {
-            "const": "image",
+            "enum": [
+              "image",
+              "file"
+            ],
             "type": "string"
           },
           "url": {
@@ -652,6 +680,14 @@
       "AIMessageRevisionRequest": {
         "additionalProperties": false,
         "properties": {
+          "attachments": {
+            "description": "Omit to preserve existing attachments; send an empty array to remove all attachments.",
+            "items": {
+              "$ref": "#/components/schemas/AIAttachmentRequest"
+            },
+            "maxItems": 5,
+            "type": "array"
+          },
           "content": {
             "description": "Trimmed content must be non-empty.",
             "maxLength": 20000,
@@ -672,7 +708,7 @@
       },
       "AIMessageSendRequest": {
         "additionalProperties": false,
-        "description": "request_id is required; additionally, trimmed content must be non-empty or attachments must contain at least one image. The cross-field rule is also published on the operation.",
+        "description": "request_id is required; additionally, trimmed content must be non-empty or attachments must contain at least one attachment. The cross-field rule is also published on the operation.",
         "properties": {
           "attachments": {
             "items": {
@@ -2152,6 +2188,30 @@
             ],
             "type": "string"
           },
+          "cos_head_ms": {
+            "anyOf": [
+              {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cos_stream_ms": {
+            "anyOf": [
+              {
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "end_to_end_ms": {
             "anyOf": [
               {
@@ -2228,6 +2288,8 @@
         "required": [
           "accept_ms",
           "claim_source",
+          "cos_head_ms",
+          "cos_stream_ms",
           "end_to_end_ms",
           "prepare_ms",
           "provider_total_ms",
@@ -2750,6 +2812,23 @@
       "AIRunRequestSummary": {
         "additionalProperties": false,
         "properties": {
+          "attachment_count": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "file_input_mode": {
+            "enum": [
+              "",
+              "chat_completions"
+            ],
+            "type": "string"
+          },
+          "materialized_request_bytes": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "message_count": {
             "anyOf": [
               {
@@ -2761,6 +2840,21 @@
                 "type": "null"
               }
             ]
+          },
+          "native_file_bytes": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "native_file_count": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "prepared_manifest_bytes": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
           },
           "prepared_request_bytes": {
             "format": "int64",
@@ -2779,7 +2873,13 @@
           }
         },
         "required": [
+          "attachment_count",
+          "file_input_mode",
+          "materialized_request_bytes",
           "message_count",
+          "native_file_bytes",
+          "native_file_count",
+          "prepared_manifest_bytes",
           "prepared_request_bytes",
           "provider_attempt_count",
           "tool_call_count"
