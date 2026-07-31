@@ -41,6 +41,22 @@ func (s *Service) Revise(ctx context.Context, userID int64, input EditInput) (*S
 	if appErr != nil {
 		return nil, appErr
 	}
+	preparation, err := history.PrepareAction(ctx, HistoryPrepareInput{
+		Operation: HistoryOperationRevision, UserID: userID, ConversationID: input.ConversationID, SourceMessageID: input.MessageID,
+	})
+	if err != nil {
+		return nil, historyActionError("aimessage.revision.failed", "编辑AI消息失败", err)
+	}
+	attachments := append([]Attachment(nil), preparation.SourceAttachments...)
+	if input.Attachments != nil {
+		attachments = append([]Attachment(nil), (*input.Attachments)...)
+	}
+	validated, inspectErr := s.inspectHistoryAttachments(ctx, preparation.Runtime, attachments)
+	if inspectErr != nil {
+		return nil, inspectErr
+	}
+	input.ValidatedAttachments = validated
+	input.SourceAttachmentsSHA256 = preparation.SourceAttachmentsSHA256
 	result, err := history.Revise(ctx, input)
 	if err != nil {
 		return nil, historyActionError("aimessage.revision.failed", "编辑AI消息失败", err)
@@ -62,11 +78,38 @@ func (s *Service) Regenerate(ctx context.Context, userID int64, input Regenerate
 	if appErr != nil {
 		return nil, appErr
 	}
+	preparation, err := history.PrepareAction(ctx, HistoryPrepareInput{
+		Operation: HistoryOperationRegeneration, UserID: userID, ConversationID: input.ConversationID, SourceMessageID: input.AssistantMessageID,
+	})
+	if err != nil {
+		return nil, historyActionError("aimessage.regeneration.failed", "重新生成AI回复失败", err)
+	}
+	validated, inspectErr := s.inspectHistoryAttachments(ctx, preparation.Runtime, preparation.SourceAttachments)
+	if inspectErr != nil {
+		return nil, inspectErr
+	}
+	input.ValidatedAttachments = validated
+	input.SourceAttachmentsSHA256 = preparation.SourceAttachmentsSHA256
 	result, err := history.Regenerate(ctx, input)
 	if err != nil {
 		return nil, historyActionError("aimessage.regeneration.failed", "重新生成AI回复失败", err)
 	}
 	return s.acceptHistoryResult(ctx, input.ConversationID, result)
+}
+
+func (s *Service) inspectHistoryAttachments(ctx context.Context, runtime AgentRuntime, attachments []Attachment) ([]Attachment, *apperror.Error) {
+	if len(attachments) == 0 {
+		return []Attachment{}, nil
+	}
+	resolved, err := resolveOfficialModelForSend(ctx, s.pricingResolver, runtime)
+	if err != nil {
+		return nil, historyActionError("aimessage.history.runtime_unavailable", "当前智能体模型能力不可用", err)
+	}
+	effective, err := s.effectiveChatCapabilities(runtime, resolved.Model.Capabilities)
+	if err != nil {
+		return nil, historyActionError("aimessage.history.runtime_unavailable", "当前智能体模型能力不可用", err)
+	}
+	return s.inspectAttachments(ctx, runtime, resolved.Model.Capabilities, effective, attachments)
 }
 
 func (s *Service) DeleteMessages(ctx context.Context, userID int64, input DeleteInput) (*DeleteResponse, *apperror.Error) {
@@ -159,6 +202,8 @@ func historyActionError(messageID, fallback string, err error) *apperror.Error {
 		return apperror.Wrap(ErrorCodeHistoryActive, apperror.CategoryConflict, http.StatusConflict, apperror.Permanent, "aimessage.history.active", nil, "存在进行中的AI回复，请先停止并等待完成", err)
 	case errors.Is(err, ErrHistorySourceNotFound):
 		return apperror.Wrap("resource.not_found", apperror.CategoryNotFound, http.StatusNotFound, apperror.Permanent, "aimessage.message.not_found", nil, "AI消息不存在", err)
+	case errors.Is(err, ErrHistorySourceChanged):
+		return apperror.Wrap("ai.message.history_source_changed", apperror.CategoryConflict, http.StatusConflict, apperror.Permanent, "aimessage.history.source_changed", nil, "原消息附件已变化，请刷新后重试", err)
 	case errors.Is(err, ErrHistoryIDsInvalid):
 		return apperror.Wrap("request.invalid", apperror.CategoryValidation, http.StatusBadRequest, apperror.Permanent, "aimessage.delete.ids.invalid", nil, "待删除消息无效", err)
 	default:

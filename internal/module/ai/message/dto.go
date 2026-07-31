@@ -37,18 +37,23 @@ const (
 )
 
 type EditInput struct {
-	UserID         int64
-	ConversationID int64
-	MessageID      int64
-	Content        string
-	RequestID      string
+	UserID                  int64
+	ConversationID          int64
+	MessageID               int64
+	Content                 string
+	RequestID               string
+	Attachments             *[]Attachment
+	ValidatedAttachments    []Attachment
+	SourceAttachmentsSHA256 [32]byte
 }
 
 type RegenerateInput struct {
-	UserID             int64
-	ConversationID     int64
-	AssistantMessageID int64
-	RequestID          string
+	UserID                  int64
+	ConversationID          int64
+	AssistantMessageID      int64
+	RequestID               string
+	ValidatedAttachments    []Attachment
+	SourceAttachmentsSHA256 [32]byte
 }
 
 type DeleteInput struct {
@@ -64,6 +69,7 @@ type Attachment struct {
 	URL       string `json:"url"`
 	Name      string `json:"name"`
 	Size      int64  `json:"size"`
+	ETag      string `json:"etag"`
 }
 
 type ReplyWaker interface {
@@ -128,6 +134,19 @@ type HistoryAccepted struct {
 	Replayed bool
 }
 
+type HistoryActionPreparation struct {
+	Runtime                 AgentRuntime
+	SourceAttachments       []Attachment
+	SourceAttachmentsSHA256 [32]byte
+}
+
+type HistoryPrepareInput struct {
+	Operation       string
+	UserID          int64
+	ConversationID  int64
+	SourceMessageID int64
+}
+
 type AgentRuntime struct {
 	AgentID                int64
 	ProviderID             int64
@@ -153,6 +172,7 @@ type Repository interface {
 }
 
 type HistoryRepository interface {
+	PrepareAction(context.Context, HistoryPrepareInput) (HistoryActionPreparation, error)
 	Revise(context.Context, EditInput) (HistoryAccepted, error)
 	Regenerate(context.Context, RegenerateInput) (HistoryAccepted, error)
 	DeleteMessages(context.Context, DeleteInput) ([]int64, error)

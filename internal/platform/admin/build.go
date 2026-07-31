@@ -319,6 +319,7 @@ func Build(input BuildInput) (*BuildResult, error) {
 		aimessage.WithPricingResolver(aiOfficialModelResolver),
 		aimessage.WithTransportCapabilityResolver(providers.AITransportCapabilities),
 		aimessage.WithObjectInspector(aiChatObjectInspector),
+		aimessage.WithUploadRuleResolver(uploadRuleResolver),
 	)
 	notificationTaskService := notificationtask.NewService(
 		notificationtask.NewGormRepository(resources.DB, notificationtask.WithDurableEventSink(realtimeEventSink)),

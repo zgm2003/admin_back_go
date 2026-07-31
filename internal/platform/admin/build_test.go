@@ -155,6 +155,7 @@ func TestBuildWiresMessageCapabilitiesAndTrustedObjectInspection(t *testing.T) {
 		"storagecos.NewObjectInspector( uploadtoken.NewObjectConfigProvider(uploadTokenRepository, providers.Secretbox)",
 		"aimessage.WithTransportCapabilityResolver(providers.AITransportCapabilities)",
 		"aimessage.WithObjectInspector(aiChatObjectInspector)",
+		"aimessage.WithUploadRuleResolver(uploadRuleResolver)",
 	} {
 		if !strings.Contains(compact, want) {
 			t.Fatalf("Admin AI message capability composition missing %q", want)

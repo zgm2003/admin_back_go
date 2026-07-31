@@ -3,7 +3,9 @@ package aimessage
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -15,8 +17,10 @@ import (
 	"admin_back_go/internal/module/ai/aigateway"
 	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/pricing"
+	aiprovider "admin_back_go/internal/module/ai/provider"
 	"admin_back_go/internal/module/ai/replycommand"
 	"admin_back_go/internal/shared/enum"
+	"admin_back_go/internal/shared/uploadpolicy"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"gorm.io/driver/mysql"
@@ -390,9 +394,9 @@ func TestSendKeepsImageAttachmentsInMetaJSON(t *testing.T) {
 	}
 	key := "ai_chat_images/2026/07/28/a.png"
 	inspector := &fakeMessageObjectInspector{metadata: map[string]storagecos.ObjectMetadata{
-		key: {Key: key, MIMEType: "image/png", Size: 10, TrustedURL: "https://trusted.test/a.png"},
+		key: {Key: key, MIMEType: "image/png", Size: 10, ETag: `"image-v1"`, TrustedURL: "https://trusted.test/a.png"},
 	}}
-	_, appErr := NewService(repo, WithPricingResolver(testMessagePricingResolver()), WithObjectInspector(inspector)).Send(context.Background(), 7, SendInput{
+	_, appErr := NewService(repo, WithPricingResolver(testMessagePricingResolver()), WithObjectInspector(inspector), WithUploadRuleResolver(testMessageUploadRuleResolver())).Send(context.Background(), 7, SendInput{
 		ConversationID: 3, Content: "看图", RequestID: "rid",
 		Attachments: []Attachment{{Type: "image", ObjectKey: key, MIMEType: "image/png", URL: "https://evil.test/a.png", Name: "a.png", Size: 1}},
 	})
@@ -410,11 +414,11 @@ func TestSendChecksAtMostFiveImagesConcurrently(t *testing.T) {
 	attachments := make([]Attachment, 0, 5)
 	for index := 0; index < 5; index++ {
 		key := "ai_chat_images/2026/07/28/" + strconv.Itoa(index) + ".png"
-		attachments = append(attachments, Attachment{Type: "image", ObjectKey: key, MIMEType: "image/png"})
-		inspector.metadata[key] = storagecos.ObjectMetadata{Key: key, MIMEType: "image/png", Size: 10, TrustedURL: "https://trusted.test/" + strconv.Itoa(index) + ".png"}
+		attachments = append(attachments, Attachment{Type: "image", ObjectKey: key, MIMEType: "image/png", Name: strconv.Itoa(index) + ".png"})
+		inspector.metadata[key] = storagecos.ObjectMetadata{Key: key, MIMEType: "image/png", Size: 10, ETag: `"image-v1"`, TrustedURL: "https://trusted.test/" + strconv.Itoa(index) + ".png"}
 	}
 
-	_, appErr := NewService(repo, WithPricingResolver(testMessagePricingResolver()), WithObjectInspector(inspector)).Send(context.Background(), 7, SendInput{
+	_, appErr := NewService(repo, WithPricingResolver(testMessagePricingResolver()), WithObjectInspector(inspector), WithUploadRuleResolver(testMessageUploadRuleResolver())).Send(context.Background(), 7, SendInput{
 		ConversationID: 3, Content: "看图", RequestID: "rid", Attachments: attachments,
 	})
 	if appErr != nil {
@@ -458,11 +462,12 @@ func TestSendRejectsImageWithoutEffectiveImageCapability(t *testing.T) {
 		WithPricingResolver(testMessagePricingResolverWithCapabilities(capabilities)),
 		WithTransportCapabilityResolver(testMessageTransportCapabilities()),
 		WithObjectInspector(inspector),
+		WithUploadRuleResolver(testMessageUploadRuleResolver()),
 	)
 
 	_, appErr := service.Send(context.Background(), 7, SendInput{
 		ConversationID: 3, Content: "看图", RequestID: "rid",
-		Attachments: []Attachment{{Type: "image", ObjectKey: "ai_chat_images/2026/07/28/a.png", MIMEType: "image/png", URL: "https://evil.test/a.png", Size: 1}},
+		Attachments: []Attachment{{Type: "image", ObjectKey: "ai_chat_images/2026/07/28/a.png", MIMEType: "image/png", URL: "https://evil.test/a.png", Name: "a.png", Size: 1}},
 	})
 	if appErr == nil || appErr.HTTPStatus != 400 || !strings.Contains(appErr.Message, "图片") {
 		t.Fatalf("image capability error=%#v", appErr)
@@ -483,17 +488,18 @@ func TestSendUsesTrustedObjectMetadataForMimeAndSize(t *testing.T) {
 	t.Run("rejects forged client facts", func(t *testing.T) {
 		repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5}, agent: validMessageAgent()}
 		inspector := &fakeMessageObjectInspector{metadata: map[string]storagecos.ObjectMetadata{
-			key: {Key: key, MIMEType: "image/png", Size: 2000, TrustedURL: "https://trusted.test/a.jpg"},
+			key: {Key: key, MIMEType: "image/png", Size: 2000, ETag: `"image-v1"`, TrustedURL: "https://trusted.test/a.jpg"},
 		}}
 		service := NewService(repo,
 			WithPricingResolver(testMessagePricingResolverWithCapabilities(capabilities)),
 			WithTransportCapabilityResolver(testMessageTransportCapabilities()),
 			WithObjectInspector(inspector),
+			WithUploadRuleResolver(testMessageUploadRuleResolver()),
 		)
 
 		_, appErr := service.Send(context.Background(), 7, SendInput{
 			ConversationID: 3, Content: "看图", RequestID: "rid",
-			Attachments: []Attachment{{Type: "image", ObjectKey: key, MIMEType: "image/jpeg", URL: "https://evil.test/a.jpg", Size: 1}},
+			Attachments: []Attachment{{Type: "image", ObjectKey: key, MIMEType: "image/jpeg", URL: "https://evil.test/a.jpg", Name: "a.jpg", Size: 1}},
 		})
 		if appErr == nil || appErr.HTTPStatus != 400 {
 			t.Fatalf("forged metadata error=%#v", appErr)
@@ -506,17 +512,18 @@ func TestSendUsesTrustedObjectMetadataForMimeAndSize(t *testing.T) {
 	t.Run("persists trusted facts", func(t *testing.T) {
 		repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5}, agent: validMessageAgent()}
 		inspector := &fakeMessageObjectInspector{metadata: map[string]storagecos.ObjectMetadata{
-			key: {Key: key, MIMEType: "image/jpeg", Size: 500, TrustedURL: "https://trusted.test/a.jpg"},
+			key: {Key: key, MIMEType: "image/jpeg", Size: 500, ETag: `"image-v1"`, TrustedURL: "https://trusted.test/a.jpg"},
 		}}
 		service := NewService(repo,
 			WithPricingResolver(testMessagePricingResolverWithCapabilities(capabilities)),
 			WithTransportCapabilityResolver(testMessageTransportCapabilities()),
 			WithObjectInspector(inspector),
+			WithUploadRuleResolver(testMessageUploadRuleResolver()),
 		)
 
 		_, appErr := service.Send(context.Background(), 7, SendInput{
 			ConversationID: 3, Content: "看图", RequestID: "rid",
-			Attachments: []Attachment{{Type: "image", ObjectKey: key, MIMEType: "image/png", URL: "https://evil.test/a.jpg", Size: 1}},
+			Attachments: []Attachment{{Type: "image", ObjectKey: key, MIMEType: "image/png", URL: "https://evil.test/a.jpg", Name: "a.jpg", Size: 1}},
 		})
 		if appErr != nil {
 			t.Fatalf("trusted attachment rejected: %v", appErr)
@@ -535,14 +542,154 @@ func TestSendUsesTrustedObjectMetadataForMimeAndSize(t *testing.T) {
 	})
 }
 
-func TestSendNeverAcceptsNativeDocumentInThisRelease(t *testing.T) {
-	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5}, agent: validMessageAgent()}
-	_, appErr := NewService(repo).Send(context.Background(), 7, SendInput{
-		ConversationID: 3, RequestID: "rid",
-		Attachments: []Attachment{{Type: "file", ObjectKey: "ai_chat_images/2026/07/28/a.pdf", MIMEType: "application/pdf"}},
+func TestSendNormalizesMixedAttachmentsFromTrustedHEAD(t *testing.T) {
+	agent := validMessageAgent()
+	agent.ModelID, agent.OfficialModelID = "gpt-5.6", "gpt-5.6"
+	agent.FileInputMode = aiprovider.FileInputModeChatCompletions
+	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5}, agent: agent}
+	key := "ai_chat_attachments/2026/07/report.pdf"
+	inspector := &fakeMessageObjectInspector{metadata: map[string]storagecos.ObjectMetadata{
+		key: {Key: key, MIMEType: "application/pdf", Size: 4096, ETag: `"v1"`, TrustedURL: "https://trusted.test/report.pdf"},
+	}}
+	capabilities := officialmodel.Capabilities{
+		InputModalities: []string{"text", "image", "file"}, OutputModalities: []string{"text"},
+		SupportsStreaming: true, NativeFileInput: true,
+		ImageInput: &officialmodel.ImageInputCapability{MIMETypes: []string{"image/png"}, MaxFiles: 5, MaxBytes: 10 << 20},
+	}
+	service := NewService(repo,
+		WithPricingResolver(testMessagePricingResolverWithCapabilities(capabilities)),
+		WithTransportCapabilityResolver(staticTransportCapabilityResolver{ok: true, metadata: infraai.CapabilityMetadata{
+			InputModalities: []string{"text", "image", "file"}, OutputModalities: []string{"text"}, SupportsStreaming: true,
+		}}),
+		WithObjectInspector(inspector),
+		WithUploadRuleResolver(uploadpolicy.ResolverFunc(func(context.Context) (uploadpolicy.Rule, error) {
+			return uploadpolicy.Rule{MaxFileBytes: 100 << 20, ImageExtensions: []string{"png"}, FileExtensions: []string{"pdf"}}, nil
+		})),
+	)
+	_, appErr := service.Send(context.Background(), 7, SendInput{
+		ConversationID: 3, RequestID: "rid", Content: "总结文件",
+		Attachments: []Attachment{{
+			Type: "file", ObjectKey: key, MIMEType: "text/plain", URL: "https://evil.test/report.pdf", Name: "report.pdf", Size: 1,
+		}},
 	})
-	if appErr == nil || appErr.HTTPStatus != 400 {
-		t.Fatalf("native document error=%#v", appErr)
+	if appErr != nil {
+		t.Fatal(appErr)
+	}
+	want := Attachment{Type: "file", ObjectKey: key, MIMEType: "application/pdf", URL: "https://trusted.test/report.pdf", Name: "report.pdf", Size: 4096, ETag: `"v1"`}
+	var meta struct {
+		Attachments []Attachment `json:"attachments"`
+	}
+	if repo.replyInput.MetaJSON == nil || json.Unmarshal([]byte(*repo.replyInput.MetaJSON), &meta) != nil || !reflect.DeepEqual(meta.Attachments, []Attachment{want}) {
+		t.Fatalf("attachment meta=%#v raw=%v", meta.Attachments, repo.replyInput.MetaJSON)
+	}
+}
+
+func TestSendEnforcesTrustedAttachmentByteLimits(t *testing.T) {
+	tests := []struct {
+		name          string
+		sizes         []int64
+		systemMax     int64
+		wantMessageID string
+	}{
+		{name: "native file is strictly below fifty MiB", sizes: []int64{50 << 20}, systemMax: 100 << 20, wantMessageID: "aimessage.attachments.file_size_exceeded"},
+		{name: "message aggregate is at most fifty MiB", sizes: []int64{30 << 20, 21 << 20}, systemMax: 100 << 20, wantMessageID: "aimessage.attachments.total_size_exceeded"},
+		{name: "system upload rule remains authoritative", sizes: []int64{2 << 20}, systemMax: 1 << 20, wantMessageID: "aimessage.attachments.system_size_exceeded"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			agent := validFileMessageAgent()
+			repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5}, agent: &agent}
+			inspector := &fakeMessageObjectInspector{metadata: map[string]storagecos.ObjectMetadata{}}
+			attachments := make([]Attachment, len(test.sizes))
+			for index, size := range test.sizes {
+				name := "report-" + strconv.Itoa(index) + ".pdf"
+				key := "ai_chat_attachments/2026/07/" + name
+				attachments[index] = Attachment{Type: "file", ObjectKey: key, Name: name}
+				inspector.metadata[key] = storagecos.ObjectMetadata{
+					Key: key, MIMEType: "application/pdf", Size: size, ETag: `"v1"`, TrustedURL: "https://trusted.test/" + name,
+				}
+			}
+			capabilities := officialmodel.Capabilities{
+				InputModalities: []string{"text", "file"}, OutputModalities: []string{"text"}, SupportsStreaming: true, NativeFileInput: true,
+			}
+			service := NewService(repo,
+				WithPricingResolver(testMessagePricingResolverWithCapabilities(capabilities)),
+				WithTransportCapabilityResolver(staticTransportCapabilityResolver{ok: true, metadata: infraai.CapabilityMetadata{
+					InputModalities: []string{"text", "file"}, OutputModalities: []string{"text"}, SupportsStreaming: true,
+				}}),
+				WithObjectInspector(inspector),
+				WithUploadRuleResolver(uploadpolicy.ResolverFunc(func(context.Context) (uploadpolicy.Rule, error) {
+					return uploadpolicy.Rule{MaxFileBytes: test.systemMax, FileExtensions: []string{"pdf"}}, nil
+				})),
+			)
+			_, appErr := service.Send(context.Background(), 7, SendInput{
+				ConversationID: 3, Content: "summarize", RequestID: "limit-rid", Attachments: attachments,
+			})
+			if appErr == nil || appErr.MessageID != test.wantMessageID || repo.replyInput.RequestID != "" {
+				t.Fatalf("limit error=%#v reply=%#v", appErr, repo.replyInput)
+			}
+		})
+	}
+}
+
+func TestSendRejectsNativeFileWhenProviderProtocolIsDisabled(t *testing.T) {
+	agent := validFileMessageAgent()
+	agent.FileInputMode = aiprovider.FileInputModeDisabled
+	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5}, agent: &agent}
+	inspector := &fakeMessageObjectInspector{}
+	capabilities := officialmodel.Capabilities{
+		InputModalities: []string{"text", "file"}, OutputModalities: []string{"text"}, SupportsStreaming: true, NativeFileInput: true,
+	}
+	service := NewService(repo,
+		WithPricingResolver(testMessagePricingResolverWithCapabilities(capabilities)),
+		WithTransportCapabilityResolver(staticTransportCapabilityResolver{ok: true, metadata: infraai.CapabilityMetadata{
+			InputModalities: []string{"text", "file"}, OutputModalities: []string{"text"}, SupportsStreaming: true,
+		}}),
+		WithObjectInspector(inspector),
+		WithUploadRuleResolver(testMessageUploadRuleResolver()),
+	)
+	_, appErr := service.Send(context.Background(), 7, SendInput{
+		ConversationID: 3, Content: "summarize", RequestID: "provider-disabled",
+		Attachments: []Attachment{{Type: "file", ObjectKey: "ai_chat_attachments/2026/07/report.pdf", Name: "report.pdf"}},
+	})
+	if appErr == nil || appErr.MessageID != "aimessage.attachments.provider_file_input_disabled" || len(inspector.calls) != 0 || repo.replyInput.RequestID != "" {
+		t.Fatalf("provider disabled error=%#v calls=%v reply=%#v", appErr, inspector.calls, repo.replyInput)
+	}
+}
+
+func TestSendAcceptsAmbiguousPlainTextOnlyForTextLikeFiles(t *testing.T) {
+	tests := []struct {
+		name, fileName string
+		wantOK         bool
+	}{
+		{name: "code file", fileName: "main.go", wantOK: true},
+		{name: "binary document", fileName: "report.pdf", wantOK: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			agent := validFileMessageAgent()
+			repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5}, agent: &agent}
+			key := "ai_chat_attachments/2026/07/" + test.fileName
+			inspector := &fakeMessageObjectInspector{metadata: map[string]storagecos.ObjectMetadata{
+				key: {Key: key, MIMEType: "text/plain", Size: 128, ETag: `"v1"`, TrustedURL: "https://trusted.test/" + test.fileName},
+			}}
+			capabilities := officialmodel.Capabilities{
+				InputModalities: []string{"text", "file"}, OutputModalities: []string{"text"}, SupportsStreaming: true, NativeFileInput: true,
+			}
+			service := NewService(repo,
+				WithPricingResolver(testMessagePricingResolverWithCapabilities(capabilities)),
+				WithTransportCapabilityResolver(staticTransportCapabilityResolver{ok: true, metadata: infraai.CapabilityMetadata{
+					InputModalities: []string{"text", "file"}, OutputModalities: []string{"text"}, SupportsStreaming: true,
+				}}),
+				WithObjectInspector(inspector), WithUploadRuleResolver(testMessageUploadRuleResolver()),
+			)
+			_, appErr := service.Send(context.Background(), 7, SendInput{
+				ConversationID: 3, Content: "read", RequestID: "mime-rid", Attachments: []Attachment{{Type: "file", ObjectKey: key, Name: test.fileName}},
+			})
+			if (appErr == nil) != test.wantOK {
+				t.Fatalf("mime result error=%#v", appErr)
+			}
+		})
 	}
 }
 
@@ -582,6 +729,14 @@ func testMessageTransportCapabilities() staticTransportCapabilityResolver {
 		InputModalities: []string{officialmodel.ModalityText, officialmodel.ModalityImage}, OutputModalities: []string{officialmodel.ModalityText},
 		SupportedParameters: []string{officialmodel.ParameterTemperature}, SupportsStreaming: true, SupportsTools: true, SupportsStructuredOutput: true,
 	}}
+}
+
+func testMessageUploadRuleResolver() uploadpolicy.Resolver {
+	return uploadpolicy.ResolverFunc(func(context.Context) (uploadpolicy.Rule, error) {
+		return uploadpolicy.Rule{
+			MaxFileBytes: 100 << 20, ImageExtensions: []string{"jpeg", "jpg", "png", "gif", "webp"}, FileExtensions: []string{"pdf", "md", "go"},
+		}, nil
+	})
 }
 
 func TestCancelRequiresOwnedConversation(t *testing.T) {

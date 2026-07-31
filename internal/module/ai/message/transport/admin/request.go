@@ -13,9 +13,12 @@ type sendRequest struct {
 }
 
 type attachmentRequest struct {
-	Type      string `json:"type" binding:"required,eq=image"`
-	ObjectKey string `json:"object_key" binding:"required"`
-	Name      string `json:"name"`
+	Type      string `json:"type" binding:"required,oneof=image file"`
+	ObjectKey string `json:"object_key" binding:"required,max=1024"`
+	MIMEType  string `json:"mime_type" binding:"required,max=255"`
+	URL       string `json:"url" binding:"required,max=2048"`
+	Name      string `json:"name" binding:"required,max=255"`
+	Size      int64  `json:"size" binding:"required,gt=0"`
 }
 
 type cancelRequest struct {
@@ -24,8 +27,9 @@ type cancelRequest struct {
 }
 
 type revisionRequest struct {
-	Content   string `json:"content" binding:"required,max=20000"`
-	RequestID string `json:"request_id" binding:"required,max=128"`
+	Content     string               `json:"content" binding:"required,max=20000"`
+	RequestID   string               `json:"request_id" binding:"required,max=128"`
+	Attachments *[]attachmentRequest `json:"attachments" binding:"omitempty,max=5,dive"`
 }
 
 type regenerationRequest struct {
