@@ -445,7 +445,10 @@ function Set-OwnerOnlyPermissions {
     if ($null -eq $extensionMethod) {
       throw 'owner-only runtime env permissions are unavailable.'
     }
-    [void]$extensionMethod.Invoke($null, [object[]]@($Stream, $acl))
+    $arguments = New-Object 'object[]' 2
+    $arguments[0] = $Stream.PSObject.BaseObject
+    $arguments[1] = $acl.PSObject.BaseObject
+    [void]$extensionMethod.Invoke($null, $arguments)
     return
   }
 
