@@ -173,7 +173,7 @@ func TestRegisterRejectsInvalidUploadValidators(t *testing.T) {
 	}
 
 	invalid = valid
-	invalid.FileExt = "php"
+	invalid.FileExt = "exe"
 	if err := binding.Validator.ValidateStruct(invalid); err == nil {
 		t.Fatalf("expected invalid file ext to fail")
 	}

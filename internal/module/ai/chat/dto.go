@@ -228,6 +228,7 @@ type AgentEngineConfig struct {
 	ScenesJSON             string
 	ProviderID             uint64
 	EngineType             string
+	FileInputMode          string
 	EngineBaseURL          string
 	EngineAPIKeyEnc        string
 	AgentStatus            int

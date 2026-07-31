@@ -40,6 +40,8 @@ const (
 // prepared request before dispatch.
 const SafeInputUpperBoundStrategyUTF8RequestBytesV1 = "utf8_request_bytes_plus_framing_v1"
 
+const SafeInputUpperBoundStrategyNativeFileContextWindowV1 = "native_file_context_window_v1"
+
 const safeInputUpperBoundFramingBytes int64 = 64
 
 // SafeInputUpperBoundFromRequest returns the deterministic input-token ceiling
@@ -95,16 +97,17 @@ func (identity UsageIdentity) Normalized() (UsageIdentity, error) {
 }
 
 type CapabilityMetadata struct {
-	SupportedUsageIdentities    []UsageIdentity `json:"supported_usage_identities"`
-	SafeInputUpperBoundStrategy string          `json:"safe_input_upper_bound_strategy"`
-	SupportsIdempotencyHeader   bool            `json:"supports_idempotency_header"`
-	SupportsCancelTask          bool            `json:"supports_cancel_task"`
-	InputModalities             []string        `json:"input_modalities"`
-	OutputModalities            []string        `json:"output_modalities"`
-	SupportedParameters         []string        `json:"supported_parameters"`
-	SupportsTools               bool            `json:"supports_tools"`
-	SupportsStreaming           bool            `json:"supports_streaming"`
-	SupportsStructuredOutput    bool            `json:"supports_structured_output"`
+	SupportedUsageIdentities      []UsageIdentity `json:"supported_usage_identities"`
+	SafeInputUpperBoundStrategy   string          `json:"safe_input_upper_bound_strategy"`
+	SafeInputUpperBoundStrategies []string        `json:"safe_input_upper_bound_strategies"`
+	SupportsIdempotencyHeader     bool            `json:"supports_idempotency_header"`
+	SupportsCancelTask            bool            `json:"supports_cancel_task"`
+	InputModalities               []string        `json:"input_modalities"`
+	OutputModalities              []string        `json:"output_modalities"`
+	SupportedParameters           []string        `json:"supported_parameters"`
+	SupportsTools                 bool            `json:"supports_tools"`
+	SupportsStreaming             bool            `json:"supports_streaming"`
+	SupportsStructuredOutput      bool            `json:"supports_structured_output"`
 }
 
 type CapabilityProvider interface {
@@ -136,13 +139,17 @@ func DefaultTransportCapabilities(engineType EngineType) (CapabilityMetadata, bo
 			{Category: UsageCategoryCacheWrite, Unit: "token"},
 		},
 		SafeInputUpperBoundStrategy: SafeInputUpperBoundStrategyUTF8RequestBytesV1,
-		SupportsIdempotencyHeader:   true,
-		InputModalities:             []string{"text", "image"},
-		OutputModalities:            []string{"text"},
-		SupportedParameters:         []string{"temperature"},
-		SupportsTools:               true,
-		SupportsStreaming:           true,
-		SupportsStructuredOutput:    true,
+		SafeInputUpperBoundStrategies: []string{
+			SafeInputUpperBoundStrategyUTF8RequestBytesV1,
+			SafeInputUpperBoundStrategyNativeFileContextWindowV1,
+		},
+		SupportsIdempotencyHeader: true,
+		InputModalities:           []string{"text", "image", "file"},
+		OutputModalities:          []string{"text"},
+		SupportedParameters:       []string{"temperature"},
+		SupportsTools:             true,
+		SupportsStreaming:         true,
+		SupportsStructuredOutput:  true,
 	}, true
 }
 

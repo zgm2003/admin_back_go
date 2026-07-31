@@ -60,10 +60,7 @@ func (h *Handler) Send(c *gin.Context) {
 		response.Error(c, apperror.BadRequest("AI消息参数错误"))
 		return
 	}
-	attachments := make([]aimessagemodule.Attachment, len(req.Attachments))
-	for index, attachment := range req.Attachments {
-		attachments[index] = aimessagemodule.Attachment{Type: attachment.Type, ObjectKey: attachment.ObjectKey, Name: attachment.Name}
-	}
+	attachments := domainAttachments(req.Attachments)
 	res, appErr := h.requireService().Send(c.Request.Context(), identity.UserID, aimessagemodule.SendInput{ConversationID: conversationID, Content: req.Content, RequestID: req.RequestID, RequestReceivedAt: requestReceivedAt, Attachments: attachments, RuntimeParams: req.RuntimeParams})
 	writeAcceptedResult(c, res, appErr)
 }
@@ -123,10 +120,27 @@ func (h *Handler) Revise(c *gin.Context) {
 		response.Error(c, apperror.BadRequestKey("aimessage.revision.request.invalid", nil, "AI消息编辑参数错误"))
 		return
 	}
+	var attachments *[]aimessagemodule.Attachment
+	if req.Attachments != nil {
+		values := domainAttachments(*req.Attachments)
+		attachments = &values
+	}
 	res, appErr := h.requireHistoryService().Revise(c.Request.Context(), identity.UserID, aimessagemodule.EditInput{
 		ConversationID: conversationID, MessageID: messageID, Content: req.Content, RequestID: req.RequestID,
+		Attachments: attachments,
 	})
 	writeAcceptedResult(c, res, appErr)
+}
+
+func domainAttachments(input []attachmentRequest) []aimessagemodule.Attachment {
+	attachments := make([]aimessagemodule.Attachment, len(input))
+	for index, attachment := range input {
+		attachments[index] = aimessagemodule.Attachment{
+			Type: attachment.Type, ObjectKey: attachment.ObjectKey, MIMEType: attachment.MIMEType,
+			URL: attachment.URL, Name: attachment.Name, Size: attachment.Size,
+		}
+	}
+	return attachments
 }
 
 func (h *Handler) Regenerate(c *gin.Context) {

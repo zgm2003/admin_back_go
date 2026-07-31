@@ -13,6 +13,7 @@ type mutationRequest struct {
 	EngineType        string            `json:"engine_type" binding:"required,oneof=openai"`
 	BaseURL           string            `json:"base_url" binding:"omitempty,max=512"`
 	APIKey            string            `json:"api_key" binding:"omitempty,max=4096"`
+	FileInputMode     string            `json:"file_input_mode" binding:"required,oneof=disabled chat_completions"`
 	ModelIDs          []string          `json:"model_ids" binding:"required,min=1,dive,required,max=191"`
 	ModelDisplayNames map[string]string `json:"model_display_names" binding:"omitempty"`
 	Status            int               `json:"status" binding:"required,oneof=1 2"`

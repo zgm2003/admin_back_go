@@ -18,6 +18,7 @@ type AgentWithProvider struct {
 	Agent
 	ProviderName           string                      `gorm:"column:provider_name"`
 	EngineType             string                      `gorm:"column:engine_type"`
+	FileInputMode          string                      `gorm:"column:file_input_mode"`
 	ProviderStatus         int                         `gorm:"column:provider_status"`
 	ProviderModelID        uint64                      `gorm:"column:provider_model_id"`
 	ProviderModelStatus    int                         `gorm:"column:provider_model_status"`
@@ -218,7 +219,8 @@ func (r *GormRepository) ListVisibleAgents(ctx context.Context, query OptionQuer
 
 func (r *GormRepository) agentSelectDB(ctx context.Context) *gorm.DB {
 	return r.db.WithContext(ctx).Table("ai_agents AS a").Select(`
-		a.*, e.name AS provider_name, e.engine_type AS engine_type, e.status AS provider_status,
+		a.*, e.name AS provider_name, e.engine_type AS engine_type,
+		e.file_input_mode AS file_input_mode, e.status AS provider_status,
 		pm.id AS provider_model_id, pm.status AS provider_model_status,
 		pm.official_model_id AS official_model_id,
 		pm.official_catalog_version AS official_catalog_version,

@@ -76,6 +76,7 @@ func (r *GormRepository) AgentForConversation(ctx context.Context, conversationI
 	err := r.db.WithContext(ctx).Table("ai_conversations c").
 		Select(`a.id AS agent_id, a.provider_id AS provider_id, a.model_id AS model_id,
 			a.model_display_name AS model_display_name, e.engine_type AS engine_type,
+			e.file_input_mode AS file_input_mode,
 			a.billing_multiplier_ppm AS billing_multiplier_ppm,
 			a.status AS status, a.scenes_json AS scenes_json,
 			pm.status AS provider_model_status, pm.official_model_id AS official_model_id,

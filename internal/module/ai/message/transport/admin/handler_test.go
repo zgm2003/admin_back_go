@@ -191,7 +191,7 @@ func TestRevisionAndRegenerationHandlersUseAuthenticatedOwnerAndPathSource(t *te
 	router.POST("/api/admin/v1/ai-conversations/:id/messages/:message_id/revisions", func(c *gin.Context) { identity(c); handler.Revise(c) })
 	router.POST("/api/admin/v1/ai-conversations/:id/messages/:message_id/regenerations", func(c *gin.Context) { identity(c); handler.Regenerate(c) })
 
-	revision := httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-conversations/3/messages/41/revisions", strings.NewReader(`{"content":"changed","request_id":"revision-1","user_id":999,"paired_message_id":999,"run_id":999,"attachments":[{"url":"https://evil.test/x"}]}`))
+	revision := httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-conversations/3/messages/41/revisions", strings.NewReader(`{"content":"changed","request_id":"revision-1","user_id":999,"paired_message_id":999,"run_id":999}`))
 	revision.Header.Set("Content-Type", "application/json")
 	revisionRecorder := httptest.NewRecorder()
 	router.ServeHTTP(revisionRecorder, revision)
@@ -200,6 +200,9 @@ func TestRevisionAndRegenerationHandlersUseAuthenticatedOwnerAndPathSource(t *te
 	}
 	if service.revisionUserID != 7 || service.revisionInput.ConversationID != 3 || service.revisionInput.MessageID != 41 || service.revisionInput.Content != "changed" || service.revisionInput.RequestID != "revision-1" {
 		t.Fatalf("revision input=%+v owner=%d", service.revisionInput, service.revisionUserID)
+	}
+	if service.revisionInput.Attachments != nil {
+		t.Fatalf("omitted attachments must remain nil: %+v", service.revisionInput.Attachments)
 	}
 
 	regeneration := httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-conversations/3/messages/97/regenerations", strings.NewReader(`{"request_id":"regen-1","user_id":999,"paired_message_id":999,"run_id":999}`))
@@ -211,6 +214,39 @@ func TestRevisionAndRegenerationHandlersUseAuthenticatedOwnerAndPathSource(t *te
 	}
 	if service.regenerationUserID != 7 || service.regenerationInput.ConversationID != 3 || service.regenerationInput.AssistantMessageID != 97 || service.regenerationInput.RequestID != "regen-1" {
 		t.Fatalf("regeneration input=%+v owner=%d", service.regenerationInput, service.regenerationUserID)
+	}
+}
+
+func TestRevisionHandlerDistinguishesEmptyAndExplicitAttachmentsWithoutAcceptingETag(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tests := []struct {
+		name    string
+		body    string
+		wantLen int
+	}{
+		{name: "empty", body: `{"content":"changed","request_id":"revision-empty","attachments":[]}`, wantLen: 0},
+		{name: "explicit", body: `{"content":"changed","request_id":"revision-file","attachments":[{"type":"file","object_key":"ai_chat_attachments/2026/07/report.pdf","mime_type":"application/pdf","url":"https://browser.test/report.pdf","name":"report.pdf","size":4096}]}`, wantLen: 1},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			service := &acceptedMessageService{}
+			router := gin.New()
+			handler := NewHandler(service)
+			router.POST("/api/admin/v1/ai-conversations/:id/messages/:message_id/revisions", func(c *gin.Context) {
+				c.Set(middleware.ContextAuthIdentity, &middleware.AuthIdentity{UserID: 7, Platform: "admin"})
+				handler.Revise(c)
+			})
+			request := httptest.NewRequest(http.MethodPost, "/api/admin/v1/ai-conversations/3/messages/41/revisions", strings.NewReader(test.body))
+			request.Header.Set("Content-Type", "application/json")
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusAccepted || service.revisionInput.Attachments == nil || len(*service.revisionInput.Attachments) != test.wantLen {
+				t.Fatalf("status=%d body=%s input=%+v", recorder.Code, recorder.Body.String(), service.revisionInput)
+			}
+			if test.wantLen == 1 && (*service.revisionInput.Attachments)[0].ETag != "" {
+				t.Fatalf("browser supplied an ETag: %+v", (*service.revisionInput.Attachments)[0])
+			}
+		})
 	}
 }
 

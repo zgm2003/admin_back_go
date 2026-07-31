@@ -14,9 +14,19 @@ type RulePageInitResponse struct {
 	Dict RulePageInitDict `json:"dict"`
 }
 
+type UploadImageExtOption struct {
+	Label string `json:"label"`
+	Value string `json:"value" validate:"upload_image_ext"`
+}
+
+type UploadFileExtOption struct {
+	Label string `json:"label"`
+	Value string `json:"value" validate:"upload_file_ext"`
+}
+
 type RulePageInitDict struct {
-	UploadImageExtArr []dict.Option[string] `json:"upload_image_ext_arr"`
-	UploadFileExtArr  []dict.Option[string] `json:"upload_file_ext_arr"`
+	UploadImageExtArr []UploadImageExtOption `json:"upload_image_ext_arr"`
+	UploadFileExtArr  []UploadFileExtOption  `json:"upload_file_ext_arr"`
 }
 
 type SettingPageInitResponse struct {
@@ -92,8 +102,8 @@ type RuleItem struct {
 	ID        int64    `json:"id"`
 	Title     string   `json:"title"`
 	MaxSizeMB int      `json:"max_size_mb"`
-	ImageExts []string `json:"image_exts"`
-	FileExts  []string `json:"file_exts"`
+	ImageExts []string `json:"image_exts" validate:"dive,upload_image_ext"`
+	FileExts  []string `json:"file_exts" validate:"dive,upload_file_ext"`
 	CreatedAt string   `json:"created_at"`
 	UpdatedAt string   `json:"updated_at"`
 }

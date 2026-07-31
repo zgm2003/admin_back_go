@@ -36,9 +36,25 @@ func (s *Service) DriverPageInit(ctx context.Context) (*DriverPageInitResponse, 
 
 func (s *Service) RulePageInit(ctx context.Context) (*RulePageInitResponse, *apperror.Error) {
 	return &RulePageInitResponse{Dict: RulePageInitDict{
-		UploadImageExtArr: dict.UploadImageExtOptions(),
-		UploadFileExtArr:  dict.UploadFileExtOptions(),
+		UploadImageExtArr: uploadImageExtOptions(),
+		UploadFileExtArr:  uploadFileExtOptions(),
 	}}, nil
+}
+
+func uploadImageExtOptions() []UploadImageExtOption {
+	options := make([]UploadImageExtOption, 0, len(enum.UploadImageExts))
+	for _, extension := range enum.UploadImageExts {
+		options = append(options, UploadImageExtOption{Label: extension, Value: extension})
+	}
+	return options
+}
+
+func uploadFileExtOptions() []UploadFileExtOption {
+	options := make([]UploadFileExtOption, 0, len(enum.UploadFileExts))
+	for _, extension := range enum.UploadFileExts {
+		options = append(options, UploadFileExtOption{Label: extension, Value: extension})
+	}
+	return options
 }
 
 func (s *Service) SettingPageInit(ctx context.Context) (*SettingPageInitResponse, *apperror.Error) {

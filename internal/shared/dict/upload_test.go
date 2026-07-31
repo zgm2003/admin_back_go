@@ -14,7 +14,7 @@ func TestUploadOptionsUseEnumOrder(t *testing.T) {
 	}
 
 	fileExts := UploadFileExtOptions()
-	if len(fileExts) == 0 || fileExts[0].Value != "docx" {
+	if len(fileExts) == 0 || fileExts[0].Value != "pdf" {
 		t.Fatalf("unexpected file extension options: %#v", fileExts)
 	}
 }

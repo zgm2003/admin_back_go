@@ -49,7 +49,7 @@ func TestCompatibleClientDoesNotClaimTokenizerUpperBoundCapability(t *testing.T)
 	if !reflect.DeepEqual(capabilities.SupportedUsageIdentities, wantUsage) {
 		t.Fatalf("supported usage identities=%+v, want %+v", capabilities.SupportedUsageIdentities, wantUsage)
 	}
-	if !reflect.DeepEqual(capabilities.InputModalities, []string{"text", "image"}) ||
+	if !reflect.DeepEqual(capabilities.InputModalities, []string{"text", "image", "file"}) ||
 		!reflect.DeepEqual(capabilities.OutputModalities, []string{"text"}) ||
 		!reflect.DeepEqual(capabilities.SupportedParameters, []string{"temperature"}) {
 		t.Fatalf("compatible transport capability sets=%+v", capabilities)

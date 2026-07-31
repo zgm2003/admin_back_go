@@ -2,6 +2,8 @@ package aimessage
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"sort"
@@ -28,6 +30,7 @@ var (
 	ErrHistoryParticipantMissing = errors.New("message history reply participant is not configured")
 	ErrHistoryAgentUnavailable   = errors.New("message history agent is unavailable")
 	ErrHistorySourceInvalid      = errors.New("message history source snapshot is invalid")
+	ErrHistorySourceChanged      = errors.New("message history source attachments changed")
 )
 
 type historySourceSnapshot struct {
@@ -43,14 +46,54 @@ type historyRequestFacts struct {
 }
 
 func (r *GormRepository) Revise(ctx context.Context, input EditInput) (HistoryAccepted, error) {
-	return r.acceptHistoryReply(ctx, HistoryOperationRevision, input.UserID, input.ConversationID, input.MessageID, input.Content, input.RequestID)
+	return r.acceptHistoryReply(ctx, HistoryOperationRevision, input.UserID, input.ConversationID, input.MessageID, input.Content, input.RequestID, input.ValidatedAttachments, input.SourceAttachmentsSHA256)
 }
 
 func (r *GormRepository) Regenerate(ctx context.Context, input RegenerateInput) (HistoryAccepted, error) {
-	return r.acceptHistoryReply(ctx, HistoryOperationRegeneration, input.UserID, input.ConversationID, input.AssistantMessageID, "", input.RequestID)
+	return r.acceptHistoryReply(ctx, HistoryOperationRegeneration, input.UserID, input.ConversationID, input.AssistantMessageID, "", input.RequestID, input.ValidatedAttachments, input.SourceAttachmentsSHA256)
 }
 
-func (r *GormRepository) acceptHistoryReply(ctx context.Context, operation string, userID, conversationID, sourceMessageID int64, replacementContent, requestID string) (HistoryAccepted, error) {
+func (r *GormRepository) PrepareAction(ctx context.Context, input HistoryPrepareInput) (HistoryActionPreparation, error) {
+	if r == nil || r.db == nil {
+		return HistoryActionPreparation{}, ErrRepositoryNotConfigured
+	}
+	if input.Operation != HistoryOperationRevision && input.Operation != HistoryOperationRegeneration ||
+		input.UserID <= 0 || input.ConversationID <= 0 || input.SourceMessageID <= 0 {
+		return HistoryActionPreparation{}, ErrHistoryIDsInvalid
+	}
+	ctx = nonNilHistoryContext(ctx)
+	runtime, err := r.historyRuntime(ctx, r.db, input.UserID, input.ConversationID, false)
+	if err != nil {
+		return HistoryActionPreparation{}, err
+	}
+	source, err := r.historySource(ctx, r.db, input.Operation, input.UserID, input.ConversationID, input.SourceMessageID, false)
+	if err != nil {
+		return HistoryActionPreparation{}, err
+	}
+	if err := validateVisibleHistorySource(input.Operation, source); err != nil {
+		return HistoryActionPreparation{}, err
+	}
+	attachments, _, err := historyMetaInputs(source.user.MetaJSON)
+	if err != nil {
+		return HistoryActionPreparation{}, err
+	}
+	digest, err := historyAttachmentsDigest(attachments)
+	if err != nil {
+		return HistoryActionPreparation{}, ErrHistorySourceInvalid
+	}
+	return HistoryActionPreparation{
+		Runtime: runtime, SourceAttachments: append([]Attachment(nil), attachments...), SourceAttachmentsSHA256: digest,
+	}, nil
+}
+
+func (r *GormRepository) acceptHistoryReply(
+	ctx context.Context,
+	operation string,
+	userID, conversationID, sourceMessageID int64,
+	replacementContent, requestID string,
+	validatedAttachments []Attachment,
+	sourceAttachmentsSHA256 [32]byte,
+) (HistoryAccepted, error) {
 	if r == nil || r.db == nil {
 		return HistoryAccepted{}, ErrRepositoryNotConfigured
 	}
@@ -61,7 +104,11 @@ func (r *GormRepository) acceptHistoryReply(ctx context.Context, operation strin
 		return HistoryAccepted{}, ErrHistoryIDsInvalid
 	}
 	ctx = nonNilHistoryContext(ctx)
-	replayRequest := r.historyReplayRequest(operation, userID, conversationID, sourceMessageID, replacementContent, requestID)
+	validatedAttachments, appErr := normalizeAttachments(validatedAttachments)
+	if appErr != nil || !validatedHistoryAttachments(validatedAttachments) {
+		return HistoryAccepted{}, ErrHistorySourceInvalid
+	}
+	replayRequest := r.historyReplayRequest(operation, userID, conversationID, sourceMessageID, replacementContent, requestID, validatedAttachments)
 
 	var accepted HistoryAccepted
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -101,7 +148,15 @@ func (r *GormRepository) acceptHistoryReply(ctx context.Context, operation strin
 		if err := validateVisibleHistorySource(operation, lockedSource); err != nil {
 			return err
 		}
-		createInput, err := r.buildHistoryCreateInput(ctx, operation, userID, conversationID, replacementContent, requestID, lockedSource, lockedRuntime)
+		lockedAttachments, _, err := historyMetaInputs(lockedSource.user.MetaJSON)
+		if err != nil {
+			return err
+		}
+		lockedDigest, err := historyAttachmentsDigest(lockedAttachments)
+		if err != nil || subtle.ConstantTimeCompare(lockedDigest[:], sourceAttachmentsSHA256[:]) != 1 {
+			return ErrHistorySourceChanged
+		}
+		createInput, err := r.buildHistoryCreateInput(ctx, operation, userID, conversationID, replacementContent, requestID, lockedSource, lockedRuntime, validatedAttachments)
 		if err != nil {
 			return err
 		}
@@ -212,7 +267,12 @@ func (r *GormRepository) DeleteMessages(ctx context.Context, input DeleteInput) 
 	return ids, nil
 }
 
-func (r *GormRepository) historyReplayRequest(operation string, userID, conversationID, sourceMessageID int64, replacementContent, requestID string) replycommand.HistoryRequest {
+func (r *GormRepository) historyReplayRequest(
+	operation string,
+	userID, conversationID, sourceMessageID int64,
+	replacementContent, requestID string,
+	validatedAttachments []Attachment,
+) replycommand.HistoryRequest {
 	return replycommand.HistoryRequest{
 		UserID: userID, RequestID: strings.TrimSpace(requestID),
 		ResolveIdentity: func(resolveCtx context.Context, db *gorm.DB) (requestidentity.Input, error) {
@@ -231,7 +291,7 @@ func (r *GormRepository) historyReplayRequest(operation string, userID, conversa
 			if err != nil {
 				return requestidentity.Input{}, err
 			}
-			facts, err := buildHistoryRequestFacts(operation, userID, conversationID, replacementContent, source, runtime, model.Model.MaxOutputTokens)
+			facts, err := buildHistoryRequestFacts(operation, userID, conversationID, replacementContent, source, runtime, model.Model.MaxOutputTokens, validatedAttachments)
 			if err != nil {
 				return requestidentity.Input{}, err
 			}
@@ -263,6 +323,7 @@ func (r *GormRepository) historyRuntime(ctx context.Context, db *gorm.DB, userID
 	query := db.WithContext(ctx).Table("ai_conversations").
 		Select(`ai_agents.id AS agent_id, ai_agents.provider_id AS provider_id, ai_agents.model_id AS model_id,
 			ai_agents.model_display_name AS model_display_name, ai_providers.engine_type AS engine_type,
+			ai_providers.file_input_mode AS file_input_mode,
 			ai_agents.billing_multiplier_ppm AS billing_multiplier_ppm,
 			ai_agents.status AS status, ai_agents.scenes_json AS scenes_json,
 			ai_provider_models.status AS provider_model_status,
@@ -344,7 +405,15 @@ func historyMessageByID(ctx context.Context, db *gorm.DB, conversationID, messag
 	return message, nil
 }
 
-func (r *GormRepository) buildHistoryCreateInput(ctx context.Context, operation string, userID, conversationID int64, replacementContent, requestID string, source historySourceSnapshot, runtime AgentRuntime) (replycommand.HistoryCreateInput, error) {
+func (r *GormRepository) buildHistoryCreateInput(
+	ctx context.Context,
+	operation string,
+	userID, conversationID int64,
+	replacementContent, requestID string,
+	source historySourceSnapshot,
+	runtime AgentRuntime,
+	validatedAttachments []Attachment,
+) (replycommand.HistoryCreateInput, error) {
 	if r.pricing == nil {
 		return replycommand.HistoryCreateInput{}, ErrHistoryAgentUnavailable
 	}
@@ -352,7 +421,7 @@ func (r *GormRepository) buildHistoryCreateInput(ctx context.Context, operation 
 	if err != nil || model.Model.MaxOutputTokens <= 0 {
 		return replycommand.HistoryCreateInput{}, ErrHistoryAgentUnavailable
 	}
-	facts, err := buildHistoryRequestFacts(operation, userID, conversationID, replacementContent, source, runtime, model.Model.MaxOutputTokens)
+	facts, err := buildHistoryRequestFacts(operation, userID, conversationID, replacementContent, source, runtime, model.Model.MaxOutputTokens, validatedAttachments)
 	if err != nil {
 		return replycommand.HistoryCreateInput{}, err
 	}
@@ -368,12 +437,20 @@ func (r *GormRepository) buildHistoryCreateInput(ctx context.Context, operation 
 		HistoryRequest: replycommand.HistoryRequest{UserID: userID, RequestID: strings.TrimSpace(requestID), Identity: facts.identity},
 		ConversationID: conversationID, AgentID: runtime.AgentID, ProviderID: runtime.ProviderID,
 		ModelID: strings.TrimSpace(runtime.ModelID), ModelDisplayName: strings.TrimSpace(runtime.ModelDisplayName),
-		Content: facts.content, MetaJSON: cloneHistoryString(source.user.MetaJSON), InputSnapshot: inputSnapshot,
+		Content: facts.content, MetaJSON: metaJSONForSend(facts.attachments, facts.runtimeParams), InputSnapshot: inputSnapshot,
 		PricingSnapshotJSON: pricingJSON, EffectiveMaxTokens: effectiveMaxTokens,
 	}, nil
 }
 
-func buildHistoryRequestFacts(operation string, userID, conversationID int64, replacementContent string, source historySourceSnapshot, runtime AgentRuntime, effectiveMaxOutputTokens int64) (historyRequestFacts, error) {
+func buildHistoryRequestFacts(
+	operation string,
+	userID, conversationID int64,
+	replacementContent string,
+	source historySourceSnapshot,
+	runtime AgentRuntime,
+	effectiveMaxOutputTokens int64,
+	validatedAttachments []Attachment,
+) (historyRequestFacts, error) {
 	content := source.user.Content
 	if operation == HistoryOperationRevision {
 		content = strings.TrimSpace(replacementContent)
@@ -381,10 +458,11 @@ func buildHistoryRequestFacts(operation string, userID, conversationID int64, re
 			return historyRequestFacts{}, ErrHistorySourceInvalid
 		}
 	}
-	attachments, runtimeParams, err := historyMetaInputs(source.user.MetaJSON)
+	_, runtimeParams, err := historyMetaInputs(source.user.MetaJSON)
 	if err != nil {
 		return historyRequestFacts{}, err
 	}
+	attachments := append([]Attachment(nil), validatedAttachments...)
 	if strings.TrimSpace(content) == "" && len(attachments) == 0 {
 		return historyRequestFacts{}, ErrHistorySourceInvalid
 	}
@@ -398,7 +476,11 @@ func buildHistoryRequestFacts(operation string, userID, conversationID int64, re
 func historyRequestIdentity(operation string, userID, conversationID, sourceMessageID int64, content string, attachments []Attachment, runtimeParams map[string]float64, runtime AgentRuntime, effectiveMaxOutputTokens int64) requestidentity.Input {
 	attachmentIdentities := make([]requestidentity.AttachmentIdentity, 0, len(attachments))
 	for _, attachment := range attachments {
-		attachmentIdentities = append(attachmentIdentities, requestidentity.AttachmentIdentity{StorageProvider: "cos", StorageKey: attachment.ObjectKey})
+		digest, err := attachmentIdentitySHA256(attachment)
+		if err != nil {
+			return requestidentity.Input{}
+		}
+		attachmentIdentities = append(attachmentIdentities, requestidentity.AttachmentIdentity{StorageProvider: "cos", StorageKey: attachment.ObjectKey, SHA256: digest})
 	}
 	options := requestidentity.GenerationOptions{MaxOutputTokens: effectiveMaxOutputTokens, Extra: map[string]string{}}
 	for key, value := range runtimeParams {
@@ -437,6 +519,29 @@ func historyMetaInputs(raw *string) ([]Attachment, map[string]float64, error) {
 		return nil, nil, ErrHistorySourceInvalid
 	}
 	return attachments, runtimeParams, nil
+}
+
+func historyAttachmentsDigest(attachments []Attachment) ([32]byte, error) {
+	normalized, appErr := normalizeAttachments(attachments)
+	if appErr != nil {
+		return [32]byte{}, ErrHistorySourceInvalid
+	}
+	raw, err := json.Marshal(normalized)
+	if err != nil {
+		return [32]byte{}, err
+	}
+	return sha256.Sum256(raw), nil
+}
+
+func validatedHistoryAttachments(attachments []Attachment) bool {
+	for _, attachment := range attachments {
+		if strings.TrimSpace(attachment.ObjectKey) == "" || strings.TrimSpace(attachment.MIMEType) == "" ||
+			strings.TrimSpace(attachment.URL) == "" || strings.TrimSpace(attachment.Name) == "" ||
+			strings.TrimSpace(attachment.ETag) == "" || attachment.Size <= 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func validateVisibleHistorySource(operation string, source historySourceSnapshot) error {
@@ -534,14 +639,6 @@ func (r *GormRepository) historyNow() time.Time {
 		return r.now()
 	}
 	return time.Now()
-}
-
-func cloneHistoryString(value *string) *string {
-	if value == nil {
-		return nil
-	}
-	clone := *value
-	return &clone
 }
 
 func nonNilHistoryContext(ctx context.Context) context.Context {

@@ -9,7 +9,11 @@ import (
 	"strings"
 	"testing"
 
+	aiprovider "admin_back_go/internal/module/ai/provider"
 	"admin_back_go/internal/server/adminroute"
+	"admin_back_go/internal/shared/enum"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 type modeledQuery struct {
@@ -32,6 +36,160 @@ type modeledItem struct {
 
 type modeledResponse struct {
 	List []modeledItem `json:"list"`
+}
+
+func TestUploadRuleResponsePublishesClosedExtensionEnums(t *testing.T) {
+	bundle := mustBuildBundle(t)
+	var document struct {
+		Components struct {
+			Schemas map[string]map[string]any `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(bundle.Artifacts["openapi.json"], &document); err != nil {
+		t.Fatal(err)
+	}
+
+	checks := []struct {
+		name       string
+		schemaName string
+		property   string
+		items      bool
+		want       []string
+	}{
+		{
+			name:       "rule image extensions",
+			schemaName: "Go_internal_module_uploadconfig_RuleItem_Output",
+			property:   "image_exts",
+			items:      true,
+			want:       enum.UploadImageExts,
+		},
+		{
+			name:       "rule file extensions",
+			schemaName: "Go_internal_module_uploadconfig_RuleItem_Output",
+			property:   "file_exts",
+			items:      true,
+			want:       enum.UploadFileExts,
+		},
+		{
+			name:       "image option value",
+			schemaName: "Go_internal_module_uploadconfig_UploadImageExtOption_Output",
+			property:   "value",
+			want:       enum.UploadImageExts,
+		},
+		{
+			name:       "file option value",
+			schemaName: "Go_internal_module_uploadconfig_UploadFileExtOption_Output",
+			property:   "value",
+			want:       enum.UploadFileExts,
+		},
+	}
+
+	for _, check := range checks {
+		t.Run(check.name, func(t *testing.T) {
+			schema := openAPIPropertySchema(t, document.Components.Schemas, check.schemaName, check.property)
+			if check.items {
+				items, ok := schema["items"]
+				if !ok {
+					t.Fatalf("%s.%s has no items schema: %#v", check.schemaName, check.property, schema)
+				}
+				schema = resolveOpenAPISchema(t, document.Components.Schemas, items)
+			}
+			got := openAPIStringEnum(t, document.Components.Schemas, schema)
+			if diff := cmp.Diff(check.want, got); diff != "" {
+				t.Fatalf("extension enum mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestAIProviderFileInputModeResponseUsesClosedEnum(t *testing.T) {
+	bundle := mustBuildBundle(t)
+	var document struct {
+		Components struct {
+			Schemas map[string]map[string]any `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(bundle.Artifacts["openapi.json"], &document); err != nil {
+		t.Fatal(err)
+	}
+
+	checks := []struct {
+		schemaName string
+		property   string
+	}{
+		{schemaName: "Go_internal_module_ai_provider_ProviderDTO_Output", property: "file_input_mode"},
+		{schemaName: "Go_internal_module_ai_provider_FileInputModeOption_Output", property: "value"},
+	}
+	for _, check := range checks {
+		schema := openAPIPropertySchema(t, document.Components.Schemas, check.schemaName, check.property)
+		got := openAPIStringEnum(t, document.Components.Schemas, schema)
+		if diff := cmp.Diff(aiprovider.FileInputModes, got); diff != "" {
+			t.Fatalf("file input mode enum mismatch (-want +got):\n%s", diff)
+		}
+	}
+}
+
+func openAPIPropertySchema(t *testing.T, schemas map[string]map[string]any, schemaName string, propertyName string) map[string]any {
+	t.Helper()
+	schema, exists := schemas[schemaName]
+	if !exists {
+		t.Fatalf("missing schema %s", schemaName)
+	}
+	schema = resolveOpenAPISchema(t, schemas, schema)
+	properties, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("schema %s has no properties: %#v", schemaName, schema)
+	}
+	property, exists := properties[propertyName]
+	if !exists {
+		t.Fatalf("schema %s has no property %s", schemaName, propertyName)
+	}
+	return resolveOpenAPISchema(t, schemas, property)
+}
+
+func openAPIStringEnum(t *testing.T, schemas map[string]map[string]any, raw any) []string {
+	t.Helper()
+	schema := resolveOpenAPISchema(t, schemas, raw)
+	if schema["type"] != "string" {
+		t.Fatalf("enum schema is not a string: %#v", schema)
+	}
+	values, ok := schema["enum"].([]any)
+	if !ok || len(values) == 0 {
+		t.Fatalf("schema does not publish a closed enum: %#v", schema)
+	}
+	result := make([]string, len(values))
+	for index, value := range values {
+		stringValue, ok := value.(string)
+		if !ok {
+			t.Fatalf("enum value %d is not a string: %#v", index, value)
+		}
+		result[index] = stringValue
+	}
+	return result
+}
+
+func resolveOpenAPISchema(t *testing.T, schemas map[string]map[string]any, raw any) map[string]any {
+	t.Helper()
+	schema, ok := raw.(map[string]any)
+	if !ok {
+		t.Fatalf("schema is not an object: %#v", raw)
+	}
+	for {
+		ref, hasRef := schema["$ref"].(string)
+		if !hasRef {
+			return schema
+		}
+		const prefix = "#/components/schemas/"
+		if !strings.HasPrefix(ref, prefix) {
+			t.Fatalf("unsupported schema reference %q", ref)
+		}
+		name := strings.TrimPrefix(ref, prefix)
+		resolved, exists := schemas[name]
+		if !exists {
+			t.Fatalf("schema reference %q is missing", ref)
+		}
+		schema = resolved
+	}
 }
 
 func TestBrowserOnlyCredentialContractUsesClosedCookieTransport(t *testing.T) {

@@ -150,13 +150,19 @@ func TestBuildWiresMessageCapabilitiesAndTrustedObjectInspection(t *testing.T) {
 	compact := compactAdminBuild(t)
 	for _, want := range []string{
 		"uploadTokenRepository := uploadtoken.NewGormRepository(resources.DB)",
+		"uploadRuleResolver := uploadtoken.NewActiveRuleResolver(uploadTokenRepository)",
+		"aiagent.WithUploadRuleResolver(uploadRuleResolver)",
 		"storagecos.NewObjectInspector( uploadtoken.NewObjectConfigProvider(uploadTokenRepository, providers.Secretbox)",
 		"aimessage.WithTransportCapabilityResolver(providers.AITransportCapabilities)",
 		"aimessage.WithObjectInspector(aiChatObjectInspector)",
+		"aimessage.WithUploadRuleResolver(uploadRuleResolver)",
 	} {
 		if !strings.Contains(compact, want) {
 			t.Fatalf("Admin AI message capability composition missing %q", want)
 		}
+	}
+	if strings.Count(compact, "uploadtoken.NewActiveRuleResolver(uploadTokenRepository)") != 1 {
+		t.Fatal("Admin Build must instantiate exactly one active upload rule resolver")
 	}
 }
 

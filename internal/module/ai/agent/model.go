@@ -25,14 +25,15 @@ type Agent struct {
 func (Agent) TableName() string { return "ai_agents" }
 
 type Provider struct {
-	ID           uint64 `gorm:"column:id;primaryKey"`
-	Name         string `gorm:"column:name"`
-	EngineType   string `gorm:"column:engine_type"`
-	BaseURL      string `gorm:"column:base_url"`
-	APIKeyEnc    string `gorm:"column:api_key_enc"`
-	HealthStatus string `gorm:"column:health_status"`
-	Status       int    `gorm:"column:status"`
-	IsDel        int    `gorm:"column:is_del"`
+	ID            uint64 `gorm:"column:id;primaryKey"`
+	Name          string `gorm:"column:name"`
+	EngineType    string `gorm:"column:engine_type"`
+	BaseURL       string `gorm:"column:base_url"`
+	FileInputMode string `gorm:"column:file_input_mode"`
+	APIKeyEnc     string `gorm:"column:api_key_enc"`
+	HealthStatus  string `gorm:"column:health_status"`
+	Status        int    `gorm:"column:status"`
+	IsDel         int    `gorm:"column:is_del"`
 }
 
 func (Provider) TableName() string { return "ai_providers" }

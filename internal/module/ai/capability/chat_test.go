@@ -36,12 +36,12 @@ func TestEffectiveChatCapabilitiesExposeOnlyImplementedIntersection(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(got.InputModalities, []string{"text", "image"}) ||
+	if !reflect.DeepEqual(got.InputModalities, []string{"text", "image", "file"}) ||
 		!reflect.DeepEqual(got.OutputModalities, []string{"text"}) ||
 		!reflect.DeepEqual(got.SupportedParameters, []string{"temperature"}) {
 		t.Fatalf("unexpected effective modalities or parameters: %#v", got)
 	}
-	if !got.SupportsTools || !got.SupportsStreaming || got.SupportsStructuredOutput || got.NativeFileInput {
+	if !got.SupportsTools || !got.SupportsStreaming || got.SupportsStructuredOutput || !got.NativeFileInput {
 		t.Fatalf("effective booleans widened platform support: %#v", got)
 	}
 	if got.ImageInput == nil || !reflect.DeepEqual(got.ImageInput.MIMETypes, []string{"image/jpeg", "image/png"}) ||

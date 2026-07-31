@@ -2,14 +2,19 @@ package aimessage
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"mime"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	infraai "admin_back_go/internal/infra/ai"
@@ -22,6 +27,7 @@ import (
 	"admin_back_go/internal/module/ai/requestidentity"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
+	"admin_back_go/internal/shared/uploadpolicy"
 )
 
 const timeLayout = "2006-01-02 15:04:05"
@@ -39,6 +45,7 @@ type Service struct {
 	pricingResolver officialmodel.Resolver
 	capabilities    infraai.TransportCapabilityResolver
 	objectInspector storagecos.ObjectInspector
+	uploadRules     uploadpolicy.Resolver
 }
 
 type Option func(*Service)
@@ -69,6 +76,10 @@ func WithTransportCapabilityResolver(resolver infraai.TransportCapabilityResolve
 
 func WithObjectInspector(inspector storagecos.ObjectInspector) Option {
 	return func(s *Service) { s.objectInspector = inspector }
+}
+
+func WithUploadRuleResolver(resolver uploadpolicy.Resolver) Option {
+	return func(s *Service) { s.uploadRules = resolver }
 }
 
 func NewService(repository Repository, options ...Option) *Service {
@@ -121,11 +132,7 @@ func (s *Service) Send(ctx context.Context, userID int64, input SendInput) (*Sen
 		return nil, appErr
 	}
 	content := strings.TrimSpace(input.Content)
-	attachments, appErr := normalizeAttachments(input.Attachments)
-	if appErr != nil {
-		return nil, appErr
-	}
-	if content == "" && len(attachments) == 0 {
+	if content == "" && len(input.Attachments) == 0 {
 		return nil, apperror.BadRequest("消息内容不能为空")
 	}
 	runtimeParams, appErr := normalizeRuntimeParams(input.RuntimeParams)
@@ -162,7 +169,7 @@ func (s *Service) Send(ctx context.Context, userID int64, input SendInput) (*Sen
 	if _, overridden := runtimeParams["temperature"]; overridden && !containsCapability(effectiveCapabilities.SupportedParameters, officialmodel.ParameterTemperature) {
 		return nil, apperror.BadRequest("当前模型不支持temperature")
 	}
-	attachments, appErr = s.inspectImageAttachments(ctx, attachments, effectiveCapabilities)
+	attachments, appErr := s.inspectAttachments(ctx, *agent, resolvedModel.Model.Capabilities, effectiveCapabilities, input.Attachments)
 	if appErr != nil {
 		return nil, appErr
 	}
@@ -265,49 +272,210 @@ func (s *Service) effectiveChatCapabilities(agent AgentRuntime, official officia
 	)
 }
 
-func (s *Service) inspectImageAttachments(ctx context.Context, attachments []Attachment, capabilities officialmodel.Capabilities) ([]Attachment, *apperror.Error) {
+func (s *Service) inspectAttachments(
+	ctx context.Context,
+	runtime AgentRuntime,
+	official officialmodel.Capabilities,
+	effective officialmodel.Capabilities,
+	attachments []Attachment,
+) ([]Attachment, *apperror.Error) {
 	if len(attachments) == 0 {
-		return nil, nil
+		return []Attachment{}, nil
 	}
-	image := capabilities.ImageInput
-	if image == nil || !containsCapability(capabilities.InputModalities, officialmodel.ModalityImage) {
-		return nil, apperror.BadRequest("当前模型不支持图片输入")
+	if len(attachments) > capability.MaxAttachmentsPerMessage {
+		return nil, apperror.BadRequestKey("aimessage.attachments.too_many", nil, "每条消息最多只能添加5个附件")
 	}
-	if len(attachments) > image.MaxFiles {
-		return nil, apperror.BadRequest("图片数量超过当前模型限制")
+	if s == nil || s.uploadRules == nil {
+		return nil, apperror.BadRequestKey("aimessage.attachments.upload_rule_unavailable", nil, "当前上传规则不可用")
 	}
-	if s == nil || s.objectInspector == nil {
-		return nil, apperror.Internal("图片附件检查服务未配置")
+	uploadRule, err := s.uploadRules.ResolveActive(ctx)
+	if err != nil {
+		return nil, apperror.BadRequestKey("aimessage.attachments.upload_rule_unavailable", nil, "当前上传规则不可用")
 	}
-	results := make([]Attachment, len(attachments))
-	errorsByIndex := make([]error, len(attachments))
+	if s.objectInspector == nil {
+		return nil, apperror.InternalKey("aimessage.attachments.inspector_missing", nil, "附件检查服务未配置")
+	}
+	metadata, ok := s.capabilities.ResolveCapabilities(infraai.EngineType(strings.TrimSpace(runtime.EngineType)))
+	if !ok {
+		return nil, apperror.InternalKey("aimessage.attachments.transport_unavailable", nil, "附件传输能力不可用")
+	}
+	acceptedFiles := capability.AllowedNativeFileExtensions(uploadRule.FileExtensions)
+	nativeFile := capability.ResolveNativeFileCapability(capability.NativeFileCapabilityInput{
+		OfficialEnabled:      official.NativeFileInput && containsCapability(official.InputModalities, officialmodel.ModalityFile),
+		TransportEnabled:     containsCapability(metadata.InputModalities, officialmodel.ModalityFile),
+		ProviderMode:         runtime.FileInputMode,
+		ProviderRouteEnabled: runtime.ProviderModelStatus == enum.CommonYes && runtime.MappingStatus == officialmodel.MappingStatusMapped,
+		PlatformReady:        len(acceptedFiles) > 0,
+		AcceptedExtensions:   acceptedFiles,
+	})
+
+	locals := make([]Attachment, len(attachments))
+	seenKeys := make(map[string]struct{}, len(attachments))
+	imageCount := 0
+	for index, raw := range attachments {
+		item, appErr := normalizeLocalAttachment(raw, uploadRule, nativeFile, effective)
+		if appErr != nil {
+			return nil, appErr
+		}
+		if _, duplicate := seenKeys[item.ObjectKey]; duplicate {
+			return nil, apperror.BadRequestKey("aimessage.attachments.duplicate", nil, "不能重复添加同一个附件")
+		}
+		seenKeys[item.ObjectKey] = struct{}{}
+		if item.Type == "image" {
+			imageCount++
+		}
+		locals[index] = item
+	}
+	if effective.ImageInput != nil && imageCount > effective.ImageInput.MaxFiles {
+		return nil, apperror.BadRequestKey("aimessage.attachments.image_count_exceeded", nil, "图片数量超过当前模型限制")
+	}
+
+	results := make([]Attachment, len(locals))
+	errorsByIndex := make([]error, len(locals))
 	var wait sync.WaitGroup
-	for index := range attachments {
+	for index := range locals {
 		index := index
 		wait.Go(func() {
-			metadata, err := s.objectInspector.Head(ctx, attachments[index].ObjectKey)
+			objectMetadata, err := s.objectInspector.Head(ctx, locals[index].ObjectKey)
 			if err != nil {
 				errorsByIndex[index] = err
 				return
 			}
-			if metadata.Key != attachments[index].ObjectKey || strings.TrimSpace(metadata.TrustedURL) == "" ||
-				!containsCapability(image.MIMETypes, metadata.MIMEType) || metadata.Size <= 0 || metadata.Size > image.MaxBytes {
-				errorsByIndex[index] = errors.New("image attachment metadata violates effective capability")
+			item, err := normalizeTrustedAttachment(locals[index], objectMetadata, effective)
+			if err != nil {
+				errorsByIndex[index] = err
 				return
 			}
-			results[index] = Attachment{
-				Type: "image", ObjectKey: metadata.Key, MIMEType: metadata.MIMEType, URL: metadata.TrustedURL,
-				Name: attachments[index].Name, Size: metadata.Size,
-			}
+			results[index] = item
 		})
 	}
 	wait.Wait()
 	for _, err := range errorsByIndex {
 		if err != nil {
-			return nil, apperror.BadRequest("图片附件无效或超出当前模型限制")
+			return nil, apperror.BadRequestKey("aimessage.attachments.invalid", nil, "附件无效或超出当前限制")
 		}
 	}
+	var total int64
+	for _, item := range results {
+		if uploadRule.MaxFileBytes <= 0 || item.Size > uploadRule.MaxFileBytes {
+			return nil, apperror.BadRequestKey("aimessage.attachments.system_size_exceeded", nil, "附件超过当前上传规则限制")
+		}
+		if item.Type == "file" && item.Size >= capability.MaxNativeFileBytesExclusive {
+			return nil, apperror.BadRequestKey("aimessage.attachments.file_size_exceeded", nil, "单个文件必须小于50 MiB")
+		}
+		if item.Size > capability.MaxMessageAttachmentBytes-total {
+			return nil, apperror.BadRequestKey("aimessage.attachments.total_size_exceeded", nil, "附件总大小不能超过50 MiB")
+		}
+		total += item.Size
+	}
 	return results, nil
+}
+
+func normalizeLocalAttachment(
+	raw Attachment,
+	uploadRule uploadpolicy.Rule,
+	nativeFile capability.NativeFileCapability,
+	effective officialmodel.Capabilities,
+) (Attachment, *apperror.Error) {
+	typ := strings.TrimSpace(raw.Type)
+	if typ != "image" && typ != "file" {
+		return Attachment{}, apperror.BadRequestKey("aimessage.attachments.type_invalid", nil, "附件类型无效")
+	}
+	objectKey, err := storagecos.TrustedAIChatObjectKey(raw.ObjectKey, typ)
+	if err != nil {
+		return Attachment{}, apperror.BadRequestKey("aimessage.attachments.object_key_invalid", nil, "附件object_key无效")
+	}
+	name := strings.TrimSpace(raw.Name)
+	if name == "" || strings.ContainsFunc(name, unicode.IsControl) {
+		return Attachment{}, apperror.BadRequestKey("aimessage.attachments.name_invalid", nil, "附件名称无效")
+	}
+	name = path.Base(strings.ReplaceAll(name, "\\", "/"))
+	if name == "." || name == "/" || name == "" {
+		return Attachment{}, apperror.BadRequestKey("aimessage.attachments.name_invalid", nil, "附件名称无效")
+	}
+	nameExt := extensionOf(name)
+	keyExt := extensionOf(objectKey)
+	if nameExt == "" || nameExt != keyExt {
+		return Attachment{}, apperror.BadRequestKey("aimessage.attachments.extension_mismatch", nil, "附件名称与对象扩展名不一致")
+	}
+	if typ == "image" {
+		if effective.ImageInput == nil || !containsCapability(effective.InputModalities, officialmodel.ModalityImage) ||
+			!containsCapability(uploadRule.ImageExtensions, nameExt) {
+			return Attachment{}, apperror.BadRequestKey("aimessage.attachments.image_unsupported", nil, "当前模型或上传规则不支持该图片")
+		}
+	} else if !nativeFile.Enabled || !containsCapability(nativeFile.AcceptedExtensions, nameExt) {
+		return Attachment{}, nativeFileCapabilityError(nativeFile.DisabledReason)
+	}
+	return Attachment{Type: typ, ObjectKey: objectKey, Name: name, ETag: strings.TrimSpace(raw.ETag)}, nil
+}
+
+func normalizeTrustedAttachment(local Attachment, metadata storagecos.ObjectMetadata, effective officialmodel.Capabilities) (Attachment, error) {
+	mimeType := strings.ToLower(strings.TrimSpace(metadata.MIMEType))
+	if metadata.Key != local.ObjectKey || strings.TrimSpace(metadata.TrustedURL) == "" ||
+		strings.TrimSpace(metadata.ETag) == "" || metadata.Size <= 0 || mimeType == "" {
+		return Attachment{}, errors.New("attachment metadata is incomplete")
+	}
+	if local.ETag != "" && local.ETag != strings.TrimSpace(metadata.ETag) {
+		return Attachment{}, errors.New("attachment ETag changed")
+	}
+	extension := extensionOf(local.ObjectKey)
+	if local.Type == "image" {
+		if effective.ImageInput == nil || !containsCapability(effective.ImageInput.MIMETypes, mimeType) || metadata.Size > effective.ImageInput.MaxBytes {
+			return Attachment{}, errors.New("image metadata violates effective capability")
+		}
+	} else if mimeType != "application/octet-stream" && mimeTypeConflictsWithExtension(mimeType, extension) {
+		return Attachment{}, errors.New("file MIME type conflicts with extension")
+	}
+	return Attachment{
+		Type: local.Type, ObjectKey: metadata.Key, MIMEType: mimeType, URL: strings.TrimSpace(metadata.TrustedURL),
+		Name: local.Name, Size: metadata.Size, ETag: strings.TrimSpace(metadata.ETag),
+	}, nil
+}
+
+func nativeFileCapabilityError(reason string) *apperror.Error {
+	switch reason {
+	case capability.NativeFileDisabledOfficialModel:
+		return apperror.BadRequestKey("aimessage.attachments.official_model_unsupported", nil, "当前模型不支持文件输入")
+	case capability.NativeFileDisabledProviderMode:
+		return apperror.BadRequestKey("aimessage.attachments.provider_file_input_disabled", nil, "当前渠道未开通文件传输")
+	case capability.NativeFileDisabledTransport:
+		return apperror.BadRequestKey("aimessage.attachments.transport_unsupported", nil, "当前渠道传输协议不支持文件")
+	default:
+		return apperror.BadRequestKey("aimessage.attachments.platform_unsupported", nil, "当前平台暂不支持文件输入")
+	}
+}
+
+func extensionOf(value string) string {
+	return strings.TrimPrefix(strings.ToLower(path.Ext(value)), ".")
+}
+
+func mimeTypeConflictsWithExtension(mimeType, extension string) bool {
+	if mimeType == "text/plain" {
+		expected, _, _ := mime.ParseMediaType(mime.TypeByExtension("." + extension))
+		if expected == "" || strings.HasPrefix(expected, "text/") || isTextLikeApplicationMIME(expected) {
+			return false
+		}
+		return true
+	}
+	extensions, err := mime.ExtensionsByType(mimeType)
+	if err != nil || len(extensions) == 0 {
+		return strings.HasPrefix(mimeType, "image/") || strings.HasPrefix(mimeType, "audio/") || strings.HasPrefix(mimeType, "video/")
+	}
+	for _, candidate := range extensions {
+		if strings.TrimPrefix(strings.ToLower(candidate), ".") == extension {
+			return false
+		}
+	}
+	return true
+}
+
+func isTextLikeApplicationMIME(mimeType string) bool {
+	switch mimeType {
+	case "application/json", "application/ld+json", "application/xml", "application/javascript", "application/sql", "application/yaml", "application/toml":
+		return true
+	default:
+		return strings.HasSuffix(mimeType, "+json") || strings.HasSuffix(mimeType, "+xml")
+	}
 }
 
 func containsCapability(values []string, wanted string) bool {
@@ -407,7 +575,11 @@ func (s *Service) Cancel(ctx context.Context, userID int64, input CancelInput) (
 func buildSendFingerprint(userID, conversationID int64, content string, attachments []Attachment, runtimeParams map[string]float64, agent AgentRuntime, effectiveMaxOutputTokens int64) ([32]byte, error) {
 	identities := make([]requestidentity.AttachmentIdentity, 0, len(attachments))
 	for _, attachment := range attachments {
-		identities = append(identities, requestidentity.AttachmentIdentity{StorageProvider: "cos", StorageKey: attachment.ObjectKey})
+		digest, err := attachmentIdentitySHA256(attachment)
+		if err != nil {
+			return [32]byte{}, err
+		}
+		identities = append(identities, requestidentity.AttachmentIdentity{StorageProvider: "cos", StorageKey: attachment.ObjectKey, SHA256: digest})
 	}
 	options := requestidentity.GenerationOptions{MaxOutputTokens: effectiveMaxOutputTokens, Extra: map[string]string{}}
 	for key, value := range runtimeParams {
@@ -442,30 +614,49 @@ func metaJSONForSend(attachments []Attachment, runtimeParams map[string]float64)
 
 func normalizeAttachments(input []Attachment) ([]Attachment, *apperror.Error) {
 	if len(input) == 0 {
-		return nil, nil
+		return []Attachment{}, nil
 	}
-	if len(input) > 5 {
-		return nil, apperror.BadRequest("图片数量不能超过5张")
+	if len(input) > capability.MaxAttachmentsPerMessage {
+		return nil, apperror.BadRequest("附件数量不能超过5个")
 	}
 	out := make([]Attachment, 0, len(input))
 	for _, item := range input {
 		typ := strings.TrimSpace(item.Type)
 		objectKey := strings.TrimSpace(item.ObjectKey)
-		if typ != "image" {
-			return nil, apperror.BadRequest("仅支持图片附件")
+		if typ != "image" && typ != "file" {
+			return nil, apperror.BadRequest("附件类型无效")
 		}
 		if objectKey == "" {
-			return nil, apperror.BadRequest("图片object_key不能为空")
+			return nil, apperror.BadRequest("附件object_key不能为空")
 		}
 		if item.Size < 0 {
-			return nil, apperror.BadRequest("图片大小非法")
+			return nil, apperror.BadRequest("附件大小非法")
 		}
 		out = append(out, Attachment{
-			Type: "image", ObjectKey: objectKey, MIMEType: strings.TrimSpace(item.MIMEType),
-			URL: strings.TrimSpace(item.URL), Name: strings.TrimSpace(item.Name), Size: item.Size,
+			Type: typ, ObjectKey: objectKey, MIMEType: strings.ToLower(strings.TrimSpace(item.MIMEType)),
+			URL: strings.TrimSpace(item.URL), Name: strings.TrimSpace(item.Name), Size: item.Size, ETag: strings.TrimSpace(item.ETag),
 		})
 	}
 	return out, nil
+}
+
+func attachmentIdentitySHA256(attachment Attachment) (string, error) {
+	raw, err := json.Marshal(struct {
+		Type      string `json:"type"`
+		ObjectKey string `json:"object_key"`
+		ETag      string `json:"etag"`
+		Size      int64  `json:"size"`
+		MIMEType  string `json:"mime_type"`
+		Name      string `json:"name"`
+	}{
+		Type: attachment.Type, ObjectKey: attachment.ObjectKey, ETag: attachment.ETag,
+		Size: attachment.Size, MIMEType: attachment.MIMEType, Name: attachment.Name,
+	})
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(raw)
+	return hex.EncodeToString(digest[:]), nil
 }
 
 func normalizeRuntimeParams(input map[string]float64) (map[string]float64, *apperror.Error) {

@@ -20,6 +20,24 @@ func TestUploadDriverMembership(t *testing.T) {
 	}
 }
 
+func TestUploadExtensionCatalogIsCanonical(t *testing.T) {
+	wantImages := []string{"jpeg", "jpg", "jfif", "pjpeg", "png", "gif", "webp", "bmp", "tif", "tiff", "svg", "ico", "psd", "avif"}
+	if !reflect.DeepEqual(UploadImageExts, wantImages) {
+		t.Fatalf("image extensions=%v", UploadImageExts)
+	}
+	for _, ext := range []string{"doc", "docx", "pptx", "xlsx", "md", "json", "ts", "tsx", "go", "py", "sql", "yaml", "zip", "tar"} {
+		if !IsUploadFileExt(ext) {
+			t.Errorf("file extension %q is missing", ext)
+		}
+	}
+	if IsUploadImageExt("doc") {
+		t.Fatal("doc must not be an image extension")
+	}
+	if !IsUploadFolder("ai_chat_attachments") {
+		t.Fatal("AI attachment folder is missing")
+	}
+}
+
 func TestNormalizeUploadExtsTrimsLowercasesDedupesAndKeepsEnumOrder(t *testing.T) {
 	got, err := NormalizeUploadExts(
 		[]string{" PNG ", "jpg", "png", "JPEG"},

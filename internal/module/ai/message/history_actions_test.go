@@ -4,11 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
+	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/infra/database"
+	storagecos "admin_back_go/internal/infra/storage/cos"
 	"admin_back_go/internal/module/ai/officialmodel"
+	aiprovider "admin_back_go/internal/module/ai/provider"
 	"admin_back_go/internal/module/ai/replycommand"
 	"admin_back_go/internal/module/ai/requestidentity"
 	"admin_back_go/internal/shared/enum"
@@ -25,6 +29,14 @@ type fakeHistoryRepository struct {
 	deletedIDs        []int64
 	replayed          bool
 	err               error
+	prepareInput      HistoryPrepareInput
+	preparation       HistoryActionPreparation
+	prepareErr        error
+}
+
+func (f *fakeHistoryRepository) PrepareAction(_ context.Context, input HistoryPrepareInput) (HistoryActionPreparation, error) {
+	f.prepareInput = input
+	return f.preparation, f.prepareErr
 }
 
 func (f *fakeHistoryRepository) Revise(_ context.Context, input EditInput) (HistoryAccepted, error) {
@@ -35,6 +47,153 @@ func (f *fakeHistoryRepository) Revise(_ context.Context, input EditInput) (Hist
 func (f *fakeHistoryRepository) Regenerate(_ context.Context, input RegenerateInput) (HistoryAccepted, error) {
 	f.regenerationInput = input
 	return HistoryAccepted{Reply: f.result, Replayed: f.replayed}, f.err
+}
+
+func TestHistoryAttachmentSelectionSemantics(t *testing.T) {
+	source := Attachment{Type: "file", ObjectKey: "ai_chat_attachments/2026/07/source.pdf", Name: "source.pdf"}
+	replacement := Attachment{Type: "file", ObjectKey: "ai_chat_attachments/2026/07/replacement.md", Name: "replacement.md"}
+	metadata := map[string]storagecos.ObjectMetadata{
+		source.ObjectKey: {
+			Key: source.ObjectKey, MIMEType: "application/pdf", Size: 1024, ETag: `"source-v1"`, TrustedURL: "https://trusted.test/source.pdf",
+		},
+		replacement.ObjectKey: {
+			Key: replacement.ObjectKey, MIMEType: "text/markdown", Size: 2048, ETag: `"replacement-v1"`, TrustedURL: "https://trusted.test/replacement.md",
+		},
+	}
+	sourceDigest, err := historyAttachmentsDigest([]Attachment{source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name          string
+		operation     string
+		attachments   *[]Attachment
+		wantKeys      []string
+		wantValidated []Attachment
+	}{
+		{name: "revision omitted keeps source", operation: HistoryOperationRevision, wantKeys: []string{source.ObjectKey}, wantValidated: []Attachment{{
+			Type: "file", ObjectKey: source.ObjectKey, MIMEType: "application/pdf", URL: "https://trusted.test/source.pdf", Name: "source.pdf", Size: 1024, ETag: `"source-v1"`,
+		}}},
+		{name: "revision empty removes all", operation: HistoryOperationRevision, attachments: attachmentSlicePointer([]Attachment{}), wantKeys: []string{}, wantValidated: []Attachment{}},
+		{name: "revision explicit replaces source", operation: HistoryOperationRevision, attachments: attachmentSlicePointer([]Attachment{replacement}), wantKeys: []string{replacement.ObjectKey}, wantValidated: []Attachment{{
+			Type: "file", ObjectKey: replacement.ObjectKey, MIMEType: "text/markdown", URL: "https://trusted.test/replacement.md", Name: "replacement.md", Size: 2048, ETag: `"replacement-v1"`,
+		}}},
+		{name: "regeneration reuses source", operation: HistoryOperationRegeneration, wantKeys: []string{source.ObjectKey}, wantValidated: []Attachment{{
+			Type: "file", ObjectKey: source.ObjectKey, MIMEType: "application/pdf", URL: "https://trusted.test/source.pdf", Name: "source.pdf", Size: 1024, ETag: `"source-v1"`,
+		}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			history := &fakeHistoryRepository{
+				preparation: HistoryActionPreparation{
+					Runtime: validFileMessageAgent(), SourceAttachments: []Attachment{source}, SourceAttachmentsSHA256: sourceDigest,
+				},
+				result: replycommand.CreateReplyResult{UserMessageID: 12, CommandID: 99, RequestID: "history-rid", State: replycommand.StatePending},
+			}
+			inspector := &fakeMessageObjectInspector{metadata: metadata}
+			service := newHistoryAttachmentTestService(history, inspector)
+			if test.operation == HistoryOperationRevision {
+				_, appErr := service.Revise(context.Background(), 7, EditInput{
+					ConversationID: 3, MessageID: 41, Content: "new text", RequestID: "history-rid", Attachments: test.attachments,
+				})
+				if appErr != nil {
+					t.Fatal(appErr)
+				}
+				if !reflect.DeepEqual(history.revisionInput.ValidatedAttachments, test.wantValidated) || history.revisionInput.SourceAttachmentsSHA256 != sourceDigest {
+					t.Fatalf("revision input=%#v", history.revisionInput)
+				}
+			} else {
+				_, appErr := service.Regenerate(context.Background(), 7, RegenerateInput{
+					ConversationID: 3, AssistantMessageID: 97, RequestID: "history-rid",
+				})
+				if appErr != nil {
+					t.Fatal(appErr)
+				}
+				if !reflect.DeepEqual(history.regenerationInput.ValidatedAttachments, test.wantValidated) || history.regenerationInput.SourceAttachmentsSHA256 != sourceDigest {
+					t.Fatalf("regeneration input=%#v", history.regenerationInput)
+				}
+			}
+			if len(inspector.calls) != len(test.wantKeys) || len(test.wantKeys) > 0 && !reflect.DeepEqual(inspector.calls, test.wantKeys) {
+				t.Fatalf("HEAD calls=%v want=%v", inspector.calls, test.wantKeys)
+			}
+		})
+	}
+}
+
+func TestPrepareHistoryActionReadsCanonicalSourceWithoutMutation(t *testing.T) {
+	db, mock, cleanup := newMessageMockDB(t)
+	defer cleanup()
+	repository := &GormRepository{db: db}
+	meta := `{"attachments":[{"type":"file","object_key":"ai_chat_attachments/2026/07/report.pdf","mime_type":"application/pdf","url":"https://trusted.test/report.pdf","name":"report.pdf","size":4096,"etag":"\"v1\""}]}`
+
+	expectHistoryRuntime(mock, false)
+	expectHistoryMessage(mock, 41, enum.AIMessageRoleUser, "summarize", meta, enum.CommonNo)
+	preparation, err := repository.PrepareAction(context.Background(), HistoryPrepareInput{
+		Operation: HistoryOperationRevision, UserID: 7, ConversationID: 3, SourceMessageID: 41,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preparation.Runtime.FileInputMode != aiprovider.FileInputModeChatCompletions || len(preparation.SourceAttachments) != 1 ||
+		preparation.SourceAttachments[0].ETag != `"v1"` || preparation.SourceAttachmentsSHA256 == ([32]byte{}) {
+		t.Fatalf("preparation=%#v", preparation)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("prepare action mutated paid facts: %v", err)
+	}
+	mock.ExpectClose()
+}
+
+func TestHistoryAttachmentETagChangeStopsBeforeRepositoryMutation(t *testing.T) {
+	source := Attachment{
+		Type: "file", ObjectKey: "ai_chat_attachments/2026/07/report.pdf", MIMEType: "application/pdf",
+		URL: "https://trusted.test/report.pdf", Name: "report.pdf", Size: 4096, ETag: `"old"`,
+	}
+	digest, err := historyAttachmentsDigest([]Attachment{source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	history := &fakeHistoryRepository{preparation: HistoryActionPreparation{
+		Runtime: validFileMessageAgent(), SourceAttachments: []Attachment{source}, SourceAttachmentsSHA256: digest,
+	}}
+	inspector := &fakeMessageObjectInspector{metadata: map[string]storagecos.ObjectMetadata{
+		source.ObjectKey: {
+			Key: source.ObjectKey, MIMEType: "application/pdf", Size: 4096, ETag: `"new"`, TrustedURL: "https://trusted.test/report.pdf",
+		},
+	}}
+	_, appErr := newHistoryAttachmentTestService(history, inspector).Regenerate(context.Background(), 7, RegenerateInput{
+		ConversationID: 3, AssistantMessageID: 97, RequestID: "regen-etag-change",
+	})
+	if appErr == nil || history.regenerationInput.RequestID != "" {
+		t.Fatalf("etag change error=%#v mutation=%#v", appErr, history.regenerationInput)
+	}
+}
+
+func attachmentSlicePointer(value []Attachment) *[]Attachment { return &value }
+
+func validFileMessageAgent() AgentRuntime {
+	agent := *validMessageAgent()
+	agent.ModelID, agent.OfficialModelID = "gpt-5.6", "gpt-5.6"
+	agent.FileInputMode = aiprovider.FileInputModeChatCompletions
+	return agent
+}
+
+func newHistoryAttachmentTestService(history HistoryRepository, inspector storagecos.ObjectInspector) *Service {
+	capabilities := officialmodel.Capabilities{
+		InputModalities: []string{"text", "image", "file"}, OutputModalities: []string{"text"},
+		SupportsStreaming: true, NativeFileInput: true,
+		ImageInput: &officialmodel.ImageInputCapability{MIMETypes: []string{"image/png"}, MaxFiles: 5, MaxBytes: 10 << 20},
+	}
+	return NewService(
+		&fakeRepository{},
+		WithHistoryRepository(history),
+		WithPricingResolver(testMessagePricingResolverWithCapabilities(capabilities)),
+		WithTransportCapabilityResolver(staticTransportCapabilityResolver{ok: true, metadata: infraai.CapabilityMetadata{
+			InputModalities: []string{"text", "image", "file"}, OutputModalities: []string{"text"}, SupportsStreaming: true,
+		}}),
+		WithObjectInspector(inspector),
+		WithUploadRuleResolver(testMessageUploadRuleResolver()),
+	)
 }
 
 func (f *fakeHistoryRepository) DeleteMessages(_ context.Context, input DeleteInput) ([]int64, error) {
@@ -183,7 +342,7 @@ func TestHistoryCanonicalReplaySurvivesDisabledRuntimeAndHiddenSource(t *testing
 	repository := &GormRepository{db: db, history: replycommand.NewHistoryParticipant(replyRepository), pricing: testMessagePricingResolver()}
 	runtime := AgentRuntime{AgentID: 5, ModelID: "gpt-4.1-mini"}
 	source := historySourceSnapshot{target: Message{ID: 41}, user: Message{ID: 41, Content: "old text"}}
-	facts, err := buildHistoryRequestFacts(HistoryOperationRevision, 7, 3, "new text", source, runtime, 4096)
+	facts, err := buildHistoryRequestFacts(HistoryOperationRevision, 7, 3, "new text", source, runtime, 4096, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +396,20 @@ func TestHistoryRevisionRollsBackVisibleTailWhenParticipantFails(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 4))
 	mock.ExpectRollback()
 
-	_, err := repository.Revise(context.Background(), EditInput{UserID: 7, ConversationID: 3, MessageID: 41, Content: "new text", RequestID: "revision-1"})
+	sourceAttachments := []Attachment{{
+		Type: "image", ObjectKey: "ai_chat_images/2026/07/28/a.png", MIMEType: "image/png",
+		URL: "https://trusted.test/a.png", Name: "a.png", Size: 10,
+	}}
+	sourceDigest, digestErr := historyAttachmentsDigest(sourceAttachments)
+	if digestErr != nil {
+		t.Fatal(digestErr)
+	}
+	validatedAttachments := append([]Attachment(nil), sourceAttachments...)
+	validatedAttachments[0].ETag = `"image-v1"`
+	_, err := repository.Revise(context.Background(), EditInput{
+		UserID: 7, ConversationID: 3, MessageID: 41, Content: "new text", RequestID: "revision-1",
+		ValidatedAttachments: validatedAttachments, SourceAttachmentsSHA256: sourceDigest,
+	})
 	if err == nil || err.Error() != "run insert failed" {
 		t.Fatalf("revision error=%v", err)
 	}
@@ -261,6 +433,33 @@ func TestHistoryRevisionRollsBackVisibleTailWhenParticipantFails(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("revision transaction: %v", err)
+	}
+	mock.ExpectClose()
+}
+
+func TestHistoryRevisionRejectsSourceAttachmentDriftBeforeMutation(t *testing.T) {
+	db, mock, cleanup := newMessageMockDB(t)
+	defer cleanup()
+	repository := &GormRepository{db: db, history: &fakeHistoryParticipant{}, pricing: testMessagePricingResolver()}
+
+	mock.ExpectBegin()
+	expectNoActiveHistoryCommand(mock, false)
+	expectOwnedConversationLock(mock)
+	expectNoActiveHistoryCommand(mock, true)
+	expectHistoryRuntime(mock, true)
+	mock.ExpectQuery("SELECT COALESCE\\(MAX\\(id\\), 0\\).*FROM `ai_messages`").WillReturnRows(sqlmock.NewRows([]string{"max_id"}).AddRow(41))
+	expectHistoryMessage(mock, 41, enum.AIMessageRoleUser, "old text", "", enum.CommonNo)
+	mock.ExpectRollback()
+
+	_, err := repository.Revise(context.Background(), EditInput{
+		UserID: 7, ConversationID: 3, MessageID: 41, Content: "new text", RequestID: "revision-drift",
+		ValidatedAttachments: []Attachment{}, SourceAttachmentsSHA256: [32]byte{1},
+	})
+	if !errors.Is(err, ErrHistorySourceChanged) {
+		t.Fatalf("source drift error=%v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("source drift reached history mutation: %v", err)
 	}
 	mock.ExpectClose()
 }
@@ -368,8 +567,12 @@ func TestRegenerateStoppedMessageAfterTerminalCommand(t *testing.T) {
 	mock.ExpectExec("UPDATE `ai_conversations` SET").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
+	emptyDigest, digestErr := historyAttachmentsDigest(nil)
+	if digestErr != nil {
+		t.Fatal(digestErr)
+	}
 	accepted, err := repository.Regenerate(context.Background(), RegenerateInput{
-		UserID: 7, ConversationID: 3, AssistantMessageID: 97, RequestID: "regen-1",
+		UserID: 7, ConversationID: 3, AssistantMessageID: 97, RequestID: "regen-1", SourceAttachmentsSHA256: emptyDigest,
 	})
 	if err != nil || accepted.Reply.CommandID != 102 || accepted.Replayed {
 		t.Fatalf("accepted=%+v err=%v", accepted, err)
@@ -425,14 +628,14 @@ func expectNoActiveHistoryCommand(mock sqlmock.Sqlmock, locked bool) {
 }
 
 func expectHistoryRuntime(mock sqlmock.Sqlmock, locked bool) {
-	pattern := "SELECT .* FROM .*ai_conversations.*ai_agents.*ai_providers"
+	pattern := "SELECT .*file_input_mode.* FROM .*ai_conversations.*ai_agents.*ai_providers"
 	if locked {
 		pattern += ".*FOR UPDATE"
 	}
 	mock.ExpectQuery(pattern).WillReturnRows(sqlmock.NewRows([]string{
-		"agent_id", "provider_id", "model_id", "model_display_name", "engine_type", "billing_multiplier_ppm", "status", "scenes_json",
+		"agent_id", "provider_id", "model_id", "model_display_name", "engine_type", "file_input_mode", "billing_multiplier_ppm", "status", "scenes_json",
 		"provider_model_status", "official_model_id", "official_catalog_version", "mapping_status",
-	}).AddRow(5, 9, "gpt-4.1-mini", "GPT-4.1 mini", "openai", 1_250_000, enum.CommonYes, `["chat"]`,
+	}).AddRow(5, 9, "gpt-4.1-mini", "GPT-4.1 mini", "openai", aiprovider.FileInputModeChatCompletions, 1_250_000, enum.CommonYes, `["chat"]`,
 		enum.CommonYes, "gpt-4.1-mini", "catalog-v3", officialmodel.MappingStatusMapped))
 }
 

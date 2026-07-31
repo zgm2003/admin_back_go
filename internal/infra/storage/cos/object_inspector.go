@@ -15,11 +15,14 @@ import (
 	tencentcos "github.com/tencentyun/cos-go-sdk-v5"
 )
 
-const trustedAIChatImagePrefix = "ai_chat_images/"
+const (
+	trustedAIChatImagePrefix      = "ai_chat_images/"
+	trustedAIChatAttachmentPrefix = "ai_chat_attachments/"
+)
 
 var (
 	ErrObjectInspectorNotConfigured = errors.New("cos object inspector is not configured")
-	ErrUntrustedObjectKey           = errors.New("cos object key is outside the trusted AI chat image namespace")
+	ErrUntrustedObjectKey           = errors.New("cos object key is outside the trusted AI chat attachment namespace")
 	ErrInvalidObjectMetadata        = errors.New("cos object metadata is invalid")
 )
 
@@ -41,6 +44,7 @@ type ObjectMetadata struct {
 	Key        string
 	MIMEType   string
 	Size       int64
+	ETag       string
 	TrustedURL string
 }
 
@@ -77,7 +81,7 @@ func (inspector *COSObjectInspector) Head(ctx context.Context, key string) (Obje
 	if inspector == nil || !inspector.enabled {
 		return ObjectMetadata{}, ErrDisabled
 	}
-	key, err := trustedAIChatImageKey(key)
+	key, err := normalizeTrustedAIChatObjectKey(key)
 	if err != nil {
 		return ObjectMetadata{}, err
 	}
@@ -123,17 +127,38 @@ func (inspector *COSObjectInspector) Head(ctx context.Context, key string) (Obje
 	if size <= 0 {
 		return ObjectMetadata{}, ErrInvalidObjectMetadata
 	}
+	etag := strings.TrimSpace(response.Header.Get("ETag"))
+	if etag == "" {
+		return ObjectMetadata{}, ErrInvalidObjectMetadata
+	}
 	trustedURL, err := trustedObjectURL(config, key)
 	if err != nil {
 		return ObjectMetadata{}, err
 	}
-	return ObjectMetadata{Key: key, MIMEType: strings.ToLower(mimeType), Size: size, TrustedURL: trustedURL}, nil
+	return ObjectMetadata{Key: key, MIMEType: strings.ToLower(mimeType), Size: size, ETag: etag, TrustedURL: trustedURL}, nil
 }
 
-func trustedAIChatImageKey(key string) (string, error) {
+func TrustedAIChatObjectKey(key, attachmentType string) (string, error) {
+	clean, err := normalizeTrustedAIChatObjectKey(key)
+	if err != nil {
+		return "", err
+	}
+	switch strings.TrimSpace(attachmentType) {
+	case "image":
+		return clean, nil
+	case "file":
+		if strings.HasPrefix(clean, trustedAIChatAttachmentPrefix) {
+			return clean, nil
+		}
+	}
+	return "", ErrUntrustedObjectKey
+}
+
+func normalizeTrustedAIChatObjectKey(key string) (string, error) {
 	trimmed := strings.TrimSpace(key)
 	if key != trimmed || trimmed == "" || strings.Contains(trimmed, "\\") || path.Clean(trimmed) != trimmed ||
-		!strings.HasPrefix(trimmed, trustedAIChatImagePrefix) || trimmed == trustedAIChatImagePrefix {
+		(!strings.HasPrefix(trimmed, trustedAIChatImagePrefix) && !strings.HasPrefix(trimmed, trustedAIChatAttachmentPrefix)) ||
+		trimmed == trustedAIChatImagePrefix || trimmed == trustedAIChatAttachmentPrefix {
 		return "", ErrUntrustedObjectKey
 	}
 	return trimmed, nil
