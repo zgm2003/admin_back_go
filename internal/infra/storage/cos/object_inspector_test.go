@@ -2,7 +2,9 @@ package cos
 
 import (
 	"bytes"
+	"compress/lzw"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"image"
@@ -58,6 +60,153 @@ func TestStaticGIFProofRejectsTrailingData(t *testing.T) {
 	if err := requireStaticGIF(bytes.NewReader(body)); !errors.Is(err, ErrInvalidGIF) {
 		t.Fatalf("trailing GIF data error=%v", err)
 	}
+}
+
+func TestStaticGIFProofValidatesDecodedImageData(t *testing.T) {
+	validData := encodedGIFLZW(t, []byte{0})
+	valid := staticGIFBytes(t, staticGIFFixture{
+		logicalWidth: 1, logicalHeight: 1, imageWidth: 1, imageHeight: 1,
+		globalColorTable: true, literalWidth: 2, compressed: validData,
+	})
+	if err := requireStaticGIF(bytes.NewReader(valid)); err != nil {
+		t.Fatalf("valid handcrafted GIF: %v", err)
+	}
+	pixels := make([]byte, 64*64)
+	state := uint32(1)
+	for index := range pixels {
+		state = state*1664525 + 1013904223
+		pixels[index] = byte(state >> 31)
+	}
+	multiBlockData := encodedGIFLZW(t, pixels)
+	if len(multiBlockData) <= 255 {
+		t.Fatalf("multi-block GIF fixture compressed to only %d bytes", len(multiBlockData))
+	}
+	multiBlock := staticGIFBytes(t, staticGIFFixture{
+		logicalWidth: 64, logicalHeight: 64, imageWidth: 64, imageHeight: 64,
+		globalColorTable: true, literalWidth: 2, compressed: multiBlockData,
+	})
+	if err := requireStaticGIF(bytes.NewReader(multiBlock)); err != nil {
+		t.Fatalf("valid multi-block GIF: %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		fixture staticGIFFixture
+	}{
+		{name: "literal width below range", fixture: staticGIFFixture{
+			logicalWidth: 1, logicalHeight: 1, imageWidth: 1, imageHeight: 1,
+			globalColorTable: true, literalWidth: 1, compressed: validData,
+		}},
+		{name: "literal width above range", fixture: staticGIFFixture{
+			logicalWidth: 1, logicalHeight: 1, imageWidth: 1, imageHeight: 1,
+			globalColorTable: true, literalWidth: 9, compressed: validData,
+		}},
+		{name: "zero logical width", fixture: staticGIFFixture{
+			logicalHeight: 1, imageWidth: 1, imageHeight: 1,
+			globalColorTable: true, literalWidth: 2, compressed: validData,
+		}},
+		{name: "zero image width", fixture: staticGIFFixture{
+			logicalWidth: 1, logicalHeight: 1, imageHeight: 1,
+			globalColorTable: true, literalWidth: 2, compressed: validData,
+		}},
+		{name: "image exceeds logical screen", fixture: staticGIFFixture{
+			logicalWidth: 1, logicalHeight: 1, imageWidth: 2, imageHeight: 1,
+			globalColorTable: true, literalWidth: 2, compressed: encodedGIFLZW(t, []byte{0, 1}),
+		}},
+		{name: "missing color table", fixture: staticGIFFixture{
+			logicalWidth: 1, logicalHeight: 1, imageWidth: 1, imageHeight: 1,
+			literalWidth: 2, compressed: validData,
+		}},
+		{name: "pixel index exceeds palette", fixture: staticGIFFixture{
+			logicalWidth: 1, logicalHeight: 1, imageWidth: 1, imageHeight: 1,
+			globalColorTable: true, literalWidth: 2, compressed: encodedGIFLZW(t, []byte{2}),
+		}},
+		{name: "image data ends before first pixel", fixture: staticGIFFixture{
+			logicalWidth: 1, logicalHeight: 1, imageWidth: 1, imageHeight: 1,
+			globalColorTable: true, literalWidth: 2,
+		}},
+		{name: "missing LZW end code", fixture: staticGIFFixture{
+			logicalWidth: 1, logicalHeight: 1, imageWidth: 1, imageHeight: 1,
+			globalColorTable: true, literalWidth: 2, compressed: []byte{0x04},
+		}},
+		{name: "corrupt LZW code stream", fixture: staticGIFFixture{
+			logicalWidth: 1, logicalHeight: 1, imageWidth: 1, imageHeight: 1,
+			globalColorTable: true, literalWidth: 2, compressed: []byte{0xff, 0xff},
+		}},
+		{name: "decoded pixels exceed descriptor", fixture: staticGIFFixture{
+			logicalWidth: 1, logicalHeight: 1, imageWidth: 1, imageHeight: 1,
+			globalColorTable: true, literalWidth: 2, compressed: encodedGIFLZW(t, []byte{0, 1}),
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			body := staticGIFBytes(t, test.fixture)
+			if err := requireStaticGIF(bytes.NewReader(body)); !errors.Is(err, ErrInvalidGIF) {
+				t.Fatalf("invalid GIF error=%v", err)
+			}
+		})
+	}
+}
+
+type staticGIFFixture struct {
+	logicalWidth, logicalHeight uint16
+	left, top                   uint16
+	imageWidth, imageHeight     uint16
+	globalColorTable            bool
+	literalWidth                byte
+	compressed                  []byte
+}
+
+func staticGIFBytes(t *testing.T, fixture staticGIFFixture) []byte {
+	t.Helper()
+	var body bytes.Buffer
+	body.WriteString("GIF89a")
+	writeGIFUint16(&body, fixture.logicalWidth)
+	writeGIFUint16(&body, fixture.logicalHeight)
+	if fixture.globalColorTable {
+		body.WriteByte(0x80)
+	} else {
+		body.WriteByte(0)
+	}
+	body.Write([]byte{0, 0})
+	if fixture.globalColorTable {
+		body.Write([]byte{0, 0, 0, 255, 255, 255})
+	}
+	body.WriteByte(0x2c)
+	writeGIFUint16(&body, fixture.left)
+	writeGIFUint16(&body, fixture.top)
+	writeGIFUint16(&body, fixture.imageWidth)
+	writeGIFUint16(&body, fixture.imageHeight)
+	body.WriteByte(0)
+	body.WriteByte(fixture.literalWidth)
+	for remaining := fixture.compressed; len(remaining) > 0; {
+		blockSize := min(len(remaining), 255)
+		body.WriteByte(byte(blockSize))
+		body.Write(remaining[:blockSize])
+		remaining = remaining[blockSize:]
+	}
+	body.WriteByte(0)
+	body.WriteByte(0x3b)
+	return body.Bytes()
+}
+
+func writeGIFUint16(body *bytes.Buffer, value uint16) {
+	var raw [2]byte
+	binary.LittleEndian.PutUint16(raw[:], value)
+	body.Write(raw[:])
+}
+
+func encodedGIFLZW(t *testing.T, pixels []byte) []byte {
+	t.Helper()
+	var compressed bytes.Buffer
+	writer := lzw.NewWriter(&compressed, lzw.LSB, 2)
+	if _, err := writer.Write(pixels); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return compressed.Bytes()
 }
 
 func encodedGIF(t *testing.T, frames int) []byte {

@@ -198,6 +198,43 @@ func TestHistoryMissingAttachmentStopsBeforeRepositoryMutation(t *testing.T) {
 	}
 }
 
+func TestHistoryAttachmentCapabilityFailureStopsBeforeInspectionOrMutation(t *testing.T) {
+	source := Attachment{Type: "file", ObjectKey: "ai_chat_attachments/2026/07/report.pdf", Name: "report.pdf"}
+	digest, err := historyAttachmentsDigest([]Attachment{source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	history := &fakeHistoryRepository{preparation: HistoryActionPreparation{
+		Runtime: validFileMessageAgent(), SourceAttachments: []Attachment{source}, SourceAttachmentsSHA256: digest,
+	}}
+	inspector := &fakeMessageObjectInspector{}
+	service := NewService(
+		&fakeRepository{},
+		WithHistoryRepository(history),
+		WithPricingResolver(officialmodel.ResolverFunc(func(context.Context, string) (officialmodel.ResolvedModel, error) {
+			return officialmodel.ResolvedModel{}, errors.New("official model catalog unavailable")
+		})),
+		WithTransportCapabilityResolver(testMessageTransportCapabilities()),
+		WithObjectInspector(inspector),
+		WithUploadRuleResolver(testMessageUploadRuleResolver()),
+	)
+
+	_, appErr := service.Regenerate(context.Background(), 7, RegenerateInput{
+		ConversationID: 3, AssistantMessageID: 97, RequestID: "regen-runtime-unavailable",
+	})
+
+	if appErr == nil || appErr.HTTPStatus != 409 || appErr.Code != "ai.message.history_runtime_unavailable" ||
+		appErr.Category != "conflict" || appErr.MessageID != "aimessage.history.runtime_unavailable" {
+		t.Fatalf("runtime capability error=%#v", appErr)
+	}
+	if len(inspector.calls) != 0 {
+		t.Fatalf("runtime capability failure reached object inspection: %v", inspector.calls)
+	}
+	if history.regenerationInput.RequestID != "" {
+		t.Fatalf("runtime capability failure reached history mutation: %#v", history.regenerationInput)
+	}
+}
+
 func TestHistoryRegenerationRevalidatesLegacyImageNamespace(t *testing.T) {
 	source := Attachment{
 		Type: "image", ObjectKey: "ai_chat_images/2026/07/legacy.png", MIMEType: "image/png",
@@ -370,6 +407,7 @@ func TestHistoryActionsMapActiveAndHiddenSourceErrors(t *testing.T) {
 		{name: "source drift", err: ErrHistorySourceChanged, wantStatus: 409, wantCode: "ai.message.history_source_changed"},
 		{name: "runtime drift", err: ErrHistoryRuntimeChanged, wantStatus: 409, wantCode: "ai.message.history_acceptance_changed"},
 		{name: "upload rule drift", err: ErrHistoryUploadRuleChanged, wantStatus: 409, wantCode: "ai.message.history_acceptance_changed"},
+		{name: "runtime unavailable", err: ErrHistoryAgentUnavailable, wantStatus: 409, wantCode: "ai.message.history_runtime_unavailable"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			history := &fakeHistoryRepository{err: test.err}
@@ -378,6 +416,9 @@ func TestHistoryActionsMapActiveAndHiddenSourceErrors(t *testing.T) {
 			})
 			if appErr == nil || appErr.HTTPStatus != test.wantStatus || appErr.Code != test.wantCode {
 				t.Fatalf("error=%#v", appErr)
+			}
+			if test.err == ErrHistoryAgentUnavailable && (appErr.Category != "conflict" || appErr.MessageID != "aimessage.history.runtime_unavailable") {
+				t.Fatalf("runtime unavailable error=%#v", appErr)
 			}
 		})
 	}
@@ -667,6 +708,46 @@ func TestHistoryRevisionRejectsUploadRuleDriftBeforeMutation(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("upload rule drift reached history mutation: %v", err)
+	}
+	mock.ExpectClose()
+}
+
+func TestHistoryRevisionRollsBackBeforeMutationWhenPricingResolutionFails(t *testing.T) {
+	db, mock, cleanup := newMessageMockDB(t)
+	defer cleanup()
+	participant := &fakeHistoryParticipant{}
+	repository := &GormRepository{
+		db: db, history: participant,
+		pricing: officialmodel.ResolverFunc(func(context.Context, string) (officialmodel.ResolvedModel, error) {
+			return officialmodel.ResolvedModel{}, errors.New("pricing catalog unavailable")
+		}),
+	}
+
+	mock.ExpectBegin()
+	expectNoActiveHistoryCommand(mock, false)
+	expectOwnedConversationLock(mock)
+	expectNoActiveHistoryCommand(mock, true)
+	expectHistoryRuntime(mock, true)
+	mock.ExpectQuery("SELECT COALESCE\\(MAX\\(id\\), 0\\).*FROM `ai_messages`").WillReturnRows(sqlmock.NewRows([]string{"max_id"}).AddRow(41))
+	expectHistoryMessage(mock, 41, enum.AIMessageRoleUser, "old text", "", enum.CommonNo)
+	mock.ExpectRollback()
+
+	emptyDigest, err := historyAttachmentsDigest(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = repository.Revise(context.Background(), EditInput{
+		UserID: 7, ConversationID: 3, MessageID: 41, Content: "new text", RequestID: "revision-pricing-failure",
+		ValidatedAttachments: []Attachment{}, SourceAttachmentsSHA256: emptyDigest, SourceRuntimeSHA256: mustHistoryRuntimeDigest(t),
+	})
+	if !errors.Is(err, ErrHistoryAgentUnavailable) {
+		t.Fatalf("pricing resolution error=%v", err)
+	}
+	if participant.created.RequestID != "" {
+		t.Fatalf("pricing failure reached paid history mutation: %#v", participant.created)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("pricing failure transaction: %v", err)
 	}
 	mock.ExpectClose()
 }

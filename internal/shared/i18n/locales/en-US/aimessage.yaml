@@ -16,5 +16,6 @@ aimessage.delete.ids.invalid: Message IDs must be positive integers
 aimessage.delete.ids.duplicate: Message IDs must not contain duplicates
 aimessage.delete.failed: Failed to delete AI messages
 aimessage.history.active: An AI response is still active; stop it and wait for completion
+aimessage.history.runtime_unavailable: The current agent model capabilities are unavailable
 aimessage.history.accept.invalid: Invalid AI message history acceptance result
 aimessage.history.repository_missing: AI message history repository is not configured

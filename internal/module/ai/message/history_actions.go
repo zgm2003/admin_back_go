@@ -13,7 +13,10 @@ import (
 	"admin_back_go/internal/shared/uploadpolicy"
 )
 
-const ErrorCodeHistoryActive = "ai.message.history_active"
+const (
+	ErrorCodeHistoryActive             = "ai.message.history_active"
+	ErrorCodeHistoryRuntimeUnavailable = "ai.message.history_runtime_unavailable"
+)
 
 var (
 	ErrHistoryActiveCommand  = errors.New("active reply command blocks message history mutation")
@@ -116,11 +119,11 @@ func (s *Service) inspectHistoryAttachments(ctx context.Context, runtime AgentRu
 	}
 	resolved, err := resolveOfficialModelForSend(ctx, s.pricingResolver, runtime)
 	if err != nil {
-		return nil, uploadpolicy.ConsistencyToken{}, historyActionError("aimessage.history.runtime_unavailable", "当前智能体模型能力不可用", err)
+		return nil, uploadpolicy.ConsistencyToken{}, historyActionError("aimessage.history.runtime_unavailable", "当前智能体模型能力不可用", errors.Join(ErrHistoryAgentUnavailable, err))
 	}
 	effective, err := s.effectiveChatCapabilities(runtime, resolved.Model.Capabilities)
 	if err != nil {
-		return nil, uploadpolicy.ConsistencyToken{}, historyActionError("aimessage.history.runtime_unavailable", "当前智能体模型能力不可用", err)
+		return nil, uploadpolicy.ConsistencyToken{}, historyActionError("aimessage.history.runtime_unavailable", "当前智能体模型能力不可用", errors.Join(ErrHistoryAgentUnavailable, err))
 	}
 	validated, token, appErr := s.inspectAttachments(ctx, runtime, resolved.Model.Capabilities, effective, attachments)
 	if appErr != nil {
@@ -220,6 +223,8 @@ func historyActionError(messageID, fallback string, err error) *apperror.Error {
 		return apperror.Wrap(requestidentity.ErrorCodeFingerprintConflict, apperror.CategoryConflict, http.StatusConflict, apperror.Permanent, "aimessage.request_id.conflict", nil, "request_id与原请求内容冲突", err)
 	case errors.Is(err, ErrHistoryActiveCommand):
 		return apperror.Wrap(ErrorCodeHistoryActive, apperror.CategoryConflict, http.StatusConflict, apperror.Permanent, "aimessage.history.active", nil, "存在进行中的AI回复，请先停止并等待完成", err)
+	case errors.Is(err, ErrHistoryAgentUnavailable):
+		return apperror.Wrap(ErrorCodeHistoryRuntimeUnavailable, apperror.CategoryConflict, http.StatusConflict, apperror.Permanent, "aimessage.history.runtime_unavailable", nil, "当前智能体模型能力不可用", err)
 	case errors.Is(err, ErrHistorySourceNotFound):
 		return apperror.Wrap("resource.not_found", apperror.CategoryNotFound, http.StatusNotFound, apperror.Permanent, "aimessage.message.not_found", nil, "AI消息不存在", err)
 	case errors.Is(err, ErrHistorySourceChanged):

@@ -16,5 +16,6 @@ aimessage.delete.ids.invalid: 待删除消息ID必须是正整数
 aimessage.delete.ids.duplicate: 待删除消息ID不能重复
 aimessage.delete.failed: 删除AI消息失败
 aimessage.history.active: 存在进行中的AI回复，请先停止并等待完成
+aimessage.history.runtime_unavailable: 当前智能体模型能力不可用
 aimessage.history.accept.invalid: AI消息历史操作接受结果无效
 aimessage.history.repository_missing: AI消息历史仓储未配置
