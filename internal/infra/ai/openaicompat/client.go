@@ -6,9 +6,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"sync"
@@ -31,6 +33,8 @@ type Config struct {
 	StreamHTTPClient  *http.Client
 	Timeout           time.Duration
 	StreamIdleTimeout time.Duration
+	FileInputMode     string
+	FileOpener        infraai.PreparedFileOpener
 }
 
 type Client struct {
@@ -40,6 +44,8 @@ type Client struct {
 	streamHTTPClient  *http.Client
 	timeout           time.Duration
 	streamIdleTimeout time.Duration
+	fileInputMode     string
+	fileOpener        infraai.PreparedFileOpener
 }
 
 func New(config Config) *Client {
@@ -66,6 +72,8 @@ func New(config Config) *Client {
 		streamHTTPClient:  streamHTTPClient,
 		timeout:           timeout,
 		streamIdleTimeout: streamIdleTimeout,
+		fileInputMode:     strings.TrimSpace(config.FileInputMode),
+		fileOpener:        config.FileOpener,
 	}
 }
 
@@ -91,6 +99,8 @@ func (c *Client) TestConnection(ctx context.Context, input infraai.TestConnectio
 			StreamHTTPClient:  c.streamHTTPClient,
 			Timeout:           timeout,
 			StreamIdleTimeout: c.streamIdleTimeout,
+			FileInputMode:     c.fileInputMode,
+			FileOpener:        c.fileOpener,
 		})
 	}
 
@@ -116,7 +126,13 @@ func (c *Client) StreamChat(ctx context.Context, input infraai.ChatInput, sink i
 	if err != nil {
 		return nil, err
 	}
-	return c.streamPreparedChat(ctx, infraai.PreparedChatRequest{Body: prepared, IdempotencyKey: input.IdempotencyKey}, sink, false)
+	preflightMetrics, err := c.PreflightPreparedChat(ctx, prepared)
+	if err != nil {
+		return nil, err
+	}
+	result, err := c.streamPreparedChat(ctx, infraai.PreparedChatRequest{Body: prepared, IdempotencyKey: input.IdempotencyKey}, sink, false)
+	mergeFileInputMetrics(result, preflightMetrics)
+	return result, err
 }
 
 func (c *Client) PrepareChat(ctx context.Context, input infraai.ChatInput) ([]byte, error) {
@@ -129,7 +145,7 @@ func (c *Client) PrepareChat(ctx context.Context, input infraai.ChatInput) ([]by
 		}
 	}
 	if strings.TrimSpace(input.Content) == "" {
-		if len(inputAttachments(input.Inputs)) == 0 {
+		if !hasCurrentAttachments(input.Inputs) {
 			return nil, fmt.Errorf("%w: missing message content", infraai.ErrInvalidConfig)
 		}
 	}
@@ -140,11 +156,15 @@ func (c *Client) PrepareChat(ctx context.Context, input infraai.ChatInput) ([]by
 	if len(input.ToolOutputs) > 0 && len(input.ToolCalls) == 0 {
 		return nil, fmt.Errorf("%w: tool outputs require preceding tool calls", infraai.ErrInvalidConfig)
 	}
+	messages, files, err := prepareChatMessages(input)
+	if err != nil {
+		return nil, err
+	}
 	body := chatCompletionRequest{
 		Model:         model,
 		Stream:        true,
 		StreamOptions: &chatStreamOptions{IncludeUsage: true},
-		Messages:      chatMessages(input),
+		Messages:      messages,
 		Tools:         chatTools(input.Tools),
 	}
 	if temperature, ok := inputNumber(input.Inputs, "temperature"); ok {
@@ -160,23 +180,68 @@ func (c *Client) PrepareChat(ctx context.Context, input infraai.ChatInput) ([]by
 	if err != nil {
 		return nil, fmt.Errorf("encode OpenAI chat completion request: %w", err)
 	}
-	return prepared, nil
+	if len(files) == 0 {
+		return prepared, nil
+	}
+	if c.fileInputMode != "chat_completions" {
+		return nil, fmt.Errorf("%w: provider file input mode is disabled", infraai.ErrInvalidConfig)
+	}
+	if c.fileOpener == nil {
+		return nil, fmt.Errorf("%w: prepared file opener is missing", infraai.ErrInvalidConfig)
+	}
+	return infraai.MarshalPreparedChatFileManifest(infraai.PreparedChatFileManifest{
+		Schema: infraai.PreparedChatSchemaFileManifestV1, FileInputMode: c.fileInputMode,
+		Request: prepared, Files: files,
+	})
 }
 
-func (c *Client) PreflightPreparedChat(ctx context.Context, body []byte) error {
+func (c *Client) PreflightPreparedChat(ctx context.Context, body []byte) (*infraai.FileInputMetrics, error) {
 	if ctx != nil {
 		if err := ctx.Err(); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	schema, err := infraai.DetectPreparedChatSchema(body)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if schema == infraai.PreparedChatSchemaFileManifestV1 {
-		return fmt.Errorf("%w: prepared file preflight is not configured", infraai.ErrInvalidConfig)
+		if c == nil || c.fileOpener == nil {
+			return nil, fmt.Errorf("%w: prepared file opener is missing", infraai.ErrInvalidConfig)
+		}
+		manifest, parseErr := infraai.ParsePreparedChatFileManifest(body)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		metrics := &infraai.FileInputMetrics{}
+		for _, file := range manifest.Files {
+			headStartedAt := time.Now()
+			metadata, headErr := c.fileOpener.Head(ctx, infraai.PreparedFileOpenInput{
+				ObjectKey: file.ObjectKey, ETag: file.ETag, Size: file.Size,
+			})
+			metrics.COSHeadMS += time.Since(headStartedAt).Milliseconds()
+			if headErr != nil {
+				return metrics, headErr
+			}
+			if !preparedFileMetadataMatches(file, metadata) {
+				return metrics, errors.New("prepared file object metadata changed")
+			}
+		}
+		return metrics, nil
 	}
-	return nil
+	return nil, nil
+}
+
+func mergeFileInputMetrics(result *infraai.ChatResult, preflight *infraai.FileInputMetrics) {
+	if result == nil || preflight == nil {
+		return
+	}
+	if result.FileInputMetrics == nil {
+		metrics := *preflight
+		result.FileInputMetrics = &metrics
+		return
+	}
+	result.FileInputMetrics.COSHeadMS += preflight.COSHeadMS
 }
 
 func (c *Client) StreamPreparedChat(ctx context.Context, input infraai.PreparedChatRequest, sink infraai.EventSink) (*infraai.ChatResult, error) {
@@ -187,15 +252,42 @@ func (c *Client) streamPreparedChat(ctx context.Context, input infraai.PreparedC
 	if c == nil {
 		return nil, fmt.Errorf("%w: OpenAI client is nil", infraai.ErrInvalidConfig)
 	}
-	if len(input.Body) == 0 || !json.Valid(input.Body) {
+	schema, schemaErr := infraai.DetectPreparedChatSchema(input.Body)
+	if schemaErr != nil {
 		return nil, fmt.Errorf("%w: invalid prepared chat request", infraai.ErrInvalidConfig)
 	}
 	key := strings.TrimSpace(input.IdempotencyKey)
 	if requireKey && key == "" {
 		return nil, fmt.Errorf("%w: missing prepared chat idempotency key", infraai.ErrInvalidConfig)
 	}
-	req, err := c.newJSONRequest(ctx, http.MethodPost, "/chat/completions", input.Body)
+	var requestBody io.ReadCloser
+	var contentLength int64
+	var materialized *MaterializedRequest
+	switch schema {
+	case infraai.PreparedChatSchemaInlineV1:
+		requestBody = io.NopCloser(bytes.NewReader(input.Body))
+		contentLength = int64(len(input.Body))
+	case infraai.PreparedChatSchemaFileManifestV1:
+		if c.fileOpener == nil {
+			return nil, fmt.Errorf("%w: prepared file opener is missing", infraai.ErrInvalidConfig)
+		}
+		manifest, parseErr := infraai.ParsePreparedChatFileManifest(input.Body)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		value, materializeErr := MaterializeFileManifest(ctx, manifest, c.fileOpener)
+		if materializeErr != nil {
+			return nil, materializeErr
+		}
+		materialized = &value
+		requestBody = value.Body
+		contentLength = value.ContentLength
+	default:
+		return nil, fmt.Errorf("%w: unsupported prepared chat schema", infraai.ErrInvalidConfig)
+	}
+	req, err := c.newJSONReaderRequest(ctx, http.MethodPost, "/chat/completions", requestBody, contentLength)
 	if err != nil {
+		_ = requestBody.Close()
 		return nil, err
 	}
 	req.Header.Set("Accept", "text/event-stream")
@@ -211,6 +303,18 @@ func (c *Client) streamPreparedChat(ctx context.Context, input infraai.PreparedC
 		streamIdleTimeout = defaultStreamIdleTimeout
 	}
 	resp, err := streamClient.Do(req)
+	var fileMetrics *infraai.FileInputMetrics
+	if materialized != nil {
+		materialization := <-materialized.Result
+		if materialization.Err != nil {
+			if resp != nil && resp.Body != nil {
+				_ = resp.Body.Close()
+			}
+			return nil, infraai.NewProviderError(infraai.ProviderOutcomeUnknown, "", materialization.Err)
+		}
+		metrics := materialization.Metrics
+		fileMetrics = &metrics
+	}
 	if err != nil {
 		return nil, infraai.NewProviderError(infraai.ProviderOutcomeUnknown, "", fmt.Errorf("%w: %v", infraai.ErrUpstreamFailed, err))
 	}
@@ -232,6 +336,7 @@ func (c *Client) streamPreparedChat(ctx context.Context, input infraai.PreparedC
 	}
 	result.ProviderRequestID = providerRequestID
 	result.DispatchState = infraai.DispatchStateDispatched
+	result.FileInputMetrics = fileMetrics
 	return result, nil
 }
 
@@ -275,6 +380,25 @@ func (c *Client) newJSONRequest(ctx context.Context, method string, endpoint str
 		}
 		c.httpClient = &http.Client{Timeout: timeout}
 	}
+	return req, nil
+}
+
+func (c *Client) newJSONReaderRequest(ctx context.Context, method string, endpoint string, body io.ReadCloser, contentLength int64) (*http.Request, error) {
+	baseURL, err := normalizeBaseURL(c.baseURL)
+	if err != nil {
+		return nil, err
+	}
+	if c.apiKey == "" {
+		return nil, fmt.Errorf("%w: missing OpenAI API key", infraai.ErrInvalidConfig)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, baseURL+endpoint, body)
+	if err != nil {
+		return nil, fmt.Errorf("build OpenAI request: %w", err)
+	}
+	req.ContentLength = contentLength
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
 	return req, nil
 }
 
@@ -771,13 +895,22 @@ type chatStreamToolCall struct {
 	} `json:"function"`
 }
 
-func chatMessages(input infraai.ChatInput) []chatMessage {
+func prepareChatMessages(input infraai.ChatInput) ([]chatMessage, []infraai.PreparedFileRef, error) {
 	messages := []chatMessage{}
+	files := make([]infraai.PreparedFileRef, 0)
 	if systemPrompt := inputString(input.Inputs, "system_prompt"); systemPrompt != "" {
 		messages = append(messages, chatMessage{Role: "system", Content: systemPrompt})
 	}
-	messages = append(messages, historyMessages(input.Inputs)...)
-	messages = append(messages, chatMessage{Role: "user", Content: userContent(input)})
+	history, err := historyMessages(input.Inputs, &files)
+	if err != nil {
+		return nil, nil, err
+	}
+	messages = append(messages, history...)
+	content, err := chatMessageContent(strings.TrimSpace(input.Content), input.Inputs["attachments"], &files)
+	if err != nil {
+		return nil, nil, err
+	}
+	messages = append(messages, chatMessage{Role: "user", Content: content})
 	if toolCalls := chatAssistantToolCalls(input.ToolCalls); len(toolCalls) > 0 {
 		messages = append(messages, chatMessage{Role: "assistant", Content: nil, ToolCalls: toolCalls})
 	}
@@ -787,7 +920,7 @@ func chatMessages(input infraai.ChatInput) []chatMessage {
 		}
 		messages = append(messages, chatMessage{Role: "tool", ToolCallID: strings.TrimSpace(output.CallID), Content: strings.TrimSpace(output.Output)})
 	}
-	return messages
+	return messages, files, nil
 }
 
 func chatAssistantToolCalls(calls []infraai.ToolCall) []chatMessageToolCall {
@@ -830,7 +963,7 @@ func chatTools(tools []infraai.ToolDefinition) []chatTool {
 	return out
 }
 
-func historyMessages(inputs map[string]any) []chatMessage {
+func historyMessages(inputs map[string]any, files *[]infraai.PreparedFileRef) ([]chatMessage, error) {
 	raw := inputs["history"]
 	rows := make([]map[string]any, 0)
 	switch values := raw.(type) {
@@ -842,70 +975,132 @@ func historyMessages(inputs map[string]any) []chatMessage {
 			rows = append(rows, map[string]any{"role": value["role"], "content": value["content"]})
 		}
 	default:
-		return nil
+		return nil, nil
 	}
 	messages := make([]chatMessage, 0, len(rows))
 	for _, row := range rows {
 		role := strings.TrimSpace(stringFromAny(row["role"]))
 		content := strings.TrimSpace(stringFromAny(row["content"]))
-		if content == "" {
-			continue
-		}
 		switch role {
 		case "user", "assistant", "system":
-			messages = append(messages, chatMessage{Role: role, Content: content})
+			preparedContent, err := chatMessageContent(content, row["attachments"], files)
+			if err != nil {
+				return nil, err
+			}
+			if content == "" {
+				if parts, ok := preparedContent.([]any); !ok || len(parts) == 0 {
+					continue
+				}
+			}
+			messages = append(messages, chatMessage{Role: role, Content: preparedContent})
 		}
 	}
-	return messages
+	return messages, nil
 }
 
-func userContent(input infraai.ChatInput) any {
-	text := strings.TrimSpace(input.Content)
-	attachments := inputAttachments(input.Inputs)
+func chatMessageContent(text string, rawAttachments any, files *[]infraai.PreparedFileRef) (any, error) {
+	attachments := attachmentRows(rawAttachments)
 	if len(attachments) == 0 {
-		return text
+		return text, nil
 	}
-	parts := make([]map[string]any, 0, len(attachments)+1)
+	parts := make([]any, 0, len(attachments)+1)
 	if text != "" {
 		parts = append(parts, map[string]any{"type": "text", "text": text})
 	}
-	for _, attachment := range attachments {
-		parts = append(parts, map[string]any{
-			"type": "image_url",
-			"image_url": map[string]any{
-				"url": attachment.URL,
-			},
-		})
+	for _, row := range attachments {
+		typeValue := strings.TrimSpace(stringFromAny(row["type"]))
+		switch typeValue {
+		case "image":
+			url := strings.TrimSpace(stringFromAny(row["url"]))
+			if url == "" {
+				continue
+			}
+			parts = append(parts, map[string]any{
+				"type": "image_url", "image_url": map[string]any{"url": url},
+			})
+		case "file":
+			file, err := preparedFileRefFromAttachment(row, len(*files)+1)
+			if err != nil {
+				return nil, err
+			}
+			*files = append(*files, file)
+			parts = append(parts, struct {
+				Type string `json:"type"`
+				Ref  string `json:"ref"`
+			}{Type: "file_ref", Ref: file.Ref})
+		}
 	}
-	return parts
+	if len(parts) == 0 {
+		return text, nil
+	}
+	return parts, nil
 }
 
-type imageAttachment struct {
-	URL string
+func hasCurrentAttachments(inputs map[string]any) bool {
+	if inputs == nil {
+		return false
+	}
+	for _, row := range attachmentRows(inputs["attachments"]) {
+		switch strings.TrimSpace(stringFromAny(row["type"])) {
+		case "image", "file":
+			return true
+		}
+	}
+	return false
 }
 
-func inputAttachments(inputs map[string]any) []imageAttachment {
-	raw, ok := inputs["attachments"].([]any)
+func attachmentRows(raw any) []map[string]any {
+	values, ok := raw.([]any)
 	if !ok {
 		return nil
 	}
-	out := make([]imageAttachment, 0, len(raw))
-	for _, item := range raw {
-		row, ok := item.(map[string]any)
-		if !ok {
-			continue
+	rows := make([]map[string]any, 0, len(values))
+	for _, value := range values {
+		if row, ok := value.(map[string]any); ok {
+			rows = append(rows, row)
 		}
-		if typ, _ := row["type"].(string); strings.TrimSpace(typ) != "image" {
-			continue
-		}
-		url, _ := row["url"].(string)
-		url = strings.TrimSpace(url)
-		if url == "" {
-			continue
-		}
-		out = append(out, imageAttachment{URL: url})
 	}
-	return out
+	return rows
+}
+
+func preparedFileRefFromAttachment(row map[string]any, sequence int) (infraai.PreparedFileRef, error) {
+	size, ok := positiveInt64(row["size"])
+	file := infraai.PreparedFileRef{
+		Ref:       fmt.Sprintf("file-%d", sequence),
+		ObjectKey: strings.TrimSpace(stringFromAny(row["object_key"])),
+		ETag:      strings.TrimSpace(stringFromAny(row["etag"])),
+		Size:      size,
+		MIMEType:  strings.ToLower(strings.TrimSpace(stringFromAny(row["mime_type"]))),
+		Filename:  strings.TrimSpace(stringFromAny(row["name"])),
+	}
+	if !ok || file.ObjectKey == "" || file.ETag == "" || file.MIMEType == "" || file.Filename == "" {
+		return infraai.PreparedFileRef{}, fmt.Errorf("%w: native file attachment facts are incomplete", infraai.ErrInvalidConfig)
+	}
+	return file, nil
+}
+
+func positiveInt64(value any) (int64, bool) {
+	switch number := value.(type) {
+	case int:
+		return int64(number), number > 0
+	case int64:
+		return number, number > 0
+	case uint64:
+		if number == 0 || number > math.MaxInt64 {
+			return 0, false
+		}
+		return int64(number), true
+	case float64:
+		if number <= 0 || number > math.MaxInt64 || number != math.Trunc(number) {
+			return 0, false
+		}
+		return int64(number), true
+	case json.Number:
+		parsed, err := number.Int64()
+		return parsed, err == nil && parsed > 0
+	default:
+		return 0, false
+	}
 }
 
 func inputString(inputs map[string]any, key string) string {

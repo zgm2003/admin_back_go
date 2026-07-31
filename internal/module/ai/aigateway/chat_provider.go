@@ -31,8 +31,9 @@ type PreparedChatProvider struct {
 	candidateEncoder ChatCandidateEncoder
 	stopProbe        func() bool
 
-	mu     sync.Mutex
-	result *infraai.ChatResult
+	mu               sync.Mutex
+	result           *infraai.ChatResult
+	preflightMetrics *infraai.FileInputMetrics
 }
 
 func (p *PreparedChatProvider) SetStopProbe(probe func() bool) {
@@ -125,13 +126,21 @@ func (p *PreparedChatProvider) PreflightPrepared(ctx context.Context, attempt Pr
 	if p == nil || p.transport == nil {
 		return ErrNotConfigured
 	}
-	return p.transport.PreflightPreparedChat(ctx, attempt.PreparedRequest)
+	metrics, err := p.transport.PreflightPreparedChat(ctx, attempt.PreparedRequest)
+	p.mu.Lock()
+	p.preflightMetrics = cloneFileInputMetrics(metrics)
+	p.mu.Unlock()
+	return err
 }
 
 func (p *PreparedChatProvider) Dispatch(ctx context.Context, attempt ProviderAttempt) (DispatchResult, error) {
 	if p == nil || p.transport == nil {
 		return DispatchResult{}, ErrNotConfigured
 	}
+	p.mu.Lock()
+	preflightMetrics := cloneFileInputMetrics(p.preflightMetrics)
+	p.preflightMetrics = nil
+	p.mu.Unlock()
 	result, err := p.transport.StreamPreparedChat(ctx, infraai.PreparedChatRequest{
 		Body:           append([]byte(nil), attempt.PreparedRequest...),
 		IdempotencyKey: attempt.IdempotencyKey,
@@ -142,6 +151,7 @@ func (p *PreparedChatProvider) Dispatch(ctx context.Context, attempt ProviderAtt
 	if result == nil {
 		return DispatchResult{}, infraai.NewProviderError(infraai.ProviderOutcomeUnknown, "", errors.New("prepared chat provider returned no result"))
 	}
+	mergePreparedFileInputMetrics(result, preflightMetrics)
 	dispatchState := strings.TrimSpace(result.DispatchState)
 	if dispatchState == "" {
 		dispatchState = infraai.DispatchStateDispatched
@@ -187,7 +197,30 @@ func cloneChatResult(result *infraai.ChatResult) *infraai.ChatResult {
 	copy.ToolCalls = append([]infraai.ToolCall(nil), result.ToolCalls...)
 	copy.Usage.RawProviderJSON = append([]byte(nil), result.Usage.RawProviderJSON...)
 	copy.Usage.Items = append([]infraai.UsageItem(nil), result.Usage.Items...)
+	if result.FileInputMetrics != nil {
+		metrics := *result.FileInputMetrics
+		copy.FileInputMetrics = &metrics
+	}
 	return &copy
+}
+
+func cloneFileInputMetrics(metrics *infraai.FileInputMetrics) *infraai.FileInputMetrics {
+	if metrics == nil {
+		return nil
+	}
+	copy := *metrics
+	return &copy
+}
+
+func mergePreparedFileInputMetrics(result *infraai.ChatResult, preflight *infraai.FileInputMetrics) {
+	if result == nil || preflight == nil {
+		return
+	}
+	if result.FileInputMetrics == nil {
+		result.FileInputMetrics = cloneFileInputMetrics(preflight)
+		return
+	}
+	result.FileInputMetrics.COSHeadMS += preflight.COSHeadMS
 }
 
 var _ Provider = (*PreparedChatProvider)(nil)

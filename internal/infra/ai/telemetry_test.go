@@ -45,6 +45,14 @@ func TestInstrumentEnginePreservesPreparedChatDispatch(t *testing.T) {
 	if _, err := prepared.StreamPreparedChat(context.Background(), PreparedChatRequest{Body: body, IdempotencyKey: "attempt-key"}, nil); err != nil {
 		t.Fatal(err)
 	}
+	preflighter, ok := wrapped.(PreparedChatPreflighter)
+	if !ok {
+		t.Fatal("instrumented engine dropped PreparedChatPreflighter capability")
+	}
+	metrics, err := preflighter.PreflightPreparedChat(context.Background(), body)
+	if err != nil || metrics == nil || metrics.COSHeadMS != 17 {
+		t.Fatal(err)
+	}
 	if delegate.key != "attempt-key" || string(delegate.body) != string(body) {
 		t.Fatalf("prepared dispatch body=%q key=%q", delegate.body, delegate.key)
 	}
@@ -114,6 +122,10 @@ type fakeTelemetryEngine struct{}
 type preparedTelemetryEngine struct {
 	body []byte
 	key  string
+}
+
+func (e *preparedTelemetryEngine) PreflightPreparedChat(context.Context, []byte) (*FileInputMetrics, error) {
+	return &FileInputMetrics{COSHeadMS: 17}, nil
 }
 
 func (*preparedTelemetryEngine) Capabilities() CapabilityMetadata {

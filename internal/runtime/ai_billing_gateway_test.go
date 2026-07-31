@@ -109,8 +109,8 @@ func (oscillatingPreparedChatTransport) PrepareChat(_ context.Context, input inf
 	return []byte(`{"padding":"` + strings.Repeat("x", length-len(`{"padding":""}`)) + `"}`), nil
 }
 
-func (oscillatingPreparedChatTransport) PreflightPreparedChat(context.Context, []byte) error {
-	return nil
+func (oscillatingPreparedChatTransport) PreflightPreparedChat(context.Context, []byte) (*infraai.FileInputMetrics, error) {
+	return nil, nil
 }
 
 func (oscillatingPreparedChatTransport) StreamPreparedChat(context.Context, infraai.PreparedChatRequest, infraai.EventSink) (*infraai.ChatResult, error) {

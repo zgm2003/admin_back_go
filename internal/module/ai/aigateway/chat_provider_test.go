@@ -11,9 +11,10 @@ import (
 )
 
 type preparedChatTransportStub struct {
-	preparedRequest infraai.PreparedChatRequest
-	result          *infraai.ChatResult
-	err             error
+	preparedRequest  infraai.PreparedChatRequest
+	preflightMetrics *infraai.FileInputMetrics
+	result           *infraai.ChatResult
+	err              error
 }
 
 func (*preparedChatTransportStub) TestConnection(context.Context, infraai.TestConnectionInput) (*infraai.TestConnectionResult, error) {
@@ -28,11 +29,33 @@ func (*preparedChatTransportStub) PrepareChat(context.Context, infraai.ChatInput
 	return nil, errors.New("unexpected reassembly")
 }
 
-func (*preparedChatTransportStub) PreflightPreparedChat(context.Context, []byte) error { return nil }
+func (s *preparedChatTransportStub) PreflightPreparedChat(context.Context, []byte) (*infraai.FileInputMetrics, error) {
+	return s.preflightMetrics, nil
+}
 
 func (s *preparedChatTransportStub) StreamPreparedChat(_ context.Context, request infraai.PreparedChatRequest, _ infraai.EventSink) (*infraai.ChatResult, error) {
 	s.preparedRequest = infraai.PreparedChatRequest{Body: append([]byte(nil), request.Body...), IdempotencyKey: request.IdempotencyKey}
 	return s.result, s.err
+}
+
+func TestPreparedChatProviderMergesPreflightHeadMetricsIntoDispatchResult(t *testing.T) {
+	transport := &preparedChatTransportStub{
+		preflightMetrics: &infraai.FileInputMetrics{COSHeadMS: 17},
+		result: &infraai.ChatResult{FileInputMetrics: &infraai.FileInputMetrics{
+			COSStreamMS: 23, MaterializedRequestBytes: 41,
+		}},
+	}
+	provider := NewPreparedChatProvider(transport, nil, nil)
+	if err := provider.PreflightPrepared(context.Background(), ProviderAttempt{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.Dispatch(context.Background(), ProviderAttempt{}); err != nil {
+		t.Fatal(err)
+	}
+	metrics := provider.ChatResult().FileInputMetrics
+	if metrics == nil || metrics.COSHeadMS != 17 || metrics.COSStreamMS != 23 || metrics.MaterializedRequestBytes != 41 {
+		t.Fatalf("metrics=%#v", metrics)
+	}
 }
 
 func (*preparedChatTransportStub) Capabilities() infraai.CapabilityMetadata {

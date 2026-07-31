@@ -260,7 +260,7 @@ type ChatResult struct {
 	DispatchState        string        `json:"dispatch_state"`
 	ResponseSHA256       [32]byte      `json:"response_sha256,omitempty"`
 	LatencyMs            int
-	FileInputMetrics     *FileInputMetrics
+	FileInputMetrics     *FileInputMetrics `json:"file_input_metrics,omitempty"`
 }
 
 type Event struct {
@@ -322,5 +322,5 @@ type PreparedChatEngine interface {
 }
 
 type PreparedChatPreflighter interface {
-	PreflightPreparedChat(context.Context, []byte) error
+	PreflightPreparedChat(context.Context, []byte) (*FileInputMetrics, error)
 }

@@ -14,7 +14,11 @@ func InstrumentEngine(provider string, modality string, delegate Engine, recorde
 	}
 	base := &instrumentedEngine{provider: provider, modality: modality, delegate: delegate, recorder: providerRecorder(recorder)}
 	if prepared, ok := delegate.(PreparedChatEngine); ok {
-		return &instrumentedPreparedEngine{instrumentedEngine: base, prepared: prepared}
+		preflighter, preflightOK := delegate.(PreparedChatPreflighter)
+		if !preflightOK {
+			return base
+		}
+		return &instrumentedPreparedEngine{instrumentedEngine: base, prepared: prepared, preflighter: preflighter}
 	}
 	return base
 }
@@ -35,11 +39,16 @@ type instrumentedEngine struct {
 
 type instrumentedPreparedEngine struct {
 	*instrumentedEngine
-	prepared PreparedChatEngine
+	prepared    PreparedChatEngine
+	preflighter PreparedChatPreflighter
 }
 
 func (engine *instrumentedPreparedEngine) PrepareChat(ctx context.Context, input ChatInput) ([]byte, error) {
 	return engine.prepared.PrepareChat(ctx, input)
+}
+
+func (engine *instrumentedPreparedEngine) PreflightPreparedChat(ctx context.Context, body []byte) (*FileInputMetrics, error) {
+	return engine.preflighter.PreflightPreparedChat(ctx, body)
 }
 
 func (engine *instrumentedPreparedEngine) Capabilities() CapabilityMetadata {
@@ -163,8 +172,9 @@ func providerRecorder(recorder telemetry.Recorder) telemetry.Recorder {
 }
 
 var (
-	_ Engine             = (*instrumentedEngine)(nil)
-	_ PreparedChatEngine = (*instrumentedPreparedEngine)(nil)
-	_ CapabilityProvider = (*instrumentedPreparedEngine)(nil)
-	_ ImageEngine        = (*instrumentedImageEngine)(nil)
+	_ Engine                  = (*instrumentedEngine)(nil)
+	_ PreparedChatEngine      = (*instrumentedPreparedEngine)(nil)
+	_ PreparedChatPreflighter = (*instrumentedPreparedEngine)(nil)
+	_ CapabilityProvider      = (*instrumentedPreparedEngine)(nil)
+	_ ImageEngine             = (*instrumentedImageEngine)(nil)
 )
