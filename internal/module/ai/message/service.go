@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"mime"
+	"net/http"
 	"path"
 	"sort"
 	"strconv"
@@ -285,7 +286,7 @@ func (s *Service) inspectAttachments(
 		return []Attachment{}, uploadpolicy.ConsistencyToken{}, nil
 	}
 	if len(attachments) > capability.MaxAttachmentsPerMessage {
-		return nil, uploadpolicy.ConsistencyToken{}, apperror.BadRequestKey("aimessage.attachments.too_many", nil, "每条消息最多只能添加5个附件")
+		return nil, uploadpolicy.ConsistencyToken{}, attachmentValidationError("ai.attachment.too_many", "aimessage.attachments.too_many", "每条消息最多只能添加5个附件")
 	}
 	if s == nil || s.uploadRules == nil {
 		return nil, uploadpolicy.ConsistencyToken{}, apperror.BadRequestKey("aimessage.attachments.upload_rule_unavailable", nil, "当前上传规则不可用")
@@ -332,7 +333,7 @@ func (s *Service) inspectAttachments(
 		locals[index] = item
 	}
 	if effective.ImageInput != nil && imageCount > effective.ImageInput.MaxFiles {
-		return nil, uploadpolicy.ConsistencyToken{}, apperror.BadRequestKey("aimessage.attachments.image_count_exceeded", nil, "图片数量超过当前模型限制")
+		return nil, uploadpolicy.ConsistencyToken{}, attachmentValidationError("ai.attachment.too_many", "aimessage.attachments.image_count_exceeded", "图片数量超过当前模型限制")
 	}
 
 	results := make([]Attachment, len(locals))
@@ -365,18 +366,18 @@ func (s *Service) inspectAttachments(
 	}
 	wait.Wait()
 	if firstError != nil {
-		return nil, uploadpolicy.ConsistencyToken{}, apperror.BadRequestKey("aimessage.attachments.invalid", nil, "附件无效或超出当前限制")
+		return nil, uploadpolicy.ConsistencyToken{}, attachmentInspectionError(firstError)
 	}
 	var total int64
 	for _, item := range results {
 		if uploadRule.MaxFileBytes <= 0 || item.Size > uploadRule.MaxFileBytes {
-			return nil, uploadpolicy.ConsistencyToken{}, apperror.BadRequestKey("aimessage.attachments.system_size_exceeded", nil, "附件超过当前上传规则限制")
+			return nil, uploadpolicy.ConsistencyToken{}, attachmentValidationError("ai.attachment.file_too_large", "aimessage.attachments.system_size_exceeded", "附件超过当前上传规则限制")
 		}
 		if item.Type == "file" && item.Size >= capability.MaxNativeFileBytesExclusive {
-			return nil, uploadpolicy.ConsistencyToken{}, apperror.BadRequestKey("aimessage.attachments.file_size_exceeded", nil, "单个文件必须小于50 MiB")
+			return nil, uploadpolicy.ConsistencyToken{}, attachmentValidationError("ai.attachment.file_too_large", "aimessage.attachments.file_size_exceeded", "单个文件必须小于50 MiB")
 		}
 		if item.Size > capability.MaxMessageAttachmentBytes-total {
-			return nil, uploadpolicy.ConsistencyToken{}, apperror.BadRequestKey("aimessage.attachments.total_size_exceeded", nil, "附件总大小不能超过50 MiB")
+			return nil, uploadpolicy.ConsistencyToken{}, attachmentValidationError("ai.attachment.message_total_too_large", "aimessage.attachments.total_size_exceeded", "附件总大小不能超过50 MiB")
 		}
 		total += item.Size
 	}
@@ -391,7 +392,7 @@ func normalizeLocalAttachment(
 ) (Attachment, *apperror.Error) {
 	typ := strings.TrimSpace(raw.Type)
 	if typ != "image" && typ != "file" {
-		return Attachment{}, apperror.BadRequestKey("aimessage.attachments.type_invalid", nil, "附件类型无效")
+		return Attachment{}, attachmentValidationError("ai.attachment.type_unsupported", "aimessage.attachments.type_invalid", "附件类型无效")
 	}
 	objectKey, err := storagecos.TrustedAIChatObjectKey(raw.ObjectKey, typ)
 	if err != nil {
@@ -413,7 +414,7 @@ func normalizeLocalAttachment(
 	if typ == "image" {
 		if effective.ImageInput == nil || !containsCapability(effective.InputModalities, officialmodel.ModalityImage) ||
 			!containsCapability(uploadRule.ImageExtensions, nameExt) {
-			return Attachment{}, apperror.BadRequestKey("aimessage.attachments.image_unsupported", nil, "当前模型或上传规则不支持该图片")
+			return Attachment{}, attachmentValidationError("ai.attachment.type_unsupported", "aimessage.attachments.image_unsupported", "当前模型或上传规则不支持该图片")
 		}
 	} else if !nativeFile.Enabled || !containsCapability(nativeFile.AcceptedExtensions, nameExt) {
 		return Attachment{}, nativeFileCapabilityError(nativeFile.DisabledReason)
@@ -425,19 +426,19 @@ func normalizeTrustedAttachment(local Attachment, metadata storagecos.ObjectMeta
 	mimeType := strings.ToLower(strings.TrimSpace(metadata.MIMEType))
 	if metadata.Key != local.ObjectKey || strings.TrimSpace(metadata.TrustedURL) == "" ||
 		strings.TrimSpace(metadata.ETag) == "" || metadata.Size <= 0 || mimeType == "" {
-		return Attachment{}, errors.New("attachment metadata is incomplete")
+		return Attachment{}, storagecos.ErrInvalidObjectMetadata
 	}
 	if local.ETag != "" && local.ETag != strings.TrimSpace(metadata.ETag) {
-		return Attachment{}, errors.New("attachment ETag changed")
+		return Attachment{}, storagecos.ErrObjectVersionChanged
 	}
 	extension := extensionOf(local.ObjectKey)
 	if local.Type == "image" {
 		if effective.ImageInput == nil || !containsCapability(effective.ImageInput.MIMETypes, mimeType) || metadata.Size > effective.ImageInput.MaxBytes ||
 			!imageMIMECompatibleWithExtension(mimeType, extension) || mimeType == "image/gif" && !metadata.GIFStaticVerified {
-			return Attachment{}, errors.New("image metadata violates effective capability")
+			return Attachment{}, storagecos.ErrInvalidObjectMetadata
 		}
 	} else if mimeType != "application/octet-stream" && mimeTypeConflictsWithExtension(mimeType, extension) {
-		return Attachment{}, errors.New("file MIME type conflicts with extension")
+		return Attachment{}, storagecos.ErrInvalidObjectMetadata
 	}
 	return Attachment{
 		Type: local.Type, ObjectKey: metadata.Key, MIMEType: mimeType, URL: strings.TrimSpace(metadata.TrustedURL),
@@ -463,13 +464,31 @@ func imageMIMECompatibleWithExtension(mimeType, extension string) bool {
 func nativeFileCapabilityError(reason string) *apperror.Error {
 	switch reason {
 	case capability.NativeFileDisabledOfficialModel:
-		return apperror.BadRequestKey("aimessage.attachments.official_model_unsupported", nil, "当前模型不支持文件输入")
+		return attachmentValidationError("ai.attachment.model_unsupported", "aimessage.attachments.official_model_unsupported", "当前模型不支持文件输入")
 	case capability.NativeFileDisabledProviderMode:
-		return apperror.BadRequestKey("aimessage.attachments.provider_file_input_disabled", nil, "当前渠道未开通文件传输")
+		return attachmentValidationError("ai.attachment.provider_file_input_disabled", "aimessage.attachments.provider_file_input_disabled", "当前渠道未开通文件传输")
 	case capability.NativeFileDisabledTransport:
-		return apperror.BadRequestKey("aimessage.attachments.transport_unsupported", nil, "当前渠道传输协议不支持文件")
+		return attachmentValidationError("ai.attachment.transport_unsupported", "aimessage.attachments.transport_unsupported", "当前渠道传输协议不支持文件")
 	default:
-		return apperror.BadRequestKey("aimessage.attachments.platform_unsupported", nil, "当前平台暂不支持文件输入")
+		return attachmentValidationError("ai.attachment.type_unsupported", "aimessage.attachments.platform_unsupported", "当前平台暂不支持文件输入")
+	}
+}
+
+func attachmentValidationError(code, messageID, fallback string) *apperror.Error {
+	return apperror.New(code, apperror.CategoryValidation, http.StatusBadRequest, apperror.Permanent, messageID, nil, fallback)
+}
+
+func attachmentInspectionError(cause error) *apperror.Error {
+	switch {
+	case errors.Is(cause, storagecos.ErrObjectVersionChanged):
+		return apperror.Wrap("ai.attachment.object_version_changed", apperror.CategoryConflict, http.StatusConflict, apperror.Permanent,
+			"aimessage.attachments.invalid", nil, "附件版本已变化，请重新上传后重试", cause)
+	case errors.Is(cause, storagecos.ErrInvalidObjectMetadata), errors.Is(cause, storagecos.ErrUntrustedObjectKey):
+		return apperror.Wrap("ai.attachment.type_unsupported", apperror.CategoryValidation, http.StatusBadRequest, apperror.Permanent,
+			"aimessage.attachments.invalid", nil, "附件类型或元数据不受支持", cause)
+	default:
+		return apperror.Wrap("ai.attachment.object_unavailable", apperror.CategoryConflict, http.StatusConflict, apperror.Permanent,
+			"aimessage.attachments.invalid", nil, "附件对象当前不可用，请重新上传后重试", cause)
 	}
 }
 

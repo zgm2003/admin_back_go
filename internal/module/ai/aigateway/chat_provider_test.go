@@ -49,8 +49,12 @@ func TestPreparedChatProviderMergesPreflightHeadMetricsIntoDispatchResult(t *tes
 	if err := provider.PreflightPrepared(context.Background(), ProviderAttempt{}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := provider.Dispatch(context.Background(), ProviderAttempt{}); err != nil {
+	dispatch, err := provider.Dispatch(context.Background(), ProviderAttempt{})
+	if err != nil {
 		t.Fatal(err)
+	}
+	if dispatch.FileInputMetrics == nil || dispatch.FileInputMetrics.COSHeadMS != 17 || dispatch.FileInputMetrics.COSStreamMS != 23 || dispatch.FileInputMetrics.MaterializedRequestBytes != 41 {
+		t.Fatalf("dispatch metrics=%#v", dispatch.FileInputMetrics)
 	}
 	metrics := provider.ChatResult().FileInputMetrics
 	if metrics == nil || metrics.COSHeadMS != 17 || metrics.COSStreamMS != 23 || metrics.MaterializedRequestBytes != 41 {

@@ -62,8 +62,10 @@ type DispatchResult struct {
 	ResponseSHA256      [32]byte
 	DispatchState       string
 	TerminalState       string
+	ErrorCode           string
 	Usage               infraai.UsageSnapshot
 	ResultCandidateJSON *string
+	FileInputMetrics    *infraai.FileInputMetrics
 }
 
 type RunSnapshot struct {

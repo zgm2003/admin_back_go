@@ -49,6 +49,7 @@ type Dependencies struct {
 	PaidAttemptExecutor PaidChatAttemptExecutor
 	Publisher           infrarealtime.Publisher
 	EngineFactory       EngineFactory
+	FileOpener          infraai.PreparedFileOpener
 	Secretbox           secretbox.Box
 	ToolRuntime         ToolRuntime
 	KnowledgeRuntime    KnowledgeRuntime
@@ -68,6 +69,7 @@ type Service struct {
 	paidAttemptExecutor PaidChatAttemptExecutor
 	publisher           infrarealtime.Publisher
 	engineFactory       EngineFactory
+	fileOpener          infraai.PreparedFileOpener
 	secretbox           secretbox.Box
 	toolRuntime         ToolRuntime
 	knowledgeRuntime    KnowledgeRuntime
@@ -92,7 +94,7 @@ func NewService(deps Dependencies) *Service {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Service{repository: deps.Repository, assistantPublisher: deps.AssistantPublisher, deliveryCommitter: deps.DeliveryCommitter, attemptRecorder: deps.AttemptRecorder, paidAttemptExecutor: deps.PaidAttemptExecutor, publisher: deps.Publisher, engineFactory: deps.EngineFactory, secretbox: deps.Secretbox, toolRuntime: deps.ToolRuntime, knowledgeRuntime: deps.KnowledgeRuntime, runRecorder: deps.RunRecorder, textGeneration: deps.TextGeneration, pricingResolver: deps.PricingResolver, runStaleTimeout: runStaleTimeout, now: now, logger: logger}
+	return &Service{repository: deps.Repository, assistantPublisher: deps.AssistantPublisher, deliveryCommitter: deps.DeliveryCommitter, attemptRecorder: deps.AttemptRecorder, paidAttemptExecutor: deps.PaidAttemptExecutor, publisher: deps.Publisher, engineFactory: deps.EngineFactory, fileOpener: deps.FileOpener, secretbox: deps.Secretbox, toolRuntime: deps.ToolRuntime, knowledgeRuntime: deps.KnowledgeRuntime, runRecorder: deps.RunRecorder, textGeneration: deps.TextGeneration, pricingResolver: deps.PricingResolver, runStaleTimeout: runStaleTimeout, now: now, logger: logger}
 }
 
 func NewRuntimeService(deps Dependencies) (*Service, error) {
@@ -120,16 +122,10 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	if appErr != nil {
 		return nil, appErr
 	}
-	conversation, err := repo.ConversationForReply(ctx, input.ConversationID, input.UserID)
-	if err != nil {
-		return nil, err
-	}
-	if conversation == nil {
-		return nil, apperror.NotFound("AI会话不存在")
-	}
 	paidReply := input.CommandID > 0
 	var acceptedRun *airun.Run
 	if paidReply {
+		var err error
 		acceptedRun, err = repo.AcceptedRunForReply(ctx, input.UserID, strings.TrimSpace(input.RequestID))
 		if err != nil {
 			return nil, err
@@ -140,6 +136,20 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		if input.AgentID == 0 {
 			input.AgentID = acceptedRun.AgentID
 		}
+		recoverPrepared, err := s.hasPreparedPaidAttempt(ctx, acceptedRun.ID, input.CommandID)
+		if err != nil {
+			return nil, err
+		}
+		if recoverPrepared {
+			return s.executePreparedPaidAttemptRecovery(ctx, repo, acceptedRun, input)
+		}
+	}
+	conversation, err := repo.ConversationForReply(ctx, input.ConversationID, input.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if conversation == nil {
+		return nil, apperror.NotFound("AI会话不存在")
 	}
 	if input.AgentID == 0 {
 		input.AgentID = int64(conversation.AgentID)
@@ -433,6 +443,102 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		}
 	}
 	return &ConversationReplyResult{ConversationID: input.ConversationID, AssistantMessageID: assistantID}, nil
+}
+
+func (s *Service) hasPreparedPaidAttempt(ctx context.Context, runID int64, commandID uint64) (bool, error) {
+	if s == nil || s.paidAttemptExecutor == nil {
+		return false, nil
+	}
+	probe, ok := s.paidAttemptExecutor.(PreparedPaidAttemptProbe)
+	if !ok {
+		return false, nil
+	}
+	return probe.HasPreparedPaidChatAttempt(ctx, runID, commandID)
+}
+
+func (s *Service) executePreparedPaidAttemptRecovery(
+	ctx context.Context,
+	repo Repository,
+	run *airun.Run,
+	input ConversationReplyInput,
+) (replyResult *ConversationReplyResult, replyErr error) {
+	recoveryRepo, ok := repo.(PreparedRecoveryRepository)
+	if !ok {
+		return s.finalizePreparedRecoveryFailure(ctx, run.ID, input, ErrRepositoryNotConfigured)
+	}
+	provider, err := recoveryRepo.ProviderForPreparedRecovery(ctx, uint64(run.ProviderID))
+	if err != nil {
+		return nil, err
+	}
+	if provider == nil {
+		return s.finalizePreparedRecoveryFailure(ctx, run.ID, input, errors.New("prepared attempt provider no longer exists"))
+	}
+	pricingSnapshot, err := aigateway.ParsePricingSnapshot(run.PricingSnapshotJSON)
+	if err != nil {
+		return s.finalizePreparedRecoveryFailure(ctx, run.ID, input, err)
+	}
+	recoveryConfig := *provider
+	recoveryConfig.AgentID = uint64(run.AgentID)
+	recoveryConfig.ProviderID = uint64(run.ProviderID)
+	recoveryConfig.ModelID = strings.TrimSpace(run.ModelID)
+	recoveryConfig.EngineType = strings.TrimSpace(pricingSnapshot.TransportEngine)
+	engine, appErr := s.engineForAgent(ctx, recoveryConfig)
+	if appErr != nil {
+		return s.finalizePreparedRecoveryFailure(ctx, run.ID, input, appErr)
+	}
+	if err := s.publishStart(input.DeliveryContext, input); err != nil {
+		return nil, err
+	}
+	delivery := newDeliverySink(deliverySinkOptions{
+		DeliveryContext: input.DeliveryContext,
+		Committer:       s.deliveryCommitter,
+		Publisher:       s.publisher,
+		CommandID:       input.CommandID,
+		Owner:           input.LeaseOwner,
+		Token:           input.LeaseToken,
+		ConversationID:  input.ConversationID,
+		UserID:          input.UserID,
+		RequestID:       input.RequestID,
+		Now:             s.now,
+	})
+	defer func() {
+		if closeErr := delivery.Close(context.WithoutCancel(ctx)); closeErr != nil {
+			if replyErr != nil {
+				replyErr = errors.Join(replyErr, closeErr)
+				return
+			}
+			replyResult = nil
+			replyErr = closeErr
+		}
+	}()
+	paidResult, err := s.streamChatWithAttempt(ctx, run.ID, input, engine, infraai.ChatInput{
+		AgentID: uint64(run.AgentID), RunID: uint64(run.ID), UserID: uint64(run.UserID), UserKey: userKey(run.UserID),
+	}, infraai.EventSink(delivery))
+	if flushErr := delivery.Flush(context.WithoutCancel(ctx)); flushErr != nil {
+		if err != nil {
+			err = errors.Join(err, flushErr)
+		} else {
+			err = flushErr
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	if paidResult == nil {
+		return nil, ErrProviderAttemptInvalid
+	}
+	if paidResult.Finalized {
+		return finalizedConversationReply(input, paidResult), nil
+	}
+	return s.finalizePaidFailure(context.WithoutCancel(ctx), run.ID, input, false)
+}
+
+func (s *Service) finalizePreparedRecoveryFailure(ctx context.Context, runID int64, input ConversationReplyInput, cause error) (*ConversationReplyResult, error) {
+	result, err := s.finalizePaidFailure(context.WithoutCancel(ctx), runID, input, true)
+	if err != nil {
+		return nil, errors.Join(cause, err)
+	}
+	return result, nil
 }
 
 func validateAcceptedReplyRun(run *airun.Run, input ConversationReplyInput) error {
@@ -911,7 +1017,7 @@ func (s *Service) engineForAgent(ctx context.Context, agent AgentEngineConfig) (
 	}
 	engine, err := s.engineFactory.NewEngine(ctx, EngineConfig{
 		EngineType: infraai.EngineType(agent.EngineType), BaseURL: agent.EngineBaseURL, APIKey: apiKey,
-		FileInputMode: strings.TrimSpace(agent.FileInputMode),
+		FileInputMode: strings.TrimSpace(agent.FileInputMode), FileOpener: s.fileOpener,
 	})
 	if err != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "创建AI引擎失败", err)
@@ -1262,9 +1368,9 @@ func requireNativeFileContextWithinLimit(messages []MessageHistory) *apperror.Er
 }
 
 func nativeFileContextTooLargeError() *apperror.Error {
-	return apperror.BadRequestKey(
-		"ai.attachment.context_total_too_large", nil,
-		"当前对话文件上下文超过 50 MB，请新建对话或减少历史范围",
+	return apperror.New(
+		"ai.attachment.context_total_too_large", apperror.CategoryValidation, 400, apperror.Permanent,
+		"ai.attachment.context_total_too_large", nil, "当前对话文件上下文超过 50 MB，请新建对话或减少历史范围",
 	)
 }
 

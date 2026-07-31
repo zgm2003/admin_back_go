@@ -16,6 +16,7 @@ import (
 
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/infra/database"
+	storagecos "admin_back_go/internal/infra/storage/cos"
 	"admin_back_go/internal/module/ai/aigateway"
 	"admin_back_go/internal/module/ai/billing"
 	aichat "admin_back_go/internal/module/ai/chat"
@@ -79,6 +80,25 @@ func newPaidChatAttemptExecutor(client *database.Client, wallets *walletmodule.G
 		return nil
 	}
 	return &paidChatAttemptExecutor{db: client.Gorm, wallets: wallets, replies: replies, eventSink: eventSink, finalizer: aigateway.NewFinalizer(store, persistedSettlementPricer{})}
+}
+
+func (executor *paidChatAttemptExecutor) HasPreparedPaidChatAttempt(ctx context.Context, runID int64, commandID uint64) (bool, error) {
+	if executor == nil || executor.db == nil || runID <= 0 || commandID == 0 {
+		return false, aigateway.ErrNotConfigured
+	}
+	var attempt replycommand.Attempt
+	err := executor.db.WithContext(ctx).
+		Select("state").
+		Where("run_id = ? AND command_id = ?", runID, commandID).
+		Order("attempt_no DESC").
+		First(&attempt).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return attempt.State == replycommand.AttemptPrepared, nil
 }
 
 func (executor *paidChatAttemptExecutor) ExecutePaidChatAttempt(ctx context.Context, input aichat.PaidChatAttemptInput) (*aichat.PaidChatAttemptResult, error) {
@@ -164,6 +184,9 @@ func (executor *paidChatAttemptExecutor) ExecutePaidChatAttempt(ctx context.Cont
 	}
 	dispatch, dispatchErr := gateway.Dispatch(ctx, attempt)
 	if dispatchErr != nil {
+		if dispatch.TerminalState == "" && isPermanentPreDispatchError(dispatchErr) {
+			return executor.finalizePreDispatchFailure(context.WithoutCancel(ctx), input)
+		}
 		if executor.mustFinalizeProviderError(input, attempt, dispatch, dispatchErr) {
 			if dispatch.TerminalState == "failed" {
 				if markerErr := executor.markProviderFailure(context.WithoutCancel(ctx), input); markerErr != nil {
@@ -365,7 +388,12 @@ func isPaidInsufficientBalance(err error) bool {
 }
 
 func isPermanentPreDispatchError(err error) bool {
-	if errors.Is(err, errPersistedPaidAttemptEvidence) {
+	if errors.Is(err, errPersistedPaidAttemptEvidence) ||
+		errors.Is(err, infraai.ErrInvalidConfig) ||
+		errors.Is(err, storagecos.ErrObjectUnavailable) ||
+		errors.Is(err, storagecos.ErrObjectVersionChanged) ||
+		errors.Is(err, storagecos.ErrUntrustedObjectKey) ||
+		errors.Is(err, storagecos.ErrInvalidObjectMetadata) {
 		return true
 	}
 	var appErr *apperror.Error
@@ -1137,7 +1165,7 @@ func (store gormGatewayAttemptStore) RecordTerminalOutcome(ctx context.Context, 
 		Where("id = ? AND state = ?", row.ID, replycommand.AttemptDispatched).
 		Updates(map[string]any{
 			"state": state, "provider_request_id": strings.TrimSpace(outcome.ProviderRequestID),
-			"response_sha256": responseHash, "error_code": gatewayAttemptErrorCode(state),
+			"response_sha256": responseHash, "error_code": gatewayAttemptErrorCode(state, outcome.ErrorCode),
 			"dispatch_state": strings.TrimSpace(outcome.DispatchState), "usage_json": string(usageJSON),
 			"usage_status": usageStatus, "result_candidate_json": outcome.ResultCandidateJSON,
 			"finished_at": now, "updated_at": now,
@@ -1148,7 +1176,31 @@ func (store gormGatewayAttemptStore) RecordTerminalOutcome(ctx context.Context, 
 	if result.RowsAffected != 1 {
 		return aigateway.TerminalOutcomeWriteResult{}, replycommand.ErrAttemptTerminalConflict
 	}
+	if err := appendGatewayFileInputMetrics(ctx, tx, runID, outcome.FileInputMetrics, now); err != nil {
+		return aigateway.TerminalOutcomeWriteResult{}, err
+	}
 	return aigateway.TerminalOutcomeWriteResult{Outcome: cloneGatewayOutcome(outcome)}, nil
+}
+
+func appendGatewayFileInputMetrics(ctx context.Context, tx *gorm.DB, runID int64, metrics *infraai.FileInputMetrics, now time.Time) error {
+	if metrics == nil {
+		return nil
+	}
+	if metrics.COSHeadMS < 0 || metrics.COSStreamMS < 0 || metrics.MaterializedRequestBytes <= 0 {
+		return errors.New("file input metrics are invalid")
+	}
+	message, err := json.Marshal(metrics)
+	if err != nil {
+		return err
+	}
+	var maxSeq uint
+	if err := tx.WithContext(ctx).Model(&airun.RunEvent{}).Where("run_id = ?", runID).Select("COALESCE(MAX(seq), 0)").Scan(&maxSeq).Error; err != nil {
+		return err
+	}
+	return tx.WithContext(ctx).Create(&airun.RunEvent{
+		RunID: runID, Seq: maxSeq + 1, EventType: enum.AIRunEventFileMaterialized,
+		Message: string(message), CreatedAt: now,
+	}).Error
 }
 
 func gatewayAttemptFromRow(row replycommand.Attempt) (aigateway.ProviderAttempt, error) {
@@ -1198,7 +1250,7 @@ func gatewayOutcomeFromRow(row replycommand.Attempt) (aigateway.DispatchResult, 
 	}
 	return aigateway.DispatchResult{
 		ProviderRequestID: strings.TrimSpace(row.ProviderRequestID), ResponseSHA256: responseHash,
-		DispatchState: strings.TrimSpace(row.DispatchState), TerminalState: state, Usage: usage,
+		DispatchState: strings.TrimSpace(row.DispatchState), TerminalState: state, ErrorCode: strings.TrimSpace(row.ErrorCode), Usage: usage,
 		ResultCandidateJSON: candidate,
 	}, nil
 }
@@ -1227,9 +1279,13 @@ func gatewayTerminalState(state replycommand.AttemptState) (string, error) {
 	}
 }
 
-func gatewayAttemptErrorCode(state replycommand.AttemptState) string {
+func gatewayAttemptErrorCode(state replycommand.AttemptState, stableCode string) string {
+	stableCode = strings.TrimSpace(stableCode)
 	switch state {
 	case replycommand.AttemptFailed:
+		if stableCode != "" {
+			return stableCode
+		}
 		return "ai.provider_failed"
 	case replycommand.AttemptCanceled:
 		return "ai.provider_canceled"
@@ -1246,6 +1302,10 @@ func cloneGatewayOutcome(outcome aigateway.DispatchResult) aigateway.DispatchRes
 	if outcome.ResultCandidateJSON != nil {
 		value := *outcome.ResultCandidateJSON
 		outcome.ResultCandidateJSON = &value
+	}
+	if outcome.FileInputMetrics != nil {
+		metrics := *outcome.FileInputMetrics
+		outcome.FileInputMetrics = &metrics
 	}
 	return outcome
 }

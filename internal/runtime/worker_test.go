@@ -305,6 +305,27 @@ func TestWorkerUsesRuntimeChatConstructorWithDefaultToolRuntime(t *testing.T) {
 	}
 }
 
+func TestWorkerWiresTrustedCOSStreamingIntoChatRuntime(t *testing.T) {
+	body, err := os.ReadFile("worker.go")
+	if err != nil {
+		t.Fatalf("read worker composition: %v", err)
+	}
+	compact := strings.Join(strings.Fields(string(body)), " ")
+	for _, want := range []string{
+		"uploadTokenRepository := uploadtoken.NewGormRepository(resources.DB)",
+		"aiChatObjectConfig := uploadtoken.NewObjectConfigProvider(uploadTokenRepository, providers.Secretbox)",
+		"aiChatObjectStreamer := storagecos.NewObjectStreamer( aiChatObjectConfig,",
+		"FileOpener: aiChatObjectStreamer",
+	} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("worker native-file composition missing %q", want)
+		}
+	}
+	if strings.Count(compact, "uploadtoken.NewObjectConfigProvider(uploadTokenRepository, providers.Secretbox)") != 1 {
+		t.Fatal("worker must construct one active COS config source for native-file streaming")
+	}
+}
+
 func TestWorkerBuildsPaymentWithItsSharedWalletParticipant(t *testing.T) {
 	body, err := os.ReadFile("worker.go")
 	if err != nil {

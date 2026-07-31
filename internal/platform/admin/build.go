@@ -230,9 +230,14 @@ func Build(input BuildInput) (*BuildResult, error) {
 		providers.CredentialSigner,
 		uploadtoken.Options{TTLPolicy: uploadtoken.NewSystemSettingTTLPolicyProvider(systemSettingRepository)},
 	)
+	aiChatObjectConfig := uploadtoken.NewObjectConfigProvider(uploadTokenRepository, providers.Secretbox)
 	aiChatObjectInspector := storagecos.NewObjectInspector(
-		uploadtoken.NewObjectConfigProvider(uploadTokenRepository, providers.Secretbox),
+		aiChatObjectConfig,
 		storagecos.ObjectInspectorConfig{Enabled: true},
+	)
+	aiChatObjectStreamer := storagecos.NewObjectStreamer(
+		aiChatObjectConfig,
+		storagecos.ObjectStreamerConfig{Enabled: true},
 	)
 	queueMonitorService := queuemonitor.NewService(
 		queuemonitor.NewTaskqueueInspector(input.QueueInspector),
@@ -296,6 +301,7 @@ func Build(input BuildInput) (*BuildResult, error) {
 		Publisher:         publisher,
 		Secretbox:         providers.Secretbox,
 		EngineFactory:     providers.AIChatFactory,
+		FileOpener:        aiChatObjectStreamer,
 		ToolRuntime:       aiToolService,
 		KnowledgeRuntime:  knowledgeRuntimeAdapter{service: aiKnowledgeService},
 		RunRecorder:       aiRunRecorder,

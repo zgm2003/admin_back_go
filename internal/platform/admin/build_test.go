@@ -152,7 +152,10 @@ func TestBuildWiresMessageCapabilitiesAndTrustedObjectInspection(t *testing.T) {
 		"uploadTokenRepository := uploadtoken.NewGormRepository(resources.DB)",
 		"uploadRuleResolver := uploadtoken.NewActiveRuleResolver(uploadTokenRepository)",
 		"aiagent.WithUploadRuleResolver(uploadRuleResolver)",
-		"storagecos.NewObjectInspector( uploadtoken.NewObjectConfigProvider(uploadTokenRepository, providers.Secretbox)",
+		"aiChatObjectConfig := uploadtoken.NewObjectConfigProvider(uploadTokenRepository, providers.Secretbox)",
+		"storagecos.NewObjectInspector( aiChatObjectConfig,",
+		"storagecos.NewObjectStreamer( aiChatObjectConfig,",
+		"FileOpener: aiChatObjectStreamer",
 		"aimessage.WithTransportCapabilityResolver(providers.AITransportCapabilities)",
 		"aimessage.WithObjectInspector(aiChatObjectInspector)",
 		"aimessage.WithUploadRuleResolver(uploadRuleResolver)",
@@ -170,7 +173,7 @@ func TestBuildWiresMessageCapabilitiesAndTrustedObjectInspection(t *testing.T) {
 		t.Fatal("Admin Build must instantiate exactly one upload token repository")
 	}
 	if strings.Count(compact, "uploadtoken.NewObjectConfigProvider(uploadTokenRepository, providers.Secretbox)") != 1 {
-		t.Fatal("Admin Build must reuse the upload token repository for trusted object inspection")
+		t.Fatal("Admin Build must reuse one active COS config source for inspection and streaming")
 	}
 }
 

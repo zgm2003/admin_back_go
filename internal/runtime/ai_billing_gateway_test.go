@@ -4,12 +4,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/infra/ai/openaicompat"
+	"admin_back_go/internal/infra/storage/cos"
 	"admin_back_go/internal/module/ai/aigateway"
 	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/pricing"
@@ -60,6 +62,27 @@ func TestPaidChatAssemblerFailsClosedWhenBoundDoesNotConverge(t *testing.T) {
 	}, aigateway.RunRequest{})
 	if err == nil || !errors.Is(err, errPaidChatOutputBoundNotConverged) {
 		t.Fatalf("err=%v, want non-converged output bound", err)
+	}
+}
+
+func TestETagMismatchBeforeDispatchIsPermanentPreDispatchFailure(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{name: "etag mismatch", err: cos.ErrObjectVersionChanged},
+		{name: "object unavailable", err: cos.ErrObjectUnavailable},
+		{name: "untrusted object key", err: cos.ErrUntrustedObjectKey},
+		{name: "invalid object metadata", err: cos.ErrInvalidObjectMetadata},
+		{name: "invalid provider config", err: infraai.ErrInvalidConfig},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := fmt.Errorf("native file preflight failed: %w", test.err)
+			if !isPermanentPreDispatchError(err) {
+				t.Fatalf("isPermanentPreDispatchError(%v) = false", err)
+			}
+		})
 	}
 }
 

@@ -16,6 +16,7 @@ import (
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/module/ai/billing"
 	"admin_back_go/internal/module/ai/requestidentity"
+	"admin_back_go/internal/shared/apperror"
 )
 
 type Gateway struct {
@@ -467,7 +468,7 @@ func usageIdentity(category, unit, tierKey string) string {
 }
 
 func (g *Gateway) RecordOutcome(ctx context.Context, attempt ProviderAttempt, result DispatchResult) error {
-	if g == nil || g.deps.Transactions == nil || g.deps.Attempts == nil {
+	if g == nil || g.deps.Transactions == nil || g.deps.Runs == nil || g.deps.Attempts == nil {
 		return ErrNotConfigured
 	}
 	g.record("record_outcome")
@@ -475,6 +476,13 @@ func (g *Gateway) RecordOutcome(ctx context.Context, attempt ProviderAttempt, re
 		return err
 	}
 	if err := g.deps.Transactions.WithinTransaction(ctx, func(tx Transaction) error {
+		locked, err := g.deps.Runs.LockRunAndCharge(ctx, tx, attempt.RunID)
+		if err != nil {
+			return err
+		}
+		if locked.Run.RunID != attempt.RunID {
+			return gatewayError(ErrCodeInvalidOutcome, "terminal outcome belongs to another run", 409)
+		}
 		persisted, err := g.deps.Attempts.GetDispatchedForUpdate(ctx, tx, attempt.RunID, attempt.AttemptNo)
 		if err != nil {
 			if !errors.Is(err, ErrNotFound) {
@@ -544,6 +552,10 @@ func terminalResultForProviderError(result DispatchResult, err error) DispatchRe
 	if result.Usage.Status == "" {
 		result.Usage = infraai.UsageSnapshot{Status: infraai.UsageStatusUnavailable}
 	}
+	var appErr *apperror.Error
+	if errors.As(err, &appErr) {
+		result.ErrorCode = strings.TrimSpace(appErr.Code)
+	}
 	switch outcome, ok := infraai.ProviderOutcomeFromError(err); {
 	case ok && outcome == infraai.ProviderOutcomeNotDispatched:
 		result.DispatchState = infraai.DispatchStateNotDispatched
@@ -555,6 +567,7 @@ func terminalResultForProviderError(result DispatchResult, err error) DispatchRe
 		result.DispatchState = infraai.DispatchStateUnknown
 		result.TerminalState = "outcome_unknown"
 	}
+	result.ErrorCode = canonicalTerminalErrorCode(result)
 	return result
 }
 
@@ -568,6 +581,12 @@ func validateTerminalOutcome(result DispatchResult) error {
 	if err := validateRawUsageEvidence(result.Usage); err != nil {
 		return err
 	}
+	if metrics := result.FileInputMetrics; metrics != nil && (metrics.COSHeadMS < 0 || metrics.COSStreamMS < 0 || metrics.MaterializedRequestBytes <= 0) {
+		return gatewayError(ErrCodeInvalidOutcome, "file input metrics are invalid", 400)
+	}
+	if result.ErrorCode != strings.TrimSpace(result.ErrorCode) || len(result.ErrorCode) > 128 {
+		return gatewayError(ErrCodeInvalidOutcome, "terminal error code is invalid", 400)
+	}
 	if result.ResultCandidateJSON != nil {
 		candidate := strings.TrimSpace(*result.ResultCandidateJSON)
 		if candidate == "" || !json.Valid([]byte(candidate)) {
@@ -580,6 +599,9 @@ func validateTerminalOutcome(result DispatchResult) error {
 	}
 	switch result.TerminalState {
 	case "succeeded":
+		if result.ErrorCode != "" {
+			return gatewayError(ErrCodeInvalidOutcome, "succeeded outcome cannot have an error code", 400)
+		}
 		if result.DispatchState != infraai.DispatchStateDispatched || strings.TrimSpace(result.ProviderRequestID) == "" || !hasResponseHash {
 			return gatewayError(ErrCodeInvalidOutcome, "succeeded outcome requires dispatched provider response evidence", 400)
 		}
@@ -637,8 +659,25 @@ func sameTerminalEvidence(left, right DispatchResult) bool {
 		left.ResponseSHA256 == right.ResponseSHA256 &&
 		left.DispatchState == right.DispatchState &&
 		left.TerminalState == right.TerminalState &&
+		canonicalTerminalErrorCode(left) == canonicalTerminalErrorCode(right) &&
 		sameOptionalString(left.ResultCandidateJSON, right.ResultCandidateJSON) &&
 		reflect.DeepEqual(left.Usage, right.Usage)
+}
+
+func canonicalTerminalErrorCode(result DispatchResult) string {
+	if code := strings.TrimSpace(result.ErrorCode); code != "" {
+		return code
+	}
+	switch result.TerminalState {
+	case "failed":
+		return "ai.provider_failed"
+	case "canceled":
+		return "ai.provider_canceled"
+	case "outcome_unknown":
+		return "ai.provider_outcome_unknown"
+	default:
+		return ""
+	}
 }
 
 func sameOptionalString(left, right *string) bool {

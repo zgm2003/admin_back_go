@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"io"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -101,17 +103,22 @@ func newTestChatService(deps Dependencies) *Service {
 }
 
 type fakeRepository struct {
-	conversation *Conversation
-	agent        *AgentEngineConfig
-	acceptedRun  *airun.Run
-	agentID      uint64
-	history      []MessageHistory
-	assistant    AssistantPublication
-	createdRun   CreateRunRecord
-	completedRun CompleteRunRecord
-	finishedRun  FinishRunRecord
-	timeoutLimit int
-	staleBefore  time.Time
+	conversation       *Conversation
+	agent              *AgentEngineConfig
+	recoveryProvider   *AgentEngineConfig
+	acceptedRun        *airun.Run
+	agentID            uint64
+	recoveryProviderID uint64
+	conversationCalls  int
+	agentCalls         int
+	historyCalls       int
+	history            []MessageHistory
+	assistant          AssistantPublication
+	createdRun         CreateRunRecord
+	completedRun       CompleteRunRecord
+	finishedRun        FinishRunRecord
+	timeoutLimit       int
+	staleBefore        time.Time
 }
 
 type fakeDurableTextService struct {
@@ -180,14 +187,21 @@ func (f *fakeRunRecorder) Timeout(ctx context.Context, input airun.TimeoutInput)
 }
 
 func (f *fakeRepository) ConversationForReply(ctx context.Context, id int64, userID int64) (*Conversation, error) {
+	f.conversationCalls++
 	return f.conversation, nil
 }
 func (f *fakeRepository) AgentForRuntime(ctx context.Context, agentID uint64) (*AgentEngineConfig, error) {
+	f.agentCalls++
 	f.agentID = agentID
 	return f.agent, nil
 }
 func (f *fakeRepository) LatestMessages(ctx context.Context, conversationID int64, limit int) ([]MessageHistory, error) {
+	f.historyCalls++
 	return f.history, nil
+}
+func (f *fakeRepository) ProviderForPreparedRecovery(_ context.Context, providerID uint64) (*AgentEngineConfig, error) {
+	f.recoveryProviderID = providerID
+	return f.recoveryProvider, nil
 }
 func (f *fakeRepository) AcceptedRunForReply(_ context.Context, _ int64, requestID string) (*airun.Run, error) {
 	if f.acceptedRun != nil {
@@ -268,6 +282,24 @@ type fakeProviderAttemptRecorder struct {
 type fakePaidAttemptExecutor struct {
 	result *PaidChatAttemptResult
 	err    error
+}
+
+type recoveringPaidAttemptExecutor struct {
+	hasPrepared bool
+	probeRunID  int64
+	probeCmdID  uint64
+	input       PaidChatAttemptInput
+}
+
+func (f *recoveringPaidAttemptExecutor) HasPreparedPaidChatAttempt(_ context.Context, runID int64, commandID uint64) (bool, error) {
+	f.probeRunID = runID
+	f.probeCmdID = commandID
+	return f.hasPrepared, nil
+}
+
+func (f *recoveringPaidAttemptExecutor) ExecutePaidChatAttempt(_ context.Context, input PaidChatAttemptInput) (*PaidChatAttemptResult, error) {
+	f.input = input
+	return &PaidChatAttemptResult{Finalized: true, AssistantMessageID: 22}, nil
 }
 
 type sequencePaidAttemptExecutor struct {
@@ -378,6 +410,16 @@ type fakeEngineFactory struct {
 	engine infraai.Engine
 	input  EngineConfig
 	err    error
+}
+
+type fakePreparedFileOpener struct{}
+
+func (*fakePreparedFileOpener) Head(context.Context, infraai.PreparedFileOpenInput) (infraai.PreparedFileObjectMetadata, error) {
+	return infraai.PreparedFileObjectMetadata{}, nil
+}
+
+func (*fakePreparedFileOpener) Open(context.Context, infraai.PreparedFileOpenInput) (io.ReadCloser, infraai.PreparedFileObjectMetadata, error) {
+	return io.NopCloser(strings.NewReader("")), infraai.PreparedFileObjectMetadata{}, nil
 }
 
 func (f *fakeEngineFactory) NewEngine(ctx context.Context, input EngineConfig) (infraai.Engine, error) {
@@ -639,6 +681,8 @@ func TestCompleteTextRejectsEmptySettledAnswer(t *testing.T) {
 
 func TestExecuteDurableConversationReplyPublishesOnlyEphemeralEventsAndPersistsAssistant(t *testing.T) {
 	agent, box := validAgentConfig(t)
+	agent.FileInputMode = "chat_completions"
+	fileOpener := &fakePreparedFileOpener{}
 	repo := &fakeRepository{
 		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5, IsDel: enum.CommonNo},
 		agent:        agent,
@@ -650,14 +694,14 @@ func TestExecuteDurableConversationReplyPublishesOnlyEphemeralEventsAndPersistsA
 	factory := &fakeEngineFactory{engine: infraai.NewFakeEngine("ok")}
 	recorder := &fakeRunRecorder{nextID: 100}
 	attempts := &fakeProviderAttemptRecorder{}
-	res, err := newTestChatService(Dependencies{Repository: repo, AssistantPublisher: repo, AttemptRecorder: attempts, Publisher: pub, RunRecorder: recorder, EngineFactory: factory, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{CommandID: 41, LeaseOwner: "worker-a", LeaseToken: 2, ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
+	res, err := newTestChatService(Dependencies{Repository: repo, AssistantPublisher: repo, AttemptRecorder: attempts, Publisher: pub, RunRecorder: recorder, EngineFactory: factory, FileOpener: fileOpener, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{CommandID: 41, LeaseOwner: "worker-a", LeaseToken: 2, ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
 	if err != nil {
 		t.Fatalf("ExecuteConversationReply returned error: %v", err)
 	}
 	if res.AssistantMessageID != 22 || repo.assistant.Content != "ok" || repo.assistant.ConversationID != 3 {
 		t.Fatalf("unexpected assistant result: res=%#v assistant=%#v", res, repo.assistant)
 	}
-	if factory.input.APIKey != "provider-key" || factory.input.EngineType != infraai.EngineTypeOpenAI {
+	if factory.input.APIKey != "provider-key" || factory.input.EngineType != infraai.EngineTypeOpenAI || factory.input.FileInputMode != "chat_completions" || factory.input.FileOpener != fileOpener {
 		t.Fatalf("unexpected engine config: %#v", factory.input)
 	}
 	if recorder.started != (airun.StartInput{}) {
@@ -697,6 +741,56 @@ func TestExecuteDurableConversationReplyDoesNotReportFailureAfterTerminalCommit(
 	})
 	if err != nil || res == nil || res.AssistantMessageID != 22 {
 		t.Fatalf("committed assistant result was reported as failed: result=%#v err=%v", res, err)
+	}
+}
+
+func TestRecoveredNativeFileAttemptUsesPersistedManifestOnly(t *testing.T) {
+	_, box := validAgentConfig(t)
+	cipher, err := box.Encrypt("recovery-provider-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	conversationID, userMessageID := int64(3), int64(9)
+	repo := &fakeRepository{
+		recoveryProvider: &AgentEngineConfig{
+			AgentID: 5, ProviderID: 2, EngineType: "mutated-transport", FileInputMode: "disabled",
+			EngineBaseURL: "https://current-provider.test/v1", EngineAPIKeyEnc: cipher,
+		},
+		acceptedRun: &airun.Run{
+			ID: 100, UserID: 7, AgentID: 5, ProviderID: 2, ModelID: "gpt-5.4", RequestID: "rid",
+			ConversationID: &conversationID, UserMessageID: &userMessageID,
+			PricingSnapshotJSON: `{"version":"test-v1","billable":true,"catalog_vendor":"test","transport_engine":"openai","requested_model_id":"gpt-5.4","canonical_model_id":"gpt-5.4","catalog_max_output_tokens":100,"effective_max_output_tokens":10,"multiplier_ppm":1000000,"source_url":"https://example.test/pricing","retrieved_at":"2026-07-26","rates":[{"category":"input","unit":"token","tier_key":"","price_units":1,"unit_scale":1000000},{"category":"output","unit":"token","tier_key":"","price_units":1,"unit_scale":1000000}]}`,
+			Status:              enum.AIRunStatusRunning, BillingStatus: "held", BillingReason: "held",
+		},
+	}
+	paid := &recoveringPaidAttemptExecutor{hasPrepared: true}
+	factory := &fakeEngineFactory{engine: infraai.NewFakeEngine("must not stream mutable input")}
+	fileOpener := &fakePreparedFileOpener{}
+	service := newTestChatService(Dependencies{
+		Repository: repo, PaidAttemptExecutor: paid, Publisher: &fakePublisher{},
+		EngineFactory: factory, FileOpener: fileOpener, Secretbox: box,
+	})
+
+	result, err := service.ExecuteConversationReply(context.Background(), ConversationReplyInput{
+		CommandID: 41, LeaseOwner: "worker-a", LeaseToken: 2, ConversationID: 3, UserID: 7,
+		AgentID: 5, UserMessageID: 9, RequestID: "rid", CommandAttempt: 2, CommandMaxAttempts: 3,
+	})
+
+	if err != nil || result == nil || !result.Finalized || result.AssistantMessageID != 22 {
+		t.Fatalf("recovery result=%+v err=%v", result, err)
+	}
+	if paid.probeRunID != 100 || paid.probeCmdID != 41 || paid.input.RunID != 100 || paid.input.CommandID != 41 {
+		t.Fatalf("recovery probe/input=%+v input=%+v", paid, paid.input)
+	}
+	if repo.conversationCalls != 0 || repo.agentCalls != 0 || repo.historyCalls != 0 || repo.recoveryProviderID != 2 {
+		t.Fatalf("mutable context was consulted: conversation=%d agent=%d history=%d recovery_provider=%d", repo.conversationCalls, repo.agentCalls, repo.historyCalls, repo.recoveryProviderID)
+	}
+	if factory.input.EngineType != infraai.EngineTypeOpenAI || factory.input.BaseURL != "https://current-provider.test/v1" ||
+		factory.input.APIKey != "recovery-provider-key" || factory.input.FileInputMode != "disabled" || factory.input.FileOpener != fileOpener {
+		t.Fatalf("recovery engine config=%+v", factory.input)
+	}
+	if paid.input.ChatInput.Content != "" || len(paid.input.ChatInput.Inputs) != 0 || !reflect.DeepEqual(paid.input.RequestIdentity, requestidentity.Input{}) {
+		t.Fatalf("mutable request identity leaked into recovery: %+v", paid.input)
 	}
 }
 
@@ -1216,7 +1310,8 @@ func TestNativeFileContextIncludesSelectedHistoryAndCurrentMessage(t *testing.T)
 
 	messages[2].MetaJSON = &currentOverLimit
 	appErr := requireNativeFileContextWithinLimit(messages)
-	if appErr == nil || appErr.Message != "当前对话文件上下文超过 50 MB，请新建对话或减少历史范围" {
+	if appErr == nil || appErr.Code != "ai.attachment.context_total_too_large" || appErr.Category != apperror.CategoryValidation ||
+		appErr.HTTPStatus != 400 || appErr.Retry != apperror.Permanent || appErr.Message != "当前对话文件上下文超过 50 MB，请新建对话或减少历史范围" {
 		t.Fatalf("over-limit error=%#v", appErr)
 	}
 }

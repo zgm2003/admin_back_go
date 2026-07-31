@@ -1,6 +1,7 @@
 package aigateway
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/module/ai/billing"
 	"admin_back_go/internal/module/ai/requestidentity"
+	"admin_back_go/internal/shared/apperror"
 )
 
 type testAssembler struct{ calls int }
@@ -157,6 +159,16 @@ type testRunStore struct {
 	zeroHoldTarget bool
 }
 
+type orderedRunStore struct {
+	testRunStore
+	order *[]string
+}
+
+func (s orderedRunStore) LockRunAndCharge(ctx context.Context, tx Transaction, runID int64) (LockedRunCharge, error) {
+	*s.order = append(*s.order, "run")
+	return s.testRunStore.LockRunAndCharge(ctx, tx, runID)
+}
+
 type testPriorUsagePricer struct {
 	units           int64
 	err             error
@@ -199,6 +211,16 @@ type testAttemptStore struct {
 	markCalls     int
 }
 
+type orderedAttemptStore struct {
+	*testAttemptStore
+	order *[]string
+}
+
+func (s *orderedAttemptStore) GetDispatchedForUpdate(ctx context.Context, tx Transaction, runID int64, attemptNo uint32) (ProviderAttempt, error) {
+	*s.order = append(*s.order, "attempt")
+	return s.testAttemptStore.GetDispatchedForUpdate(ctx, tx, runID, attemptNo)
+}
+
 type testProvider struct {
 	calls          int
 	preflightCalls int
@@ -207,6 +229,16 @@ type testProvider struct {
 	proofHash      [32]byte
 	proofErr       error
 	capabilities   infraai.CapabilityMetadata
+}
+
+type capturingProvider struct {
+	testProvider
+	attempt ProviderAttempt
+}
+
+func (p *capturingProvider) Dispatch(ctx context.Context, attempt ProviderAttempt) (DispatchResult, error) {
+	p.attempt = cloneAttempt(attempt)
+	return p.testProvider.Dispatch(ctx, attempt)
 }
 
 func (p *testProvider) Dispatch(context.Context, ProviderAttempt) (DispatchResult, error) {
@@ -252,6 +284,36 @@ func TestGatewayPreflightFailureNeverMarksOrDispatchesAttempt(t *testing.T) {
 	}
 	if provider.preflightCalls != 1 || store.markCalls != 0 || provider.calls != 0 {
 		t.Fatalf("preflight=%d mark=%d dispatch=%d", provider.preflightCalls, store.markCalls, provider.calls)
+	}
+}
+
+func TestGatewayDispatchPassesPersistedFileManifestUnchanged(t *testing.T) {
+	manifest, err := infraai.MarshalPreparedChatFileManifest(infraai.PreparedChatFileManifest{
+		Schema: infraai.PreparedChatSchemaFileManifestV1, FileInputMode: "chat_completions",
+		Request: json.RawMessage(`{"model":"gpt-5.6","messages":[{"role":"user","content":[{"type":"file_ref","ref":"file-1"}]}]}`),
+		Files: []infraai.PreparedFileRef{{
+			Ref: "file-1", ObjectKey: "ai_chat_attachments/report.pdf", ETag: `"v1"`,
+			Size: 4, MIMEType: "application/pdf", Filename: "report.pdf",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt := validAttempt(71, 1, 5)
+	attempt.PreparedRequest = append([]byte(nil), manifest...)
+	attempt.RequestSHA256 = sha256.Sum256(manifest)
+	attempt.Quote.PreparedRequestSHA256 = attempt.RequestSHA256
+	attempt.Quote.PreparedRequestSchema = infraai.PreparedChatSchemaFileManifestV1
+	store := &testAttemptStore{attempt: cloneAttempt(attempt), state: "prepared"}
+	provider := &capturingProvider{}
+	deps := testGatewayDependencies(&testReserve{}, store)
+	deps.Provider = provider
+
+	if _, err := New(deps).Dispatch(context.Background(), attempt); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(provider.attempt.PreparedRequest, manifest) || provider.attempt.IdempotencyKey != attempt.IdempotencyKey {
+		t.Fatalf("provider attempt changed: %+v", provider.attempt)
 	}
 }
 
@@ -1065,6 +1127,42 @@ func TestGatewayTerminalOutcomeReplayRequiresIdenticalEvidence(t *testing.T) {
 	}
 }
 
+func TestGatewayTerminalReplayNormalizesPersistedFailureCodeAndIgnoresDiagnosticMetrics(t *testing.T) {
+	left := DispatchResult{
+		DispatchState: infraai.DispatchStateDispatched, TerminalState: "failed",
+		ErrorCode: "ai.provider_failed", Usage: infraai.UsageSnapshot{Status: infraai.UsageStatusUnavailable},
+	}
+	right := left
+	right.ErrorCode = ""
+	right.FileInputMetrics = &infraai.FileInputMetrics{COSHeadMS: 1, COSStreamMS: 2, MaterializedRequestBytes: 3}
+	if !sameTerminalEvidence(left, right) {
+		t.Fatal("persisted terminal evidence rejected equivalent runtime diagnostics")
+	}
+	right.ErrorCode = "ai.provider.file_part_rejected"
+	if sameTerminalEvidence(left, right) {
+		t.Fatal("different stable application error codes were treated as equivalent")
+	}
+}
+
+func TestGatewayRecordOutcomeLocksRunBeforeAttempt(t *testing.T) {
+	attempt := validAttempt(81, 1, 5)
+	baseStore := &testAttemptStore{attempt: attempt, state: "dispatched"}
+	order := make([]string, 0, 2)
+	deps := testGatewayDependencies(&testReserve{}, baseStore)
+	deps.Runs = orderedRunStore{order: &order}
+	deps.Attempts = &orderedAttemptStore{testAttemptStore: baseStore, order: &order}
+	result := DispatchResult{
+		ProviderRequestID: "provider-request-81", ResponseSHA256: sha256.Sum256([]byte("response-81")),
+		DispatchState: infraai.DispatchStateDispatched, TerminalState: "succeeded", Usage: completeUsageForGatewayTest(),
+	}
+	if err := New(deps).RecordOutcome(context.Background(), attempt, result); err != nil {
+		t.Fatal(err)
+	}
+	if len(order) != 2 || order[0] != "run" || order[1] != "attempt" {
+		t.Fatalf("terminal lock order=%v", order)
+	}
+}
+
 func TestGatewayAssembleValidatesPersistedRunIdentityBeforeAssembler(t *testing.T) {
 	identity := requestIdentity("identity")
 	fingerprint := requestFingerprint(identity)
@@ -1105,3 +1203,15 @@ func (p providerError) ProvePreparedUpperBound(_ context.Context, attempt Provid
 }
 
 func (p providerError) PreflightPrepared(context.Context, ProviderAttempt) error { return nil }
+
+func TestTerminalProviderRejectionPreservesStableApplicationErrorCode(t *testing.T) {
+	providerErr := infraai.NewProviderError(infraai.ProviderOutcomeRejected, "provider-request-file-1", apperror.New(
+		"ai.provider.file_part_rejected", apperror.CategoryDependency, 502, apperror.Permanent,
+		"ai.provider.file_part_rejected", nil, "上游渠道拒绝文件内容",
+	))
+	result := terminalResultForProviderError(DispatchResult{}, providerErr)
+	if result.ErrorCode != "ai.provider.file_part_rejected" || result.ProviderRequestID != "provider-request-file-1" ||
+		result.DispatchState != infraai.DispatchStateDispatched || result.TerminalState != "failed" {
+		t.Fatalf("terminal result=%+v", result)
+	}
+}

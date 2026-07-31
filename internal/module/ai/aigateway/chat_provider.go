@@ -177,6 +177,7 @@ func (p *PreparedChatProvider) Dispatch(ctx context.Context, attempt ProviderAtt
 		TerminalState:       terminalState,
 		Usage:               result.Usage,
 		ResultCandidateJSON: candidate,
+		FileInputMetrics:    cloneFileInputMetrics(result.FileInputMetrics),
 	}, nil
 }
 

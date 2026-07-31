@@ -154,6 +154,8 @@ func (factory aiChatEngineFactory) NewEngine(_ context.Context, input aichat.Eng
 			APIKey:            input.APIKey,
 			Timeout:           30 * time.Second,
 			StreamIdleTimeout: factory.streamIdleTimeout,
+			FileInputMode:     input.FileInputMode,
+			FileOpener:        input.FileOpener,
 		})
 		return infraai.InstrumentEngine(string(input.EngineType), "chat", engine, factory.recorder), nil
 	default:

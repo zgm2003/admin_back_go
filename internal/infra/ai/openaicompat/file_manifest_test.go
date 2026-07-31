@@ -15,6 +15,8 @@ import (
 	"time"
 
 	infraai "admin_back_go/internal/infra/ai"
+	storagecos "admin_back_go/internal/infra/storage/cos"
+	"admin_back_go/internal/shared/apperror"
 )
 
 type memoryPreparedFileOpener struct {
@@ -103,6 +105,22 @@ func TestFileManifestPreflightChecksEveryObjectBeforeDispatch(t *testing.T) {
 	opener.metadata[manifest.Files[1].ObjectKey] = infraai.PreparedFileObjectMetadata{ETag: `"changed"`, Size: 2, MIMEType: "application/json"}
 	if _, err := client.PreflightPreparedChat(context.Background(), body); err == nil {
 		t.Fatal("changed ETag passed preflight")
+	}
+}
+
+func TestFileManifestPreflightClassifiesMetadataDriftAsPermanentObjectError(t *testing.T) {
+	manifest := testPreparedFileManifest(t)
+	body, err := infraai.MarshalPreparedChatFileManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opener := testPreparedFileOpener()
+	metadata := opener.metadata[manifest.Files[0].ObjectKey]
+	metadata.MIMEType = "application/octet-stream"
+	opener.metadata[manifest.Files[0].ObjectKey] = metadata
+	_, err = New(Config{FileOpener: opener}).PreflightPreparedChat(context.Background(), body)
+	if !errors.Is(err, storagecos.ErrInvalidObjectMetadata) {
+		t.Fatalf("metadata drift error=%v", err)
 	}
 }
 
@@ -217,6 +235,88 @@ func TestFileManifestDispatchSetsExactHTTPContentLength(t *testing.T) {
 	}
 	if strings.Contains(string(received), "file_ref") || !strings.Contains(string(received), `"type":"file"`) {
 		t.Fatalf("unexpected outbound body: %s", received)
+	}
+}
+
+func TestFileManifestExplicitHTTPRejectionHasStableFilePartError(t *testing.T) {
+	manifest := testPreparedFileManifest(t)
+	prepared, err := infraai.MarshalPreparedChatFileManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if _, copyErr := io.Copy(io.Discard, request.Body); copyErr != nil {
+			t.Errorf("drain request: %v", copyErr)
+			return
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		writer.Header().Set("X-Request-Id", "file-rejection-1")
+		writer.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = io.WriteString(writer, `{"error":{"message":"file content part is not supported"}}`)
+	}))
+	defer server.Close()
+
+	client := New(Config{BaseURL: server.URL, APIKey: "secret", StreamHTTPClient: server.Client(), FileOpener: testPreparedFileOpener()})
+	_, err = client.StreamPreparedChat(context.Background(), infraai.PreparedChatRequest{Body: prepared, IdempotencyKey: "attempt-file-rejected"}, nil)
+	if outcome, ok := infraai.ProviderOutcomeFromError(err); !ok || outcome != infraai.ProviderOutcomeRejected || infraai.ProviderRequestIDFromError(err) != "file-rejection-1" {
+		t.Fatalf("provider error outcome=%q request_id=%q ok=%v err=%v", outcome, infraai.ProviderRequestIDFromError(err), ok, err)
+	}
+	var appErr *apperror.Error
+	if !errors.As(err, &appErr) || appErr.Code != "ai.provider.file_part_rejected" || appErr.Category != apperror.CategoryDependency ||
+		appErr.HTTPStatus != http.StatusBadGateway || appErr.Retry != apperror.Permanent {
+		t.Fatalf("stable file rejection error=%#v wrapped=%v", appErr, err)
+	}
+}
+
+func TestFileManifestGenericBadRequestKeepsGenericProviderRejection(t *testing.T) {
+	manifest := testPreparedFileManifest(t)
+	prepared, err := infraai.MarshalPreparedChatFileManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		_, _ = io.Copy(io.Discard, request.Body)
+		writer.Header().Set("Content-Type", "application/json")
+		writer.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(writer, `{"error":{"message":"maximum context length exceeded","type":"invalid_request_error","param":"messages"}}`)
+	}))
+	defer server.Close()
+
+	client := New(Config{BaseURL: server.URL, APIKey: "secret", StreamHTTPClient: server.Client(), FileOpener: testPreparedFileOpener()})
+	_, err = client.StreamPreparedChat(context.Background(), infraai.PreparedChatRequest{Body: prepared, IdempotencyKey: "attempt-generic-bad-request"}, nil)
+	if outcome, ok := infraai.ProviderOutcomeFromError(err); !ok || outcome != infraai.ProviderOutcomeRejected {
+		t.Fatalf("provider outcome=%q ok=%v err=%v", outcome, ok, err)
+	}
+	var appErr *apperror.Error
+	if errors.As(err, &appErr) && appErr.Code == "ai.provider.file_part_rejected" {
+		t.Fatalf("generic rejection was mislabeled as file rejection: %v", err)
+	}
+}
+
+func TestFileManifestBodyFailureAfterPossibleDispatchIsOutcomeUnknown(t *testing.T) {
+	manifest := testPreparedFileManifest(t)
+	prepared, err := infraai.MarshalPreparedChatFileManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		defer request.Body.Close()
+		buffer := make([]byte, 1)
+		if _, readErr := request.Body.Read(buffer); readErr != nil {
+			return nil, readErr
+		}
+		return nil, errors.New("connection closed after request body started")
+	})
+	client := New(Config{
+		BaseURL: "https://provider.test", APIKey: "secret", StreamHTTPClient: &http.Client{Transport: transport},
+		FileOpener: testPreparedFileOpener(),
+	})
+
+	_, err = client.StreamPreparedChat(context.Background(), infraai.PreparedChatRequest{
+		Body: prepared, IdempotencyKey: "attempt-body-failure",
+	}, nil)
+	if outcome, ok := infraai.ProviderOutcomeFromError(err); !ok || outcome != infraai.ProviderOutcomeUnknown {
+		t.Fatalf("body failure outcome=%q ok=%v err=%v", outcome, ok, err)
 	}
 }
 

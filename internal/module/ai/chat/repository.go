@@ -82,6 +82,33 @@ func (r *GormRepository) AgentForRuntime(ctx context.Context, agentID uint64) (*
 	return &row, nil
 }
 
+func (r *GormRepository) ProviderForPreparedRecovery(ctx context.Context, providerID uint64) (*AgentEngineConfig, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	if providerID == 0 {
+		return nil, nil
+	}
+	var row AgentEngineConfig
+	err := r.db.WithContext(ctx).Table("ai_providers AS e").
+		Select(`e.id AS provider_id,
+			e.engine_type AS engine_type,
+			e.file_input_mode AS file_input_mode,
+			e.base_url AS engine_base_url,
+			e.api_key_enc AS engine_api_key_enc,
+			e.status AS engine_status`).
+		Where("e.id = ?", providerID).
+		Limit(1).
+		Scan(&row).Error
+	if err != nil {
+		return nil, err
+	}
+	if row.ProviderID == 0 {
+		return nil, nil
+	}
+	return &row, nil
+}
+
 func (r *GormRepository) LatestMessages(ctx context.Context, conversationID int64, limit int) ([]MessageHistory, error) {
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured

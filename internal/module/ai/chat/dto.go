@@ -200,6 +200,10 @@ type PaidChatAttemptExecutor interface {
 	ExecutePaidChatAttempt(context.Context, PaidChatAttemptInput) (*PaidChatAttemptResult, error)
 }
 
+type PreparedPaidAttemptProbe interface {
+	HasPreparedPaidChatAttempt(context.Context, int64, uint64) (bool, error)
+}
+
 type PaidChatAttemptFinalizer interface {
 	FinalizePaidChatAttempt(context.Context, PaidChatAttemptInput) (*PaidChatAttemptResult, error)
 }
@@ -214,6 +218,7 @@ type EngineConfig struct {
 	BaseURL       string
 	APIKey        string
 	FileInputMode string
+	FileOpener    infraai.PreparedFileOpener
 }
 
 type EngineFactory interface {
@@ -289,6 +294,10 @@ type Repository interface {
 	CompleteRun(ctx context.Context, input CompleteRunRecord) error
 	FinishRun(ctx context.Context, input FinishRunRecord) error
 	TimeoutRuns(ctx context.Context, limit int, staleBefore time.Time, message string) (int64, error)
+}
+
+type PreparedRecoveryRepository interface {
+	ProviderForPreparedRecovery(context.Context, uint64) (*AgentEngineConfig, error)
 }
 
 type RunRecorder = airun.Recorder

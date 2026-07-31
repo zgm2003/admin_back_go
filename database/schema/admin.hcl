@@ -2135,7 +2135,7 @@ table "ai_run_events" {
     columns = [column.run_id, column.seq]
   }
   check "chk_ai_run_events_type" {
-    expr = "(`event_type` in (_utf8mb4'start',_utf8mb4'completed',_utf8mb4'failed',_utf8mb4'canceled',_utf8mb4'timeout',_utf8mb4'retry_scheduled',_utf8mb4'usage_recorded',_utf8mb4'outcome_unknown',_utf8mb4'settled',_utf8mb4'released',_utf8mb4'unbilled'))"
+    expr = "(`event_type` in (_utf8mb4'start',_utf8mb4'completed',_utf8mb4'failed',_utf8mb4'canceled',_utf8mb4'timeout',_utf8mb4'retry_scheduled',_utf8mb4'usage_recorded',_utf8mb4'outcome_unknown',_utf8mb4'settled',_utf8mb4'released',_utf8mb4'unbilled',_utf8mb4'file_materialized_v1'))"
   }
 }
 table "ai_runs" {

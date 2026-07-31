@@ -18,6 +18,7 @@ import (
 	"time"
 
 	infraai "admin_back_go/internal/infra/ai"
+	"admin_back_go/internal/shared/apperror"
 )
 
 const (
@@ -223,8 +224,8 @@ func (c *Client) PreflightPreparedChat(ctx context.Context, body []byte) (*infra
 			if headErr != nil {
 				return metrics, headErr
 			}
-			if !preparedFileMetadataMatches(file, metadata) {
-				return metrics, errors.New("prepared file object metadata changed")
+			if metadataErr := preparedFileMetadataError(file, metadata); metadataErr != nil {
+				return metrics, metadataErr
 			}
 		}
 		return metrics, nil
@@ -321,6 +322,12 @@ func (c *Client) streamPreparedChat(ctx context.Context, input infraai.PreparedC
 	defer resp.Body.Close()
 	providerRequestID := strings.TrimSpace(resp.Header.Get("X-Request-Id"))
 	if err := c.requireSuccess(resp); err != nil {
+		if schema == infraai.PreparedChatSchemaFileManifestV1 && isExplicitFilePartRejection(err) {
+			err = apperror.Wrap(
+				"ai.provider.file_part_rejected", apperror.CategoryDependency, http.StatusBadGateway, apperror.Permanent,
+				"ai.provider.file_part_rejected", nil, "上游渠道拒绝文件内容，请检查渠道文件协议", err,
+			)
+		}
 		return nil, infraai.NewProviderError(infraai.ProviderOutcomeRejected, providerRequestID, err)
 	}
 	watcher := newStreamIdleWatcher(streamIdleTimeout, resp.Body.Close)
@@ -466,13 +473,64 @@ func (c *Client) requireSuccess(resp *http.Response) error {
 		return fmt.Errorf("%w: %s", infraai.ErrUpstreamFailed, resp.Status)
 	}
 	message := upstreamHTTPErrorMessage(body, c.apiKey)
+	metadata := extractUpstreamErrorMetadata(body)
+	cause := error(infraai.ErrUpstreamFailed)
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return fmt.Errorf("%w: %s %s", infraai.ErrUnauthorized, resp.Status, message)
+		cause = infraai.ErrUnauthorized
 	}
 	if resp.StatusCode == http.StatusTooManyRequests {
-		return fmt.Errorf("%w: %s %s", infraai.ErrRateLimited, resp.Status, message)
+		cause = infraai.ErrRateLimited
 	}
-	return fmt.Errorf("%w: %s %s", infraai.ErrUpstreamFailed, resp.Status, message)
+	return &upstreamResponseError{
+		cause: cause, statusCode: resp.StatusCode, status: resp.Status, message: message,
+		code: metadata.code, kind: metadata.kind, param: metadata.param,
+	}
+}
+
+type upstreamResponseError struct {
+	cause      error
+	statusCode int
+	status     string
+	message    string
+	code       string
+	kind       string
+	param      string
+}
+
+func (err *upstreamResponseError) Error() string {
+	if err == nil {
+		return ""
+	}
+	return fmt.Sprintf("%v: %s %s", err.cause, err.status, err.message)
+}
+
+func (err *upstreamResponseError) Unwrap() error {
+	if err == nil {
+		return nil
+	}
+	return err.cause
+}
+
+func isExplicitFilePartRejection(err error) bool {
+	var responseErr *upstreamResponseError
+	if !errors.As(err, &responseErr) || (responseErr.statusCode != http.StatusBadRequest && responseErr.statusCode != http.StatusUnprocessableEntity) {
+		return false
+	}
+	for _, field := range []string{responseErr.code, responseErr.kind, responseErr.param} {
+		if strings.Contains(strings.ToLower(strings.TrimSpace(field)), "file") {
+			return true
+		}
+	}
+	message := strings.ToLower(strings.TrimSpace(responseErr.message))
+	if !strings.Contains(message, "file") {
+		return false
+	}
+	for _, marker := range []string{"not supported", "unsupported", "invalid", "rejected", "not allowed", "only supports"} {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *Client) readChatCompletionStream(ctx context.Context, body io.Reader, sink infraai.EventSink, touch func()) (*infraai.ChatResult, error) {
@@ -1164,6 +1222,28 @@ func upstreamHTTPErrorMessage(body []byte, apiKey string) string {
 		return sanitizeBody(body, apiKey)
 	}
 	return sanitizeBody([]byte(detail), apiKey)
+}
+
+type upstreamErrorMetadata struct {
+	code  string
+	kind  string
+	param string
+}
+
+func extractUpstreamErrorMetadata(body []byte) upstreamErrorMetadata {
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return upstreamErrorMetadata{}
+	}
+	source := payload
+	if nested, ok := payload["error"].(map[string]any); ok {
+		source = nested
+	}
+	return upstreamErrorMetadata{
+		code:  stringFromAny(source["code"]),
+		kind:  stringFromAny(source["type"]),
+		param: stringFromAny(source["param"]),
+	}
 }
 
 func extractUpstreamErrorDetail(body []byte) string {

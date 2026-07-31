@@ -12,6 +12,7 @@ import (
 	"time"
 
 	infraai "admin_back_go/internal/infra/ai"
+	storagecos "admin_back_go/internal/infra/storage/cos"
 )
 
 var ErrMaterializedBodyTooLarge = errors.New("materialized chat request body is too large")
@@ -218,10 +219,10 @@ func writeFileManifestSegments(ctx context.Context, writer *io.PipeWriter, segme
 			metrics.COSStreamMS += time.Since(streamStartedAt).Milliseconds()
 			return metrics, err
 		}
-		if !preparedFileMetadataMatches(*segment.file, metadata) {
+		if metadataErr := preparedFileMetadataError(*segment.file, metadata); metadataErr != nil {
 			_ = body.Close()
 			metrics.COSStreamMS += time.Since(streamStartedAt).Milliseconds()
-			return metrics, errors.New("prepared file object metadata changed")
+			return metrics, metadataErr
 		}
 		encoder := base64.NewEncoder(base64.StdEncoding, writer)
 		_, copyErr := io.CopyN(encoder, body, segment.file.Size)
@@ -244,8 +245,14 @@ func writeFileManifestSegments(ctx context.Context, writer *io.PipeWriter, segme
 	return metrics, nil
 }
 
-func preparedFileMetadataMatches(file infraai.PreparedFileRef, metadata infraai.PreparedFileObjectMetadata) bool {
-	return metadata.ETag == file.ETag && metadata.Size == file.Size && metadata.MIMEType == file.MIMEType
+func preparedFileMetadataError(file infraai.PreparedFileRef, metadata infraai.PreparedFileObjectMetadata) error {
+	if metadata.ETag != file.ETag || metadata.Size != file.Size {
+		return storagecos.ErrObjectVersionChanged
+	}
+	if metadata.MIMEType != file.MIMEType {
+		return storagecos.ErrInvalidObjectMetadata
+	}
+	return nil
 }
 
 func base64EncodedLength(size int64) (int64, error) {

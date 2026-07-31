@@ -14,6 +14,7 @@ import (
 	"admin_back_go/internal/infra/redislock"
 	"admin_back_go/internal/infra/scheduler"
 	"admin_back_go/internal/infra/secretkey"
+	storagecos "admin_back_go/internal/infra/storage/cos"
 	"admin_back_go/internal/infra/taskqueue"
 	"admin_back_go/internal/jobs"
 	aichat "admin_back_go/internal/module/ai/chat"
@@ -30,6 +31,7 @@ import (
 	paymentmodule "admin_back_go/internal/module/payment"
 	walletmodule "admin_back_go/internal/module/payment/wallet"
 	modulerealtime "admin_back_go/internal/module/realtime"
+	"admin_back_go/internal/module/uploadtoken"
 	"admin_back_go/internal/module/user"
 	"admin_back_go/internal/telemetry"
 )
@@ -284,6 +286,12 @@ func registerWorkerHandlers(
 	aiRunRepository := airun.NewGormRepository(resources.DB)
 	aiRunRecorder := airun.NewRecorder(aiRunRepository, nil)
 	aiOfficialModelResolver := officialmodel.NewService(officialmodel.NewGormRepository(resources.DB))
+	uploadTokenRepository := uploadtoken.NewGormRepository(resources.DB)
+	aiChatObjectConfig := uploadtoken.NewObjectConfigProvider(uploadTokenRepository, providers.Secretbox)
+	aiChatObjectStreamer := storagecos.NewObjectStreamer(
+		aiChatObjectConfig,
+		storagecos.ObjectStreamerConfig{Enabled: true},
+	)
 	aiTextTasks := aitext.NewGormStore(resources.DB)
 	aiToolRepository := aitool.NewGormRepository(resources.DB)
 	aiToolRuntime := aitool.NewService(aiToolRepository, aitool.DefaultExecutors(aiToolRepository))
@@ -310,6 +318,7 @@ func registerWorkerHandlers(
 		Publisher:           realtimePublisher,
 		Secretbox:           providers.Secretbox,
 		EngineFactory:       providers.AIChatFactory,
+		FileOpener:          aiChatObjectStreamer,
 		ToolRuntime:         aiToolRuntime,
 		RunRecorder:         aiRunRecorder,
 		TextGeneration:      aiTextService,

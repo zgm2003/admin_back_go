@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"path"
 	"reflect"
 	"strconv"
@@ -16,10 +17,12 @@ import (
 	infraai "admin_back_go/internal/infra/ai"
 	storagecos "admin_back_go/internal/infra/storage/cos"
 	"admin_back_go/internal/module/ai/aigateway"
+	"admin_back_go/internal/module/ai/capability"
 	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/pricing"
 	aiprovider "admin_back_go/internal/module/ai/provider"
 	"admin_back_go/internal/module/ai/replycommand"
+	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
 	"admin_back_go/internal/shared/uploadpolicy"
 
@@ -769,10 +772,11 @@ func TestSendEnforcesTrustedAttachmentByteLimits(t *testing.T) {
 		sizes         []int64
 		systemMax     int64
 		wantMessageID string
+		wantCode      string
 	}{
-		{name: "native file is strictly below fifty MiB", sizes: []int64{50 << 20}, systemMax: 100 << 20, wantMessageID: "aimessage.attachments.file_size_exceeded"},
-		{name: "message aggregate is at most fifty MiB", sizes: []int64{30 << 20, 21 << 20}, systemMax: 100 << 20, wantMessageID: "aimessage.attachments.total_size_exceeded"},
-		{name: "system upload rule remains authoritative", sizes: []int64{2 << 20}, systemMax: 1 << 20, wantMessageID: "aimessage.attachments.system_size_exceeded"},
+		{name: "native file is strictly below fifty MiB", sizes: []int64{50 << 20}, systemMax: 100 << 20, wantMessageID: "aimessage.attachments.file_size_exceeded", wantCode: "ai.attachment.file_too_large"},
+		{name: "message aggregate is at most fifty MiB", sizes: []int64{30 << 20, 21 << 20}, systemMax: 100 << 20, wantMessageID: "aimessage.attachments.total_size_exceeded", wantCode: "ai.attachment.message_total_too_large"},
+		{name: "system upload rule remains authoritative", sizes: []int64{2 << 20}, systemMax: 1 << 20, wantMessageID: "aimessage.attachments.system_size_exceeded", wantCode: "ai.attachment.file_too_large"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -804,8 +808,72 @@ func TestSendEnforcesTrustedAttachmentByteLimits(t *testing.T) {
 			_, appErr := service.Send(context.Background(), 7, SendInput{
 				ConversationID: 3, Content: "summarize", RequestID: "limit-rid", Attachments: attachments,
 			})
-			if appErr == nil || appErr.MessageID != test.wantMessageID || repo.replyInput.RequestID != "" {
+			if appErr == nil || appErr.Code != test.wantCode || appErr.MessageID != test.wantMessageID ||
+				appErr.Category != apperror.CategoryValidation || appErr.HTTPStatus != http.StatusBadRequest || appErr.Retry != apperror.Permanent || repo.replyInput.RequestID != "" {
 				t.Fatalf("limit error=%#v reply=%#v", appErr, repo.replyInput)
+			}
+		})
+	}
+}
+
+func TestNativeFileAttachmentStableAcceptanceErrors(t *testing.T) {
+	tests := []struct {
+		name, reason, code, messageID string
+	}{
+		{name: "official model", reason: capability.NativeFileDisabledOfficialModel, code: "ai.attachment.model_unsupported", messageID: "aimessage.attachments.official_model_unsupported"},
+		{name: "provider mode", reason: capability.NativeFileDisabledProviderMode, code: "ai.attachment.provider_file_input_disabled", messageID: "aimessage.attachments.provider_file_input_disabled"},
+		{name: "transport", reason: capability.NativeFileDisabledTransport, code: "ai.attachment.transport_unsupported", messageID: "aimessage.attachments.transport_unsupported"},
+		{name: "platform type set", reason: capability.NativeFileDisabledPlatform, code: "ai.attachment.type_unsupported", messageID: "aimessage.attachments.platform_unsupported"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			appErr := nativeFileCapabilityError(test.reason)
+			if appErr.Code != test.code || appErr.MessageID != test.messageID || appErr.Category != apperror.CategoryValidation ||
+				appErr.HTTPStatus != http.StatusBadRequest || appErr.Retry != apperror.Permanent {
+				t.Fatalf("stable error=%#v", appErr)
+			}
+		})
+	}
+
+	tooMany := make([]Attachment, capability.MaxAttachmentsPerMessage+1)
+	_, _, appErr := (&Service{}).inspectAttachments(context.Background(), AgentRuntime{}, officialmodel.Capabilities{}, officialmodel.Capabilities{}, tooMany)
+	if appErr == nil || appErr.Code != "ai.attachment.too_many" || appErr.Category != apperror.CategoryValidation || appErr.HTTPStatus != http.StatusBadRequest || appErr.Retry != apperror.Permanent {
+		t.Fatalf("too many error=%#v", appErr)
+	}
+
+	_, appErr = normalizeLocalAttachment(Attachment{Type: "archive"}, uploadpolicy.Rule{}, capability.NativeFileCapability{}, officialmodel.Capabilities{})
+	if appErr == nil || appErr.Code != "ai.attachment.type_unsupported" || appErr.Category != apperror.CategoryValidation || appErr.HTTPStatus != http.StatusBadRequest || appErr.Retry != apperror.Permanent {
+		t.Fatalf("type error=%#v", appErr)
+	}
+}
+
+func TestNativeFileAttachmentObjectErrorsRemainDistinct(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		code string
+	}{
+		{name: "object unavailable", err: storagecos.ErrObjectUnavailable, code: "ai.attachment.object_unavailable"},
+		{name: "object version changed", err: storagecos.ErrObjectVersionChanged, code: "ai.attachment.object_version_changed"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			service := &Service{
+				capabilities:    staticTransportCapabilityResolver{ok: true, metadata: infraai.CapabilityMetadata{InputModalities: []string{"text", "file"}}},
+				uploadRules:     testMessageUploadRuleResolver(),
+				objectInspector: &fakeMessageObjectInspector{err: test.err},
+			}
+			runtime := AgentRuntime{
+				EngineType: "openai", FileInputMode: aiprovider.FileInputModeChatCompletions,
+				ProviderModelStatus: enum.CommonYes, MappingStatus: officialmodel.MappingStatusMapped,
+			}
+			capabilities := officialmodel.Capabilities{InputModalities: []string{"text", "file"}, NativeFileInput: true}
+			_, _, appErr := service.inspectAttachments(context.Background(), runtime, capabilities, capabilities, []Attachment{{
+				Type: "file", ObjectKey: "ai_chat_attachments/2026/07/report.pdf", Name: "report.pdf",
+			}})
+			if appErr == nil || appErr.Code != test.code || appErr.Category != apperror.CategoryConflict ||
+				appErr.HTTPStatus != http.StatusConflict || appErr.Retry != apperror.Permanent {
+				t.Fatalf("object error=%#v", appErr)
 			}
 		})
 	}
