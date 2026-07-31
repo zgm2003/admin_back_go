@@ -264,6 +264,54 @@ func TestInitOnlyReturnsOpenAIDriver(t *testing.T) {
 	}
 }
 
+func TestPageInitPublishesClosedFileInputModes(t *testing.T) {
+	service := NewService(&fakeRepository{}, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+
+	result, appErr := service.PageInit(context.Background())
+	if appErr != nil {
+		t.Fatalf("PageInit error = %v", appErr)
+	}
+	if len(result.Dict.FileInputModeArr) != len(FileInputModes) {
+		t.Fatalf("file input mode options = %#v", result.Dict.FileInputModeArr)
+	}
+	for index, option := range result.Dict.FileInputModeArr {
+		if option.Value != FileInputModes[index] {
+			t.Fatalf("file input mode option %d = %#v", index, option)
+		}
+	}
+}
+
+func TestCreatePersistsExplicitFileInputMode(t *testing.T) {
+	repo := &fakeRepository{}
+	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+
+	_, appErr := service.Create(context.Background(), CreateInput{
+		Name: "OpenAI", EngineType: "openai", APIKey: "sk-test",
+		ModelIDs: []string{"gpt-5.6"}, FileInputMode: FileInputModeChatCompletions, Status: 1,
+	})
+	if appErr != nil {
+		t.Fatal(appErr)
+	}
+	if repo.created == nil || repo.created.FileInputMode != FileInputModeChatCompletions {
+		t.Fatalf("created provider=%#v", repo.created)
+	}
+}
+
+func TestCreateRejectsMissingOrUnknownFileInputMode(t *testing.T) {
+	service := NewService(&fakeRepository{}, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+	for _, mode := range []string{"", "auto"} {
+		t.Run(mode, func(t *testing.T) {
+			_, appErr := service.Create(context.Background(), CreateInput{
+				Name: "bad", EngineType: "openai", APIKey: "sk-test",
+				ModelIDs: []string{"gpt-5.6"}, FileInputMode: mode, Status: 1,
+			})
+			if appErr == nil {
+				t.Fatalf("file input mode %q must be rejected", mode)
+			}
+		})
+	}
+}
+
 func TestCreateRequiresAPIKeyAndModels(t *testing.T) {
 	service := NewService(&fakeRepository{}, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
@@ -271,7 +319,7 @@ func TestCreateRequiresAPIKeyAndModels(t *testing.T) {
 	if appErr == nil || !strings.Contains(appErr.Message, "API Key") {
 		t.Fatalf("Create error = %v, want API Key required", appErr)
 	}
-	_, appErr = service.Create(context.Background(), CreateInput{Name: "OpenAI", EngineType: "openai", APIKey: "sk-test", Status: 1})
+	_, appErr = service.Create(context.Background(), CreateInput{Name: "OpenAI", EngineType: "openai", APIKey: "sk-test", FileInputMode: FileInputModeDisabled, Status: 1})
 	if appErr == nil || !strings.Contains(appErr.Message, "模型") {
 		t.Fatalf("Create error = %v, want model required", appErr)
 	}
@@ -292,7 +340,7 @@ func TestListDoesNotDefaultBlankEngineTypeFilter(t *testing.T) {
 
 func TestListRejectsInvalidStoredProviderStateInsteadOfInventingDTOFallback(t *testing.T) {
 	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
-	validProvider := Provider{ID: 1, Name: "OpenAI", EngineType: "openai", HealthStatus: provider.HealthUnknown, LastModelSyncStatus: provider.HealthUnknown, Status: 1, CreatedAt: now, UpdatedAt: now}
+	validProvider := Provider{ID: 1, Name: "OpenAI", EngineType: "openai", FileInputMode: FileInputModeDisabled, HealthStatus: provider.HealthUnknown, LastModelSyncStatus: provider.HealthUnknown, Status: 1, CreatedAt: now, UpdatedAt: now}
 	validModels := []ProviderModel{{ProviderID: 1, ModelID: "gpt-4.1-mini", MappingStatus: "unmapped", Status: 1, CreatedAt: now, UpdatedAt: now}}
 	cases := []struct {
 		name     string
@@ -328,10 +376,11 @@ func TestCreateRequiresCanonicalEngineTypeInsteadOfDriverFallback(t *testing.T) 
 	service := NewService(&fakeRepository{}, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
 	_, appErr := service.Create(context.Background(), CreateInput{
-		Name:     "OpenAI",
-		APIKey:   "sk-test",
-		ModelIDs: []string{"gpt-4.1-mini"},
-		Status:   1,
+		Name:          "OpenAI",
+		APIKey:        "sk-test",
+		FileInputMode: FileInputModeDisabled,
+		ModelIDs:      []string{"gpt-4.1-mini"},
+		Status:        1,
 	})
 	if appErr == nil || appErr.Message != "AI驱动不能为空" {
 		t.Fatalf("expected canonical engine_type error, got %#v", appErr)
@@ -376,6 +425,7 @@ func TestCreatePersistsSelectedModels(t *testing.T) {
 		Name:              "OpenAI",
 		EngineType:        "openai",
 		APIKey:            "sk-test",
+		FileInputMode:     FileInputModeDisabled,
 		ModelIDs:          []string{"gpt-4.1-mini", "gpt-4.1", "gpt-4.1-mini"},
 		ModelDisplayNames: map[string]string{"gpt-4.1-mini": "默认轻量模型"},
 		Status:            1,
@@ -411,7 +461,7 @@ func TestCreateNormalizesEncryptsAndMasksAPIKey(t *testing.T) {
 	repo := &fakeRepository{}
 	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
-	id, appErr := service.Create(context.Background(), CreateInput{Name: " OpenAI ", EngineType: "openai", BaseURL: " https://api.openai.test/v1/ ", APIKey: "plain-secret-key", ModelIDs: []string{"gpt-4.1-mini"}, Status: 1})
+	id, appErr := service.Create(context.Background(), CreateInput{Name: " OpenAI ", EngineType: "openai", BaseURL: " https://api.openai.test/v1/ ", APIKey: "plain-secret-key", FileInputMode: FileInputModeDisabled, ModelIDs: []string{"gpt-4.1-mini"}, Status: 1})
 	if appErr != nil {
 		t.Fatalf("expected create to succeed, got %v", appErr)
 	}
@@ -440,7 +490,7 @@ func TestCreateAppendsOpenAIVersionPathForOriginOnlyBaseURL(t *testing.T) {
 	repo := &fakeRepository{}
 	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
-	_, appErr := service.Create(context.Background(), CreateInput{Name: "Local OpenAI", EngineType: "openai", BaseURL: " http://host.docker.internal:8317/ ", APIKey: "plain-secret-key", ModelIDs: []string{"gpt-5.4"}, Status: 1})
+	_, appErr := service.Create(context.Background(), CreateInput{Name: "Local OpenAI", EngineType: "openai", BaseURL: " http://host.docker.internal:8317/ ", APIKey: "plain-secret-key", FileInputMode: FileInputModeDisabled, ModelIDs: []string{"gpt-5.4"}, Status: 1})
 	if appErr != nil {
 		t.Fatalf("expected create to succeed, got %v", appErr)
 	}
@@ -465,7 +515,7 @@ func TestPreviewModelsAppendsOpenAIVersionPathForOriginOnlyBaseURL(t *testing.T)
 func TestListDTOExcludesEncryptedAndPlainAPIKey(t *testing.T) {
 	now := time.Date(2026, 5, 8, 12, 0, 0, 0, time.UTC)
 	repo := &fakeRepository{
-		rows:             []Provider{{ID: 1, Name: "OpenAI", EngineType: "openai", BaseURL: "", APIKeyEnc: "cipher-secret", APIKeyHint: "***cret", HealthStatus: "ok", LastModelSyncStatus: "unknown", Status: 1, CreatedAt: now, UpdatedAt: now}},
+		rows:             []Provider{{ID: 1, Name: "OpenAI", EngineType: "openai", BaseURL: "", FileInputMode: FileInputModeDisabled, APIKeyEnc: "cipher-secret", APIKeyHint: "***cret", HealthStatus: "ok", LastModelSyncStatus: "unknown", Status: 1, CreatedAt: now, UpdatedAt: now}},
 		total:            1,
 		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", MappingStatus: "unmapped", Status: 1}}},
 	}
@@ -499,11 +549,33 @@ func TestListDTOExcludesEncryptedAndPlainAPIKey(t *testing.T) {
 	}
 }
 
+func TestListDTOProjectsStoredFileInputMode(t *testing.T) {
+	now := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
+	repo := &fakeRepository{
+		rows: []Provider{{
+			ID: 1, Name: "OpenAI", EngineType: "openai", FileInputMode: FileInputModeChatCompletions,
+			HealthStatus: provider.HealthUnknown, LastModelSyncStatus: provider.HealthUnknown,
+			Status: 1, CreatedAt: now, UpdatedAt: now,
+		}},
+		total:            1,
+		modelsByProvider: map[uint64][]ProviderModel{1: {}},
+	}
+	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+
+	result, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20})
+	if appErr != nil {
+		t.Fatal(appErr)
+	}
+	if len(result.List) != 1 || result.List[0].FileInputMode != FileInputModeChatCompletions {
+		t.Fatalf("provider list = %#v", result.List)
+	}
+}
+
 func TestUpdateBlankAPIKeyKeepsExistingEncryptedKey(t *testing.T) {
 	repo := &fakeRepository{rowByID: map[uint64]Provider{5: {ID: 5, Name: "Old", EngineType: "openai", BaseURL: "", APIKeyEnc: "cipher-old", APIKeyHint: "***old", Status: 1}}}
 	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
-	appErr := service.Update(context.Background(), 5, UpdateInput{Name: "New", EngineType: "openai", BaseURL: "", ModelIDs: []string{"gpt-4.1-mini"}, Status: 1})
+	appErr := service.Update(context.Background(), 5, UpdateInput{Name: "New", EngineType: "openai", BaseURL: "", FileInputMode: FileInputModeDisabled, ModelIDs: []string{"gpt-4.1-mini"}, Status: 1})
 	if appErr != nil {
 		t.Fatalf("expected update to succeed, got %v", appErr)
 	}
@@ -516,12 +588,15 @@ func TestUpdateBlankAPIKeyKeepsExistingEncryptedKey(t *testing.T) {
 	if _, ok := repo.updates[0]["api_key_hint"]; ok {
 		t.Fatalf("blank api key must not overwrite key hint: %#v", repo.updates[0])
 	}
+	if repo.updates[0]["file_input_mode"] != FileInputModeDisabled {
+		t.Fatalf("file input mode was not persisted: %#v", repo.updates[0])
+	}
 }
 
 func TestCreateRejectsDuplicateTypeName(t *testing.T) {
 	service := NewService(&fakeRepository{exists: true}, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
-	_, appErr := service.Create(context.Background(), CreateInput{Name: "OpenAI", EngineType: "openai", APIKey: "sk-test", ModelIDs: []string{"gpt-4.1-mini"}, Status: 1})
+	_, appErr := service.Create(context.Background(), CreateInput{Name: "OpenAI", EngineType: "openai", APIKey: "sk-test", FileInputMode: FileInputModeDisabled, ModelIDs: []string{"gpt-4.1-mini"}, Status: 1})
 	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.Message != "该驱动下已存在同名供应商" {
 		t.Fatalf("expected duplicate error, got %#v", appErr)
 	}

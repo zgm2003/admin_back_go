@@ -10,15 +10,28 @@ import (
 	"admin_back_go/internal/shared/dict"
 )
 
+const (
+	FileInputModeDisabled        = "disabled"
+	FileInputModeChatCompletions = "chat_completions"
+)
+
+var FileInputModes = []string{FileInputModeDisabled, FileInputModeChatCompletions}
+
 type InitResponse struct {
 	Dict InitDict `json:"dict"`
 }
 
 type InitDict struct {
-	EngineTypeArr   []dict.Option[string] `json:"engine_type_arr"`
-	CommonStatusArr []dict.Option[int]    `json:"common_status_arr"`
-	HealthStatusArr []dict.Option[string] `json:"health_status_arr"`
-	ModelSyncArr    []dict.Option[string] `json:"model_sync_arr"`
+	EngineTypeArr    []dict.Option[string] `json:"engine_type_arr"`
+	FileInputModeArr []FileInputModeOption `json:"file_input_mode_arr"`
+	CommonStatusArr  []dict.Option[int]    `json:"common_status_arr"`
+	HealthStatusArr  []dict.Option[string] `json:"health_status_arr"`
+	ModelSyncArr     []dict.Option[string] `json:"model_sync_arr"`
+}
+
+type FileInputModeOption struct {
+	Label string `json:"label"`
+	Value string `json:"value" validate:"oneof=disabled chat_completions"`
 }
 
 type ListQuery struct {
@@ -48,6 +61,7 @@ type ProviderDTO struct {
 	EngineTypeName      string             `json:"engine_type_name"`
 	BaseURL             string             `json:"base_url"`
 	BaseURLEffective    string             `json:"base_url_effective"`
+	FileInputMode       string             `json:"file_input_mode" validate:"oneof=disabled chat_completions"`
 	APIKeyMasked        string             `json:"api_key_masked"`
 	HealthStatus        string             `json:"health_status"`
 	LastCheckedAt       string             `json:"last_checked_at"`
@@ -97,6 +111,7 @@ type CreateInput struct {
 	EngineType        string
 	BaseURL           string
 	APIKey            string
+	FileInputMode     string
 	ModelIDs          []string
 	ModelDisplayNames map[string]string
 	Status            int

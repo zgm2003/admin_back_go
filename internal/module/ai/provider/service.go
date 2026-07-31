@@ -26,6 +26,11 @@ var engineTypeLabels = map[string]string{
 	driverOpenAI: "OpenAI",
 }
 
+var fileInputModeLabels = map[string]string{
+	FileInputModeDisabled:        "关闭",
+	FileInputModeChatCompletions: "Chat Completions",
+}
+
 var healthStatusOptions = []dict.Option[string]{
 	{Label: "未知", Value: provider.HealthUnknown},
 	{Label: "正常", Value: provider.HealthOK},
@@ -83,7 +88,10 @@ func NewServiceWithDriver(repository Repository, box secretbox.Box, tester Provi
 }
 
 func (s *Service) PageInit(ctx context.Context) (*InitResponse, *apperror.Error) {
-	return &InitResponse{Dict: InitDict{EngineTypeArr: engineTypeOptions(), CommonStatusArr: dict.CommonStatusOptions(), HealthStatusArr: healthStatusOptions, ModelSyncArr: modelSyncStatusOptions}}, nil
+	return &InitResponse{Dict: InitDict{
+		EngineTypeArr: engineTypeOptions(), FileInputModeArr: fileInputModeOptions(),
+		CommonStatusArr: dict.CommonStatusOptions(), HealthStatusArr: healthStatusOptions, ModelSyncArr: modelSyncStatusOptions,
+	}}, nil
 }
 
 func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
@@ -488,7 +496,7 @@ func normalizeListQuery(query ListQuery) ListQuery {
 }
 
 func normalizeCreateInput(input CreateInput) (Provider, []ProviderModel, *apperror.Error) {
-	fields, appErr := normalizeMutationFields(input.Name, input.EngineType, input.BaseURL, input.Status)
+	fields, appErr := normalizeMutationFields(input.Name, input.EngineType, input.BaseURL, input.FileInputMode, input.Status)
 	if appErr != nil {
 		return Provider{}, nil, appErr
 	}
@@ -496,11 +504,11 @@ func normalizeCreateInput(input CreateInput) (Provider, []ProviderModel, *apperr
 	if appErr != nil {
 		return Provider{}, nil, appErr
 	}
-	return Provider{Name: fields.name, EngineType: fields.engineType, BaseURL: fields.baseURL, Status: fields.status, HealthStatus: provider.HealthUnknown, LastModelSyncStatus: provider.HealthUnknown, IsDel: enum.CommonNo}, models, nil
+	return Provider{Name: fields.name, EngineType: fields.engineType, BaseURL: fields.baseURL, FileInputMode: fields.fileInputMode, Status: fields.status, HealthStatus: provider.HealthUnknown, LastModelSyncStatus: provider.HealthUnknown, IsDel: enum.CommonNo}, models, nil
 }
 
 func normalizeUpdateFields(input UpdateInput) (map[string]any, []ProviderModel, *apperror.Error) {
-	fields, appErr := normalizeMutationFields(input.Name, input.EngineType, input.BaseURL, input.Status)
+	fields, appErr := normalizeMutationFields(input.Name, input.EngineType, input.BaseURL, input.FileInputMode, input.Status)
 	if appErr != nil {
 		return nil, nil, appErr
 	}
@@ -508,15 +516,15 @@ func normalizeUpdateFields(input UpdateInput) (map[string]any, []ProviderModel, 
 	if appErr != nil {
 		return nil, nil, appErr
 	}
-	return map[string]any{"name": fields.name, "engine_type": fields.engineType, "base_url": fields.baseURL, "status": fields.status}, models, nil
+	return map[string]any{"name": fields.name, "engine_type": fields.engineType, "base_url": fields.baseURL, "file_input_mode": fields.fileInputMode, "status": fields.status}, models, nil
 }
 
 type normalizedFields struct {
-	name, engineType, baseURL string
-	status                    int
+	name, engineType, baseURL, fileInputMode string
+	status                                   int
 }
 
-func normalizeMutationFields(name, engineType, baseURL string, status int) (normalizedFields, *apperror.Error) {
+func normalizeMutationFields(name, engineType, baseURL, fileInputMode string, status int) (normalizedFields, *apperror.Error) {
 	name = strings.TrimSpace(name)
 	var appErr *apperror.Error
 	engineType, appErr = requireEngineType(engineType)
@@ -525,6 +533,7 @@ func normalizeMutationFields(name, engineType, baseURL string, status int) (norm
 	}
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	baseURL = normalizeProviderBaseURL(engineType, baseURL)
+	fileInputMode = strings.TrimSpace(fileInputMode)
 	if name == "" {
 		return normalizedFields{}, apperror.BadRequest("供应商名称不能为空")
 	}
@@ -534,13 +543,16 @@ func normalizeMutationFields(name, engineType, baseURL string, status int) (norm
 	if len([]rune(baseURL)) > 512 {
 		return normalizedFields{}, apperror.BadRequest("供应商地址不能超过512个字符")
 	}
+	if !isFileInputMode(fileInputMode) {
+		return normalizedFields{}, apperror.BadRequest("无效的文件输入协议")
+	}
 	if status == 0 {
 		status = enum.CommonYes
 	}
 	if !enum.IsCommonStatus(status) {
 		return normalizedFields{}, apperror.BadRequest("无效的状态")
 	}
-	return normalizedFields{name: name, engineType: engineType, baseURL: baseURL, status: status}, nil
+	return normalizedFields{name: name, engineType: engineType, baseURL: baseURL, fileInputMode: fileInputMode, status: status}, nil
 }
 
 func validateSelectedModels(modelIDs []string) ([]string, *apperror.Error) {
@@ -583,7 +595,7 @@ func buildProviderModels(modelIDs []string, displayNames map[string]string, stat
 
 func providerDTO(row Provider, models []ProviderModel) (ProviderDTO, *apperror.Error) {
 	engineTypeName, ok := engineTypeLabels[row.EngineType]
-	if !ok || !isHealthStatus(row.HealthStatus) || !isHealthStatus(row.LastModelSyncStatus) || !enum.IsCommonStatus(row.Status) {
+	if !ok || !isFileInputMode(row.FileInputMode) || !isHealthStatus(row.HealthStatus) || !isHealthStatus(row.LastModelSyncStatus) || !enum.IsCommonStatus(row.Status) {
 		return ProviderDTO{}, apperror.InternalKey("aiprovider.data.invalid", nil, "AI供应商数据异常")
 	}
 	modelDTOs, appErr := providerModelDTOs(models)
@@ -603,6 +615,7 @@ func providerDTO(row Provider, models []ProviderModel) (ProviderDTO, *apperror.E
 		EngineTypeName:      engineTypeName,
 		BaseURL:             row.BaseURL,
 		BaseURLEffective:    effectiveBaseURL(row.BaseURL),
+		FileInputMode:       row.FileInputMode,
 		APIKeyMasked:        row.APIKeyHint,
 		HealthStatus:        row.HealthStatus,
 		LastCheckedAt:       formatPtrTime(row.LastCheckedAt),
@@ -727,6 +740,23 @@ func modelOptionsDTO(models []provider.Model) []ModelOptionDTO {
 
 func engineTypeOptions() []dict.Option[string] {
 	return []dict.Option[string]{{Label: engineTypeLabels[driverOpenAI], Value: driverOpenAI}}
+}
+
+func fileInputModeOptions() []FileInputModeOption {
+	options := make([]FileInputModeOption, 0, len(FileInputModes))
+	for _, mode := range FileInputModes {
+		options = append(options, FileInputModeOption{Label: fileInputModeLabels[mode], Value: mode})
+	}
+	return options
+}
+
+func isFileInputMode(value string) bool {
+	switch value {
+	case FileInputModeDisabled, FileInputModeChatCompletions:
+		return true
+	default:
+		return false
+	}
 }
 
 func isEngineType(value string) bool { _, ok := engineTypeLabels[value]; return ok }

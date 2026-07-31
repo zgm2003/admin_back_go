@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	aiprovider "admin_back_go/internal/module/ai/provider"
 	"admin_back_go/internal/server/adminroute"
 	"admin_back_go/internal/shared/enum"
 
@@ -98,6 +99,33 @@ func TestUploadRuleResponsePublishesClosedExtensionEnums(t *testing.T) {
 				t.Fatalf("extension enum mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestAIProviderFileInputModeResponseUsesClosedEnum(t *testing.T) {
+	bundle := mustBuildBundle(t)
+	var document struct {
+		Components struct {
+			Schemas map[string]map[string]any `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(bundle.Artifacts["openapi.json"], &document); err != nil {
+		t.Fatal(err)
+	}
+
+	checks := []struct {
+		schemaName string
+		property   string
+	}{
+		{schemaName: "Go_internal_module_ai_provider_ProviderDTO_Output", property: "file_input_mode"},
+		{schemaName: "Go_internal_module_ai_provider_FileInputModeOption_Output", property: "value"},
+	}
+	for _, check := range checks {
+		schema := openAPIPropertySchema(t, document.Components.Schemas, check.schemaName, check.property)
+		got := openAPIStringEnum(t, document.Components.Schemas, schema)
+		if diff := cmp.Diff(aiprovider.FileInputModes, got); diff != "" {
+			t.Fatalf("file input mode enum mismatch (-want +got):\n%s", diff)
+		}
 	}
 }
 
