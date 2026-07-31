@@ -414,6 +414,8 @@ git commit -m "feat(canvas): 接入只读提示词工作流"
 
 ### Task 9: 完成前端质量、可访问性和视觉门禁
 
+本 Task 只在 Auth/Project、Canvas/Drafts、Product UI 三个 feature lane 都已 frozen、由主线程复测/提交并串行吸收到 integration branch，且 `src/app/**` wiring 完成后执行。以下跨 feature 样式和组件收口全部由主线程串行修改；不得把本 Task 作为与三个 lane 同时写入的第四条 executor lane。
+
 **Files:**
 - Create: `tests/component/shared/{responsive-layout,accessibility}.test.tsx`
 - Modify: `docs/frontend-architecture.md`

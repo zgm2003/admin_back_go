@@ -51,9 +51,13 @@
 - `internal/admincontract/**`、`internal/infinitecanvascontract/**`、两个 generated bundle。
 - `internal/admincontract/views.go`：新增两个 Admin local view keys。
 
-**Admin frontend executor after Contract sync:**
+**Main-thread Admin sync/integration only:**
 
-- Admin 前端 generated contract、view registry、i18n。
+- Admin 前端 `contracts/backend/admin/**`、`src/modules/http/generated/**`、`src/modules/routing/generated/**` 和 `src/i18n/**`。
+
+**Product UI executor after main-thread Contract sync:**
+
+- Admin 前端 `src/api/ai/{prompts,prompt-sources}.ts`、`src/views/Main/ai/{prompts,promptSources}/**` 和对应定向测试。
 
 ### Task 1: 将 ai_prompts 收敛为 platform/origin-aware capability
 
@@ -454,16 +458,27 @@ git commit -m "feat(contract): 发布无限画布组合资源契约"
 ### Task 6: 从已发布 Bundle 实现 Admin 提示词与来源管理页面
 
 **Files:**
-- Create: Admin frontend API/views/tests listed above
-- Modify in `E:\admin\admin_front_ts` only: generated contract/client、generated routing views、i18n
+- Main-thread prerequisite: sync `E:\admin\admin_front_ts\contracts/backend/admin/**`、`src/modules/http/generated/**`
+- Create in Product UI lane: Admin frontend API/views/tests listed above
+- Main-thread integration only: `E:\admin\admin_front_ts\src/modules/routing/generated/**`、`src/i18n/**`
 
-- [ ] **Step 1: 同步 contract 并写 API 失败测试**
+- [ ] **Step 1: 主线程同步并提交 clean Admin Contract baseline**
 
 ```powershell
 $manifest = Get-Content -Raw E:/admin/admin_back_go/contracts/admin/v1/manifest.json | ConvertFrom-Json
 npm run contract:sync -- --backend E:/admin/admin_back_go --commit $manifest.backend_commit
 npm run contract:generate
+npm run contract:check
 ```
+
+断言同步后的 Admin manifest/lock 中 `backend_commit` 都逐字等于 3I 已提交 runtime SHA，generated client 无手工 diff。主线程显式提交该基线后，才从这个 clean commit 创建 Product UI lane：
+
+```bash
+git add contracts/backend/admin src/modules/http/generated
+git commit -m "chore(contract): 同步提示词管理契约"
+```
+
+- [ ] **Step 2: Product UI lane 写 API 失败测试**
 
 API tests 断言 GET query、REST methods/paths、manual mutation body、source mutation、status patch 和 sync job body 精确来自 generated operations；不接受 `platform`、`tags_json` 或旧 POST action URL。
 
@@ -471,15 +486,15 @@ Run: `npm test -- tests/shared/ai/ai-prompt-api.test.ts tests/shared/ai/prompt-s
 
 Expected: FAIL，API adapters 尚不存在。
 
-- [ ] **Step 2: 实现 generated-type-derived API adapters**
+- [ ] **Step 3: 实现 generated-type-derived API adapters**
 
 `src/api/ai/prompts.ts` 和 `prompt-sources.ts` 只从 `AdminOperationInput/Output` 派生类型。tags/reference URLs 直接使用 contract arrays；不得 JSON.parse 手写字段。Sync 返回 `id/type/queue` 并交给现有 queue monitor，不轮询公网来源。
 
-- [ ] **Step 3: 写页面组件失败测试**
+- [ ] **Step 4: 写页面组件失败测试**
 
 Prompt 页面覆盖 loading/success/empty/error、manual/source badge、source prompt 编辑/删除按钮禁用但 status 可切、长 prompt drawer 纯文本。Source 页面覆盖 create/edit/status/delete、last attempt/success/error、单来源/全部同步按钮、同步返回 job notification。
 
-- [ ] **Step 4: 实现两个工作型页面**
+- [ ] **Step 5: 实现两个工作型页面**
 
 - `/ai/prompts`：紧凑表格 + search/filter + manual editor drawer；列为 title/category/origin/source/status/updated/actions。
 - `/ai/prompt-sources`：表格列为 name/code/feed/homepage/status/count/last success/error/actions；URL 使用安全外链 icon，不把整 URL 塞进窄列。
@@ -488,9 +503,9 @@ Prompt 页面覆盖 loading/success/empty/error、manual/source badge、source p
 
 source prompt 内容使用 `<pre>{{ prompt }}</pre>` 或 text binding，禁止 `v-html`。错误状态与 empty 状态分开。
 
-- [ ] **Step 5: 注册 views/i18n 并运行门禁**
+- [ ] **Step 6: 主线程吸收 Product diff，注册 views/i18n 并运行门禁**
 
-先断言同步后的 Admin Bundle 已包含 `ai/prompts/index`、`ai/promptSources/index` 两个 view keys 和对应 permission codes；缺失即返回 3I 修复、提交 runtime 并重新生成 Bundle，禁止在本 Task 修改后端源码。前端运行 `routes:generate` 并补齐中英文文案后：
+Product executor 返回后冻结 lane；主线程复核 changed paths 只能是 API/views/tests，在 lane worktree 定向复测并提交该 capability slice，再串行 cherry-pick 到 Admin integration branch。随后断言同步后的 Admin Bundle 已包含 `ai/prompts/index`、`ai/promptSources/index` 两个 view keys 和对应 permission codes；缺失即返回 3I 修复、提交 runtime 并重新生成 Bundle，禁止在本 Task 修改后端源码。主线程运行 `routes:generate` 并补齐中英文文案后：
 
 ```powershell
 npm run routes:generate
@@ -505,11 +520,16 @@ npm run build
 
 Expected: 全部退出 0。
 
-- [ ] **Step 6: 提交 Admin 前端**
+- [ ] **Step 7: 分别提交 Product capability 和 generated integration**
 
 ```bash
-git add contracts/backend/admin src/modules/http/generated src/api/ai/prompts.ts src/api/ai/prompt-sources.ts src/views/Main/ai/prompts src/views/Main/ai/promptSources src/modules/routing/generated src/i18n tests/shared/ai/ai-prompt-api.test.ts tests/shared/ai/prompt-source-api.test.ts tests/component/ai/PromptManagement.test.ts tests/component/ai/PromptSourceManagement.test.ts
+# 主线程在 frozen Product lane 审查/复测后创建，再串行 cherry-pick
+git add src/api/ai/prompts.ts src/api/ai/prompt-sources.ts src/views/Main/ai/prompts src/views/Main/ai/promptSources tests/shared/ai/ai-prompt-api.test.ts tests/shared/ai/prompt-source-api.test.ts tests/component/ai/PromptManagement.test.ts tests/component/ai/PromptSourceManagement.test.ts
 git commit -m "feat(prompt): 增加提示词来源管理页面"
+
+# Admin integration branch 上由主线程执行
+git add src/modules/routing/generated src/i18n
+git commit -m "chore(prompt): 注册提示词管理视图"
 ```
 
 ### Task 7: 执行提示词安全与完整性门禁

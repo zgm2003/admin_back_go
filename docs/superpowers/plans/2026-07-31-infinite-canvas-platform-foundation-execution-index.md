@@ -70,7 +70,7 @@ frontend: canvas_front_next
 - Wave F0 与 Wave 0 位于不同仓库，可以并行；F0 只复核已提交基础框架和依赖，不修改文件、不手写 Contract 或业务 mock。
 - Wave 0 的数据库写入 lane 必须串行完成；其他槽位只能做只读 migration/security 审查。在它合并前，不允许其他计划猜列名、状态或索引。
 - Wave 1 和 Wave 2 串行，因为 Plan 03 的 Auth membership 与 route group 依赖 Plan 02 已切换的 principal 真相源。
-- Wave 1 的 Tasks 1-4 是强依赖 runtime chain：routepolicy rename -> role/permission contract -> principal truth source -> user bindings，必须由一个写 lane 串行提交。其余槽位可并发做只读 SQL/授权/Contract 审查和不写共享生成物的测试；不得把依赖尚未提交接口的 User Task 4伪装成独立写 lane。Admin 前端必须等待已提交 runtime 对应的 Admin Bundle。
+- Wave 1 的 Tasks 1-4 是强依赖 runtime chain：routepolicy rename -> role/permission contract -> principal truth source -> user bindings，必须由一个写 lane 串行提交。其余槽位可并发做只读 SQL/授权/Contract 审查和不写共享生成物的测试；不得把依赖尚未提交接口的 User Task 4 伪装成独立写 lane。Admin 前端必须等待已提交 runtime 对应的 Admin Bundle；主线程提交前端 generated baseline 后，Admin UI lane 与 Task 6 后端负向门禁 Steps 1-2 必须并发，最后再做 clean 汇合。
 - Wave 2 在 Plan 02 clean checkpoint 后立即并发启动 auth capability、config/CORS 和 contractbundle core 三条写 lane；`internal/server/**`、`internal/platform/**`、runtime composition、Canvas contract package/CLI/artifacts 仍由主线程集成。三条 lane 吸收后，主线程再串行完成 graph、Canvas transports、router 和最终 Bundle。
 - Wave 3A/3B/3C 使用三个独立 worktree 并行，执行器不得修改任何共享 composition、registry、runtime 或 Contract 文件。主线程在 3I 中接管这些文件，不再通过两个执行器先后 rebase 同一文件。
 - Wave 4 只有在 3I 的组合 backend runtime 已提交、双 Bundle 已绑定该提交 SHA 后开始；禁止手写 DTO、临时 generated tree 或 runtime mock。
