@@ -7,18 +7,35 @@ import (
 	"reflect"
 	"testing"
 
+	"admin_back_go/internal/shared/enum"
 	"admin_back_go/internal/shared/uploadpolicy"
+
+	"github.com/DATA-DOG/go-sqlmock"
+	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 type activeRuleRepository struct {
-	config *EnabledConfig
-	err    error
-	calls  int
+	config       *EnabledConfig
+	lockedConfig *EnabledConfig
+	err          error
+	lockedErr    error
+	calls        int
+	lockedTx     *gorm.DB
 }
 
 func (repository *activeRuleRepository) GetEnabledConfig(context.Context) (*EnabledConfig, error) {
 	repository.calls++
 	return repository.config, repository.err
+}
+
+func (repository *activeRuleRepository) GetEnabledConfigForUpdate(_ context.Context, tx *gorm.DB) (*EnabledConfig, error) {
+	repository.lockedTx = tx
+	if repository.lockedConfig != nil || repository.lockedErr != nil {
+		return repository.lockedConfig, repository.lockedErr
+	}
+	return repository.config, nil
 }
 
 func TestActiveRuleResolverNormalizesCurrentEnabledRule(t *testing.T) {
@@ -29,13 +46,84 @@ func TestActiveRuleResolverNormalizesCurrentEnabledRule(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveActive returned error: %v", err)
 	}
-	want := uploadpolicy.Rule{
-		MaxFileBytes:    100 << 20,
-		ImageExtensions: []string{"jpeg", "png"},
-		FileExtensions:  []string{"pdf", "md", "go", "zip"},
+	if got.MaxFileBytes != 100<<20 || !reflect.DeepEqual(got.ImageExtensions, []string{"jpeg", "png"}) ||
+		!reflect.DeepEqual(got.FileExtensions, []string{"pdf", "md", "go", "zip"}) || got.ConsistencyToken == (uploadpolicy.ConsistencyToken{}) {
+		t.Fatalf("active rule=%#v", got)
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("active rule=%#v want=%#v", got, want)
+}
+
+func TestActiveRuleGuardRejectsChangedSnapshotUsingCallerTransaction(t *testing.T) {
+	repository := &activeRuleRepository{config: validActiveRuleConfig(), lockedConfig: activeRuleConfigWith(10, `["png"]`, `["pdf"]`)}
+	resolver := NewActiveRuleResolver(repository)
+	rule, err := resolver.ResolveActive(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx := &gorm.DB{}
+
+	err = resolver.GuardActiveInTransaction(context.Background(), tx, rule.ConsistencyToken)
+
+	if !errors.Is(err, uploadpolicy.ErrRuleSnapshotChanged) {
+		t.Fatalf("changed upload rule guard error=%v", err)
+	}
+	if repository.lockedTx != tx {
+		t.Fatal("upload rule guard did not use the caller transaction")
+	}
+}
+
+func TestActiveRuleGuardAcceptsMatchingSnapshotUsingCallerTransaction(t *testing.T) {
+	repository := &activeRuleRepository{config: validActiveRuleConfig()}
+	resolver := NewActiveRuleResolver(repository)
+	rule, err := resolver.ResolveActive(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx := &gorm.DB{}
+
+	if err := resolver.GuardActiveInTransaction(context.Background(), tx, rule.ConsistencyToken); err != nil {
+		t.Fatalf("matching upload rule snapshot rejected: %v", err)
+	}
+	if repository.lockedTx != tx {
+		t.Fatal("upload rule guard did not use the caller transaction")
+	}
+}
+
+func TestGormRepositoryLocksEnabledRuleForConsistencyGuard(t *testing.T) {
+	sqlDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	db, err := gorm.Open(mysql.New(mysql.Config{Conn: sqlDB, SkipInitializeWithVersion: true}), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := &GormRepository{db: db}
+	columns := []string{
+		"setting_id", "driver_id", "rule_id", "driver", "secret_id_enc", "secret_key_enc", "bucket", "region", "appid", "endpoint", "bucket_domain", "role_arn",
+		"max_size_mb", "image_exts", "file_exts",
+	}
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT .* FROM upload_setting AS s.*FOR UPDATE`).
+		WithArgs(enum.CommonNo, enum.CommonNo, enum.CommonYes, enum.CommonNo, 1).
+		WillReturnRows(sqlmock.NewRows(columns).AddRow(1, 2, 3, "cos", "sid", "skey", "bucket", "ap-test", "", "", "", "", 100, `["png"]`, `["pdf"]`))
+	mock.ExpectCommit()
+
+	err = db.Transaction(func(tx *gorm.DB) error {
+		config, queryErr := repository.GetEnabledConfigForUpdate(context.Background(), tx)
+		if queryErr != nil {
+			return queryErr
+		}
+		if config == nil || config.SettingID != 1 || config.RuleID != 3 {
+			t.Fatalf("locked config=%#v", config)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }
 

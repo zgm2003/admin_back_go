@@ -1429,6 +1429,87 @@ func TestPaidReplyRequestIdentityUsesAcceptedCOSObjectKeyForAttachments(t *testi
 	}
 }
 
+func TestPaidReplyRequestIdentityUsesCompleteTrustedAttachmentFacts(t *testing.T) {
+	const pricingSnapshot = `{"version":"test-v1","billable":true,"catalog_vendor":"test","transport_engine":"openai","requested_model_id":"gpt-5.4","canonical_model_id":"gpt-5.4","catalog_max_output_tokens":100,"effective_max_output_tokens":10,"multiplier_ppm":1000000,"source_url":"https://example.test/pricing","retrieved_at":"2026-07-26","rates":[{"category":"input","unit":"token","tier_key":"","price_units":1,"unit_scale":1000000},{"category":"output","unit":"token","tier_key":"","price_units":1,"unit_scale":1000000}]}`
+	facts := requestidentity.AttachmentFacts{
+		Type: "file", ObjectKey: "ai_chat_attachments/2026/07/report.pdf", ETag: `"v1"`,
+		Size: 4096, MIMEType: "application/pdf", Name: "report.pdf",
+	}
+	digest, err := requestidentity.AttachmentFactsSHA256(facts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metaBytes, err := json.Marshal(map[string]any{"attachments": []map[string]any{{
+		"type": facts.Type, "object_key": facts.ObjectKey, "etag": facts.ETag, "size": facts.Size,
+		"mime_type": facts.MIMEType, "name": facts.Name, "url": "https://cos.example.test/report.pdf",
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta := string(metaBytes)
+	acceptedIdentity := requestidentity.Input{
+		UserID: 7, Operation: "chat.reply", Modality: "chat", AgentID: 5, ModelID: "gpt-5.4",
+		NormalizedText: "总结文件", ConversationID: 3, PreserveAttachmentOrder: true,
+		Attachments: []requestidentity.AttachmentIdentity{{StorageProvider: "cos", StorageKey: facts.ObjectKey, SHA256: digest}},
+		Options:     requestidentity.GenerationOptions{MaxOutputTokens: 10},
+	}
+	fingerprint, err := requestidentity.BuildFingerprint(acceptedIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := &airun.Run{
+		AgentID: 5, ModelID: "gpt-5.4", RequestFingerprint: fingerprint[:],
+		RequestIdentityStatus: string(requestidentity.IdentityStatusReplayable), PricingSnapshotJSON: pricingSnapshot,
+	}
+
+	identity, err := paidReplyRequestIdentity(run, ConversationReplyInput{ConversationID: 3, UserID: 7}, MessageHistory{ID: 9, Content: "总结文件", MetaJSON: &meta})
+
+	if err != nil {
+		t.Fatalf("paidReplyRequestIdentity returned error: %v", err)
+	}
+	if !identity.PreserveAttachmentOrder || len(identity.Attachments) != 1 || identity.Attachments[0].SHA256 != digest {
+		t.Fatalf("unexpected attachment identity: %#v", identity)
+	}
+}
+
+func TestPaidReplyRequestIdentityFallsBackAsAWholeForHistoricalAttachmentFacts(t *testing.T) {
+	const pricingSnapshot = `{"version":"test-v1","billable":true,"catalog_vendor":"test","transport_engine":"openai","requested_model_id":"gpt-5.4","canonical_model_id":"gpt-5.4","catalog_max_output_tokens":100,"effective_max_output_tokens":10,"multiplier_ppm":1000000,"source_url":"https://example.test/pricing","retrieved_at":"2026-07-26","rates":[{"category":"input","unit":"token","tier_key":"","price_units":1,"unit_scale":1000000},{"category":"output","unit":"token","tier_key":"","price_units":1,"unit_scale":1000000}]}`
+	const canonicalKey = "ai_chat_attachments/2026/07/new.pdf"
+	const legacyKey = "ai_chat_images/2026/07/old.jpg"
+	meta := `{"attachments":[{"type":"file","object_key":"` + canonicalKey + `","etag":"\"v1\"","size":4096,"mime_type":"application/pdf","name":"new.pdf"},{"type":"image","object_key":"` + legacyKey + `","url":"https://cos.example.test/old.jpg"}]}`
+	acceptedIdentity := requestidentity.Input{
+		UserID: 7, Operation: "chat.reply", Modality: "chat", AgentID: 5, ModelID: "gpt-5.4",
+		NormalizedText: "比较附件", ConversationID: 3,
+		Attachments: []requestidentity.AttachmentIdentity{
+			{StorageProvider: "cos", StorageKey: legacyKey},
+			{StorageProvider: "cos", StorageKey: canonicalKey},
+		},
+		Options: requestidentity.GenerationOptions{MaxOutputTokens: 10},
+	}
+	fingerprint, err := requestidentity.BuildFingerprint(acceptedIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := &airun.Run{
+		AgentID: 5, ModelID: "gpt-5.4", RequestFingerprint: fingerprint[:],
+		RequestIdentityStatus: string(requestidentity.IdentityStatusReplayable), PricingSnapshotJSON: pricingSnapshot,
+	}
+
+	identity, err := paidReplyRequestIdentity(run, ConversationReplyInput{ConversationID: 3, UserID: 7}, MessageHistory{ID: 9, Content: "比较附件", MetaJSON: &meta})
+
+	if err != nil {
+		t.Fatalf("historical attachment identity returned error: %v", err)
+	}
+	if identity.PreserveAttachmentOrder || len(identity.Attachments) != 2 {
+		t.Fatalf("historical attachment identity=%#v", identity)
+	}
+	for _, attachment := range identity.Attachments {
+		if attachment.SHA256 != "" {
+			t.Fatalf("partially canonical historical identity retained SHA: %#v", identity.Attachments)
+		}
+	}
+}
+
 func TestPaidReplyRequestIdentityRestoresRevisionContextFromRunSnapshot(t *testing.T) {
 	const pricingSnapshot = `{"version":"test-v1","billable":true,"catalog_vendor":"test","transport_engine":"openai","requested_model_id":"gpt-5.4","canonical_model_id":"gpt-5.4","catalog_max_output_tokens":100,"effective_max_output_tokens":10,"multiplier_ppm":1000000,"source_url":"https://example.test/pricing","retrieved_at":"2026-07-26","rates":[{"category":"input","unit":"token","tier_key":"","price_units":1,"unit_scale":1000000},{"category":"output","unit":"token","tier_key":"","price_units":1,"unit_scale":1000000}]}`
 	const objectKey = "ai_chat_images/2026/07/29/revision.jpg"

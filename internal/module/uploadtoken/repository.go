@@ -7,6 +7,7 @@ import (
 	"admin_back_go/internal/shared/enum"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type Repository interface {
@@ -28,9 +29,19 @@ func (r *GormRepository) GetEnabledConfig(ctx context.Context) (*EnabledConfig, 
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured
 	}
+	return getEnabledConfig(ctx, r.db, false)
+}
 
+func (r *GormRepository) GetEnabledConfigForUpdate(ctx context.Context, tx *gorm.DB) (*EnabledConfig, error) {
+	if r == nil || r.db == nil || tx == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	return getEnabledConfig(ctx, tx, true)
+}
+
+func getEnabledConfig(ctx context.Context, db *gorm.DB, locked bool) (*EnabledConfig, error) {
 	var row EnabledConfig
-	err := r.db.WithContext(ctx).
+	query := db.WithContext(ctx).
 		Table("upload_setting AS s").
 		Select(`s.id AS setting_id, s.driver_id, s.rule_id,
 			d.driver, d.secret_id_enc, d.secret_key_enc, d.bucket, d.region, d.appid, d.endpoint, d.bucket_domain, d.role_arn,
@@ -40,8 +51,11 @@ func (r *GormRepository) GetEnabledConfig(ctx context.Context) (*EnabledConfig, 
 		Where("s.status = ?", enum.CommonYes).
 		Where("s.is_del = ?", enum.CommonNo).
 		Order("s.id DESC").
-		Limit(1).
-		Scan(&row).Error
+		Limit(1)
+	if locked {
+		query = query.Clauses(clause.Locking{Strength: "UPDATE"})
+	}
+	err := query.Scan(&row).Error
 	if err != nil {
 		return nil, err
 	}

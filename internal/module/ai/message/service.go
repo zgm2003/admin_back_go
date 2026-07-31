@@ -2,8 +2,6 @@ package aimessage
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -169,7 +167,7 @@ func (s *Service) Send(ctx context.Context, userID int64, input SendInput) (*Sen
 	if _, overridden := runtimeParams["temperature"]; overridden && !containsCapability(effectiveCapabilities.SupportedParameters, officialmodel.ParameterTemperature) {
 		return nil, apperror.BadRequest("当前模型不支持temperature")
 	}
-	attachments, appErr := s.inspectAttachments(ctx, *agent, resolvedModel.Model.Capabilities, effectiveCapabilities, input.Attachments)
+	attachments, _, appErr := s.inspectAttachments(ctx, *agent, resolvedModel.Model.Capabilities, effectiveCapabilities, input.Attachments)
 	if appErr != nil {
 		return nil, appErr
 	}
@@ -278,26 +276,26 @@ func (s *Service) inspectAttachments(
 	official officialmodel.Capabilities,
 	effective officialmodel.Capabilities,
 	attachments []Attachment,
-) ([]Attachment, *apperror.Error) {
+) ([]Attachment, uploadpolicy.ConsistencyToken, *apperror.Error) {
 	if len(attachments) == 0 {
-		return []Attachment{}, nil
+		return []Attachment{}, uploadpolicy.ConsistencyToken{}, nil
 	}
 	if len(attachments) > capability.MaxAttachmentsPerMessage {
-		return nil, apperror.BadRequestKey("aimessage.attachments.too_many", nil, "每条消息最多只能添加5个附件")
+		return nil, uploadpolicy.ConsistencyToken{}, apperror.BadRequestKey("aimessage.attachments.too_many", nil, "每条消息最多只能添加5个附件")
 	}
 	if s == nil || s.uploadRules == nil {
-		return nil, apperror.BadRequestKey("aimessage.attachments.upload_rule_unavailable", nil, "当前上传规则不可用")
+		return nil, uploadpolicy.ConsistencyToken{}, apperror.BadRequestKey("aimessage.attachments.upload_rule_unavailable", nil, "当前上传规则不可用")
 	}
 	uploadRule, err := s.uploadRules.ResolveActive(ctx)
 	if err != nil {
-		return nil, apperror.BadRequestKey("aimessage.attachments.upload_rule_unavailable", nil, "当前上传规则不可用")
+		return nil, uploadpolicy.ConsistencyToken{}, apperror.BadRequestKey("aimessage.attachments.upload_rule_unavailable", nil, "当前上传规则不可用")
 	}
 	if s.objectInspector == nil {
-		return nil, apperror.InternalKey("aimessage.attachments.inspector_missing", nil, "附件检查服务未配置")
+		return nil, uploadpolicy.ConsistencyToken{}, apperror.InternalKey("aimessage.attachments.inspector_missing", nil, "附件检查服务未配置")
 	}
 	metadata, ok := s.capabilities.ResolveCapabilities(infraai.EngineType(strings.TrimSpace(runtime.EngineType)))
 	if !ok {
-		return nil, apperror.InternalKey("aimessage.attachments.transport_unavailable", nil, "附件传输能力不可用")
+		return nil, uploadpolicy.ConsistencyToken{}, apperror.InternalKey("aimessage.attachments.transport_unavailable", nil, "附件传输能力不可用")
 	}
 	acceptedFiles := capability.AllowedNativeFileExtensions(uploadRule.FileExtensions)
 	nativeFile := capability.ResolveNativeFileCapability(capability.NativeFileCapabilityInput{
@@ -315,10 +313,10 @@ func (s *Service) inspectAttachments(
 	for index, raw := range attachments {
 		item, appErr := normalizeLocalAttachment(raw, uploadRule, nativeFile, effective)
 		if appErr != nil {
-			return nil, appErr
+			return nil, uploadpolicy.ConsistencyToken{}, appErr
 		}
 		if _, duplicate := seenKeys[item.ObjectKey]; duplicate {
-			return nil, apperror.BadRequestKey("aimessage.attachments.duplicate", nil, "不能重复添加同一个附件")
+			return nil, uploadpolicy.ConsistencyToken{}, apperror.BadRequestKey("aimessage.attachments.duplicate", nil, "不能重复添加同一个附件")
 		}
 		seenKeys[item.ObjectKey] = struct{}{}
 		if item.Type == "image" {
@@ -327,48 +325,55 @@ func (s *Service) inspectAttachments(
 		locals[index] = item
 	}
 	if effective.ImageInput != nil && imageCount > effective.ImageInput.MaxFiles {
-		return nil, apperror.BadRequestKey("aimessage.attachments.image_count_exceeded", nil, "图片数量超过当前模型限制")
+		return nil, uploadpolicy.ConsistencyToken{}, apperror.BadRequestKey("aimessage.attachments.image_count_exceeded", nil, "图片数量超过当前模型限制")
 	}
 
 	results := make([]Attachment, len(locals))
-	errorsByIndex := make([]error, len(locals))
+	groupCtx, cancelGroup := context.WithCancel(ctx)
+	defer cancelGroup()
+	var firstError error
+	var firstErrorOnce sync.Once
 	var wait sync.WaitGroup
 	for index := range locals {
 		index := index
 		wait.Go(func() {
-			objectMetadata, err := s.objectInspector.Head(ctx, locals[index].ObjectKey)
+			objectMetadata, err := s.objectInspector.Head(groupCtx, locals[index].ObjectKey)
 			if err != nil {
-				errorsByIndex[index] = err
+				firstErrorOnce.Do(func() {
+					firstError = err
+					cancelGroup()
+				})
 				return
 			}
 			item, err := normalizeTrustedAttachment(locals[index], objectMetadata, effective)
 			if err != nil {
-				errorsByIndex[index] = err
+				firstErrorOnce.Do(func() {
+					firstError = err
+					cancelGroup()
+				})
 				return
 			}
 			results[index] = item
 		})
 	}
 	wait.Wait()
-	for _, err := range errorsByIndex {
-		if err != nil {
-			return nil, apperror.BadRequestKey("aimessage.attachments.invalid", nil, "附件无效或超出当前限制")
-		}
+	if firstError != nil {
+		return nil, uploadpolicy.ConsistencyToken{}, apperror.BadRequestKey("aimessage.attachments.invalid", nil, "附件无效或超出当前限制")
 	}
 	var total int64
 	for _, item := range results {
 		if uploadRule.MaxFileBytes <= 0 || item.Size > uploadRule.MaxFileBytes {
-			return nil, apperror.BadRequestKey("aimessage.attachments.system_size_exceeded", nil, "附件超过当前上传规则限制")
+			return nil, uploadpolicy.ConsistencyToken{}, apperror.BadRequestKey("aimessage.attachments.system_size_exceeded", nil, "附件超过当前上传规则限制")
 		}
 		if item.Type == "file" && item.Size >= capability.MaxNativeFileBytesExclusive {
-			return nil, apperror.BadRequestKey("aimessage.attachments.file_size_exceeded", nil, "单个文件必须小于50 MiB")
+			return nil, uploadpolicy.ConsistencyToken{}, apperror.BadRequestKey("aimessage.attachments.file_size_exceeded", nil, "单个文件必须小于50 MiB")
 		}
 		if item.Size > capability.MaxMessageAttachmentBytes-total {
-			return nil, apperror.BadRequestKey("aimessage.attachments.total_size_exceeded", nil, "附件总大小不能超过50 MiB")
+			return nil, uploadpolicy.ConsistencyToken{}, apperror.BadRequestKey("aimessage.attachments.total_size_exceeded", nil, "附件总大小不能超过50 MiB")
 		}
 		total += item.Size
 	}
-	return results, nil
+	return results, uploadRule.ConsistencyToken, nil
 }
 
 func normalizeLocalAttachment(
@@ -420,7 +425,8 @@ func normalizeTrustedAttachment(local Attachment, metadata storagecos.ObjectMeta
 	}
 	extension := extensionOf(local.ObjectKey)
 	if local.Type == "image" {
-		if effective.ImageInput == nil || !containsCapability(effective.ImageInput.MIMETypes, mimeType) || metadata.Size > effective.ImageInput.MaxBytes {
+		if effective.ImageInput == nil || !containsCapability(effective.ImageInput.MIMETypes, mimeType) || metadata.Size > effective.ImageInput.MaxBytes ||
+			!imageMIMECompatibleWithExtension(mimeType, extension) || mimeType == "image/gif" && !metadata.GIFStaticVerified {
 			return Attachment{}, errors.New("image metadata violates effective capability")
 		}
 	} else if mimeType != "application/octet-stream" && mimeTypeConflictsWithExtension(mimeType, extension) {
@@ -430,6 +436,21 @@ func normalizeTrustedAttachment(local Attachment, metadata storagecos.ObjectMeta
 		Type: local.Type, ObjectKey: metadata.Key, MIMEType: mimeType, URL: strings.TrimSpace(metadata.TrustedURL),
 		Name: local.Name, Size: metadata.Size, ETag: strings.TrimSpace(metadata.ETag),
 	}, nil
+}
+
+func imageMIMECompatibleWithExtension(mimeType, extension string) bool {
+	switch mimeType {
+	case "image/jpeg":
+		return extension == "jpeg" || extension == "jpg" || extension == "jfif" || extension == "pjpeg"
+	case "image/png":
+		return extension == "png"
+	case "image/webp":
+		return extension == "webp"
+	case "image/gif":
+		return extension == "gif"
+	default:
+		return false
+	}
 }
 
 func nativeFileCapabilityError(reason string) *apperror.Error {
@@ -589,7 +610,8 @@ func buildSendFingerprint(userID, conversationID int64, content string, attachme
 		options.Extra = nil
 	}
 	return requestidentity.BuildChatFingerprint(requestidentity.ChatFingerprintInput{
-		UserID: userID, ConversationID: conversationID, AgentID: agent.AgentID, ModelID: agent.ModelID, Text: content, Attachments: identities, Options: options,
+		UserID: userID, ConversationID: conversationID, AgentID: agent.AgentID, ModelID: agent.ModelID, Text: content,
+		Attachments: identities, Options: options, PreserveAttachmentOrder: true,
 	})
 }
 
@@ -641,22 +663,10 @@ func normalizeAttachments(input []Attachment) ([]Attachment, *apperror.Error) {
 }
 
 func attachmentIdentitySHA256(attachment Attachment) (string, error) {
-	raw, err := json.Marshal(struct {
-		Type      string `json:"type"`
-		ObjectKey string `json:"object_key"`
-		ETag      string `json:"etag"`
-		Size      int64  `json:"size"`
-		MIMEType  string `json:"mime_type"`
-		Name      string `json:"name"`
-	}{
+	return requestidentity.AttachmentFactsSHA256(requestidentity.AttachmentFacts{
 		Type: attachment.Type, ObjectKey: attachment.ObjectKey, ETag: attachment.ETag,
 		Size: attachment.Size, MIMEType: attachment.MIMEType, Name: attachment.Name,
 	})
-	if err != nil {
-		return "", err
-	}
-	digest := sha256.Sum256(raw)
-	return hex.EncodeToString(digest[:]), nil
 }
 
 func normalizeRuntimeParams(input map[string]float64) (map[string]float64, *apperror.Error) {

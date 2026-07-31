@@ -7,6 +7,7 @@ import (
 	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/replycommand"
 	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/uploadpolicy"
 )
 
 type ListQuery struct {
@@ -45,6 +46,8 @@ type EditInput struct {
 	Attachments             *[]Attachment
 	ValidatedAttachments    []Attachment
 	SourceAttachmentsSHA256 [32]byte
+	SourceRuntimeSHA256     [32]byte
+	UploadRuleToken         uploadpolicy.ConsistencyToken
 }
 
 type RegenerateInput struct {
@@ -54,6 +57,8 @@ type RegenerateInput struct {
 	RequestID               string
 	ValidatedAttachments    []Attachment
 	SourceAttachmentsSHA256 [32]byte
+	SourceRuntimeSHA256     [32]byte
+	UploadRuleToken         uploadpolicy.ConsistencyToken
 }
 
 type DeleteInput struct {

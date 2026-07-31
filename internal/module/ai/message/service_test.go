@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"path"
 	"reflect"
 	"strconv"
 	"strings"
@@ -177,6 +178,30 @@ func TestListUsesMessageCursorAndReturnsChronologicalOrder(t *testing.T) {
 	}
 	if len(res.List) != 2 || res.List[0].ID != 10 || res.List[1].ID != 11 || res.List[0].ContentType != "text" {
 		t.Fatalf("unexpected response: %#v", res)
+	}
+}
+
+func TestListPreservesAttachmentCardsWithoutInspectingDeletedObjects(t *testing.T) {
+	now := time.Date(2026, 7, 31, 10, 0, 0, 0, time.UTC)
+	meta := `{"attachments":[{"type":"file","object_key":"ai_chat_attachments/2026/07/deleted.pdf","mime_type":"application/pdf","url":"https://trusted.test/deleted.pdf","name":"deleted.pdf","size":4096,"etag":"\"v1\""}]}`
+	inspector := &fakeMessageObjectInspector{err: errors.New("object no longer exists")}
+	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7}, rows: []MessageProjection{{Message: Message{
+		ID: 41, ConversationID: 3, Role: enum.AIMessageRoleUser, ContentType: "text", Content: "summarize", MetaJSON: &meta,
+		CreatedAt: now, UpdatedAt: now,
+	}}}}
+
+	result, appErr := NewService(repo, WithObjectInspector(inspector)).List(context.Background(), 7, ListQuery{ConversationID: 3})
+
+	if appErr != nil || len(result.List) != 1 {
+		t.Fatalf("list=%#v error=%v", result, appErr)
+	}
+	decoded, ok := result.List[0].MetaJSON.(map[string]any)
+	attachments, okAttachments := decoded["attachments"].([]any)
+	if !ok || !okAttachments || len(attachments) != 1 {
+		t.Fatalf("attachment card metadata=%#v", result.List[0].MetaJSON)
+	}
+	if len(inspector.calls) != 0 {
+		t.Fatalf("message list inspected historical objects: %v", inspector.calls)
 	}
 }
 
@@ -429,6 +454,53 @@ func TestSendChecksAtMostFiveImagesConcurrently(t *testing.T) {
 	}
 }
 
+type cancelAwareMessageObjectInspector struct {
+	slowStarted  chan struct{}
+	slowCanceled chan struct{}
+}
+
+func (inspector *cancelAwareMessageObjectInspector) Head(ctx context.Context, key string) (storagecos.ObjectMetadata, error) {
+	if strings.HasSuffix(key, "slow.png") {
+		close(inspector.slowStarted)
+		select {
+		case <-ctx.Done():
+			close(inspector.slowCanceled)
+			return storagecos.ObjectMetadata{}, ctx.Err()
+		case <-time.After(250 * time.Millisecond):
+			return storagecos.ObjectMetadata{}, errors.New("slow HEAD was not canceled")
+		}
+	}
+	<-inspector.slowStarted
+	return storagecos.ObjectMetadata{}, errors.New("first HEAD failed")
+}
+
+func TestSendCancelsConcurrentHEADsAfterFirstFailure(t *testing.T) {
+	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5}, agent: validMessageAgent()}
+	inspector := &cancelAwareMessageObjectInspector{slowStarted: make(chan struct{}), slowCanceled: make(chan struct{})}
+	service := NewService(repo,
+		WithPricingResolver(testMessagePricingResolver()),
+		WithObjectInspector(inspector),
+		WithUploadRuleResolver(testMessageUploadRuleResolver()),
+	)
+
+	_, appErr := service.Send(context.Background(), 7, SendInput{
+		ConversationID: 3, Content: "看图", RequestID: "cancel-heads",
+		Attachments: []Attachment{
+			{Type: "image", ObjectKey: "ai_chat_images/2026/07/28/slow.png", Name: "slow.png"},
+			{Type: "image", ObjectKey: "ai_chat_images/2026/07/28/fail.png", Name: "fail.png"},
+		},
+	})
+
+	if appErr == nil {
+		t.Fatal("failed HEAD was accepted")
+	}
+	select {
+	case <-inspector.slowCanceled:
+	default:
+		t.Fatal("first HEAD failure did not cancel the concurrent request")
+	}
+}
+
 func TestSendRejectsUnsupportedTemperature(t *testing.T) {
 	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5}, agent: validMessageAgent()}
 	capabilities := officialmodel.Capabilities{
@@ -540,6 +612,41 @@ func TestSendUsesTrustedObjectMetadataForMimeAndSize(t *testing.T) {
 			t.Fatalf("client URL survived trusted normalization: %s", *repo.replyInput.MetaJSON)
 		}
 	})
+}
+
+func TestSendRejectsImageExtensionMIMEConflictAndUnverifiedGIF(t *testing.T) {
+	capabilities := officialmodel.Capabilities{
+		InputModalities: []string{officialmodel.ModalityText, officialmodel.ModalityImage}, OutputModalities: []string{officialmodel.ModalityText}, SupportsStreaming: true,
+		ImageInput: &officialmodel.ImageInputCapability{MIMETypes: []string{"image/png", "image/gif"}, MaxFiles: 5, MaxBytes: 1000},
+	}
+	tests := []struct {
+		name, key, mime string
+		gifVerified     bool
+	}{
+		{name: "png key with gif MIME", key: "ai_chat_attachments/2026/07/a.png", mime: "image/gif", gifVerified: true},
+		{name: "gif key with png MIME", key: "ai_chat_attachments/2026/07/a.gif", mime: "image/png"},
+		{name: "gif without static proof", key: "ai_chat_attachments/2026/07/a.gif", mime: "image/gif"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5}, agent: validMessageAgent()}
+			inspector := &fakeMessageObjectInspector{metadata: map[string]storagecos.ObjectMetadata{
+				test.key: {Key: test.key, MIMEType: test.mime, Size: 100, ETag: `"v1"`, TrustedURL: "https://trusted.test/a", GIFStaticVerified: test.gifVerified},
+			}}
+			service := NewService(repo,
+				WithPricingResolver(testMessagePricingResolverWithCapabilities(capabilities)),
+				WithTransportCapabilityResolver(testMessageTransportCapabilities()),
+				WithObjectInspector(inspector), WithUploadRuleResolver(testMessageUploadRuleResolver()),
+			)
+			_, appErr := service.Send(context.Background(), 7, SendInput{
+				ConversationID: 3, Content: "看图", RequestID: "rid-" + test.name,
+				Attachments: []Attachment{{Type: "image", ObjectKey: test.key, Name: path.Base(test.key), MIMEType: test.mime, URL: "https://client.test/a", Size: 1}},
+			})
+			if appErr == nil || repo.replyInput.RequestID != "" {
+				t.Fatalf("error=%#v accepted=%#v", appErr, repo.replyInput)
+			}
+		})
+	}
 }
 
 func TestSendNormalizesMixedAttachmentsFromTrustedHEAD(t *testing.T) {
@@ -735,6 +842,7 @@ func testMessageUploadRuleResolver() uploadpolicy.Resolver {
 	return uploadpolicy.ResolverFunc(func(context.Context) (uploadpolicy.Rule, error) {
 		return uploadpolicy.Rule{
 			MaxFileBytes: 100 << 20, ImageExtensions: []string{"jpeg", "jpg", "png", "gif", "webp"}, FileExtensions: []string{"pdf", "md", "go"},
+			ConsistencyToken: uploadpolicy.ConsistencyToken{1},
 		}, nil
 	})
 }

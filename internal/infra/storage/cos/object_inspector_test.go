@@ -1,13 +1,80 @@
 package cos
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"image"
+	"image/color"
+	"image/gif"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 )
+
+func TestObjectInspectorProvesGIFIsStaticFromConditionalObjectContent(t *testing.T) {
+	for _, frames := range []int{1, 2} {
+		t.Run(fmt.Sprintf("frames_%d", frames), func(t *testing.T) {
+			body := encodedGIF(t, frames)
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				writer.Header().Set("Content-Type", "image/gif")
+				writer.Header().Set("Content-Length", strconv.Itoa(len(body)))
+				writer.Header().Set("ETag", `"gif-v1"`)
+				switch request.Method {
+				case http.MethodHead:
+					writer.WriteHeader(http.StatusOK)
+				case http.MethodGet:
+					if request.Header.Get("If-Match") != `"gif-v1"` {
+						t.Fatalf("If-Match=%q", request.Header.Get("If-Match"))
+					}
+					_, _ = writer.Write(body)
+				default:
+					t.Fatalf("method=%s", request.Method)
+				}
+			}))
+			t.Cleanup(server.Close)
+			inspector := NewObjectInspector(&staticObjectConfigProvider{config: ObjectConfig{
+				SecretID: "secret-id", SecretKey: "secret-key", Bucket: "bucket-1", Region: "ap-test", Endpoint: server.URL,
+			}}, ObjectInspectorConfig{Enabled: true, Timeout: time.Second, HTTPClient: server.Client()})
+
+			metadata, err := inspector.Head(context.Background(), "ai_chat_attachments/2026/07/demo.gif")
+			if frames == 1 {
+				if err != nil || !metadata.GIFStaticVerified {
+					t.Fatalf("metadata=%#v err=%v", metadata, err)
+				}
+			} else if !errors.Is(err, ErrAnimatedGIF) {
+				t.Fatalf("animated GIF error=%v", err)
+			}
+		})
+	}
+}
+
+func TestStaticGIFProofRejectsTrailingData(t *testing.T) {
+	body := append(encodedGIF(t, 1), 0x00)
+
+	if err := requireStaticGIF(bytes.NewReader(body)); !errors.Is(err, ErrInvalidGIF) {
+		t.Fatalf("trailing GIF data error=%v", err)
+	}
+}
+
+func encodedGIF(t *testing.T, frames int) []byte {
+	t.Helper()
+	images := make([]*image.Paletted, frames)
+	delays := make([]int, frames)
+	palette := color.Palette{color.Black, color.White}
+	for index := range images {
+		images[index] = image.NewPaletted(image.Rect(0, 0, 2, 2), palette)
+		images[index].Pix[0] = uint8(index % len(palette))
+	}
+	var body bytes.Buffer
+	if err := gif.EncodeAll(&body, &gif.GIF{Image: images, Delay: delays}); err != nil {
+		t.Fatal(err)
+	}
+	return body.Bytes()
+}
 
 type staticObjectConfigProvider struct {
 	config ObjectConfig

@@ -9,6 +9,7 @@ import (
 	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/replycommand"
 	"admin_back_go/internal/shared/enum"
+	"admin_back_go/internal/shared/uploadpolicy"
 
 	"gorm.io/gorm"
 )
@@ -16,17 +17,26 @@ import (
 var ErrRepositoryNotConfigured = errors.New("aimessage repository not configured")
 
 type GormRepository struct {
-	db      *gorm.DB
-	replies replycommand.Repository
-	history replycommand.HistoryTransactionParticipant
-	pricing officialmodel.Resolver
-	now     func() time.Time
+	db              *gorm.DB
+	replies         replycommand.Repository
+	history         replycommand.HistoryTransactionParticipant
+	pricing         officialmodel.Resolver
+	uploadRuleGuard UploadRuleTransactionGuard
+	now             func() time.Time
 }
 
 type RepositoryOption func(*GormRepository)
 
+type UploadRuleTransactionGuard interface {
+	GuardActiveInTransaction(context.Context, *gorm.DB, uploadpolicy.ConsistencyToken) error
+}
+
 func WithRepositoryPricingResolver(resolver officialmodel.Resolver) RepositoryOption {
 	return func(repository *GormRepository) { repository.pricing = resolver }
+}
+
+func WithRepositoryUploadRuleGuard(guard UploadRuleTransactionGuard) RepositoryOption {
+	return func(repository *GormRepository) { repository.uploadRuleGuard = guard }
 }
 
 func NewGormRepository(client *database.Client, replies replycommand.Repository, history replycommand.HistoryTransactionParticipant, options ...RepositoryOption) *GormRepository {

@@ -1,11 +1,20 @@
 package uploadpolicy
 
-import "context"
+import (
+	"context"
+	"crypto/sha256"
+	"errors"
+)
+
+var ErrRuleSnapshotChanged = errors.New("active upload rule snapshot changed")
+
+type ConsistencyToken [sha256.Size]byte
 
 type Rule struct {
-	MaxFileBytes    int64
-	ImageExtensions []string
-	FileExtensions  []string
+	MaxFileBytes     int64
+	ImageExtensions  []string
+	FileExtensions   []string
+	ConsistencyToken ConsistencyToken
 }
 
 type Resolver interface {

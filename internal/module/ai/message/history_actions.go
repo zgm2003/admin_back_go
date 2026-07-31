@@ -10,6 +10,7 @@ import (
 
 	"admin_back_go/internal/module/ai/requestidentity"
 	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/uploadpolicy"
 )
 
 const ErrorCodeHistoryActive = "ai.message.history_active"
@@ -51,12 +52,18 @@ func (s *Service) Revise(ctx context.Context, userID int64, input EditInput) (*S
 	if input.Attachments != nil {
 		attachments = append([]Attachment(nil), (*input.Attachments)...)
 	}
-	validated, inspectErr := s.inspectHistoryAttachments(ctx, preparation.Runtime, attachments)
+	validated, uploadRuleToken, inspectErr := s.inspectHistoryAttachments(ctx, preparation.Runtime, attachments)
 	if inspectErr != nil {
 		return nil, inspectErr
 	}
 	input.ValidatedAttachments = validated
+	input.UploadRuleToken = uploadRuleToken
 	input.SourceAttachmentsSHA256 = preparation.SourceAttachmentsSHA256
+	runtimeDigest, err := historyRuntimeDigest(preparation.Runtime)
+	if err != nil {
+		return nil, historyActionError("aimessage.revision.failed", "编辑AI消息失败", err)
+	}
+	input.SourceRuntimeSHA256 = runtimeDigest
 	result, err := history.Revise(ctx, input)
 	if err != nil {
 		return nil, historyActionError("aimessage.revision.failed", "编辑AI消息失败", err)
@@ -84,12 +91,18 @@ func (s *Service) Regenerate(ctx context.Context, userID int64, input Regenerate
 	if err != nil {
 		return nil, historyActionError("aimessage.regeneration.failed", "重新生成AI回复失败", err)
 	}
-	validated, inspectErr := s.inspectHistoryAttachments(ctx, preparation.Runtime, preparation.SourceAttachments)
+	validated, uploadRuleToken, inspectErr := s.inspectHistoryAttachments(ctx, preparation.Runtime, preparation.SourceAttachments)
 	if inspectErr != nil {
 		return nil, inspectErr
 	}
 	input.ValidatedAttachments = validated
+	input.UploadRuleToken = uploadRuleToken
 	input.SourceAttachmentsSHA256 = preparation.SourceAttachmentsSHA256
+	runtimeDigest, err := historyRuntimeDigest(preparation.Runtime)
+	if err != nil {
+		return nil, historyActionError("aimessage.regeneration.failed", "重新生成AI回复失败", err)
+	}
+	input.SourceRuntimeSHA256 = runtimeDigest
 	result, err := history.Regenerate(ctx, input)
 	if err != nil {
 		return nil, historyActionError("aimessage.regeneration.failed", "重新生成AI回复失败", err)
@@ -97,19 +110,26 @@ func (s *Service) Regenerate(ctx context.Context, userID int64, input Regenerate
 	return s.acceptHistoryResult(ctx, input.ConversationID, result)
 }
 
-func (s *Service) inspectHistoryAttachments(ctx context.Context, runtime AgentRuntime, attachments []Attachment) ([]Attachment, *apperror.Error) {
+func (s *Service) inspectHistoryAttachments(ctx context.Context, runtime AgentRuntime, attachments []Attachment) ([]Attachment, uploadpolicy.ConsistencyToken, *apperror.Error) {
 	if len(attachments) == 0 {
-		return []Attachment{}, nil
+		return []Attachment{}, uploadpolicy.ConsistencyToken{}, nil
 	}
 	resolved, err := resolveOfficialModelForSend(ctx, s.pricingResolver, runtime)
 	if err != nil {
-		return nil, historyActionError("aimessage.history.runtime_unavailable", "当前智能体模型能力不可用", err)
+		return nil, uploadpolicy.ConsistencyToken{}, historyActionError("aimessage.history.runtime_unavailable", "当前智能体模型能力不可用", err)
 	}
 	effective, err := s.effectiveChatCapabilities(runtime, resolved.Model.Capabilities)
 	if err != nil {
-		return nil, historyActionError("aimessage.history.runtime_unavailable", "当前智能体模型能力不可用", err)
+		return nil, uploadpolicy.ConsistencyToken{}, historyActionError("aimessage.history.runtime_unavailable", "当前智能体模型能力不可用", err)
 	}
-	return s.inspectAttachments(ctx, runtime, resolved.Model.Capabilities, effective, attachments)
+	validated, token, appErr := s.inspectAttachments(ctx, runtime, resolved.Model.Capabilities, effective, attachments)
+	if appErr != nil {
+		return nil, uploadpolicy.ConsistencyToken{}, appErr
+	}
+	if token == (uploadpolicy.ConsistencyToken{}) {
+		return nil, uploadpolicy.ConsistencyToken{}, apperror.BadRequestKey("aimessage.attachments.upload_rule_unavailable", nil, "当前上传规则不可用")
+	}
+	return validated, token, nil
 }
 
 func (s *Service) DeleteMessages(ctx context.Context, userID int64, input DeleteInput) (*DeleteResponse, *apperror.Error) {
@@ -204,6 +224,8 @@ func historyActionError(messageID, fallback string, err error) *apperror.Error {
 		return apperror.Wrap("resource.not_found", apperror.CategoryNotFound, http.StatusNotFound, apperror.Permanent, "aimessage.message.not_found", nil, "AI消息不存在", err)
 	case errors.Is(err, ErrHistorySourceChanged):
 		return apperror.Wrap("ai.message.history_source_changed", apperror.CategoryConflict, http.StatusConflict, apperror.Permanent, "aimessage.history.source_changed", nil, "原消息附件已变化，请刷新后重试", err)
+	case errors.Is(err, ErrHistoryRuntimeChanged), errors.Is(err, ErrHistoryUploadRuleChanged):
+		return apperror.Wrap("ai.message.history_acceptance_changed", apperror.CategoryConflict, http.StatusConflict, apperror.Permanent, "aimessage.history.acceptance_changed", nil, "当前智能体或上传规则已变化，请刷新后重试", err)
 	case errors.Is(err, ErrHistoryIDsInvalid):
 		return apperror.Wrap("request.invalid", apperror.CategoryValidation, http.StatusBadRequest, apperror.Permanent, "aimessage.delete.ids.invalid", nil, "待删除消息无效", err)
 	default:

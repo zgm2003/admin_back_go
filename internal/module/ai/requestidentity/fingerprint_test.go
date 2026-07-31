@@ -77,6 +77,78 @@ func TestBuildFingerprintNormalizesLineEndingsOptionsAndAttachmentOrder(t *testi
 	}
 }
 
+func TestBuildFingerprintPreservesAttachmentOrderWhenRequested(t *testing.T) {
+	firstInput := validFingerprintInput()
+	firstInput.PreserveAttachmentOrder = true
+	firstInput.Attachments = []AttachmentIdentity{
+		{StorageProvider: "cos", StorageKey: "objects/a", SHA256: strings.Repeat("a", 64)},
+		{StorageProvider: "cos", StorageKey: "objects/b", SHA256: strings.Repeat("b", 64)},
+	}
+	secondInput := firstInput
+	secondInput.Attachments = []AttachmentIdentity{firstInput.Attachments[1], firstInput.Attachments[0]}
+
+	first, err := BuildFingerprint(firstInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := BuildFingerprint(secondInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatal("ordered attachment swap must change the fingerprint")
+	}
+}
+
+func TestBuildFingerprintRejectsNonAdjacentDuplicateAttachmentsWhenOrderIsPreserved(t *testing.T) {
+	input := validFingerprintInput()
+	input.PreserveAttachmentOrder = true
+	input.Attachments = []AttachmentIdentity{
+		{StorageProvider: "cos", StorageKey: "objects/a", SHA256: strings.Repeat("a", 64)},
+		{StorageProvider: "cos", StorageKey: "objects/b", SHA256: strings.Repeat("b", 64)},
+		{StorageProvider: "cos", StorageKey: "objects/a", SHA256: strings.Repeat("a", 64)},
+	}
+
+	if _, err := BuildFingerprint(input); err == nil {
+		t.Fatal("non-adjacent duplicate attachment identity was accepted")
+	}
+}
+
+func TestAttachmentFactsSHA256IncludesEveryTrustedFact(t *testing.T) {
+	base := AttachmentFacts{
+		Type: "file", ObjectKey: "ai_chat_attachments/report.pdf", ETag: `"v1"`,
+		Size: 4, MIMEType: "application/pdf", Name: "report.pdf",
+	}
+	want, err := AttachmentFactsSHA256(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name   string
+		mutate func(*AttachmentFacts)
+	}{
+		{name: "type", mutate: func(value *AttachmentFacts) { value.Type = "image" }},
+		{name: "object key", mutate: func(value *AttachmentFacts) { value.ObjectKey += ".bak" }},
+		{name: "etag", mutate: func(value *AttachmentFacts) { value.ETag = `"v2"` }},
+		{name: "size", mutate: func(value *AttachmentFacts) { value.Size++ }},
+		{name: "mime", mutate: func(value *AttachmentFacts) { value.MIMEType = "text/plain" }},
+		{name: "name", mutate: func(value *AttachmentFacts) { value.Name = "other.pdf" }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			changed := base
+			test.mutate(&changed)
+			got, err := AttachmentFactsSHA256(changed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got == want {
+				t.Fatal("trusted attachment fact change must change its digest")
+			}
+		})
+	}
+}
+
 func TestBuildFingerprintPreservesLeadingAndTrailingTextWhitespace(t *testing.T) {
 	base := validFingerprintInput()
 	want, err := BuildFingerprint(base)

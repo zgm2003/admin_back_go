@@ -16,6 +16,7 @@ import (
 	"admin_back_go/internal/module/ai/replycommand"
 	"admin_back_go/internal/module/ai/requestidentity"
 	"admin_back_go/internal/shared/enum"
+	"admin_back_go/internal/shared/uploadpolicy"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"gorm.io/gorm"
@@ -99,7 +100,8 @@ func TestHistoryAttachmentSelectionSemantics(t *testing.T) {
 				if appErr != nil {
 					t.Fatal(appErr)
 				}
-				if !reflect.DeepEqual(history.revisionInput.ValidatedAttachments, test.wantValidated) || history.revisionInput.SourceAttachmentsSHA256 != sourceDigest {
+				if !reflect.DeepEqual(history.revisionInput.ValidatedAttachments, test.wantValidated) || history.revisionInput.SourceAttachmentsSHA256 != sourceDigest ||
+					(history.revisionInput.UploadRuleToken == (uploadpolicy.ConsistencyToken{})) != (len(test.wantKeys) == 0) {
 					t.Fatalf("revision input=%#v", history.revisionInput)
 				}
 			} else {
@@ -109,7 +111,8 @@ func TestHistoryAttachmentSelectionSemantics(t *testing.T) {
 				if appErr != nil {
 					t.Fatal(appErr)
 				}
-				if !reflect.DeepEqual(history.regenerationInput.ValidatedAttachments, test.wantValidated) || history.regenerationInput.SourceAttachmentsSHA256 != sourceDigest {
+				if !reflect.DeepEqual(history.regenerationInput.ValidatedAttachments, test.wantValidated) || history.regenerationInput.SourceAttachmentsSHA256 != sourceDigest ||
+					history.regenerationInput.UploadRuleToken == (uploadpolicy.ConsistencyToken{}) {
 					t.Fatalf("regeneration input=%#v", history.regenerationInput)
 				}
 			}
@@ -166,6 +169,103 @@ func TestHistoryAttachmentETagChangeStopsBeforeRepositoryMutation(t *testing.T) 
 	})
 	if appErr == nil || history.regenerationInput.RequestID != "" {
 		t.Fatalf("etag change error=%#v mutation=%#v", appErr, history.regenerationInput)
+	}
+}
+
+func TestHistoryMissingAttachmentStopsBeforeRepositoryMutation(t *testing.T) {
+	source := Attachment{
+		Type: "file", ObjectKey: "ai_chat_attachments/2026/07/deleted.pdf", MIMEType: "application/pdf",
+		URL: "https://trusted.test/deleted.pdf", Name: "deleted.pdf", Size: 4096, ETag: `"old"`,
+	}
+	digest, err := historyAttachmentsDigest([]Attachment{source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	history := &fakeHistoryRepository{preparation: HistoryActionPreparation{
+		Runtime: validFileMessageAgent(), SourceAttachments: []Attachment{source}, SourceAttachmentsSHA256: digest,
+	}}
+	inspector := &fakeMessageObjectInspector{err: errors.New("object no longer exists")}
+
+	_, appErr := newHistoryAttachmentTestService(history, inspector).Regenerate(context.Background(), 7, RegenerateInput{
+		ConversationID: 3, AssistantMessageID: 97, RequestID: "regen-deleted-object",
+	})
+
+	if appErr == nil || appErr.MessageID != "aimessage.attachments.invalid" || history.regenerationInput.RequestID != "" {
+		t.Fatalf("missing object error=%#v mutation=%#v", appErr, history.regenerationInput)
+	}
+	if !reflect.DeepEqual(inspector.calls, []string{source.ObjectKey}) {
+		t.Fatalf("missing object HEAD calls=%v", inspector.calls)
+	}
+}
+
+func TestHistoryRegenerationRevalidatesLegacyImageNamespace(t *testing.T) {
+	source := Attachment{
+		Type: "image", ObjectKey: "ai_chat_images/2026/07/legacy.png", MIMEType: "image/png",
+		URL: "https://trusted.test/legacy.png", Name: "legacy.png", Size: 1024,
+	}
+	digest, err := historyAttachmentsDigest([]Attachment{source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	history := &fakeHistoryRepository{
+		preparation: HistoryActionPreparation{
+			Runtime: *validMessageAgent(), SourceAttachments: []Attachment{source}, SourceAttachmentsSHA256: digest,
+		},
+		result: replycommand.CreateReplyResult{UserMessageID: 71, CommandID: 81, RequestID: "regen-legacy", State: replycommand.StatePending},
+	}
+	inspector := &fakeMessageObjectInspector{metadata: map[string]storagecos.ObjectMetadata{
+		source.ObjectKey: {
+			Key: source.ObjectKey, MIMEType: "image/png", Size: 1024, ETag: `"legacy-v1"`, TrustedURL: "https://trusted.test/legacy.png",
+		},
+	}}
+
+	_, appErr := newHistoryAttachmentTestService(history, inspector).Regenerate(context.Background(), 7, RegenerateInput{
+		ConversationID: 3, AssistantMessageID: 97, RequestID: "regen-legacy",
+	})
+
+	if appErr != nil {
+		t.Fatal(appErr)
+	}
+	if len(history.regenerationInput.ValidatedAttachments) != 1 || history.regenerationInput.ValidatedAttachments[0].ETag != `"legacy-v1"` ||
+		history.regenerationInput.UploadRuleToken == (uploadpolicy.ConsistencyToken{}) {
+		t.Fatalf("legacy image regeneration=%#v", history.regenerationInput)
+	}
+}
+
+func TestHistoryAttachmentsRequireUploadRuleConsistencyTokenBeforeMutation(t *testing.T) {
+	source := Attachment{Type: "file", ObjectKey: "ai_chat_attachments/2026/07/report.pdf", Name: "report.pdf"}
+	digest, err := historyAttachmentsDigest([]Attachment{source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	history := &fakeHistoryRepository{preparation: HistoryActionPreparation{
+		Runtime: validFileMessageAgent(), SourceAttachments: []Attachment{source}, SourceAttachmentsSHA256: digest,
+	}}
+	inspector := &fakeMessageObjectInspector{metadata: map[string]storagecos.ObjectMetadata{
+		source.ObjectKey: {Key: source.ObjectKey, MIMEType: "application/pdf", Size: 4096, ETag: `"v1"`, TrustedURL: "https://trusted.test/report.pdf"},
+	}}
+	capabilities := officialmodel.Capabilities{
+		InputModalities: []string{"text", "image", "file"}, OutputModalities: []string{"text"}, SupportsStreaming: true, NativeFileInput: true,
+	}
+	service := NewService(
+		&fakeRepository{},
+		WithHistoryRepository(history),
+		WithPricingResolver(testMessagePricingResolverWithCapabilities(capabilities)),
+		WithTransportCapabilityResolver(staticTransportCapabilityResolver{ok: true, metadata: infraai.CapabilityMetadata{
+			InputModalities: []string{"text", "image", "file"}, OutputModalities: []string{"text"}, SupportsStreaming: true,
+		}}),
+		WithObjectInspector(inspector),
+		WithUploadRuleResolver(uploadpolicy.ResolverFunc(func(context.Context) (uploadpolicy.Rule, error) {
+			return uploadpolicy.Rule{MaxFileBytes: 100 << 20, FileExtensions: []string{"pdf"}}, nil
+		})),
+	)
+
+	_, appErr := service.Regenerate(context.Background(), 7, RegenerateInput{
+		ConversationID: 3, AssistantMessageID: 97, RequestID: "regen-token-missing",
+	})
+
+	if appErr == nil || appErr.MessageID != "aimessage.attachments.upload_rule_unavailable" || history.regenerationInput.RequestID != "" {
+		t.Fatalf("missing rule token error=%#v mutation=%#v", appErr, history.regenerationInput)
 	}
 }
 
@@ -267,6 +367,9 @@ func TestHistoryActionsMapActiveAndHiddenSourceErrors(t *testing.T) {
 	}{
 		{name: "active", err: ErrHistoryActiveCommand, wantStatus: 409, wantCode: ErrorCodeHistoryActive},
 		{name: "hidden source", err: ErrHistorySourceNotFound, wantStatus: 404, wantCode: "resource.not_found"},
+		{name: "source drift", err: ErrHistorySourceChanged, wantStatus: 409, wantCode: "ai.message.history_source_changed"},
+		{name: "runtime drift", err: ErrHistoryRuntimeChanged, wantStatus: 409, wantCode: "ai.message.history_acceptance_changed"},
+		{name: "upload rule drift", err: ErrHistoryUploadRuleChanged, wantStatus: 409, wantCode: "ai.message.history_acceptance_changed"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			history := &fakeHistoryRepository{err: test.err}
@@ -302,6 +405,20 @@ type fakeHistoryParticipant struct {
 	createResult replycommand.CreateReplyResult
 	createErr    error
 	created      replycommand.HistoryCreateInput
+}
+
+type fakeHistoryUploadRuleGuard struct {
+	err   error
+	token uploadpolicy.ConsistencyToken
+	tx    *gorm.DB
+	calls int
+}
+
+func (guard *fakeHistoryUploadRuleGuard) GuardActiveInTransaction(_ context.Context, tx *gorm.DB, token uploadpolicy.ConsistencyToken) error {
+	guard.calls++
+	guard.tx = tx
+	guard.token = token
+	return guard.err
 }
 
 func (f *fakeHistoryParticipant) ReplayInTransaction(_ context.Context, _ *gorm.DB, _ replycommand.HistoryRequest) (*replycommand.CreateReplyResult, error) {
@@ -381,7 +498,8 @@ func TestHistoryRevisionRollsBackVisibleTailWhenParticipantFails(t *testing.T) {
 	db, mock, cleanup := newMessageMockDB(t)
 	defer cleanup()
 	participant := &fakeHistoryParticipant{createErr: errors.New("run insert failed")}
-	repository := &GormRepository{db: db, history: participant, pricing: testMessagePricingResolver()}
+	guard := &fakeHistoryUploadRuleGuard{}
+	repository := &GormRepository{db: db, history: participant, pricing: testMessagePricingResolver(), uploadRuleGuard: guard}
 	now := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
 	repository.now = func() time.Time { return now }
 
@@ -406,15 +524,20 @@ func TestHistoryRevisionRollsBackVisibleTailWhenParticipantFails(t *testing.T) {
 	}
 	validatedAttachments := append([]Attachment(nil), sourceAttachments...)
 	validatedAttachments[0].ETag = `"image-v1"`
+	runtimeDigest := mustHistoryRuntimeDigest(t)
 	_, err := repository.Revise(context.Background(), EditInput{
 		UserID: 7, ConversationID: 3, MessageID: 41, Content: "new text", RequestID: "revision-1",
-		ValidatedAttachments: validatedAttachments, SourceAttachmentsSHA256: sourceDigest,
+		ValidatedAttachments: validatedAttachments, SourceAttachmentsSHA256: sourceDigest, SourceRuntimeSHA256: runtimeDigest,
+		UploadRuleToken: uploadpolicy.ConsistencyToken{1},
 	})
 	if err == nil || err.Error() != "run insert failed" {
 		t.Fatalf("revision error=%v", err)
 	}
 	if participant.created.MetaJSON == nil || *participant.created.MetaJSON == "" || participant.created.Content != "new text" {
 		t.Fatalf("edit did not inherit server metadata: %+v", participant.created)
+	}
+	if guard.calls != 1 || guard.tx == nil {
+		t.Fatalf("upload rule guard calls=%d tx=%p", guard.calls, guard.tx)
 	}
 	var snapshot struct {
 		RequestIdentity struct {
@@ -453,13 +576,97 @@ func TestHistoryRevisionRejectsSourceAttachmentDriftBeforeMutation(t *testing.T)
 
 	_, err := repository.Revise(context.Background(), EditInput{
 		UserID: 7, ConversationID: 3, MessageID: 41, Content: "new text", RequestID: "revision-drift",
-		ValidatedAttachments: []Attachment{}, SourceAttachmentsSHA256: [32]byte{1},
+		ValidatedAttachments: []Attachment{}, SourceAttachmentsSHA256: [32]byte{1}, SourceRuntimeSHA256: mustHistoryRuntimeDigest(t),
 	})
 	if !errors.Is(err, ErrHistorySourceChanged) {
 		t.Fatalf("source drift error=%v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("source drift reached history mutation: %v", err)
+	}
+	mock.ExpectClose()
+}
+
+func TestHistoryRevisionRejectsRuntimeDriftBeforeMutation(t *testing.T) {
+	db, mock, cleanup := newMessageMockDB(t)
+	defer cleanup()
+	repository := &GormRepository{db: db, history: &fakeHistoryParticipant{}, pricing: testMessagePricingResolver()}
+	expectedRuntime := historyRuntimeFixture()
+	expectedDigest, err := historyRuntimeDigest(expectedRuntime)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mock.ExpectBegin()
+	expectNoActiveHistoryCommand(mock, false)
+	expectOwnedConversationLock(mock)
+	expectNoActiveHistoryCommand(mock, true)
+	mock.ExpectQuery("SELECT .*file_input_mode.* FROM .*ai_conversations.*ai_agents.*ai_providers.*FOR UPDATE").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"agent_id", "provider_id", "model_id", "model_display_name", "engine_type", "file_input_mode", "billing_multiplier_ppm", "status", "scenes_json",
+			"provider_model_status", "official_model_id", "official_catalog_version", "mapping_status",
+		}).AddRow(5, 9, "gpt-4.1-mini", "GPT-4.1 mini", "openai", aiprovider.FileInputModeDisabled, 1_250_000, enum.CommonYes, `["chat"]`,
+			enum.CommonYes, "gpt-4.1-mini", "catalog-v3", officialmodel.MappingStatusMapped))
+	mock.ExpectRollback()
+
+	_, err = repository.Revise(context.Background(), EditInput{
+		UserID: 7, ConversationID: 3, MessageID: 41, Content: "new text", RequestID: "revision-runtime-drift",
+		ValidatedAttachments: []Attachment{}, SourceRuntimeSHA256: expectedDigest,
+	})
+	if !errors.Is(err, ErrHistoryRuntimeChanged) {
+		t.Fatalf("runtime drift error=%v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("runtime drift reached history mutation: %v", err)
+	}
+	mock.ExpectClose()
+}
+
+func TestHistoryRevisionRejectsUploadRuleDriftBeforeMutation(t *testing.T) {
+	db, mock, cleanup := newMessageMockDB(t)
+	defer cleanup()
+	guard := &fakeHistoryUploadRuleGuard{err: uploadpolicy.ErrRuleSnapshotChanged}
+	participant := &fakeHistoryParticipant{}
+	repository := &GormRepository{db: db, history: participant, pricing: testMessagePricingResolver(), uploadRuleGuard: guard}
+	sourceAttachments := []Attachment{{
+		Type: "file", ObjectKey: "ai_chat_attachments/2026/07/report.pdf", MIMEType: "application/pdf",
+		URL: "https://trusted.test/report.pdf", Name: "report.pdf", Size: 4096, ETag: `"v1"`,
+	}}
+	sourceMetaBytes, err := json.Marshal(map[string]any{"attachments": sourceAttachments})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceDigest, err := historyAttachmentsDigest(sourceAttachments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := uploadpolicy.ConsistencyToken{1}
+
+	mock.ExpectBegin()
+	expectNoActiveHistoryCommand(mock, false)
+	expectOwnedConversationLock(mock)
+	expectNoActiveHistoryCommand(mock, true)
+	expectHistoryRuntime(mock, true)
+	mock.ExpectQuery("SELECT COALESCE\\(MAX\\(id\\), 0\\).*FROM `ai_messages`").WillReturnRows(sqlmock.NewRows([]string{"max_id"}).AddRow(41))
+	expectHistoryMessage(mock, 41, enum.AIMessageRoleUser, "old text", string(sourceMetaBytes), enum.CommonNo)
+	mock.ExpectRollback()
+
+	_, err = repository.Revise(context.Background(), EditInput{
+		UserID: 7, ConversationID: 3, MessageID: 41, Content: "new text", RequestID: "revision-rule-drift",
+		ValidatedAttachments: sourceAttachments, SourceAttachmentsSHA256: sourceDigest, SourceRuntimeSHA256: mustHistoryRuntimeDigest(t),
+		UploadRuleToken: token,
+	})
+	if !errors.Is(err, ErrHistoryUploadRuleChanged) {
+		t.Fatalf("upload rule drift error=%v", err)
+	}
+	if guard.calls != 1 || guard.tx == nil || guard.token != token {
+		t.Fatalf("upload rule guard calls=%d tx=%p token=%x", guard.calls, guard.tx, guard.token)
+	}
+	if participant.created.RequestID != "" {
+		t.Fatalf("upload rule drift reached paid mutation: %#v", participant.created)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("upload rule drift reached history mutation: %v", err)
 	}
 	mock.ExpectClose()
 }
@@ -479,7 +686,9 @@ func TestHistoryRegenerationRejectsMissingPairWithoutMutation(t *testing.T) {
 	mock.ExpectQuery("SELECT .* FROM `ai_reply_commands`").WillReturnRows(sqlmock.NewRows([]string{"id"}))
 	mock.ExpectRollback()
 
-	_, err := repository.Regenerate(context.Background(), RegenerateInput{UserID: 7, ConversationID: 3, AssistantMessageID: 97, RequestID: "regen-1"})
+	_, err := repository.Regenerate(context.Background(), RegenerateInput{
+		UserID: 7, ConversationID: 3, AssistantMessageID: 97, RequestID: "regen-1", SourceRuntimeSHA256: mustHistoryRuntimeDigest(t),
+	})
 	if !errors.Is(err, ErrHistorySourceNotFound) {
 		t.Fatalf("missing pair error=%v", err)
 	}
@@ -572,7 +781,8 @@ func TestRegenerateStoppedMessageAfterTerminalCommand(t *testing.T) {
 		t.Fatal(digestErr)
 	}
 	accepted, err := repository.Regenerate(context.Background(), RegenerateInput{
-		UserID: 7, ConversationID: 3, AssistantMessageID: 97, RequestID: "regen-1", SourceAttachmentsSHA256: emptyDigest,
+		UserID: 7, ConversationID: 3, AssistantMessageID: 97, RequestID: "regen-1",
+		SourceAttachmentsSHA256: emptyDigest, SourceRuntimeSHA256: mustHistoryRuntimeDigest(t),
 	})
 	if err != nil || accepted.Reply.CommandID != 102 || accepted.Replayed {
 		t.Fatalf("accepted=%+v err=%v", accepted, err)
@@ -628,6 +838,7 @@ func expectNoActiveHistoryCommand(mock sqlmock.Sqlmock, locked bool) {
 }
 
 func expectHistoryRuntime(mock sqlmock.Sqlmock, locked bool) {
+	runtime := historyRuntimeFixture()
 	pattern := "SELECT .*file_input_mode.* FROM .*ai_conversations.*ai_agents.*ai_providers"
 	if locked {
 		pattern += ".*FOR UPDATE"
@@ -635,8 +846,27 @@ func expectHistoryRuntime(mock sqlmock.Sqlmock, locked bool) {
 	mock.ExpectQuery(pattern).WillReturnRows(sqlmock.NewRows([]string{
 		"agent_id", "provider_id", "model_id", "model_display_name", "engine_type", "file_input_mode", "billing_multiplier_ppm", "status", "scenes_json",
 		"provider_model_status", "official_model_id", "official_catalog_version", "mapping_status",
-	}).AddRow(5, 9, "gpt-4.1-mini", "GPT-4.1 mini", "openai", aiprovider.FileInputModeChatCompletions, 1_250_000, enum.CommonYes, `["chat"]`,
-		enum.CommonYes, "gpt-4.1-mini", "catalog-v3", officialmodel.MappingStatusMapped))
+	}).AddRow(runtime.AgentID, runtime.ProviderID, runtime.ModelID, runtime.ModelDisplayName, runtime.EngineType, runtime.FileInputMode,
+		runtime.BillingMultiplierPPM, runtime.Status, runtime.ScenesJSON, runtime.ProviderModelStatus, runtime.OfficialModelID,
+		runtime.OfficialCatalogVersion, runtime.MappingStatus))
+}
+
+func historyRuntimeFixture() AgentRuntime {
+	return AgentRuntime{
+		AgentID: 5, ProviderID: 9, ModelID: "gpt-4.1-mini", ModelDisplayName: "GPT-4.1 mini", EngineType: "openai",
+		FileInputMode: aiprovider.FileInputModeChatCompletions, BillingMultiplierPPM: 1_250_000,
+		Status: enum.CommonYes, ScenesJSON: `["chat"]`, ProviderModelStatus: enum.CommonYes,
+		OfficialModelID: "gpt-4.1-mini", OfficialCatalogVersion: "catalog-v3", MappingStatus: officialmodel.MappingStatusMapped,
+	}
+}
+
+func mustHistoryRuntimeDigest(t *testing.T) [32]byte {
+	t.Helper()
+	digest, err := historyRuntimeDigest(historyRuntimeFixture())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return digest
 }
 
 func expectHistoryMessage(mock sqlmock.Sqlmock, id int64, role int, content string, meta string, isDel int) {

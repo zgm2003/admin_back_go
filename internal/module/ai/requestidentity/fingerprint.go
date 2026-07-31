@@ -33,6 +33,24 @@ type AttachmentIdentity struct {
 	SHA256          string `json:"sha256,omitempty"`
 }
 
+type AttachmentFacts struct {
+	Type      string `json:"type"`
+	ObjectKey string `json:"object_key"`
+	ETag      string `json:"etag"`
+	Size      int64  `json:"size"`
+	MIMEType  string `json:"mime_type"`
+	Name      string `json:"name"`
+}
+
+func AttachmentFactsSHA256(facts AttachmentFacts) (string, error) {
+	raw, err := json.Marshal(facts)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(raw)
+	return hex.EncodeToString(digest[:]), nil
+}
+
 type GenerationOptions struct {
 	MaxOutputTokens int64             `json:"max_output_tokens,omitempty"`
 	Size            string            `json:"size,omitempty"`
@@ -44,41 +62,44 @@ type GenerationOptions struct {
 // Input contains the raw typed facts accepted by BuildFingerprint. Runtime
 // timestamps, leases, provider request IDs and provider responses are excluded.
 type Input struct {
-	UserID          int64
-	Operation       string
-	Modality        string
-	AgentID         int64
-	ModelID         string
-	NormalizedText  string
-	Attachments     []AttachmentIdentity
-	Options         GenerationOptions
-	ConversationID  int64
-	SourceMessageID int64
+	UserID                  int64
+	Operation               string
+	Modality                string
+	AgentID                 int64
+	ModelID                 string
+	NormalizedText          string
+	Attachments             []AttachmentIdentity
+	Options                 GenerationOptions
+	ConversationID          int64
+	SourceMessageID         int64
+	PreserveAttachmentOrder bool
 }
 
 type ChatFingerprintInput struct {
-	UserID          int64
-	ConversationID  int64
-	SourceMessageID int64
-	AgentID         int64
-	ModelID         string
-	Text            string
-	Attachments     []AttachmentIdentity
-	Options         GenerationOptions
+	UserID                  int64
+	ConversationID          int64
+	SourceMessageID         int64
+	AgentID                 int64
+	ModelID                 string
+	Text                    string
+	Attachments             []AttachmentIdentity
+	Options                 GenerationOptions
+	PreserveAttachmentOrder bool
 }
 
 func BuildChatFingerprint(input ChatFingerprintInput) ([32]byte, error) {
 	return BuildFingerprint(Input{
-		UserID:          input.UserID,
-		Operation:       "chat.reply",
-		Modality:        "chat",
-		AgentID:         input.AgentID,
-		ModelID:         input.ModelID,
-		NormalizedText:  input.Text,
-		Attachments:     input.Attachments,
-		Options:         input.Options,
-		ConversationID:  input.ConversationID,
-		SourceMessageID: input.SourceMessageID,
+		UserID:                  input.UserID,
+		Operation:               "chat.reply",
+		Modality:                "chat",
+		AgentID:                 input.AgentID,
+		ModelID:                 input.ModelID,
+		NormalizedText:          input.Text,
+		Attachments:             input.Attachments,
+		Options:                 input.Options,
+		ConversationID:          input.ConversationID,
+		SourceMessageID:         input.SourceMessageID,
+		PreserveAttachmentOrder: input.PreserveAttachmentOrder,
 	})
 }
 
@@ -179,16 +200,8 @@ func validateInput(input Input) error {
 			return errors.New("generation options must contain valid UTF-8")
 		}
 	}
+	seenAttachments := make(map[[2]string]string, len(input.Attachments))
 	for index, attachment := range input.Attachments {
-		if index > 0 {
-			previous := input.Attachments[index-1]
-			if attachment.StorageProvider == previous.StorageProvider && attachment.StorageKey == previous.StorageKey {
-				if attachment.SHA256 == previous.SHA256 {
-					return fmt.Errorf("duplicate attachment object identity at index %d", index)
-				}
-				return fmt.Errorf("conflicting attachment object identity at index %d", index)
-			}
-		}
 		if attachment.StorageProvider == "" {
 			return fmt.Errorf("attachments[%d].storage_provider must not be blank", index)
 		}
@@ -198,6 +211,14 @@ func validateInput(input Input) error {
 		if !utf8.ValidString(attachment.StorageProvider) || !utf8.ValidString(attachment.StorageKey) {
 			return fmt.Errorf("attachments[%d] identity must contain valid UTF-8", index)
 		}
+		objectIdentity := [2]string{attachment.StorageProvider, attachment.StorageKey}
+		if previousSHA, exists := seenAttachments[objectIdentity]; exists {
+			if previousSHA == attachment.SHA256 {
+				return fmt.Errorf("duplicate attachment object identity at index %d", index)
+			}
+			return fmt.Errorf("conflicting attachment object identity at index %d", index)
+		}
+		seenAttachments[objectIdentity] = attachment.SHA256
 		if attachment.SHA256 == "" {
 			continue
 		}
@@ -239,17 +260,19 @@ func normalizeInput(input Input) (Input, error) {
 			SHA256:          strings.ToLower(strings.TrimSpace(attachment.SHA256)),
 		}
 	}
-	sort.SliceStable(normalized.Attachments, func(left, right int) bool {
-		leftAttachment := normalized.Attachments[left]
-		rightAttachment := normalized.Attachments[right]
-		if leftAttachment.StorageProvider != rightAttachment.StorageProvider {
-			return leftAttachment.StorageProvider < rightAttachment.StorageProvider
-		}
-		if leftAttachment.StorageKey != rightAttachment.StorageKey {
-			return leftAttachment.StorageKey < rightAttachment.StorageKey
-		}
-		return leftAttachment.SHA256 < rightAttachment.SHA256
-	})
+	if !input.PreserveAttachmentOrder {
+		sort.SliceStable(normalized.Attachments, func(left, right int) bool {
+			leftAttachment := normalized.Attachments[left]
+			rightAttachment := normalized.Attachments[right]
+			if leftAttachment.StorageProvider != rightAttachment.StorageProvider {
+				return leftAttachment.StorageProvider < rightAttachment.StorageProvider
+			}
+			if leftAttachment.StorageKey != rightAttachment.StorageKey {
+				return leftAttachment.StorageKey < rightAttachment.StorageKey
+			}
+			return leftAttachment.SHA256 < rightAttachment.SHA256
+		})
+	}
 	normalized.Options.Size = strings.TrimSpace(input.Options.Size)
 	if input.Options.Extra != nil {
 		normalized.Options.Extra = make(map[string]string, len(input.Options.Extra))

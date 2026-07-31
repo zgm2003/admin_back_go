@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -1010,34 +1011,58 @@ func paidReplyRequestIdentity(run *airun.Run, input ConversationReplyInput, mess
 		options.Extra = nil
 	}
 	attachments := make([]requestidentity.AttachmentIdentity, 0)
+	preserveAttachmentOrder := false
 	if values, ok := meta["attachments"].([]any); ok {
 		attachments = make([]requestidentity.AttachmentIdentity, 0, len(values))
+		allAttachmentsCanonical := len(values) > 0
 		for _, raw := range values {
 			item, ok := raw.(map[string]any)
 			if !ok {
 				return requestidentity.Input{}, apperror.Internal("AI附件身份快照无效")
 			}
 			if objectKey, ok := item["object_key"].(string); ok && strings.TrimSpace(objectKey) != "" {
-				attachments = append(attachments, requestidentity.AttachmentIdentity{StorageProvider: "cos", StorageKey: strings.TrimSpace(objectKey)})
+				identity := requestidentity.AttachmentIdentity{StorageProvider: "cos", StorageKey: strings.TrimSpace(objectKey)}
+				facts, canonical, factsErr := trustedAttachmentFacts(item)
+				if factsErr != nil {
+					return requestidentity.Input{}, apperror.Internal("AI附件身份快照无效")
+				}
+				if canonical {
+					digest, digestErr := requestidentity.AttachmentFactsSHA256(facts)
+					if digestErr != nil {
+						return requestidentity.Input{}, apperror.Internal("AI附件身份快照无效")
+					}
+					identity.SHA256 = digest
+				} else {
+					allAttachmentsCanonical = false
+				}
+				attachments = append(attachments, identity)
 				continue
 			}
+			allAttachmentsCanonical = false
 			if url, ok := item["url"].(string); ok && strings.TrimSpace(url) != "" {
 				attachments = append(attachments, requestidentity.AttachmentIdentity{StorageProvider: "url", StorageKey: strings.TrimSpace(url)})
 				continue
 			}
 			return requestidentity.Input{}, apperror.Internal("AI附件身份快照无效")
 		}
+		if !allAttachmentsCanonical {
+			for index := range attachments {
+				attachments[index].SHA256 = ""
+			}
+		}
+		preserveAttachmentOrder = allAttachmentsCanonical
 	}
 	identity := requestidentity.Input{
-		UserID:         input.UserID,
-		Operation:      "chat.reply",
-		Modality:       "chat",
-		AgentID:        run.AgentID,
-		ModelID:        run.ModelID,
-		NormalizedText: message.Content,
-		Attachments:    attachments,
-		Options:        options,
-		ConversationID: input.ConversationID,
+		UserID:                  input.UserID,
+		Operation:               "chat.reply",
+		Modality:                "chat",
+		AgentID:                 run.AgentID,
+		ModelID:                 run.ModelID,
+		NormalizedText:          message.Content,
+		Attachments:             attachments,
+		Options:                 options,
+		ConversationID:          input.ConversationID,
+		PreserveAttachmentOrder: preserveAttachmentOrder,
 	}
 	var persisted [32]byte
 	copy(persisted[:], run.RequestFingerprint)
@@ -1056,6 +1081,29 @@ func paidReplyRequestIdentity(run *airun.Run, input ConversationReplyInput, mess
 		}
 	}
 	return requestidentity.Input{}, apperror.Internal("AI请求身份与接受快照不一致")
+}
+
+func trustedAttachmentFacts(item map[string]any) (requestidentity.AttachmentFacts, bool, error) {
+	etag, _ := item["etag"].(string)
+	if strings.TrimSpace(etag) == "" {
+		return requestidentity.AttachmentFacts{}, false, nil
+	}
+	typ, typeOK := item["type"].(string)
+	objectKey, keyOK := item["object_key"].(string)
+	mimeType, mimeOK := item["mime_type"].(string)
+	name, nameOK := item["name"].(string)
+	sizeValue, sizeOK := numberFromAny(item["size"])
+	if !typeOK || !keyOK || !mimeOK || !nameOK || !sizeOK || sizeValue <= 0 || sizeValue > math.MaxInt64 || sizeValue != math.Trunc(sizeValue) {
+		return requestidentity.AttachmentFacts{}, false, errors.New("canonical attachment facts are invalid")
+	}
+	facts := requestidentity.AttachmentFacts{
+		Type: strings.TrimSpace(typ), ObjectKey: strings.TrimSpace(objectKey), ETag: strings.TrimSpace(etag),
+		Size: int64(sizeValue), MIMEType: strings.ToLower(strings.TrimSpace(mimeType)), Name: strings.TrimSpace(name),
+	}
+	if facts.Type == "" || facts.ObjectKey == "" || facts.MIMEType == "" || facts.Name == "" {
+		return requestidentity.AttachmentFacts{}, false, errors.New("canonical attachment facts are incomplete")
+	}
+	return facts, true, nil
 }
 
 func paidReplyIdentityMatches(status string, persisted [32]byte, identity requestidentity.Input) bool {

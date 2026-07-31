@@ -15,6 +15,7 @@ import (
 	"admin_back_go/internal/module/ai/replycommand"
 	"admin_back_go/internal/module/ai/requestidentity"
 	"admin_back_go/internal/shared/enum"
+	"admin_back_go/internal/shared/uploadpolicy"
 
 	gomysql "github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
@@ -31,6 +32,8 @@ var (
 	ErrHistoryAgentUnavailable   = errors.New("message history agent is unavailable")
 	ErrHistorySourceInvalid      = errors.New("message history source snapshot is invalid")
 	ErrHistorySourceChanged      = errors.New("message history source attachments changed")
+	ErrHistoryRuntimeChanged     = errors.New("message history runtime changed")
+	ErrHistoryUploadRuleChanged  = errors.New("message history upload rule changed")
 )
 
 type historySourceSnapshot struct {
@@ -46,11 +49,11 @@ type historyRequestFacts struct {
 }
 
 func (r *GormRepository) Revise(ctx context.Context, input EditInput) (HistoryAccepted, error) {
-	return r.acceptHistoryReply(ctx, HistoryOperationRevision, input.UserID, input.ConversationID, input.MessageID, input.Content, input.RequestID, input.ValidatedAttachments, input.SourceAttachmentsSHA256)
+	return r.acceptHistoryReply(ctx, HistoryOperationRevision, input.UserID, input.ConversationID, input.MessageID, input.Content, input.RequestID, input.ValidatedAttachments, input.SourceAttachmentsSHA256, input.SourceRuntimeSHA256, input.UploadRuleToken)
 }
 
 func (r *GormRepository) Regenerate(ctx context.Context, input RegenerateInput) (HistoryAccepted, error) {
-	return r.acceptHistoryReply(ctx, HistoryOperationRegeneration, input.UserID, input.ConversationID, input.AssistantMessageID, "", input.RequestID, input.ValidatedAttachments, input.SourceAttachmentsSHA256)
+	return r.acceptHistoryReply(ctx, HistoryOperationRegeneration, input.UserID, input.ConversationID, input.AssistantMessageID, "", input.RequestID, input.ValidatedAttachments, input.SourceAttachmentsSHA256, input.SourceRuntimeSHA256, input.UploadRuleToken)
 }
 
 func (r *GormRepository) PrepareAction(ctx context.Context, input HistoryPrepareInput) (HistoryActionPreparation, error) {
@@ -93,6 +96,8 @@ func (r *GormRepository) acceptHistoryReply(
 	replacementContent, requestID string,
 	validatedAttachments []Attachment,
 	sourceAttachmentsSHA256 [32]byte,
+	sourceRuntimeSHA256 [32]byte,
+	uploadRuleToken uploadpolicy.ConsistencyToken,
 ) (HistoryAccepted, error) {
 	if r == nil || r.db == nil {
 		return HistoryAccepted{}, ErrRepositoryNotConfigured
@@ -137,6 +142,10 @@ func (r *GormRepository) acceptHistoryReply(
 		if err != nil {
 			return err
 		}
+		lockedRuntimeDigest, err := historyRuntimeDigest(lockedRuntime)
+		if err != nil || subtle.ConstantTimeCompare(lockedRuntimeDigest[:], sourceRuntimeSHA256[:]) != 1 {
+			return ErrHistoryRuntimeChanged
+		}
 		upperBound, err := visibleHistoryUpperBound(tx, conversationID)
 		if err != nil {
 			return err
@@ -155,6 +164,17 @@ func (r *GormRepository) acceptHistoryReply(
 		lockedDigest, err := historyAttachmentsDigest(lockedAttachments)
 		if err != nil || subtle.ConstantTimeCompare(lockedDigest[:], sourceAttachmentsSHA256[:]) != 1 {
 			return ErrHistorySourceChanged
+		}
+		if len(validatedAttachments) > 0 {
+			if uploadRuleToken == (uploadpolicy.ConsistencyToken{}) || r.uploadRuleGuard == nil {
+				return ErrHistoryUploadRuleChanged
+			}
+			if guardErr := r.uploadRuleGuard.GuardActiveInTransaction(ctx, tx, uploadRuleToken); guardErr != nil {
+				if errors.Is(guardErr, uploadpolicy.ErrRuleSnapshotChanged) {
+					return ErrHistoryUploadRuleChanged
+				}
+				return guardErr
+			}
 		}
 		createInput, err := r.buildHistoryCreateInput(ctx, operation, userID, conversationID, replacementContent, requestID, lockedSource, lockedRuntime, validatedAttachments)
 		if err != nil {
@@ -203,6 +223,14 @@ func (r *GormRepository) acceptHistoryReply(
 		return HistoryAccepted{}, err
 	}
 	return accepted, nil
+}
+
+func historyRuntimeDigest(runtime AgentRuntime) ([32]byte, error) {
+	raw, err := json.Marshal(runtime)
+	if err != nil {
+		return [32]byte{}, err
+	}
+	return sha256.Sum256(raw), nil
 }
 
 func (r *GormRepository) DeleteMessages(ctx context.Context, input DeleteInput) ([]int64, error) {
@@ -492,7 +520,7 @@ func historyRequestIdentity(operation string, userID, conversationID, sourceMess
 	return requestidentity.Input{
 		UserID: userID, Operation: operation, Modality: "chat", AgentID: runtime.AgentID, ModelID: strings.TrimSpace(runtime.ModelID),
 		NormalizedText: content, Attachments: attachmentIdentities, Options: options,
-		ConversationID: conversationID, SourceMessageID: sourceMessageID,
+		ConversationID: conversationID, SourceMessageID: sourceMessageID, PreserveAttachmentOrder: true,
 	}
 }
 

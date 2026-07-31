@@ -156,6 +156,8 @@ func TestBuildWiresMessageCapabilitiesAndTrustedObjectInspection(t *testing.T) {
 		"aimessage.WithTransportCapabilityResolver(providers.AITransportCapabilities)",
 		"aimessage.WithObjectInspector(aiChatObjectInspector)",
 		"aimessage.WithUploadRuleResolver(uploadRuleResolver)",
+		"aimessage.WithRepositoryUploadRuleGuard(uploadRuleResolver)",
+		"uploadtoken.NewService( uploadTokenRepository,",
 	} {
 		if !strings.Contains(compact, want) {
 			t.Fatalf("Admin AI message capability composition missing %q", want)
@@ -163,6 +165,12 @@ func TestBuildWiresMessageCapabilitiesAndTrustedObjectInspection(t *testing.T) {
 	}
 	if strings.Count(compact, "uploadtoken.NewActiveRuleResolver(uploadTokenRepository)") != 1 {
 		t.Fatal("Admin Build must instantiate exactly one active upload rule resolver")
+	}
+	if strings.Count(compact, "uploadtoken.NewGormRepository(resources.DB)") != 1 {
+		t.Fatal("Admin Build must instantiate exactly one upload token repository")
+	}
+	if strings.Count(compact, "uploadtoken.NewObjectConfigProvider(uploadTokenRepository, providers.Secretbox)") != 1 {
+		t.Fatal("Admin Build must reuse the upload token repository for trusted object inspection")
 	}
 }
 

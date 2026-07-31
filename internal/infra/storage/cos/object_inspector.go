@@ -24,6 +24,8 @@ var (
 	ErrObjectInspectorNotConfigured = errors.New("cos object inspector is not configured")
 	ErrUntrustedObjectKey           = errors.New("cos object key is outside the trusted AI chat attachment namespace")
 	ErrInvalidObjectMetadata        = errors.New("cos object metadata is invalid")
+	ErrInvalidGIF                   = errors.New("cos GIF object is invalid")
+	ErrAnimatedGIF                  = errors.New("animated GIF is not supported")
 )
 
 type ObjectConfig struct {
@@ -41,11 +43,12 @@ type ObjectConfigProvider interface {
 }
 
 type ObjectMetadata struct {
-	Key        string
-	MIMEType   string
-	Size       int64
-	ETag       string
-	TrustedURL string
+	Key               string
+	MIMEType          string
+	Size              int64
+	ETag              string
+	TrustedURL        string
+	GIFStaticVerified bool
 }
 
 type ObjectInspector interface {
@@ -131,11 +134,21 @@ func (inspector *COSObjectInspector) Head(ctx context.Context, key string) (Obje
 	if etag == "" {
 		return ObjectMetadata{}, ErrInvalidObjectMetadata
 	}
+	gifStaticVerified := false
+	if strings.EqualFold(mimeType, "image/gif") {
+		if err := verifyStaticGIFObject(reqCtx, client, key, etag, size); err != nil {
+			return ObjectMetadata{}, err
+		}
+		gifStaticVerified = true
+	}
 	trustedURL, err := trustedObjectURL(config, key)
 	if err != nil {
 		return ObjectMetadata{}, err
 	}
-	return ObjectMetadata{Key: key, MIMEType: strings.ToLower(mimeType), Size: size, ETag: etag, TrustedURL: trustedURL}, nil
+	return ObjectMetadata{
+		Key: key, MIMEType: strings.ToLower(mimeType), Size: size, ETag: etag,
+		TrustedURL: trustedURL, GIFStaticVerified: gifStaticVerified,
+	}, nil
 }
 
 func TrustedAIChatObjectKey(key, attachmentType string) (string, error) {

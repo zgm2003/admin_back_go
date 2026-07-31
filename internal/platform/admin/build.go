@@ -313,6 +313,7 @@ func Build(input BuildInput) (*BuildResult, error) {
 			aiReplyRepository,
 			replycommand.NewHistoryParticipant(aiReplyRepository),
 			aimessage.WithRepositoryPricingResolver(aiOfficialModelResolver),
+			aimessage.WithRepositoryUploadRuleGuard(uploadRuleResolver),
 		),
 		aimessage.WithReplyWaker(replycommand.NewWakeupEnqueuer(input.Queue)),
 		aimessage.WithCancelPublisher(replycommand.NewRedisCancelPublisher(resources.Redis)),
