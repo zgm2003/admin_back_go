@@ -260,6 +260,30 @@ func TestListFiltersAndMapsDuration(t *testing.T) {
 	}
 }
 
+func TestListRedactsAttachmentStorageFactsFromInputSnapshot(t *testing.T) {
+	snapshot := `{"content":"summarize","attachments":[{"type":"file","object_key":"ai_chat_attachments/private/report.pdf","mime_type":"application/pdf","url":"https://cos.example/private/report.pdf","name":"report.pdf","size":4096,"etag":"\"secret-v1\"","file_data":"data:application/pdf;base64,AAAA"}],"runtime_params":{"temperature":0.3}}`
+	repo := &fakeRepository{rows: []ListRow{{ID: 1, InputSnapshot: snapshot}}}
+
+	result, appErr := NewService(repo).List(context.Background(), ListQuery{})
+	if appErr != nil {
+		t.Fatalf("List returned error: %v", appErr)
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"ai_chat_attachments/", "https://cos.example/", "secret-v1", "file_data", ";base64,"} {
+		if strings.Contains(strings.ToLower(string(encoded)), strings.ToLower(forbidden)) {
+			t.Fatalf("safe list leaked %q: %s", forbidden, encoded)
+		}
+	}
+	for _, allowed := range []string{"summarize", "report.pdf", "application/pdf", "temperature"} {
+		if !strings.Contains(string(encoded), allowed) {
+			t.Fatalf("safe list dropped %q: %s", allowed, encoded)
+		}
+	}
+}
+
 func TestListRejectsUnregisteredPlatformFilter(t *testing.T) {
 	repo := &fakeRepository{}
 	_, appErr := NewService(repo).List(context.Background(), ListQuery{Platform: "partner_portal"})
@@ -518,7 +542,11 @@ func TestSafeRequestSummaryNeverContainsObjectIdentityOrManifest(t *testing.T) {
 	}
 	materialized := `{"model":"gpt-test","messages":[{"role":"user","content":[{"type":"text","text":"private prompt"},{"type":"image_url","image_url":{"url":"https://images.example/private.png"}},{"type":"file","file":{"filename":"report.pdf","file_data":"data:application/pdf;base64,AAAAAAAA"}},{"type":"file","file":{"filename":"notes.txt","file_data":"data:text/plain;base64,AAAA"}}]}],"stream":true}`
 	repo := &fakeRepository{
-		run:       &RunDetailRow{ID: 85, Status: enum.AIRunStatusRunning, BillingStatus: string(billing.BillingStatusHeld), BillingReason: string(billing.BillingReasonHeld), PricingSnapshotJSON: paidPricingSnapshotJSON(), CreatedAt: now, UpdatedAt: now},
+		run: &RunDetailRow{
+			ID: 85, Status: enum.AIRunStatusRunning, BillingStatus: string(billing.BillingStatusHeld), BillingReason: string(billing.BillingReasonHeld), PricingSnapshotJSON: paidPricingSnapshotJSON(), CreatedAt: now, UpdatedAt: now,
+			InputSnapshot: `{"content":"summarize safely","attachments":[{"type":"file","object_key":"ai_chat_attachments/private/input.pdf","mime_type":"application/pdf","url":"https://cos.example/private/input.pdf","name":"input.pdf","size":4096,"etag":"\"input-v1\"","file_data":"data:application/pdf;base64,AAAA"}],"runtime_params":{"temperature":0.3},"meta_json":"{\"attachments\":[{\"type\":\"file\",\"object_key\":\"ai_chat_attachments/private/nested.pdf\",\"mime_type\":\"application/pdf\",\"url\":\"https://cos.example/private/nested.pdf\",\"name\":\"nested.pdf\",\"size\":2048,\"etag\":\"nested-v1\"}]}"}`,
+			UserMessage:   &MessageSummary{ID: 301, Content: "summarize safely", MetaJSON: json.RawMessage(`{"attachments":[{"type":"file","object_key":"ai_chat_attachments/private/message.pdf","mime_type":"application/pdf","url":"https://cos.example/private/message.pdf","name":"message.pdf","size":1024,"etag":"message-v1","file_data":"data:application/pdf;base64,BBBB"}],"runtime_params":{"temperature":0.3}}`)},
+		},
 		charge:    &ChargeRow{ID: 18, HeldUnits: 1, Status: string(billing.ChargeStatusOpen)},
 		attempts:  []ProviderAttemptRow{{ID: 202, AttemptNo: 1, State: string(billing.AttemptStatePrepared), UsageStatus: string(billing.UsageStatusUnavailable), UsageJSON: `{"status":"unavailable"}`, PreparedRequestJSON: string(prepared)}},
 		toolCalls: []ToolCallRow{{ID: 1}},
@@ -544,10 +572,16 @@ func TestSafeRequestSummaryNeverContainsObjectIdentityOrManifest(t *testing.T) {
 	lower := strings.ToLower(string(encoded))
 	for _, forbidden := range []string{
 		"ai_chat_attachments/", "https://images.example/private.png", "report-v1", "notes-v1", "report.pdf", "notes.txt",
-		`"schema":"openai_chat_file_manifest_v1"`, "file_ref", "file_data", ";base64,", "private prompt",
+		"https://cos.example/", "input-v1", "nested-v1", "message-v1",
+		`"schema":"openai_chat_file_manifest_v1"`, "file_ref", "file_data", ";base64,", "private prompt", "object_key",
 	} {
 		if strings.Contains(lower, strings.ToLower(forbidden)) {
 			t.Fatalf("safe detail leaked %q: %s", forbidden, encoded)
+		}
+	}
+	for _, allowed := range []string{"summarize safely", "input.pdf", "nested.pdf", "message.pdf", "application/pdf", "temperature"} {
+		if !strings.Contains(string(encoded), allowed) {
+			t.Fatalf("safe detail dropped %q: %s", allowed, encoded)
 		}
 	}
 }

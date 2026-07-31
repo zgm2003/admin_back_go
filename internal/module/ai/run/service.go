@@ -417,7 +417,7 @@ func listItem(row ListRow) ListItem {
 		ID: row.ID, RequestID: row.RequestID, UserID: row.UserID,
 		AgentID: row.AgentID, AgentName: row.AgentName,
 		ProviderID: row.ProviderID, ProviderName: row.ProviderName,
-		Platform: row.Platform, InputSnapshot: row.InputSnapshot,
+		Platform: row.Platform, InputSnapshot: safeRunInputSnapshot(row.InputSnapshot),
 		ConversationID: row.ConversationID, ConversationTitle: row.ConversationTitle,
 		Status: row.Status, StatusName: enum.AIRunStatusLabels[row.Status],
 		ModelID: row.ModelID, ModelDisplayName: row.ModelDisplayName,
@@ -684,7 +684,7 @@ func detailItem(row RunDetailRow, events []EventRow, knowledgeRetrievals []Knowl
 		ID: row.ID, RequestID: row.RequestID, UserID: row.UserID, Username: row.Username,
 		AgentID: row.AgentID, AgentName: row.AgentName,
 		ProviderID: row.ProviderID, ProviderName: row.ProviderName,
-		Platform: row.Platform, InputSnapshot: row.InputSnapshot,
+		Platform: row.Platform, InputSnapshot: safeRunInputSnapshot(row.InputSnapshot),
 		ConversationID: row.ConversationID, ConversationTitle: row.ConversationTitle,
 		Status: row.Status, StatusName: enum.AIRunStatusLabels[row.Status],
 		ModelID: row.ModelID, ModelDisplayName: row.ModelDisplayName,
@@ -694,7 +694,7 @@ func detailItem(row RunDetailRow, events []EventRow, knowledgeRetrievals []Knowl
 		HeldAmount: billingView.held, ActualAmount: billingView.actual,
 		Pricing: billingView.pricing, UsageItems: billingView.usage, ProviderAttempts: billingView.attempts,
 		Latency: latency, RequestSummary: requestSummary,
-		UserMessage: row.UserMessage, AssistantMessage: row.AssistantMessage, Events: items, KnowledgeRetrievals: knowledgeRetrievals, ToolCalls: callItems,
+		UserMessage: safeRunMessageSummary(row.UserMessage), AssistantMessage: safeRunMessageSummary(row.AssistantMessage), Events: items, KnowledgeRetrievals: knowledgeRetrievals, ToolCalls: callItems,
 		Liked: row.LikedAt != nil, LikedAt: formatOptionalTimePointer(row.LikedAt),
 		StartedAt: formatOptionalTime(row.StartedAt), FinishedAt: formatOptionalTime(row.FinishedAt),
 		CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt),
@@ -1126,6 +1126,141 @@ func rawJSON(raw *string) json.RawMessage {
 
 func rawJSONString(raw string) json.RawMessage {
 	return rawJSON(&raw)
+}
+
+func safeRunInputSnapshot(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	var decoded any
+	if err := json.Unmarshal([]byte(trimmed), &decoded); err != nil {
+		if looksLikeJSONContainer(trimmed) || containsUnsafeRunProjectionLiteral(trimmed) {
+			return ""
+		}
+		return raw
+	}
+	safe, ok := safeRunProjectionValue(decoded)
+	if !ok {
+		return ""
+	}
+	encoded, err := json.Marshal(safe)
+	if err != nil {
+		return ""
+	}
+	return string(encoded)
+}
+
+func safeRunMessageSummary(message *MessageSummary) *MessageSummary {
+	if message == nil {
+		return nil
+	}
+	result := *message
+	result.MetaJSON = safeRunJSONObject(message.MetaJSON)
+	return &result
+}
+
+func safeRunJSONObject(raw json.RawMessage) json.RawMessage {
+	var decoded any
+	if len(raw) == 0 || json.Unmarshal(raw, &decoded) != nil {
+		return cloneRawJSON(emptyJSONObject)
+	}
+	safe, ok := safeRunProjectionValue(decoded)
+	if !ok {
+		return cloneRawJSON(emptyJSONObject)
+	}
+	encoded, err := json.Marshal(safe)
+	if err != nil || len(encoded) == 0 || encoded[0] != '{' {
+		return cloneRawJSON(emptyJSONObject)
+	}
+	return json.RawMessage(encoded)
+}
+
+func safeRunProjectionValue(value any) (any, bool) {
+	switch typed := value.(type) {
+	case map[string]any:
+		result := make(map[string]any, len(typed))
+		for key, child := range typed {
+			if sensitiveRunProjectionKey(key) {
+				continue
+			}
+			if normalizedRunProjectionKey(key) == "metajson" {
+				nested, ok := child.(string)
+				if !ok || strings.TrimSpace(nested) == "" {
+					continue
+				}
+				var decoded any
+				if json.Unmarshal([]byte(nested), &decoded) != nil {
+					continue
+				}
+				safe, ok := safeRunProjectionValue(decoded)
+				if !ok {
+					return nil, false
+				}
+				encoded, err := json.Marshal(safe)
+				if err != nil {
+					return nil, false
+				}
+				result[key] = string(encoded)
+				continue
+			}
+			safe, ok := safeRunProjectionValue(child)
+			if !ok {
+				return nil, false
+			}
+			result[key] = safe
+		}
+		return result, true
+	case []any:
+		result := make([]any, 0, len(typed))
+		for _, child := range typed {
+			safe, ok := safeRunProjectionValue(child)
+			if !ok {
+				return nil, false
+			}
+			result = append(result, safe)
+		}
+		return result, true
+	case string:
+		if containsUnsafeRunProjectionLiteral(typed) {
+			return nil, false
+		}
+		return typed, true
+	default:
+		return value, true
+	}
+}
+
+func sensitiveRunProjectionKey(key string) bool {
+	normalized := normalizedRunProjectionKey(key)
+	if strings.Contains(normalized, "manifest") {
+		return true
+	}
+	switch normalized {
+	case "objectkey", "storagekey", "etag", "filedata", "url", "trustedurl", "signedurl", "temporaryurl",
+		"authorization", "apikey", "accesskey", "secretkey", "credential", "credentials", "temporarycredential", "temporarycredentials",
+		"preparedrequest", "preparedrequestjson":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizedRunProjectionKey(key string) string {
+	replacer := strings.NewReplacer("_", "", "-", "", " ", "")
+	return strings.ToLower(replacer.Replace(strings.TrimSpace(key)))
+}
+
+func containsUnsafeRunProjectionLiteral(value string) bool {
+	lower := strings.ToLower(value)
+	return strings.Contains(lower, ";base64,") ||
+		strings.Contains(lower, strings.ToLower(infraai.PreparedChatSchemaFileManifestV1)) ||
+		strings.Contains(lower, "ai_chat_attachments/") ||
+		strings.Contains(lower, "ai_chat_images/")
+}
+
+func looksLikeJSONContainer(value string) bool {
+	return strings.HasPrefix(value, "{") || strings.HasPrefix(value, "[")
 }
 
 func cloneRawJSON(raw json.RawMessage) json.RawMessage {
