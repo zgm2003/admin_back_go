@@ -25,6 +25,8 @@ const (
 	environmentProduction = "production"
 	providerAlipay        = enum.PaymentProviderAlipay
 	certTypeApp           = "app_cert"
+	certTypePlatform      = "platform_cert"
+	certTypeRoot          = "root_cert"
 	certTypeAlipay        = "alipay_cert"
 	certTypeAlipayRoot    = "alipay_root_cert"
 )
@@ -249,7 +251,7 @@ func (s *Service) UploadCertificate(ctx context.Context, input CertificateUpload
 	}
 	result, err := s.certStore.Save(ctx, gateway.CertificateFile{
 		ConfigCode: input.ConfigCode,
-		CertType:   input.CertType,
+		CertType:   certificateStoreType(input.CertType),
 		FileName:   input.FileName,
 		Size:       input.Size,
 		Reader:     input.Reader,
@@ -258,6 +260,17 @@ func (s *Service) UploadCertificate(ctx context.Context, input CertificateUpload
 		return nil, apperror.LegacyWrap(apperror.CodeBadRequest, http.StatusBadRequest, "上传支付宝证书失败", err)
 	}
 	return &CertificateUploadResponse{Path: result.Path, FileName: result.FileName, SHA256: result.SHA256, Size: result.Size}, nil
+}
+
+func certificateStoreType(value string) string {
+	switch strings.TrimSpace(value) {
+	case certTypePlatform:
+		return certTypeAlipay
+	case certTypeRoot:
+		return certTypeAlipayRoot
+	default:
+		return value
+	}
 }
 
 func (s *Service) TestConfig(ctx context.Context, id int64) (*ConfigTestResponse, *apperror.Error) {

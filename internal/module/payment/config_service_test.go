@@ -103,6 +103,32 @@ func TestUploadCertificateDelegatesToStore(t *testing.T) {
 	}
 }
 
+func TestUploadCertificateMapsContractTypesToStore(t *testing.T) {
+	tests := []struct {
+		name     string
+		certType string
+		want     string
+	}{
+		{name: "platform certificate", certType: "platform_cert", want: certTypeAlipay},
+		{name: "root certificate", certType: "root_cert", want: certTypeAlipayRoot},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &fakeCertStore{}
+			service := NewService(Dependencies{Repository: newFakeConfigRepo(), Secretbox: &fakeSecretbox{}, Gateway: &fakeGateway{}, CertResolver: fakeResolver{}, CertStore: store, Now: fixedPaymentNow})
+
+			_, appErr := service.UploadCertificate(context.Background(), CertificateUploadInput{ConfigCode: "alipay_default", CertType: tt.certType, FileName: "certificate.crt", Size: 3, Reader: strings.NewReader("crt")})
+			if appErr != nil {
+				t.Fatalf("UploadCertificate error=%v", appErr)
+			}
+			if store.saved.CertType != tt.want {
+				t.Fatalf("stored certificate type=%q, want %q", store.saved.CertType, tt.want)
+			}
+		})
+	}
+}
+
 func TestTestConfigDecryptsResolvesAndBuildsGatewayConfig(t *testing.T) {
 	repo := newFakeConfigRepo()
 	repo.config = validStoredConfig()
