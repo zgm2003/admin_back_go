@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/module/ai/aigateway"
 	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/pricing"
@@ -202,9 +203,28 @@ func generateAgentConfig(t *testing.T) GenerateAgentConfig {
 	t.Helper()
 	return GenerateAgentConfig{
 		AgentID: 5, AgentName: "工具生成", ModelID: "gpt-4.1", ModelDisplayName: "GPT-4.1",
-		SystemPrompt: "只输出工具草稿JSON", ProviderID: 2, EngineType: "openai",
+		SystemPrompt: "只输出工具草稿JSON", ProviderID: 2, EngineType: "openai", EngineAPIProtocol: infraai.APIProtocolChatCompletions,
 		ProviderModelStatus: enum.CommonYes, OfficialModelID: "gpt-4.1", OfficialCatalogVersion: "catalog-v3", MappingStatus: officialmodel.MappingStatusMapped,
 		BillingMultiplierPPM: 1_000_000,
+	}
+}
+
+func TestGenerateDraftRejectsUnknownProviderAPIProtocol(t *testing.T) {
+	repo := &fakeRepository{}
+	agent := generateAgentConfig(t)
+	agent.EngineAPIProtocol = "legacy"
+	repo.generateAgent = &agent
+	tasks := &fakeDraftTaskService{}
+
+	_, appErr := NewService(repo, DefaultExecutors(repo), WithDraftTaskService(tasks), WithPricingResolver(testToolPricingResolver())).GenerateDraft(
+		context.Background(),
+		GenerateDraftInput{RequestID: "request-1", AgentID: 5, UserID: 7, Requirement: "生成工具"},
+	)
+	if appErr == nil || appErr.Code != aitext.ErrorCodeConfiguration {
+		t.Fatalf("unknown provider API protocol error = %#v", appErr)
+	}
+	if tasks.dispatches != 0 {
+		t.Fatalf("invalid provider API protocol dispatched durable work: %d", tasks.dispatches)
 	}
 }
 

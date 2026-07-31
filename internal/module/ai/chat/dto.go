@@ -214,11 +214,11 @@ type PaidChatAttemptFailureFinalizer interface {
 }
 
 type EngineConfig struct {
-	EngineType    infraai.EngineType
-	BaseURL       string
-	APIKey        string
-	FileInputMode string
-	FileOpener    infraai.PreparedFileOpener
+	EngineType  infraai.EngineType
+	BaseURL     string
+	APIKey      string
+	APIProtocol string
+	FileOpener  infraai.PreparedFileOpener
 }
 
 type EngineFactory interface {
@@ -234,7 +234,7 @@ type AgentEngineConfig struct {
 	ScenesJSON             string
 	ProviderID             uint64
 	EngineType             string
-	FileInputMode          string
+	APIProtocol            string
 	EngineBaseURL          string
 	EngineAPIKeyEnc        string
 	AgentStatus            int

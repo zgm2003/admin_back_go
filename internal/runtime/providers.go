@@ -154,7 +154,7 @@ func (factory aiChatEngineFactory) NewEngine(_ context.Context, input aichat.Eng
 			APIKey:            input.APIKey,
 			Timeout:           30 * time.Second,
 			StreamIdleTimeout: factory.streamIdleTimeout,
-			FileInputMode:     input.FileInputMode,
+			APIProtocol:       input.APIProtocol,
 			FileOpener:        input.FileOpener,
 		})
 		return infraai.InstrumentEngine(string(input.EngineType), "chat", engine, factory.recorder), nil
@@ -183,7 +183,7 @@ func (factory aiToolEngineFactory) NewEngine(_ context.Context, input aitool.Eng
 	if input.EngineType != infraai.EngineTypeOpenAI {
 		return nil, infraai.ErrInvalidConfig
 	}
-	engine := openaicompat.New(openaicompat.Config{BaseURL: input.BaseURL, APIKey: input.APIKey, Timeout: 30 * time.Second})
+	engine := openaicompat.New(openaicompat.Config{BaseURL: input.BaseURL, APIKey: input.APIKey, Timeout: 30 * time.Second, APIProtocol: input.APIProtocol})
 	return infraai.InstrumentEngine(string(input.EngineType), "tool", engine, factory.recorder), nil
 }
 

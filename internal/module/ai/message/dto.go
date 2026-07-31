@@ -158,7 +158,7 @@ type AgentRuntime struct {
 	ModelID                string
 	ModelDisplayName       string
 	EngineType             string
-	FileInputMode          string
+	APIProtocol            string
 	ProviderModelStatus    int
 	OfficialModelID        string
 	OfficialCatalogVersion string

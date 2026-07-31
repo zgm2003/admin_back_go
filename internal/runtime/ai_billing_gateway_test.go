@@ -52,6 +52,48 @@ func TestPaidChatAssemblerConvergesPreparedRequestAndSafeOutputBound(t *testing.
 	}
 }
 
+func TestPaidChatAssemblerConvergesResponsesPreparedRequestAndSafeOutputBound(t *testing.T) {
+	const contextWindow = int64(1200)
+	const maxOutput = int64(100)
+	assembler := paidChatAssembler{
+		transport: openaicompat.New(openaicompat.Config{APIProtocol: infraai.APIProtocolResponses}),
+		input: infraai.ChatInput{
+			Content: "hello",
+			Inputs:  map[string]any{"model_id": "forged", "max_tokens": 1},
+		},
+	}
+
+	call, err := assembler.AssembleAndQuote(context.Background(), aigateway.RunSnapshot{
+		RunID: 3, ModelID: "gpt-test", PricingSnapshotJSON: paidChatAssemblerPricingSnapshot(t, contextWindow, maxOutput),
+	}, aigateway.RunRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if call.Quote.PreparedRequestSchema != infraai.PreparedChatSchemaResponsesInlineV1 ||
+		call.Quote.InputUpperBoundStrategy != infraai.SafeInputUpperBoundStrategyUTF8RequestBytesV1 {
+		t.Fatalf("quote=%+v", call.Quote)
+	}
+	inputBound, err := infraai.SafeInputUpperBoundFromRequest(call.RequestBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantOutputBound := contextWindow - inputBound
+	if wantOutputBound > maxOutput {
+		wantOutputBound = maxOutput
+	}
+	if call.Quote.EffectiveMaxOutputTokens != int(wantOutputBound) {
+		t.Fatalf("effective output bound=%d, want %d", call.Quote.EffectiveMaxOutputTokens, wantOutputBound)
+	}
+	envelope, err := infraai.ParsePreparedChatInlineEnvelope(call.RequestBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(envelope.Request), `"max_output_tokens":`+stringInt(int(wantOutputBound))) ||
+		strings.Contains(string(envelope.Request), `"max_tokens":1,`) {
+		t.Fatalf("prepared Responses request did not freeze the converged system bound: %s", envelope.Request)
+	}
+}
+
 func TestPaidChatAssemblerFailsClosedWhenBoundDoesNotConverge(t *testing.T) {
 	assembler := paidChatAssembler{
 		transport: oscillatingPreparedChatTransport{},

@@ -309,7 +309,7 @@ func (s *Service) inspectAttachments(
 	nativeFile := capability.ResolveNativeFileCapability(capability.NativeFileCapabilityInput{
 		OfficialEnabled:      official.NativeFileInput && containsCapability(official.InputModalities, officialmodel.ModalityFile),
 		TransportEnabled:     containsCapability(metadata.InputModalities, officialmodel.ModalityFile),
-		ProviderMode:         runtime.FileInputMode,
+		ProviderProtocol:     runtime.APIProtocol,
 		ProviderRouteEnabled: runtime.ProviderModelStatus == enum.CommonYes && runtime.MappingStatus == officialmodel.MappingStatusMapped,
 		PlatformReady:        len(acceptedFiles) > 0,
 		AcceptedExtensions:   acceptedFiles,
@@ -465,8 +465,8 @@ func nativeFileCapabilityError(reason string) *apperror.Error {
 	switch reason {
 	case capability.NativeFileDisabledOfficialModel:
 		return attachmentValidationError("ai.attachment.model_unsupported", "aimessage.attachments.official_model_unsupported", "当前模型不支持文件输入")
-	case capability.NativeFileDisabledProviderMode:
-		return attachmentValidationError("ai.attachment.provider_file_input_disabled", "aimessage.attachments.provider_file_input_disabled", "当前渠道未开通文件传输")
+	case capability.NativeFileDisabledProviderProtocol:
+		return attachmentValidationError("ai.attachment.provider_api_protocol_unsupported", "aimessage.attachments.provider_api_protocol_unsupported", "当前渠道请求协议不支持文件，请切换为 Responses API")
 	case capability.NativeFileDisabledTransport:
 		return attachmentValidationError("ai.attachment.transport_unsupported", "aimessage.attachments.transport_unsupported", "当前渠道传输协议不支持文件")
 	default:

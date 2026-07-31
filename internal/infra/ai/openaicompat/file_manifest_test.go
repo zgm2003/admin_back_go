@@ -93,7 +93,7 @@ func TestFileManifestPreflightChecksEveryObjectBeforeDispatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	opener := testPreparedFileOpener()
-	client := New(Config{FileInputMode: "disabled", FileOpener: opener})
+	client := New(Config{APIProtocol: "chat_completions", FileOpener: opener})
 	metrics, err := client.PreflightPreparedChat(context.Background(), body)
 	if err != nil {
 		t.Fatal(err)
@@ -124,7 +124,7 @@ func TestFileManifestPreflightClassifiesMetadataDriftAsPermanentObjectError(t *t
 	}
 }
 
-func TestFileInputModeSnapshotControlsPreparationButNotRecovery(t *testing.T) {
+func TestAPIProtocolSnapshotControlsPreparationButNotRecovery(t *testing.T) {
 	input := infraai.ChatInput{Content: "read", Inputs: map[string]any{
 		"model_id": "gpt-test",
 		"attachments": []any{map[string]any{
@@ -132,25 +132,25 @@ func TestFileInputModeSnapshotControlsPreparationButNotRecovery(t *testing.T) {
 			"size": int64(3), "mime_type": "text/plain", "name": "a.txt",
 		}},
 	}}
-	if _, err := New(Config{FileInputMode: "disabled", FileOpener: testPreparedFileOpener()}).PrepareChat(context.Background(), input); err == nil {
-		t.Fatal("disabled file mode prepared a new file request")
+	if _, err := New(Config{APIProtocol: "chat_completions", FileOpener: testPreparedFileOpener()}).PrepareChat(context.Background(), input); err == nil {
+		t.Fatal("Chat Completions prepared a new native file request")
 	}
-	if _, err := New(Config{FileInputMode: "chat_completions"}).PrepareChat(context.Background(), input); err == nil {
+	if _, err := New(Config{APIProtocol: "responses"}).PrepareChat(context.Background(), input); err == nil {
 		t.Fatal("file request prepared without an opener")
 	}
-	prepared, err := New(Config{FileInputMode: "chat_completions", FileOpener: testPreparedFileOpener()}).PrepareChat(context.Background(), input)
+	prepared, err := New(Config{APIProtocol: "responses", FileOpener: testPreparedFileOpener()}).PrepareChat(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
 	manifest, err := infraai.ParsePreparedChatFileManifest(prepared)
-	if err != nil || manifest.FileInputMode != "chat_completions" {
+	if err != nil || manifest.APIProtocol != "responses" {
 		t.Fatalf("manifest=%#v err=%v", manifest, err)
 	}
 	if _, err := New(Config{}).PrepareChat(context.Background(), infraai.ChatInput{Content: "text", Inputs: map[string]any{"model_id": "gpt-test"}}); err != nil {
 		t.Fatalf("plain text requires file configuration: %v", err)
 	}
 
-	recovery := New(Config{FileInputMode: "disabled", FileOpener: testPreparedFileOpener()})
+	recovery := New(Config{APIProtocol: "chat_completions", FileOpener: testPreparedFileOpener()})
 	if _, err := recovery.PreflightPreparedChat(context.Background(), prepared); err != nil {
 		t.Fatalf("persisted mode snapshot was overwritten: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestFileManifestPreparationPreservesHistoryAndCurrentFileOrder(t *testing.T
 			"size": int64(2), "mime_type": "application/json", "name": "b.json",
 		}},
 	}}
-	prepared, err := New(Config{FileInputMode: "chat_completions", FileOpener: testPreparedFileOpener()}).PrepareChat(context.Background(), input)
+	prepared, err := New(Config{APIProtocol: "responses", FileOpener: testPreparedFileOpener()}).PrepareChat(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +214,7 @@ func TestFileManifestDispatchSetsExactHTTPContentLength(t *testing.T) {
 
 	client := New(Config{
 		BaseURL: server.URL, APIKey: "secret", StreamHTTPClient: server.Client(),
-		FileInputMode: "disabled", FileOpener: testPreparedFileOpener(),
+		APIProtocol: "responses", FileOpener: testPreparedFileOpener(),
 	})
 	preflightMetrics, err := client.PreflightPreparedChat(context.Background(), prepared)
 	if err != nil || preflightMetrics == nil {

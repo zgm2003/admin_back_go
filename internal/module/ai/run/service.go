@@ -841,8 +841,23 @@ func buildSafeRequestSummary(attempts []ProviderAttemptRow, toolCalls []ToolCall
 		result.PreparedRequestBytes = len(prepared)
 		result.MessageCount = messageCount
 		result.AttachmentCount = attachmentCount
+		result.APIProtocol = infraai.APIProtocolChatCompletions
 		return result, nil
-	case infraai.PreparedChatSchemaFileManifestV1:
+	case infraai.PreparedChatSchemaResponsesInlineV1:
+		envelope, parseErr := infraai.ParsePreparedChatInlineEnvelope(prepared)
+		if parseErr != nil {
+			return SafeRequestSummary{}, parseErr
+		}
+		messageCount, attachmentCount, _, summaryErr := summarizePreparedChatRequest(envelope.Request)
+		if summaryErr != nil {
+			return SafeRequestSummary{}, summaryErr
+		}
+		result.PreparedRequestBytes = len(prepared)
+		result.MessageCount = messageCount
+		result.AttachmentCount = attachmentCount
+		result.APIProtocol = envelope.APIProtocol
+		return result, nil
+	case infraai.PreparedChatSchemaFileManifestV1, infraai.PreparedChatSchemaResponsesFileManifestV1:
 		manifest, parseErr := infraai.ParsePreparedChatFileManifest(prepared)
 		if parseErr != nil {
 			return SafeRequestSummary{}, parseErr
@@ -872,7 +887,7 @@ func buildSafeRequestSummary(attempts []ProviderAttemptRow, toolCalls []ToolCall
 		result.NativeFileBytes = nativeFileBytes
 		result.PreparedManifestBytes = len(prepared)
 		result.MaterializedRequestBytes = materializedBytes
-		result.FileInputMode = manifest.FileInputMode
+		result.APIProtocol = manifest.Protocol()
 		return result, nil
 	default:
 		return SafeRequestSummary{}, fmt.Errorf("unsupported prepared request schema")
@@ -880,24 +895,39 @@ func buildSafeRequestSummary(attempts []ProviderAttemptRow, toolCalls []ToolCall
 }
 
 type preparedRequestMessageSummary struct {
+	Type    string          `json:"type"`
+	Role    string          `json:"role"`
 	Content json.RawMessage `json:"content"`
 }
 
 func summarizePreparedChatRequest(request []byte) (*int, int, []json.RawMessage, error) {
 	var envelope struct {
 		Messages []preparedRequestMessageSummary `json:"messages"`
+		Input    []preparedRequestMessageSummary `json:"input"`
 	}
 	if err := json.Unmarshal(request, &envelope); err != nil {
 		return nil, 0, nil, fmt.Errorf("decode prepared chat request summary: %w", err)
 	}
+	if envelope.Messages != nil && envelope.Input != nil {
+		return nil, 0, nil, fmt.Errorf("prepared chat request contains multiple input protocols")
+	}
+	messages := envelope.Messages
+	if envelope.Input != nil {
+		messages = make([]preparedRequestMessageSummary, 0, len(envelope.Input))
+		for _, item := range envelope.Input {
+			if strings.TrimSpace(item.Role) != "" {
+				messages = append(messages, item)
+			}
+		}
+	}
 	var messageCount *int
-	if envelope.Messages != nil {
-		count := len(envelope.Messages)
+	if envelope.Messages != nil || envelope.Input != nil {
+		count := len(messages)
 		messageCount = &count
 	}
 	attachmentCount := 0
 	fileRefParts := make([]json.RawMessage, 0)
-	for _, message := range envelope.Messages {
+	for _, message := range messages {
 		content := bytes.TrimSpace(message.Content)
 		if len(content) == 0 {
 			return nil, 0, nil, fmt.Errorf("prepared chat message content is missing")
@@ -920,7 +950,7 @@ func summarizePreparedChatRequest(request []byte) (*int, int, []json.RawMessage,
 				return nil, 0, nil, fmt.Errorf("decode prepared chat content part: %w", err)
 			}
 			switch part.Type {
-			case "image_url":
+			case "image_url", "input_image", "input_file":
 				attachmentCount++
 			case "file_ref":
 				attachmentCount++
@@ -939,15 +969,31 @@ func materializedPreparedRequestBytes(manifest infraai.PreparedChatFileManifest,
 			return 0, fmt.Errorf("prepared file ref length exceeds request length")
 		}
 		total -= refBytes
-		part := struct {
-			Type string `json:"type"`
-			File struct {
+		var part any
+		switch manifest.Protocol() {
+		case infraai.APIProtocolChatCompletions:
+			value := struct {
+				Type string `json:"type"`
+				File struct {
+					Filename string `json:"filename"`
+					FileData string `json:"file_data"`
+				} `json:"file"`
+			}{Type: "file"}
+			value.File.Filename = file.Filename
+			value.File.FileData = "data:" + file.MIMEType + ";base64,"
+			part = value
+		case infraai.APIProtocolResponses:
+			part = struct {
+				Type     string `json:"type"`
 				Filename string `json:"filename"`
 				FileData string `json:"file_data"`
-			} `json:"file"`
-		}{Type: "file"}
-		part.File.Filename = file.Filename
-		part.File.FileData = "data:" + file.MIMEType + ";base64,"
+			}{
+				Type: "input_file", Filename: file.Filename,
+				FileData: "data:" + file.MIMEType + ";base64,",
+			}
+		default:
+			return 0, fmt.Errorf("prepared file manifest API protocol is invalid")
+		}
 		encodedPart, err := json.Marshal(part)
 		if err != nil {
 			return 0, fmt.Errorf("encode materialized file part summary: %w", err)
@@ -1255,6 +1301,7 @@ func containsUnsafeRunProjectionLiteral(value string) bool {
 	lower := strings.ToLower(value)
 	return strings.Contains(lower, ";base64,") ||
 		strings.Contains(lower, strings.ToLower(infraai.PreparedChatSchemaFileManifestV1)) ||
+		strings.Contains(lower, strings.ToLower(infraai.PreparedChatSchemaResponsesFileManifestV1)) ||
 		strings.Contains(lower, "ai_chat_attachments/") ||
 		strings.Contains(lower, "ai_chat_images/")
 }

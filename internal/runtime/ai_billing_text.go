@@ -166,6 +166,7 @@ func (executor *paidTextTaskExecutor) dispatchText(ctx context.Context, executio
 	}
 	engine, err := executor.newTextEngine(ctx, execution.Task.Kind, aichat.EngineConfig{
 		EngineType: infraai.EngineType(strings.TrimSpace(execution.EngineType)), BaseURL: strings.TrimSpace(execution.EngineBaseURL), APIKey: apiKey,
+		APIProtocol: strings.TrimSpace(execution.EngineAPIProtocol),
 	})
 	if err != nil || engine == nil {
 		return executor.failTextTask(execution.Task, aitext.ErrorCodeConfiguration, "创建AI文本引擎失败")
@@ -251,9 +252,10 @@ func (executor *paidTextTaskExecutor) newTextEngine(ctx context.Context, kind st
 			return nil, aigateway.ErrNotConfigured
 		}
 		return executor.toolEngine.NewEngine(ctx, aitool.EngineConfig{
-			EngineType: input.EngineType,
-			BaseURL:    input.BaseURL,
-			APIKey:     input.APIKey,
+			EngineType:  input.EngineType,
+			BaseURL:     input.BaseURL,
+			APIKey:      input.APIKey,
+			APIProtocol: input.APIProtocol,
 		})
 	default:
 		return nil, fmt.Errorf("unsupported AI text task kind %q", kind)

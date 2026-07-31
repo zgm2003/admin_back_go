@@ -44,6 +44,7 @@ func TestPersistedQuoteValidatorBindsQuoteToLockedPricingSnapshot(t *testing.T) 
 		{name: "prior billable units", mutate: func(_ *RunSnapshot, q *QuoteEvidence) { q.PriorBillableUnits++ }},
 		{name: "target hold", mutate: func(_ *RunSnapshot, q *QuoteEvidence) { q.TargetHoldUnits++ }},
 		{name: "model binding", mutate: func(r *RunSnapshot, _ *QuoteEvidence) { r.ModelID = "other-model" }},
+		{name: "unknown request schema", mutate: func(_ *RunSnapshot, q *QuoteEvidence) { q.PreparedRequestSchema = "future_request_schema" }},
 		{name: "unsupported upper-bound item", mutate: func(_ *RunSnapshot, q *QuoteEvidence) { q.UpperBoundItems[0].Unit = "character" }},
 		{name: "duplicate upper-bound item", mutate: func(_ *RunSnapshot, q *QuoteEvidence) {
 			q.UpperBoundItems = append(q.UpperBoundItems, q.UpperBoundItems[0])

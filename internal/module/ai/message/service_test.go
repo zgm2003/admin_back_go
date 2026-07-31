@@ -679,7 +679,7 @@ func TestSendRejectsImageExtensionMIMEConflictAndUnverifiedGIF(t *testing.T) {
 func TestSendNormalizesMixedAttachmentsFromTrustedHEAD(t *testing.T) {
 	agent := validMessageAgent()
 	agent.ModelID, agent.OfficialModelID = "gpt-5.6", "gpt-5.6"
-	agent.FileInputMode = aiprovider.FileInputModeChatCompletions
+	agent.APIProtocol = aiprovider.APIProtocolResponses
 	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5}, agent: agent}
 	key := "ai_chat_attachments/2026/07/report.pdf"
 	inspector := &fakeMessageObjectInspector{metadata: map[string]storagecos.ObjectMetadata{
@@ -821,7 +821,7 @@ func TestNativeFileAttachmentStableAcceptanceErrors(t *testing.T) {
 		name, reason, code, messageID string
 	}{
 		{name: "official model", reason: capability.NativeFileDisabledOfficialModel, code: "ai.attachment.model_unsupported", messageID: "aimessage.attachments.official_model_unsupported"},
-		{name: "provider mode", reason: capability.NativeFileDisabledProviderMode, code: "ai.attachment.provider_file_input_disabled", messageID: "aimessage.attachments.provider_file_input_disabled"},
+		{name: "provider protocol", reason: capability.NativeFileDisabledProviderProtocol, code: "ai.attachment.provider_api_protocol_unsupported", messageID: "aimessage.attachments.provider_api_protocol_unsupported"},
 		{name: "transport", reason: capability.NativeFileDisabledTransport, code: "ai.attachment.transport_unsupported", messageID: "aimessage.attachments.transport_unsupported"},
 		{name: "platform type set", reason: capability.NativeFileDisabledPlatform, code: "ai.attachment.type_unsupported", messageID: "aimessage.attachments.platform_unsupported"},
 	}
@@ -864,7 +864,7 @@ func TestNativeFileAttachmentObjectErrorsRemainDistinct(t *testing.T) {
 				objectInspector: &fakeMessageObjectInspector{err: test.err},
 			}
 			runtime := AgentRuntime{
-				EngineType: "openai", FileInputMode: aiprovider.FileInputModeChatCompletions,
+				EngineType: "openai", APIProtocol: aiprovider.APIProtocolResponses,
 				ProviderModelStatus: enum.CommonYes, MappingStatus: officialmodel.MappingStatusMapped,
 			}
 			capabilities := officialmodel.Capabilities{InputModalities: []string{"text", "file"}, NativeFileInput: true}
@@ -881,7 +881,7 @@ func TestNativeFileAttachmentObjectErrorsRemainDistinct(t *testing.T) {
 
 func TestSendRejectsNativeFileWhenProviderProtocolIsDisabled(t *testing.T) {
 	agent := validFileMessageAgent()
-	agent.FileInputMode = aiprovider.FileInputModeDisabled
+	agent.APIProtocol = aiprovider.APIProtocolChatCompletions
 	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5}, agent: &agent}
 	inspector := &fakeMessageObjectInspector{}
 	capabilities := officialmodel.Capabilities{
@@ -899,7 +899,7 @@ func TestSendRejectsNativeFileWhenProviderProtocolIsDisabled(t *testing.T) {
 		ConversationID: 3, Content: "summarize", RequestID: "provider-disabled",
 		Attachments: []Attachment{{Type: "file", ObjectKey: "ai_chat_attachments/2026/07/report.pdf", Name: "report.pdf"}},
 	})
-	if appErr == nil || appErr.MessageID != "aimessage.attachments.provider_file_input_disabled" || len(inspector.calls) != 0 || repo.replyInput.RequestID != "" {
+	if appErr == nil || appErr.MessageID != "aimessage.attachments.provider_api_protocol_unsupported" || len(inspector.calls) != 0 || repo.replyInput.RequestID != "" {
 		t.Fatalf("provider disabled error=%#v calls=%v reply=%#v", appErr, inspector.calls, repo.replyInput)
 	}
 }

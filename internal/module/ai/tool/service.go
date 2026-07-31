@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/module/ai/aigateway"
 	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/pricing"
@@ -152,7 +153,9 @@ func (s *Service) GenerateDraft(ctx context.Context, input GenerateDraftInput) (
 	if strings.TrimSpace(agent.SystemPrompt) == "" {
 		return nil, toolGenerationError(aitext.ErrorCodeConfiguration, apperror.CategoryValidation, 400, "AI生成智能体系统提示词未配置", nil)
 	}
-	if agent.AgentID == 0 || agent.ProviderID == 0 || agent.ProviderModelStatus != enum.CommonYes || strings.TrimSpace(agent.ModelID) == "" || strings.TrimSpace(agent.EngineType) == "" || agent.BillingMultiplierPPM <= 0 {
+	apiProtocol := strings.TrimSpace(agent.EngineAPIProtocol)
+	if agent.AgentID == 0 || agent.ProviderID == 0 || agent.ProviderModelStatus != enum.CommonYes || strings.TrimSpace(agent.ModelID) == "" || strings.TrimSpace(agent.EngineType) == "" ||
+		(apiProtocol != infraai.APIProtocolChatCompletions && apiProtocol != infraai.APIProtocolResponses) || agent.BillingMultiplierPPM <= 0 {
 		return nil, toolGenerationError(aitext.ErrorCodeConfiguration, apperror.CategoryValidation, 400, "AI生成智能体计费配置无效", nil)
 	}
 	pricingSnapshotJSON, effectiveMaxOutputTokens, appErr := s.toolDraftPricingSnapshot(ctx, *agent)

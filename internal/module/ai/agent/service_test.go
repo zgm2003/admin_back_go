@@ -588,20 +588,20 @@ func TestOptionsExposeOfficialModelAndEffectiveChatCapabilities(t *testing.T) {
 		visibleAgents: []AgentWithProvider{{
 			Agent: Agent{ID: 7, ProviderID: 3, Name: "视觉助手", ModelID: "provider-gpt-vision",
 				Status: enum.CommonYes, IsDel: enum.CommonNo},
-			EngineType: "openai", FileInputMode: aiprovider.FileInputModeChatCompletions, ProviderStatus: enum.CommonYes,
+			EngineType: "openai", APIProtocol: aiprovider.APIProtocolResponses, ProviderStatus: enum.CommonYes,
 			ProviderModelID: 31, ProviderModelStatus: enum.CommonYes,
 			OfficialModelID: officialID, OfficialCatalogVersion: catalogVersion,
 			MappingStatus: officialmodel.MappingStatusMapped,
 		}, {
 			Agent: Agent{ID: 8, ProviderID: 3, Name: "文档助手", ModelID: "provider-gpt-vision",
 				Status: enum.CommonYes, IsDel: enum.CommonNo},
-			EngineType: "openai", FileInputMode: aiprovider.FileInputModeChatCompletions, ProviderStatus: enum.CommonYes,
+			EngineType: "openai", APIProtocol: aiprovider.APIProtocolResponses, ProviderStatus: enum.CommonYes,
 			ProviderModelID: 31, ProviderModelStatus: enum.CommonYes,
 			OfficialModelID: officialID, OfficialCatalogVersion: catalogVersion,
 			MappingStatus: officialmodel.MappingStatusMapped,
 		}},
 		activeProviders: map[uint64]Provider{3: {
-			ID: 3, EngineType: "openai", FileInputMode: aiprovider.FileInputModeChatCompletions, Status: enum.CommonYes, IsDel: enum.CommonNo,
+			ID: 3, EngineType: "openai", APIProtocol: aiprovider.APIProtocolResponses, Status: enum.CommonYes, IsDel: enum.CommonNo,
 		}},
 		modelsByProvider: map[uint64][]ProviderModel{3: {{
 			ID: 31, ProviderID: 3, ModelID: "provider-gpt-vision", Status: enum.CommonYes,

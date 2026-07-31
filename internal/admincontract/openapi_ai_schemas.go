@@ -437,7 +437,7 @@ func aiRunRequestSummarySchema() map[string]any {
 		"native_file_bytes":          nonNegativeIntegerSchema(),
 		"prepared_manifest_bytes":    nonNegativeIntegerSchema(),
 		"materialized_request_bytes": nonNegativeIntegerSchema(),
-		"file_input_mode":            stringEnumSchema("", "chat_completions"),
+		"api_protocol":               stringEnumSchema("", "chat_completions", "responses"),
 	})
 }
 

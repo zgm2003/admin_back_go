@@ -351,7 +351,7 @@ func (r *GormRepository) historyRuntime(ctx context.Context, db *gorm.DB, userID
 	query := db.WithContext(ctx).Table("ai_conversations").
 		Select(`ai_agents.id AS agent_id, ai_agents.provider_id AS provider_id, ai_agents.model_id AS model_id,
 			ai_agents.model_display_name AS model_display_name, ai_providers.engine_type AS engine_type,
-			ai_providers.file_input_mode AS file_input_mode,
+			ai_providers.api_protocol AS api_protocol,
 			ai_agents.billing_multiplier_ppm AS billing_multiplier_ppm,
 			ai_agents.status AS status, ai_agents.scenes_json AS scenes_json,
 			ai_provider_models.status AS provider_model_status,

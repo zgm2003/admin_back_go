@@ -175,6 +175,7 @@ func (r *GormRepository) GetGenerateAgentConfig(ctx context.Context, agentID uin
 			p.engine_type AS engine_type,
 			p.base_url AS engine_base_url,
 			p.api_key_enc AS engine_api_key_enc,
+			p.api_protocol AS engine_api_protocol,
 			pm.status AS provider_model_status,
 			pm.official_model_id AS official_model_id,
 			pm.official_catalog_version AS official_catalog_version,

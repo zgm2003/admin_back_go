@@ -240,7 +240,12 @@ func (PersistedQuoteValidator) ValidateQuote(ctx context.Context, run RunSnapsho
 	if schema == "" {
 		schema = infraai.PreparedChatSchemaInlineV1
 	}
-	if (strategy == infraai.SafeInputUpperBoundStrategyNativeFileContextWindowV1) != (schema == infraai.PreparedChatSchemaFileManifestV1) {
+	inlineSchema := schema == infraai.PreparedChatSchemaInlineV1 || schema == infraai.PreparedChatSchemaResponsesInlineV1
+	fileSchema := schema == infraai.PreparedChatSchemaFileManifestV1 || schema == infraai.PreparedChatSchemaResponsesFileManifestV1
+	if !inlineSchema && !fileSchema {
+		return gatewayError(ErrCodeInvalidPrepared, "quote request schema is unsupported", 409)
+	}
+	if (strategy == infraai.SafeInputUpperBoundStrategyNativeFileContextWindowV1) != fileSchema {
 		return gatewayError(ErrCodeInvalidPrepared, "quote request schema and input strategy are inconsistent", 409)
 	}
 	target, err := cumulativeHoldTarget(quote.PriorBillableUnits, quote.CurrentCallMaxUnits)
@@ -313,8 +318,10 @@ func (PersistedQuoteValidator) ValidateQuote(ctx context.Context, run RunSnapsho
 }
 
 func validateNativeFileTokenBounds(snapshot PricingSnapshot, quote QuoteEvidence, inputBound int64, outputBound int64) error {
+	schema := strings.TrimSpace(quote.PreparedRequestSchema)
+	fileSchema := schema == infraai.PreparedChatSchemaFileManifestV1 || schema == infraai.PreparedChatSchemaResponsesFileManifestV1
 	if strings.TrimSpace(quote.InputUpperBoundStrategy) != infraai.SafeInputUpperBoundStrategyNativeFileContextWindowV1 ||
-		strings.TrimSpace(quote.PreparedRequestSchema) != infraai.PreparedChatSchemaFileManifestV1 ||
+		!fileSchema ||
 		snapshot.ContextWindowTokens <= 0 || inputBound != snapshot.ContextWindowTokens ||
 		snapshot.EffectiveMaxOutputTokens <= 0 || int64(snapshot.EffectiveMaxOutputTokens) > snapshot.CatalogMaxOutputTokens ||
 		quote.EffectiveMaxOutputTokens != snapshot.EffectiveMaxOutputTokens || outputBound != int64(snapshot.EffectiveMaxOutputTokens) {

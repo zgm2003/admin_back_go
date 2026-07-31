@@ -11,7 +11,7 @@ type Provider struct {
 	Name                string     `gorm:"column:name"`
 	EngineType          string     `gorm:"column:engine_type"`
 	BaseURL             string     `gorm:"column:base_url"`
-	FileInputMode       string     `gorm:"column:file_input_mode"`
+	APIProtocol         string     `gorm:"column:api_protocol"`
 	APIKeyEnc           string     `gorm:"column:api_key_enc"`
 	APIKeyHint          string     `gorm:"column:api_key_hint"`
 	HealthStatus        string     `gorm:"column:health_status"`

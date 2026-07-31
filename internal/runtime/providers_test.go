@@ -15,6 +15,7 @@ import (
 	"admin_back_go/internal/infra/secretbox"
 	"admin_back_go/internal/infra/secretkey"
 	aichat "admin_back_go/internal/module/ai/chat"
+	aitool "admin_back_go/internal/module/ai/tool"
 )
 
 func TestBuildProvidersExposesChatTransportCapabilities(t *testing.T) {
@@ -167,6 +168,38 @@ func TestAIChatEngineFactorySupportsOpenAI(t *testing.T) {
 		t.Fatalf("NewEngine returned error: %v", err)
 	}
 
+	result, err := engine.StreamChat(context.Background(), infraai.ChatInput{
+		Content: "hi",
+		Inputs:  map[string]any{"model_id": "gpt-test"},
+	}, nil)
+	if err != nil {
+		t.Fatalf("StreamChat returned error: %v", err)
+	}
+	if result.Answer != "ok" {
+		t.Fatalf("answer = %q, want ok", result.Answer)
+	}
+}
+
+func TestAIToolEngineFactoryUsesConfiguredResponsesProtocol(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/responses" {
+			t.Fatalf("path = %s, want /v1/responses", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"type\":\"response.output_text.delta\",\"delta\":\"ok\"}\n\n"))
+		_, _ = w.Write([]byte("data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"total_tokens\":2}}}\n\n"))
+	}))
+	defer server.Close()
+
+	engine, err := (aiToolEngineFactory{}).NewEngine(context.Background(), aitool.EngineConfig{
+		EngineType:  infraai.EngineTypeOpenAI,
+		BaseURL:     server.URL,
+		APIKey:      "sk-test",
+		APIProtocol: infraai.APIProtocolResponses,
+	})
+	if err != nil {
+		t.Fatalf("NewEngine returned error: %v", err)
+	}
 	result, err := engine.StreamChat(context.Background(), infraai.ChatInput{
 		Content: "hi",
 		Inputs:  map[string]any{"model_id": "gpt-test"},

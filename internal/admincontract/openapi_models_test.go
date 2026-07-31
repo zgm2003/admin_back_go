@@ -102,7 +102,7 @@ func TestUploadRuleResponsePublishesClosedExtensionEnums(t *testing.T) {
 	}
 }
 
-func TestAIProviderFileInputModeResponseUsesClosedEnum(t *testing.T) {
+func TestAIProviderAPIProtocolResponseUsesClosedEnum(t *testing.T) {
 	bundle := mustBuildBundle(t)
 	var document struct {
 		Components struct {
@@ -117,13 +117,13 @@ func TestAIProviderFileInputModeResponseUsesClosedEnum(t *testing.T) {
 		schemaName string
 		property   string
 	}{
-		{schemaName: "Go_internal_module_ai_provider_ProviderDTO_Output", property: "file_input_mode"},
-		{schemaName: "Go_internal_module_ai_provider_FileInputModeOption_Output", property: "value"},
+		{schemaName: "Go_internal_module_ai_provider_ProviderDTO_Output", property: "api_protocol"},
+		{schemaName: "Go_internal_module_ai_provider_APIProtocolOption_Output", property: "value"},
 	}
 	for _, check := range checks {
 		schema := openAPIPropertySchema(t, document.Components.Schemas, check.schemaName, check.property)
 		got := openAPIStringEnum(t, document.Components.Schemas, schema)
-		if diff := cmp.Diff(aiprovider.FileInputModes, got); diff != "" {
+		if diff := cmp.Diff(aiprovider.APIProtocols, got); diff != "" {
 			t.Fatalf("file input mode enum mismatch (-want +got):\n%s", diff)
 		}
 	}

@@ -86,6 +86,34 @@ func TestPreparedChatFileManifestRoundTripAndSchemaDetection(t *testing.T) {
 	}
 }
 
+func TestPreparedResponsesInlineEnvelopeRoundTripAndSchemaDetection(t *testing.T) {
+	envelope := PreparedChatInlineEnvelope{
+		Schema:      PreparedChatSchemaResponsesInlineV1,
+		APIProtocol: APIProtocolResponses,
+		Request:     json.RawMessage(`{"model":"gpt-5.6","input":[{"role":"user","content":[{"type":"input_text","text":"hello"}]}],"stream":true,"store":false}`),
+	}
+	encoded, err := MarshalPreparedChatInlineEnvelope(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema, err := DetectPreparedChatSchema(encoded)
+	if err != nil || schema != PreparedChatSchemaResponsesInlineV1 {
+		t.Fatalf("schema=%q err=%v", schema, err)
+	}
+	decoded, err := ParsePreparedChatInlineEnvelope(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encodedAgain, err := MarshalPreparedChatInlineEnvelope(decoded)
+	if err != nil || string(encodedAgain) != string(encoded) {
+		t.Fatalf("inline envelope is not canonical:\nfirst=%s\nsecond=%s\nerr=%v", encoded, encodedAgain, err)
+	}
+	unknown := strings.Replace(string(encoded), `"request":`, `"unknown":true,"request":`, 1)
+	if _, err := ParsePreparedChatInlineEnvelope([]byte(unknown)); err == nil {
+		t.Fatal("Responses inline envelope accepted an unknown field")
+	}
+}
+
 func TestPreparedChatFileManifestRejectsUnknownOrMismatchedFacts(t *testing.T) {
 	valid := `{"schema":"openai_chat_file_manifest_v1","file_input_mode":"chat_completions","request":{"model":"gpt-test","messages":[{"role":"user","content":[{"type":"file_ref","ref":"file-1"}]}]},"files":[{"ref":"file-1","object_key":"ai_chat_attachments/report.pdf","etag":"\"etag-v1\"","size":4,"mime_type":"application/pdf","filename":"report.pdf"}]}`
 	for _, candidate := range []string{

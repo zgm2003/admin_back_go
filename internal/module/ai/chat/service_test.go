@@ -681,7 +681,7 @@ func TestCompleteTextRejectsEmptySettledAnswer(t *testing.T) {
 
 func TestExecuteDurableConversationReplyPublishesOnlyEphemeralEventsAndPersistsAssistant(t *testing.T) {
 	agent, box := validAgentConfig(t)
-	agent.FileInputMode = "chat_completions"
+	agent.APIProtocol = "responses"
 	fileOpener := &fakePreparedFileOpener{}
 	repo := &fakeRepository{
 		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5, IsDel: enum.CommonNo},
@@ -701,7 +701,7 @@ func TestExecuteDurableConversationReplyPublishesOnlyEphemeralEventsAndPersistsA
 	if res.AssistantMessageID != 22 || repo.assistant.Content != "ok" || repo.assistant.ConversationID != 3 {
 		t.Fatalf("unexpected assistant result: res=%#v assistant=%#v", res, repo.assistant)
 	}
-	if factory.input.APIKey != "provider-key" || factory.input.EngineType != infraai.EngineTypeOpenAI || factory.input.FileInputMode != "chat_completions" || factory.input.FileOpener != fileOpener {
+	if factory.input.APIKey != "provider-key" || factory.input.EngineType != infraai.EngineTypeOpenAI || factory.input.APIProtocol != "responses" || factory.input.FileOpener != fileOpener {
 		t.Fatalf("unexpected engine config: %#v", factory.input)
 	}
 	if recorder.started != (airun.StartInput{}) {
@@ -753,7 +753,7 @@ func TestRecoveredNativeFileAttemptUsesPersistedManifestOnly(t *testing.T) {
 	conversationID, userMessageID := int64(3), int64(9)
 	repo := &fakeRepository{
 		recoveryProvider: &AgentEngineConfig{
-			AgentID: 5, ProviderID: 2, EngineType: "mutated-transport", FileInputMode: "disabled",
+			AgentID: 5, ProviderID: 2, EngineType: "mutated-transport", APIProtocol: "chat_completions",
 			EngineBaseURL: "https://current-provider.test/v1", EngineAPIKeyEnc: cipher,
 		},
 		acceptedRun: &airun.Run{
@@ -786,7 +786,7 @@ func TestRecoveredNativeFileAttemptUsesPersistedManifestOnly(t *testing.T) {
 		t.Fatalf("mutable context was consulted: conversation=%d agent=%d history=%d recovery_provider=%d", repo.conversationCalls, repo.agentCalls, repo.historyCalls, repo.recoveryProviderID)
 	}
 	if factory.input.EngineType != infraai.EngineTypeOpenAI || factory.input.BaseURL != "https://current-provider.test/v1" ||
-		factory.input.APIKey != "recovery-provider-key" || factory.input.FileInputMode != "disabled" || factory.input.FileOpener != fileOpener {
+		factory.input.APIKey != "recovery-provider-key" || factory.input.APIProtocol != "chat_completions" || factory.input.FileOpener != fileOpener {
 		t.Fatalf("recovery engine config=%+v", factory.input)
 	}
 	if paid.input.ChatInput.Content != "" || len(paid.input.ChatInput.Inputs) != 0 || !reflect.DeepEqual(paid.input.RequestIdentity, requestidentity.Input{}) {
@@ -1118,7 +1118,7 @@ func TestExecuteConversationReplyStopsDeliveryButDrainsUsageAndCandidate(t *test
 		Version string `json:"version"`
 		Answer  string `json:"answer"`
 	}
-	if err := json.Unmarshal([]byte(*finished.ResultCandidateJSON), &candidate); err != nil || candidate.Version != "ai_chat_result_v1" || candidate.Answer != "停止后完整回答" {
+	if err := json.Unmarshal([]byte(*finished.ResultCandidateJSON), &candidate); err != nil || candidate.Version != "ai_chat_result_v2" || candidate.Answer != "停止后完整回答" {
 		t.Fatalf("candidate=%+v raw=%v err=%v", candidate, finished.ResultCandidateJSON, err)
 	}
 }
@@ -1416,7 +1416,14 @@ func (e *toolCallEngine) TestConnection(ctx context.Context, input infraai.TestC
 func (e *toolCallEngine) StreamChat(ctx context.Context, input infraai.ChatInput, sink infraai.EventSink) (*infraai.ChatResult, error) {
 	e.calls = append(e.calls, input)
 	if len(input.ToolOutputs) == 0 {
-		return &infraai.ChatResult{ToolCalls: []infraai.ToolCall{{ID: "call-1", Name: "admin_user_count", Arguments: "{}"}}, PromptTokens: 7, CompletionTokens: 1, TotalTokens: 8, UsageStatus: infraai.UsageStatusReported}, nil
+		return &infraai.ChatResult{
+			ToolCalls: []infraai.ToolCall{{ID: "call-1", Name: "admin_user_count", Arguments: "{}"}},
+			Continuation: &infraai.ChatContinuation{
+				Protocol: infraai.APIProtocolResponses,
+				Items:    []byte(`[{"id":"rs_1","type":"reasoning","encrypted_content":"opaque"},{"id":"fc_1","type":"function_call","call_id":"call-1","name":"admin_user_count","arguments":"{}"}]`),
+			},
+			PromptTokens: 7, CompletionTokens: 1, TotalTokens: 8, UsageStatus: infraai.UsageStatusReported,
+		}, nil
 	}
 	return &infraai.ChatResult{Answer: "当前用户量1015", PromptTokens: 2, CompletionTokens: 3, TotalTokens: 5, UsageStatus: infraai.UsageStatusReported}, nil
 }
@@ -1466,6 +1473,10 @@ func TestExecuteConversationReplySupportsSingleToolRound(t *testing.T) {
 	}
 	if len(engine.calls[1].ToolCalls) != 1 || engine.calls[1].ToolCalls[0].ID != "call-1" {
 		t.Fatalf("preceding tool call not preserved for second model request: %#v", engine.calls[1].ToolCalls)
+	}
+	if engine.calls[1].Continuation == nil || engine.calls[1].Continuation.Protocol != infraai.APIProtocolResponses ||
+		!strings.Contains(string(engine.calls[1].Continuation.Items), `"encrypted_content":"opaque"`) {
+		t.Fatalf("Responses continuation not preserved for second model request: %#v", engine.calls[1].Continuation)
 	}
 	if len(runtime.executeInput) != 1 || runtime.executeInput[0].Tool.Code != "admin_user_count" {
 		t.Fatalf("tool runtime not executed: %#v", runtime.executeInput)

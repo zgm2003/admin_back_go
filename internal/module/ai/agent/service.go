@@ -100,7 +100,7 @@ func (s *Service) PageInit(ctx context.Context) (*InitResponse, *apperror.Error)
 				label = model.ModelID
 			}
 			option := ModelOption{Label: label, Value: model.ModelID, ProviderID: row.ID, ModelID: model.ModelID, DisplayName: model.DisplayName, BillingMultiplier: "1"}
-			effective, capabilityErr := s.effectiveCapabilityDTO(row.EngineType, resolved.Model.Capabilities, row.FileInputMode, true, attachmentPolicy)
+			effective, capabilityErr := s.effectiveCapabilityDTO(row.EngineType, resolved.Model.Capabilities, row.APIProtocol, true, attachmentPolicy)
 			if capabilityErr != nil {
 				continue
 			}
@@ -381,7 +381,7 @@ func (s *Service) Options(ctx context.Context, query OptionQuery) (*AgentOptions
 		if err != nil || model.Model.LifecycleStatus == officialmodel.LifecycleRetired {
 			continue
 		}
-		effective, capabilityErr := s.effectiveCapabilityDTO(row.EngineType, model.Model.Capabilities, row.FileInputMode, row.providerRouteEnabled(), attachmentPolicy)
+		effective, capabilityErr := s.effectiveCapabilityDTO(row.EngineType, model.Model.Capabilities, row.APIProtocol, row.providerRouteEnabled(), attachmentPolicy)
 		if capabilityErr != nil {
 			continue
 		}
@@ -544,7 +544,7 @@ func (s *Service) agentDTO(ctx context.Context, row AgentWithProvider, attachmen
 	dto := AgentDTO{ID: row.ID, ProviderID: row.ProviderID, ProviderName: row.ProviderName, EngineType: row.EngineType, Name: row.Name, ModelID: row.ModelID, ModelDisplayName: row.ModelDisplayName, Scenes: scenes, SceneNames: sceneNames(scenes), SystemPrompt: row.SystemPrompt, Avatar: row.Avatar, Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt), BillingMultiplier: formatMultiplier(multiplier)}
 	model, err := s.resolveModelPrice(ctx, row.ModelID)
 	if err == nil {
-		effective, capabilityErr := s.effectiveCapabilityDTO(row.EngineType, model.Model.Capabilities, row.FileInputMode, row.providerRouteEnabled(), attachmentPolicy)
+		effective, capabilityErr := s.effectiveCapabilityDTO(row.EngineType, model.Model.Capabilities, row.APIProtocol, row.providerRouteEnabled(), attachmentPolicy)
 		if capabilityErr != nil {
 			return AgentDTO{}, capabilityErr
 		}
@@ -586,7 +586,7 @@ func officialModelSummary(model officialmodel.Model) *OfficialModelSummaryDTO {
 func (s *Service) effectiveCapabilityDTO(
 	engineType string,
 	official officialmodel.Capabilities,
-	providerMode string,
+	providerProtocol string,
 	routeEnabled bool,
 	attachmentPolicy requestAttachmentPolicy,
 ) (*EffectiveCapabilitiesDTO, error) {
@@ -604,7 +604,7 @@ func (s *Service) effectiveCapabilityDTO(
 	nativeFile := capability.ResolveNativeFileCapability(capability.NativeFileCapabilityInput{
 		OfficialEnabled:      official.NativeFileInput && containsString(official.InputModalities, officialmodel.ModalityFile),
 		TransportEnabled:     containsString(metadata.InputModalities, officialmodel.ModalityFile),
-		ProviderMode:         providerMode,
+		ProviderProtocol:     providerProtocol,
 		ProviderRouteEnabled: routeEnabled,
 		PlatformReady:        attachmentPolicy.PlatformReady,
 		AcceptedExtensions:   attachmentPolicy.AcceptedExtensions,

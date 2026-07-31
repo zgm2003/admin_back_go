@@ -342,7 +342,7 @@ func TestWorkflowSchemasCloseBusinessFieldsAndDeclareNullability(t *testing.T) {
 		"AIRunUsageItem":        {"amount", "attempt_no", "billable", "category", "quantity", "tier_key", "unit", "unit_price", "unit_scale"},
 		"AIRunProviderAttempt":  {"attempt_no", "provider_request_id", "state", "usage_status"},
 		"AIRunLatencyBreakdown": {"accept_ms", "claim_source", "cos_head_ms", "cos_stream_ms", "end_to_end_ms", "prepare_ms", "provider_total_ms", "queue_ms", "settlement_ms", "ttft_ms"},
-		"AIRunRequestSummary":   {"attachment_count", "file_input_mode", "materialized_request_bytes", "message_count", "native_file_bytes", "native_file_count", "prepared_manifest_bytes", "prepared_request_bytes", "provider_attempt_count", "tool_call_count"},
+		"AIRunRequestSummary":   {"api_protocol", "attachment_count", "materialized_request_bytes", "message_count", "native_file_bytes", "native_file_count", "prepared_manifest_bytes", "prepared_request_bytes", "provider_attempt_count", "tool_call_count"},
 	} {
 		properties := document.Components.Schemas[name]["properties"].(map[string]any)
 		if got := sortedMapKeys(properties); !reflect.DeepEqual(got, fields) {
@@ -357,7 +357,7 @@ func TestWorkflowSchemasCloseBusinessFieldsAndDeclareNullability(t *testing.T) {
 	}
 	assertNullableProperty(t, document.Components.Schemas["AIRunRequestSummary"], "message_count")
 	assertSchemaPropertyStringEnum(t, document.Components.Schemas, "AIRunLatencyBreakdown", "claim_source", []string{"", "wake", "poll", "recovery"})
-	assertSchemaPropertyStringEnum(t, document.Components.Schemas, "AIRunRequestSummary", "file_input_mode", []string{"", "chat_completions"})
+	assertSchemaPropertyStringEnum(t, document.Components.Schemas, "AIRunRequestSummary", "api_protocol", []string{"", "chat_completions", "responses"})
 	assertSchemaPropertyStringEnum(t, document.Components.Schemas, "AIRunDetail", "billing_status", []string{"pending", "held", "settled", "released", "unbilled"})
 	assertSchemaPropertyStringEnum(t, document.Components.Schemas, "AIRunDetail", "billing_reason", []string{"pending", "held", "settled_complete_usage", "released_before_dispatch", "released_insufficient_balance", "released_provider_failed", "released_outcome_unknown", "unbilled_usage_incomplete", "unbilled_over_hold", "legacy_unpriced"})
 	assertSchemaPropertyStringEnum(t, document.Components.Schemas, "AIRunProviderAttempt", "state", []string{"prepared", "dispatched", "succeeded", "failed", "canceled", "outcome_unknown"})

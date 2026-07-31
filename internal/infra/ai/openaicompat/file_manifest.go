@@ -109,7 +109,7 @@ func compileFileManifestSegments(manifest infraai.PreparedChatFileManifest) ([]f
 				return nil, 0, err
 			}
 		}
-		prefix, suffix, err := materializedFilePartAffixes(file)
+		prefix, suffix, err := materializedFilePartAffixes(manifest.Protocol(), file)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -174,18 +174,31 @@ func locateFileRefPart(request []byte, ref string) (int, int, error) {
 	return position, length, nil
 }
 
-func materializedFilePartAffixes(file infraai.PreparedFileRef) ([]byte, []byte, error) {
+func materializedFilePartAffixes(protocol string, file infraai.PreparedFileRef) ([]byte, []byte, error) {
 	const marker = "OPENAI_FILE_BASE64_PAYLOAD"
 	prefix := "data:" + file.MIMEType + ";base64,"
-	part := struct {
-		Type string `json:"type"`
-		File struct {
+	var part any
+	switch protocol {
+	case infraai.APIProtocolChatCompletions:
+		value := struct {
+			Type string `json:"type"`
+			File struct {
+				Filename string `json:"filename"`
+				FileData string `json:"file_data"`
+			} `json:"file"`
+		}{Type: "file"}
+		value.File.Filename = file.Filename
+		value.File.FileData = prefix + marker
+		part = value
+	case infraai.APIProtocolResponses:
+		part = struct {
+			Type     string `json:"type"`
 			Filename string `json:"filename"`
 			FileData string `json:"file_data"`
-		} `json:"file"`
-	}{Type: "file"}
-	part.File.Filename = file.Filename
-	part.File.FileData = prefix + marker
+		}{Type: "input_file", Filename: file.Filename, FileData: prefix + marker}
+	default:
+		return nil, nil, errors.New("prepared file manifest API protocol is invalid")
+	}
 	encoded, err := json.Marshal(part)
 	if err != nil {
 		return nil, nil, err

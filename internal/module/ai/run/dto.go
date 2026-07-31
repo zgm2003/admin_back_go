@@ -240,7 +240,7 @@ type SafeRequestSummary struct {
 	NativeFileBytes          int64  `json:"native_file_bytes"`
 	PreparedManifestBytes    int    `json:"prepared_manifest_bytes"`
 	MaterializedRequestBytes int64  `json:"materialized_request_bytes"`
-	FileInputMode            string `json:"file_input_mode"`
+	APIProtocol              string `json:"api_protocol"`
 }
 
 type PricingDetail struct {

@@ -142,6 +142,7 @@ type GenerateAgentConfig struct {
 	EngineType             string
 	EngineBaseURL          string
 	EngineAPIKeyEnc        string
+	EngineAPIProtocol      string
 	ProviderModelStatus    int
 	OfficialModelID        string
 	OfficialCatalogVersion string
@@ -155,9 +156,10 @@ type DraftTaskService interface {
 }
 
 type EngineConfig struct {
-	EngineType infraai.EngineType
-	BaseURL    string
-	APIKey     string
+	EngineType  infraai.EngineType
+	BaseURL     string
+	APIKey      string
+	APIProtocol string
 }
 
 type EngineFactory interface {

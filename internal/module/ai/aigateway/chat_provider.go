@@ -73,15 +73,16 @@ func (p *PreparedChatProvider) ProvePreparedUpperBound(ctx context.Context, atte
 	if err != nil {
 		return PreparedUpperBoundProof{}, gatewayError(ErrCodeInvalidPrepared, err.Error(), 409)
 	}
+	inlineSchema := schema == infraai.PreparedChatSchemaInlineV1 || schema == infraai.PreparedChatSchemaResponsesInlineV1
 	strategy := strings.TrimSpace(attempt.Quote.InputUpperBoundStrategy)
-	if strategy == "" && schema == infraai.PreparedChatSchemaInlineV1 {
+	if strategy == "" && inlineSchema {
 		strategy = infraai.SafeInputUpperBoundStrategyUTF8RequestBytesV1
 	}
 	if !supportsUpperBoundStrategy(capabilities, strategy) {
 		return PreparedUpperBoundProof{}, gatewayError(ErrCodeInvalidPrepared, "provider safe input upper-bound strategy is unsupported", 409)
 	}
 	var inputBound int64
-	if schema == infraai.PreparedChatSchemaInlineV1 {
+	if inlineSchema {
 		inputBound, err = infraai.SafeInputUpperBoundFromRequest(attempt.PreparedRequest)
 		if err != nil {
 			return PreparedUpperBoundProof{}, gatewayError(ErrCodeInvalidPrepared, err.Error(), 409)
@@ -99,7 +100,7 @@ func (p *PreparedChatProvider) ProvePreparedUpperBound(ctx context.Context, atte
 		switch {
 		case item.Category == billing.UsageCategoryInputText && item.Unit == "token":
 			inputItems++
-			if schema == infraai.PreparedChatSchemaInlineV1 && item.Quantity != inputBound {
+			if inlineSchema && item.Quantity != inputBound {
 				return PreparedUpperBoundProof{}, gatewayError(ErrCodeInvalidPrepared, "quoted input bound differs from prepared request proof", 409)
 			}
 		case item.Category == billing.UsageCategoryOutputText && item.Unit == "token":
@@ -145,16 +146,29 @@ func (p *PreparedChatProvider) Dispatch(ctx context.Context, attempt ProviderAtt
 		Body:           append([]byte(nil), attempt.PreparedRequest...),
 		IdempotencyKey: attempt.IdempotencyKey,
 	}, p.sink)
-	if err != nil {
-		return DispatchResult{}, err
-	}
 	if result == nil {
+		if err != nil {
+			return DispatchResult{}, err
+		}
 		return DispatchResult{}, infraai.NewProviderError(infraai.ProviderOutcomeUnknown, "", errors.New("prepared chat provider returned no result"))
 	}
 	mergePreparedFileInputMetrics(result, preflightMetrics)
 	dispatchState := strings.TrimSpace(result.DispatchState)
 	if dispatchState == "" {
 		dispatchState = infraai.DispatchStateDispatched
+	}
+	p.mu.Lock()
+	p.result = cloneChatResult(result)
+	p.mu.Unlock()
+	outcome := DispatchResult{
+		ProviderRequestID: strings.TrimSpace(result.ProviderRequestID),
+		ResponseSHA256:    result.ResponseSHA256,
+		DispatchState:     dispatchState,
+		Usage:             result.Usage,
+		FileInputMetrics:  cloneFileInputMetrics(result.FileInputMetrics),
+	}
+	if err != nil {
+		return outcome, err
 	}
 	var candidate *string
 	if p.candidateEncoder != nil {
@@ -163,22 +177,13 @@ func (p *PreparedChatProvider) Dispatch(ctx context.Context, attempt ProviderAtt
 			return DispatchResult{}, err
 		}
 	}
-	p.mu.Lock()
-	p.result = cloneChatResult(result)
-	p.mu.Unlock()
 	terminalState := "succeeded"
 	if p.stopProbe != nil && p.stopProbe() {
 		terminalState = "canceled"
 	}
-	return DispatchResult{
-		ProviderRequestID:   strings.TrimSpace(result.ProviderRequestID),
-		ResponseSHA256:      result.ResponseSHA256,
-		DispatchState:       dispatchState,
-		TerminalState:       terminalState,
-		Usage:               result.Usage,
-		ResultCandidateJSON: candidate,
-		FileInputMetrics:    cloneFileInputMetrics(result.FileInputMetrics),
-	}, nil
+	outcome.TerminalState = terminalState
+	outcome.ResultCandidateJSON = candidate
+	return outcome, nil
 }
 
 func (p *PreparedChatProvider) ChatResult() *infraai.ChatResult {
@@ -201,6 +206,11 @@ func cloneChatResult(result *infraai.ChatResult) *infraai.ChatResult {
 	if result.FileInputMetrics != nil {
 		metrics := *result.FileInputMetrics
 		copy.FileInputMetrics = &metrics
+	}
+	if result.Continuation != nil {
+		continuation := *result.Continuation
+		continuation.Items = append([]byte(nil), result.Continuation.Items...)
+		copy.Continuation = &continuation
 	}
 	return &copy
 }

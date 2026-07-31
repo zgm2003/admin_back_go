@@ -137,7 +137,7 @@ func TestPrepareHistoryActionReadsCanonicalSourceWithoutMutation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if preparation.Runtime.FileInputMode != aiprovider.FileInputModeChatCompletions || len(preparation.SourceAttachments) != 1 ||
+	if preparation.Runtime.APIProtocol != aiprovider.APIProtocolResponses || len(preparation.SourceAttachments) != 1 ||
 		preparation.SourceAttachments[0].ETag != `"v1"` || preparation.SourceAttachmentsSHA256 == ([32]byte{}) {
 		t.Fatalf("preparation=%#v", preparation)
 	}
@@ -311,7 +311,7 @@ func attachmentSlicePointer(value []Attachment) *[]Attachment { return &value }
 func validFileMessageAgent() AgentRuntime {
 	agent := *validMessageAgent()
 	agent.ModelID, agent.OfficialModelID = "gpt-5.6", "gpt-5.6"
-	agent.FileInputMode = aiprovider.FileInputModeChatCompletions
+	agent.APIProtocol = aiprovider.APIProtocolResponses
 	return agent
 }
 
@@ -642,11 +642,11 @@ func TestHistoryRevisionRejectsRuntimeDriftBeforeMutation(t *testing.T) {
 	expectNoActiveHistoryCommand(mock, false)
 	expectOwnedConversationLock(mock)
 	expectNoActiveHistoryCommand(mock, true)
-	mock.ExpectQuery("SELECT .*file_input_mode.* FROM .*ai_conversations.*ai_agents.*ai_providers.*FOR UPDATE").
+	mock.ExpectQuery("SELECT .*api_protocol.* FROM .*ai_conversations.*ai_agents.*ai_providers.*FOR UPDATE").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"agent_id", "provider_id", "model_id", "model_display_name", "engine_type", "file_input_mode", "billing_multiplier_ppm", "status", "scenes_json",
+			"agent_id", "provider_id", "model_id", "model_display_name", "engine_type", "api_protocol", "billing_multiplier_ppm", "status", "scenes_json",
 			"provider_model_status", "official_model_id", "official_catalog_version", "mapping_status",
-		}).AddRow(5, 9, "gpt-4.1-mini", "GPT-4.1 mini", "openai", aiprovider.FileInputModeDisabled, 1_250_000, enum.CommonYes, `["chat"]`,
+		}).AddRow(5, 9, "gpt-4.1-mini", "GPT-4.1 mini", "openai", aiprovider.APIProtocolChatCompletions, 1_250_000, enum.CommonYes, `["chat"]`,
 			enum.CommonYes, "gpt-4.1-mini", "catalog-v3", officialmodel.MappingStatusMapped))
 	mock.ExpectRollback()
 
@@ -920,14 +920,14 @@ func expectNoActiveHistoryCommand(mock sqlmock.Sqlmock, locked bool) {
 
 func expectHistoryRuntime(mock sqlmock.Sqlmock, locked bool) {
 	runtime := historyRuntimeFixture()
-	pattern := "SELECT .*file_input_mode.* FROM .*ai_conversations.*ai_agents.*ai_providers"
+	pattern := "SELECT .*api_protocol.* FROM .*ai_conversations.*ai_agents.*ai_providers"
 	if locked {
 		pattern += ".*FOR UPDATE"
 	}
 	mock.ExpectQuery(pattern).WillReturnRows(sqlmock.NewRows([]string{
-		"agent_id", "provider_id", "model_id", "model_display_name", "engine_type", "file_input_mode", "billing_multiplier_ppm", "status", "scenes_json",
+		"agent_id", "provider_id", "model_id", "model_display_name", "engine_type", "api_protocol", "billing_multiplier_ppm", "status", "scenes_json",
 		"provider_model_status", "official_model_id", "official_catalog_version", "mapping_status",
-	}).AddRow(runtime.AgentID, runtime.ProviderID, runtime.ModelID, runtime.ModelDisplayName, runtime.EngineType, runtime.FileInputMode,
+	}).AddRow(runtime.AgentID, runtime.ProviderID, runtime.ModelID, runtime.ModelDisplayName, runtime.EngineType, runtime.APIProtocol,
 		runtime.BillingMultiplierPPM, runtime.Status, runtime.ScenesJSON, runtime.ProviderModelStatus, runtime.OfficialModelID,
 		runtime.OfficialCatalogVersion, runtime.MappingStatus))
 }
@@ -935,7 +935,7 @@ func expectHistoryRuntime(mock sqlmock.Sqlmock, locked bool) {
 func historyRuntimeFixture() AgentRuntime {
 	return AgentRuntime{
 		AgentID: 5, ProviderID: 9, ModelID: "gpt-4.1-mini", ModelDisplayName: "GPT-4.1 mini", EngineType: "openai",
-		FileInputMode: aiprovider.FileInputModeChatCompletions, BillingMultiplierPPM: 1_250_000,
+		APIProtocol: aiprovider.APIProtocolResponses, BillingMultiplierPPM: 1_250_000,
 		Status: enum.CommonYes, ScenesJSON: `["chat"]`, ProviderModelStatus: enum.CommonYes,
 		OfficialModelID: "gpt-4.1-mini", OfficialCatalogVersion: "catalog-v3", MappingStatus: officialmodel.MappingStatusMapped,
 	}

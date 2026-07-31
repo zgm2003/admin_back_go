@@ -495,8 +495,37 @@ func TestRunDetailCountsPersistedInlineImageAttachments(t *testing.T) {
 	if appErr != nil {
 		t.Fatalf("Detail returned error: %v", appErr)
 	}
-	if result.RequestSummary.MessageCount == nil || *result.RequestSummary.MessageCount != 2 || result.RequestSummary.AttachmentCount != 2 || result.RequestSummary.NativeFileCount != 0 || result.RequestSummary.NativeFileBytes != 0 || result.RequestSummary.PreparedManifestBytes != 0 || result.RequestSummary.MaterializedRequestBytes != 0 || result.RequestSummary.FileInputMode != "" {
+	if result.RequestSummary.MessageCount == nil || *result.RequestSummary.MessageCount != 2 || result.RequestSummary.AttachmentCount != 2 || result.RequestSummary.NativeFileCount != 0 || result.RequestSummary.NativeFileBytes != 0 || result.RequestSummary.PreparedManifestBytes != 0 || result.RequestSummary.MaterializedRequestBytes != 0 || result.RequestSummary.APIProtocol != infraai.APIProtocolChatCompletions {
 		t.Fatalf("inline request summary=%+v", result.RequestSummary)
+	}
+}
+
+func TestRunDetailSummarizesResponsesInlineEnvelope(t *testing.T) {
+	now := time.Date(2026, 7, 31, 12, 1, 0, 0, time.UTC)
+	request := json.RawMessage(`{"model":"gpt-5.6","input":[{"role":"user","content":[{"type":"input_text","text":"private prompt"},{"type":"input_image","image_url":"https://images.example/private.png"}]}],"stream":true,"store":false}`)
+	prepared, err := infraai.MarshalPreparedChatInlineEnvelope(infraai.PreparedChatInlineEnvelope{
+		Schema: infraai.PreparedChatSchemaResponsesInlineV1, APIProtocol: infraai.APIProtocolResponses, Request: request,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := &fakeRepository{
+		run: &RunDetailRow{
+			ID: 90, Status: enum.AIRunStatusRunning, BillingStatus: string(billing.BillingStatusHeld),
+			BillingReason: string(billing.BillingReasonHeld), PricingSnapshotJSON: paidPricingSnapshotJSON(),
+			CreatedAt: now, UpdatedAt: now,
+		},
+		charge:   &ChargeRow{ID: 23, HeldUnits: 1, Status: string(billing.ChargeStatusOpen)},
+		attempts: []ProviderAttemptRow{{ID: 207, AttemptNo: 1, State: string(billing.AttemptStatePrepared), UsageStatus: string(billing.UsageStatusUnavailable), UsageJSON: `{"status":"unavailable"}`, PreparedRequestJSON: string(prepared)}},
+	}
+
+	result, appErr := NewService(repo).Detail(context.Background(), 90)
+	if appErr != nil {
+		t.Fatalf("Detail returned error: %v", appErr)
+	}
+	if result.RequestSummary.MessageCount == nil || *result.RequestSummary.MessageCount != 1 ||
+		result.RequestSummary.AttachmentCount != 1 || result.RequestSummary.APIProtocol != infraai.APIProtocolResponses {
+		t.Fatalf("Responses inline summary=%+v", result.RequestSummary)
 	}
 }
 
@@ -560,7 +589,7 @@ func TestSafeRequestSummaryNeverContainsObjectIdentityOrManifest(t *testing.T) {
 	want := SafeRequestSummary{
 		ProviderAttemptCount: 1, ToolCallCount: 1, PreparedRequestBytes: len(prepared), MessageCount: &messageCount,
 		AttachmentCount: 3, NativeFileCount: 2, NativeFileBytes: 6, PreparedManifestBytes: len(prepared),
-		MaterializedRequestBytes: int64(len(materialized)), FileInputMode: "chat_completions",
+		MaterializedRequestBytes: int64(len(materialized)), APIProtocol: "chat_completions",
 	}
 	if !reflect.DeepEqual(result.RequestSummary, want) {
 		t.Fatalf("request summary=%+v want=%+v", result.RequestSummary, want)
@@ -582,6 +611,64 @@ func TestSafeRequestSummaryNeverContainsObjectIdentityOrManifest(t *testing.T) {
 	for _, allowed := range []string{"summarize safely", "input.pdf", "nested.pdf", "message.pdf", "application/pdf", "temperature"} {
 		if !strings.Contains(string(encoded), allowed) {
 			t.Fatalf("safe detail dropped %q: %s", allowed, encoded)
+		}
+	}
+}
+
+func TestRunDetailSummarizesResponsesFileManifest(t *testing.T) {
+	now := time.Date(2026, 7, 31, 12, 1, 0, 0, time.UTC)
+	request := json.RawMessage(`{"model":"gpt-5.6","input":[{"role":"user","content":[{"type":"input_text","text":"private prompt"},{"type":"input_image","image_url":"https://images.example/private.png"},{"type":"file_ref","ref":"file-1"}]}],"stream":true,"store":false}`)
+	manifest := infraai.PreparedChatFileManifest{
+		Schema:      infraai.PreparedChatSchemaResponsesFileManifestV1,
+		APIProtocol: infraai.APIProtocolResponses,
+		Request:     request,
+		Files: []infraai.PreparedFileRef{{
+			Ref: "file-1", ObjectKey: "ai_chat_attachments/private/report.pdf", ETag: `"report-v1"`,
+			Size: 4, MIMEType: "application/pdf", Filename: "report.pdf",
+		}},
+	}
+	prepared, err := infraai.MarshalPreparedChatFileManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	materialized := strings.Replace(
+		string(request),
+		`{"type":"file_ref","ref":"file-1"}`,
+		`{"type":"input_file","filename":"report.pdf","file_data":"data:application/pdf;base64,AQIDBA=="}`,
+		1,
+	)
+	repo := &fakeRepository{
+		run: &RunDetailRow{
+			ID: 89, Status: enum.AIRunStatusRunning, BillingStatus: string(billing.BillingStatusHeld),
+			BillingReason: string(billing.BillingReasonHeld), PricingSnapshotJSON: paidPricingSnapshotJSON(),
+			CreatedAt: now, UpdatedAt: now,
+		},
+		charge:   &ChargeRow{ID: 22, HeldUnits: 1, Status: string(billing.ChargeStatusOpen)},
+		attempts: []ProviderAttemptRow{{ID: 206, AttemptNo: 1, State: string(billing.AttemptStatePrepared), UsageStatus: string(billing.UsageStatusUnavailable), UsageJSON: `{"status":"unavailable"}`, PreparedRequestJSON: string(prepared)}},
+	}
+
+	result, appErr := NewService(repo).Detail(context.Background(), 89)
+	if appErr != nil {
+		t.Fatalf("Detail returned error: %v", appErr)
+	}
+	messageCount := 1
+	want := SafeRequestSummary{
+		ProviderAttemptCount: 1, PreparedRequestBytes: len(prepared), MessageCount: &messageCount,
+		AttachmentCount: 2, NativeFileCount: 1, NativeFileBytes: 4, PreparedManifestBytes: len(prepared),
+		MaterializedRequestBytes: int64(len(materialized)), APIProtocol: infraai.APIProtocolResponses,
+	}
+	if !reflect.DeepEqual(result.RequestSummary, want) {
+		t.Fatalf("Responses request summary=%+v want=%+v", result.RequestSummary, want)
+	}
+}
+
+func TestUnsafeRunProjectionRejectsAllPreparedFileManifestSchemas(t *testing.T) {
+	for _, schema := range []string{
+		infraai.PreparedChatSchemaFileManifestV1,
+		infraai.PreparedChatSchemaResponsesFileManifestV1,
+	} {
+		if !containsUnsafeRunProjectionLiteral(`{"schema":"` + schema + `"}`) {
+			t.Fatalf("prepared file manifest schema %q was not redacted", schema)
 		}
 	}
 }

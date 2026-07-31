@@ -106,6 +106,43 @@ func TestPreparedChatProviderProofUsesExactRequestBound(t *testing.T) {
 	}
 }
 
+func TestPreparedChatProviderProofUsesExactResponsesEnvelopeBound(t *testing.T) {
+	body, err := infraai.MarshalPreparedChatInlineEnvelope(infraai.PreparedChatInlineEnvelope{
+		Schema:      infraai.PreparedChatSchemaResponsesInlineV1,
+		APIProtocol: infraai.APIProtocolResponses,
+		Request:     []byte(`{"model":"gpt-test","input":[],"stream":true,"store":false}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputBound, err := infraai.SafeInputUpperBoundFromRequest(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt := ProviderAttempt{
+		RunID:           9,
+		AttemptNo:       1,
+		PreparedRequest: body,
+		RequestSHA256:   sha256.Sum256(body),
+		Quote: QuoteEvidence{
+			InputUpperBoundStrategy:  infraai.SafeInputUpperBoundStrategyUTF8RequestBytesV1,
+			EffectiveMaxOutputTokens: 20,
+			UpperBoundItems: []billing.UsageItem{
+				{Category: billing.UsageCategoryInputText, Unit: "token", Quantity: inputBound},
+				{Category: billing.UsageCategoryOutputText, Unit: "token", Quantity: 20},
+			},
+		},
+	}
+	provider := NewPreparedChatProvider(&preparedChatTransportStub{}, nil, nil)
+	proof, err := provider.ProvePreparedUpperBound(context.Background(), attempt)
+	if err != nil {
+		t.Fatalf("ProvePreparedUpperBound: %v", err)
+	}
+	if proof.Strategy != infraai.SafeInputUpperBoundStrategyUTF8RequestBytesV1 || len(proof.Items) != 2 || proof.Items[0].Quantity != inputBound {
+		t.Fatalf("proof=%+v", proof)
+	}
+}
+
 func TestPreparedChatProviderDispatchesPersistedBytesAndReturnsCandidate(t *testing.T) {
 	body := []byte("{ \n  \"model\": \"gpt-test\", \"messages\": []\n}")
 	rawUsage := []byte(`{"prompt_tokens":2,"completion_tokens":3,"total_tokens":5}`)
@@ -141,5 +178,52 @@ func TestPreparedChatProviderDispatchesPersistedBytesAndReturnsCandidate(t *test
 	result := provider.ChatResult()
 	if result == nil || result.Answer != "hello" {
 		t.Fatalf("chat result=%+v", result)
+	}
+}
+
+func TestPreparedChatProviderPreservesTerminalResultEvidenceOnError(t *testing.T) {
+	rawUsage := []byte(`{"input_tokens":4,"output_tokens":1,"total_tokens":5}`)
+	usage, err := infraai.NewUsageSnapshot(infraai.UsageStatusComplete, rawUsage, []infraai.UsageItem{
+		{Category: infraai.UsageCategoryInput, Unit: "token", Quantity: 4},
+		{Category: infraai.UsageCategoryOutput, Unit: "token", Quantity: 1},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	responseHash := sha256.Sum256([]byte("terminal-response"))
+	providerErr := infraai.NewProviderError(infraai.ProviderOutcomeRejected, "req-terminal", errors.New("terminal failure"))
+	transport := &preparedChatTransportStub{
+		preflightMetrics: &infraai.FileInputMetrics{COSHeadMS: 7},
+		result: &infraai.ChatResult{
+			ProviderRequestID: "req-terminal", DispatchState: infraai.DispatchStateDispatched,
+			ResponseSHA256: responseHash, Usage: usage,
+			FileInputMetrics: &infraai.FileInputMetrics{COSStreamMS: 11, MaterializedRequestBytes: 128},
+			Continuation: &infraai.ChatContinuation{
+				Protocol: infraai.APIProtocolResponses,
+				Items:    []byte(`[{"id":"fc_1","type":"function_call","call_id":"call_1","name":"lookup","arguments":"{}"}]`),
+			},
+		},
+		err: providerErr,
+	}
+	provider := NewPreparedChatProvider(transport, nil, nil)
+	if err := provider.PreflightPrepared(context.Background(), ProviderAttempt{}); err != nil {
+		t.Fatal(err)
+	}
+	outcome, err := provider.Dispatch(context.Background(), ProviderAttempt{})
+	if !errors.Is(err, providerErr) {
+		t.Fatalf("Dispatch error=%v", err)
+	}
+	if outcome.ProviderRequestID != "req-terminal" || outcome.ResponseSHA256 != responseHash || !outcome.Usage.Complete() ||
+		outcome.FileInputMetrics == nil || outcome.FileInputMetrics.COSHeadMS != 7 || outcome.FileInputMetrics.COSStreamMS != 11 {
+		t.Fatalf("terminal outcome evidence=%+v", outcome)
+	}
+	first := provider.ChatResult()
+	if first == nil || first.Continuation == nil {
+		t.Fatalf("terminal chat result=%+v", first)
+	}
+	first.Continuation.Items[0] = 'x'
+	second := provider.ChatResult()
+	if second == nil || second.Continuation == nil || second.Continuation.Items[0] != '[' {
+		t.Fatalf("continuation clone leaked mutation: %+v", second)
 	}
 }

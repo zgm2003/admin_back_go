@@ -34,7 +34,7 @@ type Config struct {
 	StreamHTTPClient  *http.Client
 	Timeout           time.Duration
 	StreamIdleTimeout time.Duration
-	FileInputMode     string
+	APIProtocol       string
 	FileOpener        infraai.PreparedFileOpener
 }
 
@@ -45,7 +45,7 @@ type Client struct {
 	streamHTTPClient  *http.Client
 	timeout           time.Duration
 	streamIdleTimeout time.Duration
-	fileInputMode     string
+	apiProtocol       string
 	fileOpener        infraai.PreparedFileOpener
 }
 
@@ -73,7 +73,7 @@ func New(config Config) *Client {
 		streamHTTPClient:  streamHTTPClient,
 		timeout:           timeout,
 		streamIdleTimeout: streamIdleTimeout,
-		fileInputMode:     strings.TrimSpace(config.FileInputMode),
+		apiProtocol:       normalizeAPIProtocol(config.APIProtocol),
 		fileOpener:        config.FileOpener,
 	}
 }
@@ -100,7 +100,7 @@ func (c *Client) TestConnection(ctx context.Context, input infraai.TestConnectio
 			StreamHTTPClient:  c.streamHTTPClient,
 			Timeout:           timeout,
 			StreamIdleTimeout: c.streamIdleTimeout,
-			FileInputMode:     c.fileInputMode,
+			APIProtocol:       c.apiProtocol,
 			FileOpener:        c.fileOpener,
 		})
 	}
@@ -161,37 +161,55 @@ func (c *Client) PrepareChat(ctx context.Context, input infraai.ChatInput) ([]by
 	if err != nil {
 		return nil, err
 	}
-	body := chatCompletionRequest{
-		Model:         model,
-		Stream:        true,
-		StreamOptions: &chatStreamOptions{IncludeUsage: true},
-		Messages:      messages,
-		Tools:         chatTools(input.Tools),
+	var request any
+	switch c.apiProtocol {
+	case infraai.APIProtocolChatCompletions:
+		if len(files) > 0 {
+			return nil, fmt.Errorf("%w: native file input requires the Responses API protocol", infraai.ErrInvalidConfig)
+		}
+		body := chatCompletionRequest{
+			Model:         model,
+			Stream:        true,
+			StreamOptions: &chatStreamOptions{IncludeUsage: true},
+			Messages:      messages,
+			Tools:         chatTools(input.Tools),
+		}
+		if temperature, ok := inputNumber(input.Inputs, "temperature"); ok {
+			body.Temperature = &temperature
+		}
+		if input.EffectiveMaxOutputTokens < 0 {
+			return nil, fmt.Errorf("%w: effective max output tokens must not be negative", infraai.ErrInvalidConfig)
+		}
+		if input.EffectiveMaxOutputTokens > 0 {
+			body.MaxTokens = &input.EffectiveMaxOutputTokens
+		}
+		request = body
+	case infraai.APIProtocolResponses:
+		body, prepareErr := prepareResponsesRequest(input, model, messages)
+		if prepareErr != nil {
+			return nil, prepareErr
+		}
+		request = body
+	default:
+		return nil, fmt.Errorf("%w: unsupported OpenAI API protocol %q", infraai.ErrInvalidConfig, c.apiProtocol)
 	}
-	if temperature, ok := inputNumber(input.Inputs, "temperature"); ok {
-		body.Temperature = &temperature
-	}
-	if input.EffectiveMaxOutputTokens < 0 {
-		return nil, fmt.Errorf("%w: effective max output tokens must not be negative", infraai.ErrInvalidConfig)
-	}
-	if input.EffectiveMaxOutputTokens > 0 {
-		body.MaxTokens = &input.EffectiveMaxOutputTokens
-	}
-	prepared, err := json.Marshal(body)
+	prepared, err := json.Marshal(request)
 	if err != nil {
-		return nil, fmt.Errorf("encode OpenAI chat completion request: %w", err)
+		return nil, fmt.Errorf("encode OpenAI request: %w", err)
 	}
 	if len(files) == 0 {
+		if c.apiProtocol == infraai.APIProtocolResponses {
+			return infraai.MarshalPreparedChatInlineEnvelope(infraai.PreparedChatInlineEnvelope{
+				Schema: infraai.PreparedChatSchemaResponsesInlineV1, APIProtocol: c.apiProtocol, Request: prepared,
+			})
+		}
 		return prepared, nil
-	}
-	if c.fileInputMode != "chat_completions" {
-		return nil, fmt.Errorf("%w: provider file input mode is disabled", infraai.ErrInvalidConfig)
 	}
 	if c.fileOpener == nil {
 		return nil, fmt.Errorf("%w: prepared file opener is missing", infraai.ErrInvalidConfig)
 	}
 	return infraai.MarshalPreparedChatFileManifest(infraai.PreparedChatFileManifest{
-		Schema: infraai.PreparedChatSchemaFileManifestV1, FileInputMode: c.fileInputMode,
+		Schema: infraai.PreparedChatSchemaResponsesFileManifestV1, APIProtocol: c.apiProtocol,
 		Request: prepared, Files: files,
 	})
 }
@@ -206,7 +224,7 @@ func (c *Client) PreflightPreparedChat(ctx context.Context, body []byte) (*infra
 	if err != nil {
 		return nil, err
 	}
-	if schema == infraai.PreparedChatSchemaFileManifestV1 {
+	if schema == infraai.PreparedChatSchemaFileManifestV1 || schema == infraai.PreparedChatSchemaResponsesFileManifestV1 {
 		if c == nil || c.fileOpener == nil {
 			return nil, fmt.Errorf("%w: prepared file opener is missing", infraai.ErrInvalidConfig)
 		}
@@ -261,6 +279,10 @@ func (c *Client) streamPreparedChat(ctx context.Context, input infraai.PreparedC
 	if requireKey && key == "" {
 		return nil, fmt.Errorf("%w: missing prepared chat idempotency key", infraai.ErrInvalidConfig)
 	}
+	apiProtocol, protocolErr := preparedRequestAPIProtocol(input.Body)
+	if protocolErr != nil {
+		return nil, protocolErr
+	}
 	var requestBody io.ReadCloser
 	var contentLength int64
 	var materialized *MaterializedRequest
@@ -268,7 +290,14 @@ func (c *Client) streamPreparedChat(ctx context.Context, input infraai.PreparedC
 	case infraai.PreparedChatSchemaInlineV1:
 		requestBody = io.NopCloser(bytes.NewReader(input.Body))
 		contentLength = int64(len(input.Body))
-	case infraai.PreparedChatSchemaFileManifestV1:
+	case infraai.PreparedChatSchemaResponsesInlineV1:
+		envelope, parseErr := infraai.ParsePreparedChatInlineEnvelope(input.Body)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		requestBody = io.NopCloser(bytes.NewReader(envelope.Request))
+		contentLength = int64(len(envelope.Request))
+	case infraai.PreparedChatSchemaFileManifestV1, infraai.PreparedChatSchemaResponsesFileManifestV1:
 		if c.fileOpener == nil {
 			return nil, fmt.Errorf("%w: prepared file opener is missing", infraai.ErrInvalidConfig)
 		}
@@ -286,7 +315,11 @@ func (c *Client) streamPreparedChat(ctx context.Context, input infraai.PreparedC
 	default:
 		return nil, fmt.Errorf("%w: unsupported prepared chat schema", infraai.ErrInvalidConfig)
 	}
-	req, err := c.newJSONReaderRequest(ctx, http.MethodPost, "/chat/completions", requestBody, contentLength)
+	endpoint := "/chat/completions"
+	if apiProtocol == infraai.APIProtocolResponses {
+		endpoint = "/responses"
+	}
+	req, err := c.newJSONReaderRequest(ctx, http.MethodPost, endpoint, requestBody, contentLength)
 	if err != nil {
 		_ = requestBody.Close()
 		return nil, err
@@ -322,7 +355,7 @@ func (c *Client) streamPreparedChat(ctx context.Context, input infraai.PreparedC
 	defer resp.Body.Close()
 	providerRequestID := strings.TrimSpace(resp.Header.Get("X-Request-Id"))
 	if err := c.requireSuccess(resp); err != nil {
-		if schema == infraai.PreparedChatSchemaFileManifestV1 && isExplicitFilePartRejection(err) {
+		if (schema == infraai.PreparedChatSchemaFileManifestV1 || schema == infraai.PreparedChatSchemaResponsesFileManifestV1) && isExplicitFilePartRejection(err) {
 			err = apperror.Wrap(
 				"ai.provider.file_part_rejected", apperror.CategoryDependency, http.StatusBadGateway, apperror.Permanent,
 				"ai.provider.file_part_rejected", nil, "上游渠道拒绝文件内容，请检查渠道文件协议", err,
@@ -332,12 +365,21 @@ func (c *Client) streamPreparedChat(ctx context.Context, input infraai.PreparedC
 	}
 	watcher := newStreamIdleWatcher(streamIdleTimeout, resp.Body.Close)
 	defer watcher.Stop()
-	result, err := c.readChatCompletionStream(ctx, resp.Body, sink, func() {
-		watcher.Touch(streamIdleTimeout)
-	})
+	var result *infraai.ChatResult
+	if apiProtocol == infraai.APIProtocolResponses {
+		result, err = c.readResponsesStream(ctx, resp.Body, sink, func() { watcher.Touch(streamIdleTimeout) })
+	} else {
+		result, err = c.readChatCompletionStream(ctx, resp.Body, sink, func() { watcher.Touch(streamIdleTimeout) })
+	}
 	if err != nil {
 		if watcher.TimedOut() {
-			return nil, infraai.NewProviderError(infraai.ProviderOutcomeUnknown, providerRequestID, fmt.Errorf("%w: OpenAI chat completion stream idle timeout after %s", context.DeadlineExceeded, streamIdleTimeout))
+			return nil, infraai.NewProviderError(infraai.ProviderOutcomeUnknown, providerRequestID, fmt.Errorf("%w: OpenAI %s stream idle timeout after %s", context.DeadlineExceeded, apiProtocol, streamIdleTimeout))
+		}
+		if apiProtocol == infraai.APIProtocolResponses && isResponsesTerminalStreamError(err) && result != nil {
+			result.ProviderRequestID = providerRequestID
+			result.DispatchState = infraai.DispatchStateDispatched
+			result.FileInputMetrics = fileMetrics
+			return result, infraai.NewProviderError(infraai.ProviderOutcomeRejected, providerRequestID, err)
 		}
 		return nil, infraai.NewProviderError(infraai.ProviderOutcomeUnknown, providerRequestID, err)
 	}

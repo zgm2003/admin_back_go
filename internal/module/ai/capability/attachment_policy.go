@@ -8,10 +8,10 @@ const (
 	MaxNativeFileBytesExclusive = int64(50 << 20)
 	MaxRequestNativeFileBytes   = int64(50 << 20)
 
-	NativeFileDisabledOfficialModel = "official_model_unsupported"
-	NativeFileDisabledProviderMode  = "provider_file_input_disabled"
-	NativeFileDisabledTransport     = "transport_unsupported"
-	NativeFileDisabledPlatform      = "platform_unsupported"
+	NativeFileDisabledOfficialModel    = "official_model_unsupported"
+	NativeFileDisabledProviderProtocol = "provider_api_protocol_unsupported"
+	NativeFileDisabledTransport        = "transport_unsupported"
+	NativeFileDisabledPlatform         = "platform_unsupported"
 )
 
 var NativeFileExtensions = []string{
@@ -29,7 +29,7 @@ var ImageMIMETypes = []string{"image/jpeg", "image/png", "image/webp", "image/gi
 type NativeFileCapabilityInput struct {
 	OfficialEnabled      bool
 	TransportEnabled     bool
-	ProviderMode         string
+	ProviderProtocol     string
 	ProviderRouteEnabled bool
 	PlatformReady        bool
 	AcceptedExtensions   []string
@@ -63,8 +63,8 @@ func ResolveNativeFileCapability(input NativeFileCapabilityInput) NativeFileCapa
 		reason = NativeFileDisabledOfficialModel
 	case !input.TransportEnabled:
 		reason = NativeFileDisabledTransport
-	case input.ProviderMode != aiprovider.FileInputModeChatCompletions || !input.ProviderRouteEnabled:
-		reason = NativeFileDisabledProviderMode
+	case input.ProviderProtocol != aiprovider.APIProtocolResponses || !input.ProviderRouteEnabled:
+		reason = NativeFileDisabledProviderProtocol
 	case !input.PlatformReady || len(input.AcceptedExtensions) == 0:
 		reason = NativeFileDisabledPlatform
 	}

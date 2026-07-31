@@ -12,8 +12,10 @@ import (
 )
 
 const (
-	PreparedChatSchemaInlineV1       = "openai_chat_inline_v1"
-	PreparedChatSchemaFileManifestV1 = "openai_chat_file_manifest_v1"
+	PreparedChatSchemaInlineV1                = "openai_chat_inline_v1"
+	PreparedChatSchemaFileManifestV1          = "openai_chat_file_manifest_v1"
+	PreparedChatSchemaResponsesInlineV1       = "openai_responses_inline_v1"
+	PreparedChatSchemaResponsesFileManifestV1 = "openai_responses_file_manifest_v1"
 )
 
 type PreparedFileRef struct {
@@ -27,9 +29,16 @@ type PreparedFileRef struct {
 
 type PreparedChatFileManifest struct {
 	Schema        string            `json:"schema"`
-	FileInputMode string            `json:"file_input_mode"`
+	APIProtocol   string            `json:"api_protocol,omitempty"`
+	FileInputMode string            `json:"file_input_mode,omitempty"`
 	Request       json.RawMessage   `json:"request"`
 	Files         []PreparedFileRef `json:"files"`
+}
+
+type PreparedChatInlineEnvelope struct {
+	Schema      string          `json:"schema"`
+	APIProtocol string          `json:"api_protocol"`
+	Request     json.RawMessage `json:"request"`
 }
 
 type PreparedFileOpenInput struct {
@@ -56,11 +65,17 @@ type FileInputMetrics struct {
 }
 
 func (manifest PreparedChatFileManifest) Validate() error {
-	if manifest.Schema != PreparedChatSchemaFileManifestV1 {
+	switch manifest.Schema {
+	case PreparedChatSchemaFileManifestV1:
+		if manifest.APIProtocol != "" || manifest.FileInputMode != APIProtocolChatCompletions {
+			return errors.New("legacy prepared file manifest mode is invalid")
+		}
+	case PreparedChatSchemaResponsesFileManifestV1:
+		if manifest.APIProtocol != APIProtocolResponses || manifest.FileInputMode != "" {
+			return errors.New("prepared file manifest API protocol is invalid")
+		}
+	default:
 		return errors.New("prepared file manifest schema is invalid")
-	}
-	if manifest.FileInputMode != "chat_completions" {
-		return errors.New("prepared file manifest mode is invalid")
 	}
 	if len(manifest.Request) == 0 || !json.Valid(manifest.Request) || len(manifest.Files) == 0 {
 		return errors.New("prepared file manifest request and files are required")
@@ -92,6 +107,60 @@ func (manifest PreparedChatFileManifest) Validate() error {
 		}
 	}
 	return nil
+}
+
+func (manifest PreparedChatFileManifest) Protocol() string {
+	if manifest.Schema == PreparedChatSchemaResponsesFileManifestV1 {
+		return manifest.APIProtocol
+	}
+	if manifest.Schema == PreparedChatSchemaFileManifestV1 && manifest.FileInputMode == APIProtocolChatCompletions {
+		return APIProtocolChatCompletions
+	}
+	return ""
+}
+
+func (envelope PreparedChatInlineEnvelope) Validate() error {
+	if envelope.Schema != PreparedChatSchemaResponsesInlineV1 || envelope.APIProtocol != APIProtocolResponses {
+		return errors.New("prepared inline envelope API protocol is invalid")
+	}
+	if len(envelope.Request) == 0 || !json.Valid(envelope.Request) {
+		return errors.New("prepared inline envelope request is invalid")
+	}
+	var request struct {
+		Input    json.RawMessage `json:"input"`
+		Messages json.RawMessage `json:"messages"`
+	}
+	if err := json.Unmarshal(envelope.Request, &request); err != nil || len(bytes.TrimSpace(request.Input)) == 0 || len(bytes.TrimSpace(request.Messages)) != 0 {
+		return errors.New("prepared inline envelope request protocol is invalid")
+	}
+	return nil
+}
+
+func MarshalPreparedChatInlineEnvelope(envelope PreparedChatInlineEnvelope) ([]byte, error) {
+	if err := envelope.Validate(); err != nil {
+		return nil, err
+	}
+	encoded, err := json.Marshal(envelope)
+	if err != nil {
+		return nil, fmt.Errorf("encode prepared inline envelope: %w", err)
+	}
+	return encoded, nil
+}
+
+func ParsePreparedChatInlineEnvelope(body []byte) (PreparedChatInlineEnvelope, error) {
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	var envelope PreparedChatInlineEnvelope
+	if err := decoder.Decode(&envelope); err != nil {
+		return PreparedChatInlineEnvelope{}, fmt.Errorf("decode prepared inline envelope: %w", err)
+	}
+	if err := requirePreparedJSONEnd(decoder); err != nil {
+		return PreparedChatInlineEnvelope{}, err
+	}
+	if err := envelope.Validate(); err != nil {
+		return PreparedChatInlineEnvelope{}, err
+	}
+	return envelope, nil
 }
 
 func MarshalPreparedChatFileManifest(manifest PreparedChatFileManifest) ([]byte, error) {
@@ -137,11 +206,17 @@ func DetectPreparedChatSchema(body []byte) (string, error) {
 	if err := json.Unmarshal(rawSchema, &schema); err != nil {
 		return "", errors.New("prepared chat schema must be a string")
 	}
-	if schema != PreparedChatSchemaFileManifestV1 {
+	switch schema {
+	case PreparedChatSchemaResponsesInlineV1:
+		if _, err := ParsePreparedChatInlineEnvelope(body); err != nil {
+			return "", err
+		}
+	case PreparedChatSchemaFileManifestV1, PreparedChatSchemaResponsesFileManifestV1:
+		if _, err := ParsePreparedChatFileManifest(body); err != nil {
+			return "", err
+		}
+	default:
 		return "", fmt.Errorf("unsupported prepared chat schema %q", schema)
-	}
-	if _, err := ParsePreparedChatFileManifest(body); err != nil {
-		return "", err
 	}
 	return schema, nil
 }
@@ -151,13 +226,17 @@ func requestFileRefs(request json.RawMessage) ([]string, error) {
 		Messages []struct {
 			Content json.RawMessage `json:"content"`
 		} `json:"messages"`
+		Input []struct {
+			Content json.RawMessage `json:"content"`
+		} `json:"input"`
 	}
 	if err := json.Unmarshal(request, &envelope); err != nil {
 		return nil, fmt.Errorf("decode prepared file request: %w", err)
 	}
 	refs := make([]string, 0)
 	seen := make(map[string]struct{})
-	for _, message := range envelope.Messages {
+	messages := append(envelope.Messages, envelope.Input...)
+	for _, message := range messages {
 		var parts []json.RawMessage
 		if err := json.Unmarshal(message.Content, &parts); err != nil {
 			continue

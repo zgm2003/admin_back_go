@@ -10,7 +10,11 @@ import (
 	infraai "admin_back_go/internal/infra/ai"
 )
 
-const chatResultCandidateVersion = "ai_chat_result_v1"
+const (
+	chatResultCandidateVersion       = "ai_chat_result_v2"
+	legacyChatResultCandidateVersion = "ai_chat_result_v1"
+	maxChatContinuationBytes         = 1 << 20
+)
 
 // FinalChatAnswerFromCandidate validates the immutable paid-chat result before
 // the settlement transaction publishes it as an assistant message.
@@ -43,7 +47,11 @@ func ChatResultFromCandidate(raw string) (*infraai.ChatResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &infraai.ChatResult{Answer: strings.TrimSpace(candidate.Answer), ToolCalls: append([]infraai.ToolCall(nil), candidate.ToolCalls...)}, nil
+	return &infraai.ChatResult{
+		Answer:       strings.TrimSpace(candidate.Answer),
+		ToolCalls:    append([]infraai.ToolCall(nil), candidate.ToolCalls...),
+		Continuation: cloneChatContinuation(candidate.Continuation),
+	}, nil
 }
 
 func parseChatResultCandidate(raw string) (chatResultCandidate, error) {
@@ -56,8 +64,38 @@ func parseChatResultCandidate(raw string) (chatResultCandidate, error) {
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		return chatResultCandidate{}, errors.New("chat result candidate has trailing content")
 	}
-	if candidate.Version != chatResultCandidateVersion {
+	if candidate.Version != chatResultCandidateVersion && candidate.Version != legacyChatResultCandidateVersion {
 		return chatResultCandidate{}, errors.New("chat result candidate version is invalid")
 	}
+	if candidate.Version == legacyChatResultCandidateVersion && candidate.Continuation != nil {
+		return chatResultCandidate{}, errors.New("legacy chat result candidate contains continuation")
+	}
+	if err := validateChatContinuation(candidate.Continuation); err != nil {
+		return chatResultCandidate{}, err
+	}
 	return candidate, nil
+}
+
+func validateChatContinuation(continuation *infraai.ChatContinuation) error {
+	if continuation == nil {
+		return nil
+	}
+	if strings.TrimSpace(continuation.Protocol) != infraai.APIProtocolResponses ||
+		len(continuation.Items) == 0 || len(continuation.Items) > maxChatContinuationBytes {
+		return errors.New("chat result candidate continuation is invalid")
+	}
+	var items []json.RawMessage
+	if err := json.Unmarshal(continuation.Items, &items); err != nil || len(items) == 0 {
+		return errors.New("chat result candidate continuation is invalid")
+	}
+	return nil
+}
+
+func cloneChatContinuation(continuation *infraai.ChatContinuation) *infraai.ChatContinuation {
+	if continuation == nil {
+		return nil
+	}
+	copy := *continuation
+	copy.Items = append(json.RawMessage(nil), continuation.Items...)
+	return &copy
 }

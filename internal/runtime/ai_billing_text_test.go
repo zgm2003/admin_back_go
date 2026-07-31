@@ -194,7 +194,7 @@ func TestPaidTextExecutorRoutesEngineFactoryByTaskKind(t *testing.T) {
 	chatFactory := &recordingTextChatFactory{engine: chatEngine}
 	toolFactory := &recordingTextToolFactory{engine: toolEngine}
 	executor := &paidTextTaskExecutor{chatEngine: chatFactory, toolEngine: toolFactory}
-	config := aichat.EngineConfig{EngineType: infraai.EngineTypeOpenAI, BaseURL: "https://provider.test/v1", APIKey: "secret"}
+	config := aichat.EngineConfig{EngineType: infraai.EngineTypeOpenAI, BaseURL: "https://provider.test/v1", APIKey: "secret", APIProtocol: infraai.APIProtocolResponses}
 
 	got, err := executor.newTextEngine(context.Background(), aitext.KindToolDraft, config)
 	if err != nil || got != toolEngine {
@@ -203,7 +203,7 @@ func TestPaidTextExecutorRoutesEngineFactoryByTaskKind(t *testing.T) {
 	if chatFactory.calls != 0 || toolFactory.calls != 1 {
 		t.Fatalf("tool route calls: chat=%d tool=%d", chatFactory.calls, toolFactory.calls)
 	}
-	if toolFactory.input.EngineType != config.EngineType || toolFactory.input.BaseURL != config.BaseURL || toolFactory.input.APIKey != config.APIKey {
+	if toolFactory.input.EngineType != config.EngineType || toolFactory.input.BaseURL != config.BaseURL || toolFactory.input.APIKey != config.APIKey || toolFactory.input.APIProtocol != config.APIProtocol {
 		t.Fatalf("tool config=%#v", toolFactory.input)
 	}
 

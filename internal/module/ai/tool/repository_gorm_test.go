@@ -42,3 +42,32 @@ func TestGormRepositoryListRuntimeToolsUsesActiveBindingAndToolPredicates(t *tes
 		t.Fatalf("unmet SQL expectations: %v", err)
 	}
 }
+
+func TestGormRepositoryGetGenerateAgentConfigProjectsProviderAPIProtocol(t *testing.T) {
+	sqlDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sqlDB.Close()
+	db, err := gorm.Open(mysql.New(mysql.Config{Conn: sqlDB, SkipInitializeWithVersion: true}), &gorm.Config{
+		DisableAutomaticPing: true,
+		Logger:               logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := NewGormRepository(&database.Client{Gorm: db, SQL: sqlDB})
+	mock.ExpectQuery("SELECT .*p.api_protocol AS engine_api_protocol.*FROM ai_agents AS a.*").
+		WillReturnRows(sqlmock.NewRows([]string{"engine_api_protocol"}).AddRow("responses"))
+
+	config, err := repository.GetGenerateAgentConfig(context.Background(), 5)
+	if err != nil {
+		t.Fatalf("GetGenerateAgentConfig: %v", err)
+	}
+	if config == nil || config.EngineAPIProtocol != "responses" {
+		t.Fatalf("generate agent config = %#v", config)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet SQL expectations: %v", err)
+	}
+}

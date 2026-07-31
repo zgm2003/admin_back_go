@@ -101,6 +101,7 @@ type Execution struct {
 	EngineType          string
 	EngineBaseURL       string
 	EngineAPIKeyEnc     string
+	EngineAPIProtocol   string
 }
 
 type ReplayRecord struct {
@@ -392,10 +393,12 @@ func (s *GormStore) LoadExecution(ctx context.Context, taskID uint64) (*Executio
 		EngineType          string `gorm:"column:engine_type"`
 		EngineBaseURL       string `gorm:"column:engine_base_url"`
 		EngineAPIKeyEnc     string `gorm:"column:engine_api_key_enc"`
+		EngineAPIProtocol   string `gorm:"column:engine_api_protocol"`
 	}
 	err := s.db.WithContext(ctx).Table("ai_text_tasks AS t").
 		Select(`t.*, r.input_snapshot, r.pricing_snapshot_json, r.billing_status, r.billing_reason,
-			p.engine_type, p.base_url AS engine_base_url, p.api_key_enc AS engine_api_key_enc`).
+			p.engine_type, p.base_url AS engine_base_url, p.api_key_enc AS engine_api_key_enc,
+			p.api_protocol AS engine_api_protocol`).
 		Joins("JOIN ai_runs r ON r.id = t.run_id AND r.user_id = t.user_id AND r.request_id = t.request_id").
 		Joins("JOIN ai_providers p ON p.id = t.provider_id").
 		Where("t.id = ?", taskID).Take(&row).Error
@@ -406,6 +409,7 @@ func (s *GormStore) LoadExecution(ctx context.Context, taskID uint64) (*Executio
 		Task: row.TextTask, InputSnapshot: row.InputSnapshot, PricingSnapshotJSON: row.PricingSnapshotJSON,
 		BillingStatus: row.BillingStatus, BillingReason: row.BillingReason,
 		EngineType: row.EngineType, EngineBaseURL: row.EngineBaseURL, EngineAPIKeyEnc: row.EngineAPIKeyEnc,
+		EngineAPIProtocol: row.EngineAPIProtocol,
 	}, nil
 }
 

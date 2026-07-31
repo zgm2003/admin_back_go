@@ -344,6 +344,7 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		}
 		chatInput.ToolCalls = toolCalls
 		chatInput.ToolOutputs = outputs
+		chatInput.Continuation = cloneChatContinuation(result.Continuation)
 		paidResult, err = s.streamChatWithAttempt(ctx, runID, input, engine, chatInput, sink)
 		if flushErr := delivery.Flush(context.WithoutCancel(ctx)); flushErr != nil {
 			if err != nil {
@@ -873,9 +874,10 @@ func (s *Service) FinalizeConversationReply(ctx context.Context, input Conversat
 }
 
 type chatResultCandidate struct {
-	Version   string             `json:"version"`
-	Answer    string             `json:"answer,omitempty"`
-	ToolCalls []infraai.ToolCall `json:"tool_calls,omitempty"`
+	Version      string                    `json:"version"`
+	Answer       string                    `json:"answer,omitempty"`
+	ToolCalls    []infraai.ToolCall        `json:"tool_calls,omitempty"`
+	Continuation *infraai.ChatContinuation `json:"continuation,omitempty"`
 }
 
 func marshalChatResultCandidate(result *infraai.ChatResult) (*string, error) {
@@ -886,10 +888,14 @@ func marshalChatResultCandidate(result *infraai.ChatResult) (*string, error) {
 	if answer == "" && len(result.ToolCalls) == 0 {
 		answer = "AI没有返回内容"
 	}
+	if err := validateChatContinuation(result.Continuation); err != nil {
+		return nil, err
+	}
 	raw, err := json.Marshal(chatResultCandidate{
-		Version:   chatResultCandidateVersion,
-		Answer:    answer,
-		ToolCalls: result.ToolCalls,
+		Version:      chatResultCandidateVersion,
+		Answer:       answer,
+		ToolCalls:    result.ToolCalls,
+		Continuation: cloneChatContinuation(result.Continuation),
 	})
 	if err != nil {
 		return nil, err
@@ -1017,7 +1023,7 @@ func (s *Service) engineForAgent(ctx context.Context, agent AgentEngineConfig) (
 	}
 	engine, err := s.engineFactory.NewEngine(ctx, EngineConfig{
 		EngineType: infraai.EngineType(agent.EngineType), BaseURL: agent.EngineBaseURL, APIKey: apiKey,
-		FileInputMode: strings.TrimSpace(agent.FileInputMode), FileOpener: s.fileOpener,
+		APIProtocol: strings.TrimSpace(agent.APIProtocol), FileOpener: s.fileOpener,
 	})
 	if err != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "创建AI引擎失败", err)

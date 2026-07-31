@@ -357,7 +357,7 @@ func (executor *paidChatAttemptExecutor) mustFinalizeProviderError(input aichat.
 	if errors.As(err, &appErr) {
 		return !appErr.Retryable()
 	}
-	if errors.Is(err, infraai.ErrRateLimited) || errors.Is(err, infraai.ErrUpstreamTimeout) || errors.Is(err, infraai.ErrUpstreamFailed) || errors.Is(err, context.DeadlineExceeded) {
+	if errors.Is(err, infraai.ErrRateLimited) || errors.Is(err, infraai.ErrUpstreamTimeout) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
 	if errors.Is(err, infraai.ErrUnauthorized) || errors.Is(err, infraai.ErrInvalidConfig) || errors.Is(err, infraai.ErrEngineDisabled) {
@@ -365,6 +365,9 @@ func (executor *paidChatAttemptExecutor) mustFinalizeProviderError(input aichat.
 	}
 	if outcome, ok := infraai.ProviderOutcomeFromError(err); ok {
 		return outcome == infraai.ProviderOutcomeRejected || outcome == infraai.ProviderOutcomeNotDispatched
+	}
+	if errors.Is(err, infraai.ErrUpstreamFailed) {
+		return false
 	}
 	return false
 }
@@ -594,13 +597,13 @@ func (assembler paidChatAssembler) prepareConverged(ctx context.Context, snapsho
 	if err != nil {
 		return nil, 0, 0, "", "", err
 	}
-	if schema == infraai.PreparedChatSchemaFileManifestV1 {
+	if schema == infraai.PreparedChatSchemaFileManifestV1 || schema == infraai.PreparedChatSchemaResponsesFileManifestV1 {
 		if snapshot.ContextWindowTokens <= 0 || int64(cap) > snapshot.CatalogMaxOutputTokens {
 			return nil, 0, 0, "", "", pricing.ErrUnsafeTokenUpperBound
 		}
 		return initialBody, snapshot.ContextWindowTokens, cap, schema, infraai.SafeInputUpperBoundStrategyNativeFileContextWindowV1, nil
 	}
-	if schema != infraai.PreparedChatSchemaInlineV1 {
+	if schema != infraai.PreparedChatSchemaInlineV1 && schema != infraai.PreparedChatSchemaResponsesInlineV1 {
 		return nil, 0, 0, "", "", aigateway.ErrUnsupportedPreparedRequestSchema
 	}
 	if snapshot.ContextWindowTokens <= 0 {
@@ -616,7 +619,7 @@ func (assembler paidChatAssembler) prepareConverged(ctx context.Context, snapsho
 			return nil, 0, 0, "", "", err
 		}
 		iterationSchema, detectErr := infraai.DetectPreparedChatSchema(body)
-		if detectErr != nil || iterationSchema != infraai.PreparedChatSchemaInlineV1 {
+		if detectErr != nil || iterationSchema != schema {
 			if detectErr != nil {
 				return nil, 0, 0, "", "", detectErr
 			}

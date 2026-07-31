@@ -7,10 +7,40 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	_ "github.com/go-sql-driver/mysql"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
+
+func TestLoadExecutionProjectsProviderAPIProtocol(t *testing.T) {
+	sqlDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sqlDB.Close()
+	db, err := gorm.Open(mysql.New(mysql.Config{Conn: sqlDB, SkipInitializeWithVersion: true}), &gorm.Config{
+		DisableAutomaticPing: true,
+		Logger:               logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock.ExpectQuery("SELECT .*p.api_protocol AS engine_api_protocol.*FROM ai_text_tasks AS t.*").
+		WillReturnRows(sqlmock.NewRows([]string{"engine_api_protocol"}).AddRow("responses"))
+
+	execution, err := (&GormStore{db: db}).LoadExecution(context.Background(), 41)
+	if err != nil {
+		t.Fatalf("LoadExecution: %v", err)
+	}
+	if execution.EngineAPIProtocol != "responses" {
+		t.Fatalf("engine API protocol = %q", execution.EngineAPIProtocol)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet SQL expectations: %v", err)
+	}
+}
 
 func TestCanonicalRunLookupPrecedesTextTaskAcceptance(t *testing.T) {
 	db := dryRunTextDB(t)

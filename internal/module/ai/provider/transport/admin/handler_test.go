@@ -37,7 +37,7 @@ func (service *fileModeHTTPService) List(context.Context, aiprovider.ListQuery) 
 	return service.list, nil
 }
 
-func TestProviderMutationRequiresExplicitFileInputMode(t *testing.T) {
+func TestProviderMutationRequiresExplicitAPIProtocol(t *testing.T) {
 	service := &fileModeHTTPService{}
 	recorder := providerHandlerRecorder(t, service, http.MethodPost, "/api/admin/v1/ai-providers", `{"name":"OpenAI","engine_type":"openai","api_key":"sk-test","model_ids":["gpt-5.6"],"status":1}`)
 
@@ -46,30 +46,30 @@ func TestProviderMutationRequiresExplicitFileInputMode(t *testing.T) {
 	}
 }
 
-func TestProviderMutationPassesClosedFileInputMode(t *testing.T) {
+func TestProviderMutationPassesClosedAPIProtocol(t *testing.T) {
 	service := &fileModeHTTPService{}
-	recorder := providerHandlerRecorder(t, service, http.MethodPost, "/api/admin/v1/ai-providers", `{"name":"OpenAI","engine_type":"openai","api_key":"sk-test","file_input_mode":"chat_completions","model_ids":["gpt-5.6"],"status":1}`)
+	recorder := providerHandlerRecorder(t, service, http.MethodPost, "/api/admin/v1/ai-providers", `{"name":"OpenAI","engine_type":"openai","api_key":"sk-test","api_protocol":"responses","model_ids":["gpt-5.6"],"status":1}`)
 
-	if recorder.Code != http.StatusOK || service.createCalls != 1 || service.createInput.FileInputMode != aiprovider.FileInputModeChatCompletions {
+	if recorder.Code != http.StatusOK || service.createCalls != 1 || service.createInput.APIProtocol != aiprovider.APIProtocolResponses {
 		t.Fatalf("status=%d calls=%d input=%#v body=%s", recorder.Code, service.createCalls, service.createInput, recorder.Body.String())
 	}
 }
 
-func TestProviderResponsesProjectClosedFileInputMode(t *testing.T) {
+func TestProviderResponsesProjectClosedAPIProtocol(t *testing.T) {
 	service := &fileModeHTTPService{
-		pageInit: &aiprovider.InitResponse{Dict: aiprovider.InitDict{FileInputModeArr: []aiprovider.FileInputModeOption{
-			{Label: "关闭", Value: aiprovider.FileInputModeDisabled},
-			{Label: "Chat Completions", Value: aiprovider.FileInputModeChatCompletions},
+		pageInit: &aiprovider.InitResponse{Dict: aiprovider.InitDict{APIProtocolArr: []aiprovider.APIProtocolOption{
+			{Label: "Chat Completions", Value: aiprovider.APIProtocolChatCompletions},
+			{Label: "Responses API", Value: aiprovider.APIProtocolResponses},
 		}}},
-		list: &aiprovider.ListResponse{List: []aiprovider.ProviderDTO{{ID: 1, FileInputMode: aiprovider.FileInputModeDisabled}}},
+		list: &aiprovider.ListResponse{List: []aiprovider.ProviderDTO{{ID: 1, APIProtocol: aiprovider.APIProtocolChatCompletions}}},
 	}
 
 	pageInit := providerHandlerRecorder(t, service, http.MethodGet, "/api/admin/v1/ai-providers/page-init", "")
-	if pageInit.Code != http.StatusOK || !strings.Contains(pageInit.Body.String(), `"file_input_mode_arr":[{"label":"关闭","value":"disabled"},{"label":"Chat Completions","value":"chat_completions"}]`) {
+	if pageInit.Code != http.StatusOK || !strings.Contains(pageInit.Body.String(), `"api_protocol_arr":[{"label":"Chat Completions","value":"chat_completions"},{"label":"Responses API","value":"responses"}]`) {
 		t.Fatalf("page-init status=%d body=%s", pageInit.Code, pageInit.Body.String())
 	}
 	list := providerHandlerRecorder(t, service, http.MethodGet, "/api/admin/v1/ai-providers", "")
-	if list.Code != http.StatusOK || !strings.Contains(list.Body.String(), `"file_input_mode":"disabled"`) {
+	if list.Code != http.StatusOK || !strings.Contains(list.Body.String(), `"api_protocol":"chat_completions"`) {
 		t.Fatalf("list status=%d body=%s", list.Code, list.Body.String())
 	}
 }

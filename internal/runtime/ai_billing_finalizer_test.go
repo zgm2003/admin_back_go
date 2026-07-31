@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -402,6 +403,20 @@ func TestPaidAttemptRetryableRejectedProviderErrorDoesNotFinalize(t *testing.T) 
 	err := infraai.NewProviderError(infraai.ProviderOutcomeRejected, "provider-request-1", infraai.ErrRateLimited)
 	if executor.mustFinalizeProviderError(input, attempt, aigateway.DispatchResult{TerminalState: "failed"}, err) {
 		t.Fatal("retryable rejected provider error finalized the held run")
+	}
+}
+
+func TestPaidAttemptTerminalRejectedUpstreamFailureFinalizes(t *testing.T) {
+	executor := &paidChatAttemptExecutor{}
+	input := aichat.PaidChatAttemptInput{CommandMaxAttempts: 3}
+	attempt := aigateway.ProviderAttempt{AttemptNo: 1}
+	err := infraai.NewProviderError(
+		infraai.ProviderOutcomeRejected,
+		"provider-request-terminal",
+		fmt.Errorf("%w: terminal Responses failure", infraai.ErrUpstreamFailed),
+	)
+	if !executor.mustFinalizeProviderError(input, attempt, aigateway.DispatchResult{TerminalState: "failed"}, err) {
+		t.Fatal("terminal rejected Responses failure remained retryable")
 	}
 }
 

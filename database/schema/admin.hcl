@@ -1771,10 +1771,10 @@ table "ai_providers" {
     type    = varchar(512)
     default = ""
   }
-  column "file_input_mode" {
+  column "api_protocol" {
     null    = false
     type    = varchar(32)
-    default = "disabled"
+    default = "chat_completions"
   }
   column "api_key_enc" {
     null = true
@@ -1846,8 +1846,8 @@ table "ai_providers" {
     unique  = true
     columns = [column.engine_type, column.name, column.is_del]
   }
-  check "chk_ai_providers_file_input_mode" {
-    expr = "(`file_input_mode` in (_ascii'disabled',_ascii'chat_completions'))"
+  check "chk_ai_providers_api_protocol" {
+    expr = "(`api_protocol` in (_ascii'chat_completions',_ascii'responses'))"
   }
 }
 table "ai_reply_commands" {

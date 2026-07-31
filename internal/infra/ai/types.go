@@ -16,6 +16,11 @@ const (
 )
 
 const (
+	APIProtocolChatCompletions = "chat_completions"
+	APIProtocolResponses       = "responses"
+)
+
+const (
 	UsageStatusReported    = "reported"
 	UsageStatusComplete    = "complete"
 	UsageStatusUnavailable = "unavailable"
@@ -229,6 +234,14 @@ type ToolOutput struct {
 	Output string
 }
 
+// ChatContinuation carries provider-owned output items that must be replayed
+// on the next Responses turn, notably encrypted reasoning and function calls.
+// Items is an opaque JSON array validated by the compatible transport.
+type ChatContinuation struct {
+	Protocol string          `json:"protocol"`
+	Items    json.RawMessage `json:"items"`
+}
+
 type ChatInput struct {
 	AttemptID                uint64
 	IdempotencyKey           string
@@ -243,6 +256,7 @@ type ChatInput struct {
 	Tools                    []ToolDefinition
 	ToolCalls                []ToolCall
 	ToolOutputs              []ToolOutput
+	Continuation             *ChatContinuation
 }
 
 type ChatResult struct {
@@ -261,6 +275,7 @@ type ChatResult struct {
 	ResponseSHA256       [32]byte      `json:"response_sha256,omitempty"`
 	LatencyMs            int
 	FileInputMetrics     *FileInputMetrics `json:"file_input_metrics,omitempty"`
+	Continuation         *ChatContinuation `json:"continuation,omitempty"`
 }
 
 type Event struct {
