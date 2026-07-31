@@ -338,17 +338,25 @@ func (g *Gateway) Dispatch(ctx context.Context, attempt ProviderAttempt) (Dispat
 		return DispatchResult{}, ErrNotConfigured
 	}
 	capabilities := g.deps.Provider.Capabilities()
-	if !capabilities.SupportsIdempotencyHeader || len(capabilities.SupportedUsageIdentities) == 0 || strings.TrimSpace(capabilities.SafeInputUpperBoundStrategy) == "" {
+	if !capabilities.SupportsIdempotencyHeader || len(capabilities.SupportedUsageIdentities) == 0 || (strings.TrimSpace(capabilities.SafeInputUpperBoundStrategy) == "" && len(capabilities.SafeInputUpperBoundStrategies) == 0) {
 		return DispatchResult{}, gatewayError(ErrCodeInvalidPrepared, "provider lacks required idempotency or upper-bound usage capability", 409)
 	}
 	if len(attempt.PreparedRequest) == 0 || attempt.RequestSHA256 == ([32]byte{}) || sha256.Sum256(attempt.PreparedRequest) != attempt.RequestSHA256 {
 		return DispatchResult{}, gatewayError(ErrCodeInvalidPrepared, "provider attempt request evidence is invalid", 409)
+	}
+	schema, err := infraai.DetectPreparedChatSchema(attempt.PreparedRequest)
+	if err != nil || (attempt.Quote.PreparedRequestSchema != "" && attempt.Quote.PreparedRequestSchema != schema) {
+		return DispatchResult{}, gatewayError(ErrCodeInvalidPrepared, "provider attempt request schema is invalid", 409)
 	}
 	proof, err := g.deps.Provider.ProvePreparedUpperBound(ctx, attempt)
 	if err != nil {
 		return DispatchResult{}, err
 	}
 	if err := validatePreparedUpperBoundProof(attempt, capabilities, proof); err != nil {
+		return DispatchResult{}, err
+	}
+	g.record("preflight_prepared")
+	if err := g.deps.Provider.PreflightPrepared(ctx, attempt); err != nil {
 		return DispatchResult{}, err
 	}
 	if err := g.MarkDispatched(ctx, attempt); err != nil {
@@ -370,8 +378,8 @@ func (g *Gateway) Dispatch(ctx context.Context, attempt ProviderAttempt) (Dispat
 }
 
 func validatePreparedUpperBoundProof(attempt ProviderAttempt, capabilities infraai.CapabilityMetadata, proof PreparedUpperBoundProof) error {
-	strategy := strings.TrimSpace(capabilities.SafeInputUpperBoundStrategy)
-	if proof.RequestSHA256 == ([32]byte{}) || proof.RequestSHA256 != attempt.RequestSHA256 || strings.TrimSpace(proof.Strategy) != strategy || strategy == "" || len(proof.Items) == 0 || len(attempt.Quote.UpperBoundItems) == 0 {
+	strategy := strings.TrimSpace(proof.Strategy)
+	if proof.RequestSHA256 == ([32]byte{}) || proof.RequestSHA256 != attempt.RequestSHA256 || !supportsUpperBoundStrategy(capabilities, strategy) || strategy == "" || len(proof.Items) == 0 || len(attempt.Quote.UpperBoundItems) == 0 {
 		return gatewayError(ErrCodeInvalidPrepared, "provider upper-bound proof is missing or belongs to another request", 409)
 	}
 	supported, err := supportedUsageIdentitySet(capabilities.SupportedUsageIdentities)
@@ -416,6 +424,22 @@ func validatePreparedUpperBoundProof(attempt ProviderAttempt, capabilities infra
 		return gatewayError(ErrCodeInvalidPrepared, "provider upper-bound proof is missing quoted usage", 409)
 	}
 	return nil
+}
+
+func supportsUpperBoundStrategy(capabilities infraai.CapabilityMetadata, strategy string) bool {
+	strategy = strings.TrimSpace(strategy)
+	if strategy == "" {
+		return false
+	}
+	if strings.TrimSpace(capabilities.SafeInputUpperBoundStrategy) == strategy {
+		return true
+	}
+	for _, candidate := range capabilities.SafeInputUpperBoundStrategies {
+		if strings.TrimSpace(candidate) == strategy {
+			return true
+		}
+	}
+	return false
 }
 
 func supportedUsageIdentitySet(identities []infraai.UsageIdentity) (map[string]struct{}, error) {
@@ -679,6 +703,8 @@ func validatePersistedAttempt(locked LockedRunCharge, attemptNo uint32, attempt 
 func equalQuoteEvidence(left, right QuoteEvidence) bool {
 	return left.RequestFingerprint == right.RequestFingerprint &&
 		left.PreparedRequestSHA256 == right.PreparedRequestSHA256 &&
+		left.PreparedRequestSchema == right.PreparedRequestSchema &&
+		left.InputUpperBoundStrategy == right.InputUpperBoundStrategy &&
 		left.PricingVersion == right.PricingVersion &&
 		left.EffectiveMaxOutputTokens == right.EffectiveMaxOutputTokens &&
 		left.CurrentCallMaxUnits == right.CurrentCallMaxUnits &&

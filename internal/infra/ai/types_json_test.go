@@ -2,6 +2,7 @@ package ai
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -49,6 +50,53 @@ func TestDefaultTransportCapabilitiesDeclareNativeFileProof(t *testing.T) {
 	}
 	if capabilities.SafeInputUpperBoundStrategy != SafeInputUpperBoundStrategyUTF8RequestBytesV1 {
 		t.Fatalf("legacy inline strategy=%q", capabilities.SafeInputUpperBoundStrategy)
+	}
+}
+
+func TestPreparedChatFileManifestRoundTripAndSchemaDetection(t *testing.T) {
+	manifest := PreparedChatFileManifest{
+		Schema:        PreparedChatSchemaFileManifestV1,
+		FileInputMode: "chat_completions",
+		Request:       json.RawMessage(`{"model":"gpt-test","messages":[{"role":"user","content":[{"type":"text","text":"read"},{"type":"file_ref","ref":"file-1"}]}]}`),
+		Files: []PreparedFileRef{{
+			Ref: "file-1", ObjectKey: "ai_chat_attachments/2026/07/report.pdf", ETag: `"etag-v1"`,
+			Size: 4, MIMEType: "application/pdf", Filename: "report.pdf",
+		}},
+	}
+	encoded, err := MarshalPreparedChatFileManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema, err := DetectPreparedChatSchema(encoded)
+	if err != nil || schema != PreparedChatSchemaFileManifestV1 {
+		t.Fatalf("schema=%q err=%v", schema, err)
+	}
+	decoded, err := ParsePreparedChatFileManifest(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encodedAgain, err := MarshalPreparedChatFileManifest(decoded)
+	if err != nil || string(encodedAgain) != string(encoded) {
+		t.Fatalf("manifest is not canonical:\nfirst=%s\nsecond=%s\nerr=%v", encoded, encodedAgain, err)
+	}
+
+	inline, err := DetectPreparedChatSchema([]byte(`{"model":"gpt-test"}`))
+	if err != nil || inline != PreparedChatSchemaInlineV1 {
+		t.Fatalf("inline schema=%q err=%v", inline, err)
+	}
+}
+
+func TestPreparedChatFileManifestRejectsUnknownOrMismatchedFacts(t *testing.T) {
+	valid := `{"schema":"openai_chat_file_manifest_v1","file_input_mode":"chat_completions","request":{"model":"gpt-test","messages":[{"role":"user","content":[{"type":"file_ref","ref":"file-1"}]}]},"files":[{"ref":"file-1","object_key":"ai_chat_attachments/report.pdf","etag":"\"etag-v1\"","size":4,"mime_type":"application/pdf","filename":"report.pdf"}]}`
+	for _, candidate := range []string{
+		strings.Replace(valid, `"filename":"report.pdf"`, `"filename":"report.pdf","secret":"no"`, 1),
+		strings.Replace(valid, `"ref":"file-1"`, `"ref":"file-2"`, 1),
+		strings.Replace(valid, `"file_input_mode":"chat_completions"`, `"file_input_mode":"disabled"`, 1),
+		strings.Replace(valid, `"schema":"openai_chat_file_manifest_v1"`, `"schema":"future"`, 1),
+	} {
+		if _, err := DetectPreparedChatSchema([]byte(candidate)); err == nil {
+			t.Fatalf("invalid manifest was accepted: %s", candidate)
+		}
 	}
 }
 

@@ -28,6 +28,8 @@ func (*preparedChatTransportStub) PrepareChat(context.Context, infraai.ChatInput
 	return nil, errors.New("unexpected reassembly")
 }
 
+func (*preparedChatTransportStub) PreflightPreparedChat(context.Context, []byte) error { return nil }
+
 func (s *preparedChatTransportStub) StreamPreparedChat(_ context.Context, request infraai.PreparedChatRequest, _ infraai.EventSink) (*infraai.ChatResult, error) {
 	s.preparedRequest = infraai.PreparedChatRequest{Body: append([]byte(nil), request.Body...), IdempotencyKey: request.IdempotencyKey}
 	return s.result, s.err

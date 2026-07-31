@@ -1192,6 +1192,10 @@ func (provider *preparedImageProvider) ProvePreparedUpperBound(ctx context.Conte
 	return aigateway.PreparedUpperBoundProof{RequestSHA256: attempt.RequestSHA256, Strategy: infraai.SafeImageUpperBoundStrategyLogicalAndAttachmentBytesV1, Items: items}, nil
 }
 
+func (provider *preparedImageProvider) PreflightPrepared(context.Context, aigateway.ProviderAttempt) error {
+	return nil
+}
+
 func (provider *preparedImageProvider) Dispatch(ctx context.Context, attempt aigateway.ProviderAttempt) (aigateway.DispatchResult, error) {
 	if provider == nil || provider.transport == nil || provider.writer == nil || provider.taskID == 0 {
 		return aigateway.DispatchResult{}, aigateway.ErrNotConfigured

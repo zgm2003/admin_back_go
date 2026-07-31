@@ -15,6 +15,7 @@ import (
 // instead of rebuilding a mutable ChatInput.
 type PreparedChatTransport interface {
 	infraai.PreparedChatEngine
+	infraai.PreparedChatPreflighter
 	infraai.CapabilityProvider
 }
 
@@ -67,12 +68,25 @@ func (p *PreparedChatProvider) ProvePreparedUpperBound(ctx context.Context, atte
 		}
 	}
 	capabilities := p.transport.Capabilities()
-	if strings.TrimSpace(capabilities.SafeInputUpperBoundStrategy) != infraai.SafeInputUpperBoundStrategyUTF8RequestBytesV1 {
-		return PreparedUpperBoundProof{}, gatewayError(ErrCodeInvalidPrepared, "provider safe input upper-bound strategy is unsupported", 409)
-	}
-	inputBound, err := infraai.SafeInputUpperBoundFromRequest(attempt.PreparedRequest)
+	schema, err := infraai.DetectPreparedChatSchema(attempt.PreparedRequest)
 	if err != nil {
 		return PreparedUpperBoundProof{}, gatewayError(ErrCodeInvalidPrepared, err.Error(), 409)
+	}
+	strategy := strings.TrimSpace(attempt.Quote.InputUpperBoundStrategy)
+	if strategy == "" && schema == infraai.PreparedChatSchemaInlineV1 {
+		strategy = infraai.SafeInputUpperBoundStrategyUTF8RequestBytesV1
+	}
+	if !supportsUpperBoundStrategy(capabilities, strategy) {
+		return PreparedUpperBoundProof{}, gatewayError(ErrCodeInvalidPrepared, "provider safe input upper-bound strategy is unsupported", 409)
+	}
+	var inputBound int64
+	if schema == infraai.PreparedChatSchemaInlineV1 {
+		inputBound, err = infraai.SafeInputUpperBoundFromRequest(attempt.PreparedRequest)
+		if err != nil {
+			return PreparedUpperBoundProof{}, gatewayError(ErrCodeInvalidPrepared, err.Error(), 409)
+		}
+	} else if strategy != infraai.SafeInputUpperBoundStrategyNativeFileContextWindowV1 {
+		return PreparedUpperBoundProof{}, gatewayError(ErrCodeInvalidPrepared, "prepared file manifest uses an invalid proof strategy", 409)
 	}
 	items := make([]billing.UsageItem, len(attempt.Quote.UpperBoundItems))
 	var inputItems, outputItems int
@@ -84,7 +98,7 @@ func (p *PreparedChatProvider) ProvePreparedUpperBound(ctx context.Context, atte
 		switch {
 		case item.Category == billing.UsageCategoryInputText && item.Unit == "token":
 			inputItems++
-			if item.Quantity != inputBound {
+			if schema == infraai.PreparedChatSchemaInlineV1 && item.Quantity != inputBound {
 				return PreparedUpperBoundProof{}, gatewayError(ErrCodeInvalidPrepared, "quoted input bound differs from prepared request proof", 409)
 			}
 		case item.Category == billing.UsageCategoryOutputText && item.Unit == "token":
@@ -102,9 +116,16 @@ func (p *PreparedChatProvider) ProvePreparedUpperBound(ctx context.Context, atte
 	}
 	return PreparedUpperBoundProof{
 		RequestSHA256: attempt.RequestSHA256,
-		Strategy:      infraai.SafeInputUpperBoundStrategyUTF8RequestBytesV1,
+		Strategy:      strategy,
 		Items:         items,
 	}, nil
+}
+
+func (p *PreparedChatProvider) PreflightPrepared(ctx context.Context, attempt ProviderAttempt) error {
+	if p == nil || p.transport == nil {
+		return ErrNotConfigured
+	}
+	return p.transport.PreflightPreparedChat(ctx, attempt.PreparedRequest)
 }
 
 func (p *PreparedChatProvider) Dispatch(ctx context.Context, attempt ProviderAttempt) (DispatchResult, error) {

@@ -163,6 +163,22 @@ func (c *Client) PrepareChat(ctx context.Context, input infraai.ChatInput) ([]by
 	return prepared, nil
 }
 
+func (c *Client) PreflightPreparedChat(ctx context.Context, body []byte) error {
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+	}
+	schema, err := infraai.DetectPreparedChatSchema(body)
+	if err != nil {
+		return err
+	}
+	if schema == infraai.PreparedChatSchemaFileManifestV1 {
+		return fmt.Errorf("%w: prepared file preflight is not configured", infraai.ErrInvalidConfig)
+	}
+	return nil
+}
+
 func (c *Client) StreamPreparedChat(ctx context.Context, input infraai.PreparedChatRequest, sink infraai.EventSink) (*infraai.ChatResult, error) {
 	return c.streamPreparedChat(ctx, input, sink, true)
 }
@@ -816,14 +832,22 @@ func chatTools(tools []infraai.ToolDefinition) []chatTool {
 
 func historyMessages(inputs map[string]any) []chatMessage {
 	raw := inputs["history"]
-	rows, ok := raw.([]map[string]string)
-	if !ok {
+	rows := make([]map[string]any, 0)
+	switch values := raw.(type) {
+	case []map[string]any:
+		rows = values
+	case []map[string]string:
+		rows = make([]map[string]any, 0, len(values))
+		for _, value := range values {
+			rows = append(rows, map[string]any{"role": value["role"], "content": value["content"]})
+		}
+	default:
 		return nil
 	}
 	messages := make([]chatMessage, 0, len(rows))
 	for _, row := range rows {
-		role := strings.TrimSpace(row["role"])
-		content := strings.TrimSpace(row["content"])
+		role := strings.TrimSpace(stringFromAny(row["role"]))
+		content := strings.TrimSpace(stringFromAny(row["content"]))
 		if content == "" {
 			continue
 		}

@@ -1185,9 +1185,39 @@ func TestChatInputsExtractsAttachmentsAndRuntimeParamsFromCurrentMessageMeta(t *
 	if !ok || len(attachments) != 1 {
 		t.Fatalf("attachments not extracted: %#v", inputs["attachments"])
 	}
-	history, ok := inputs["history"].([]map[string]string)
+	history, ok := inputs["history"].([]map[string]any)
 	if !ok || len(history) != 1 || history[0]["content"] != "older" {
 		t.Fatalf("max_history not applied: %#v", inputs["history"])
+	}
+}
+
+func TestNativeFileContextIncludesSelectedHistoryAndCurrentMessage(t *testing.T) {
+	historyMeta := `{"attachments":[{"type":"file","object_key":"ai_chat_attachments/history.pdf","etag":"\"h1\"","mime_type":"application/pdf","name":"history.pdf","size":26214400,"url":"https://example.test/history.pdf"}]}`
+	currentAtLimit := `{"attachments":[{"type":"file","object_key":"ai_chat_attachments/current.pdf","etag":"\"c1\"","mime_type":"application/pdf","name":"current.pdf","size":26214400,"url":"https://example.test/current.pdf"}]}`
+	currentOverLimit := `{"attachments":[{"type":"file","object_key":"ai_chat_attachments/current.pdf","etag":"\"c1\"","mime_type":"application/pdf","name":"current.pdf","size":26214401,"url":"https://example.test/current.pdf"}]}`
+
+	messages := []MessageHistory{
+		{ID: 1, Role: enum.AIMessageRoleUser, Content: "history", MetaJSON: &historyMeta},
+		{ID: 2, Role: enum.AIMessageRoleAssistant, Content: "answer"},
+		{ID: 3, Role: enum.AIMessageRoleUser, Content: "current", MetaJSON: &currentAtLimit},
+	}
+	if appErr := requireNativeFileContextWithinLimit(messages); appErr != nil {
+		t.Fatalf("exactly 50 MiB was rejected: %#v", appErr)
+	}
+	inputs := chatInputs(AgentEngineConfig{ModelID: "gpt-test"}, messages, 3)
+	selected, ok := inputs["history"].([]map[string]any)
+	if !ok || len(selected) != 2 {
+		t.Fatalf("selected history=%#v", inputs["history"])
+	}
+	attachments, ok := selected[0]["attachments"].([]any)
+	if !ok || len(attachments) != 1 {
+		t.Fatalf("history attachments=%#v", selected[0]["attachments"])
+	}
+
+	messages[2].MetaJSON = &currentOverLimit
+	appErr := requireNativeFileContextWithinLimit(messages)
+	if appErr == nil || appErr.Message != "当前对话文件上下文超过 50 MB，请新建对话或减少历史范围" {
+		t.Fatalf("over-limit error=%#v", appErr)
 	}
 }
 

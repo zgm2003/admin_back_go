@@ -526,7 +526,7 @@ func (assembler paidChatAssembler) AssembleAndQuote(ctx context.Context, run aig
 	}
 	chatInput.Inputs["model_id"] = snapshot.RequestedModelID
 	delete(chatInput.Inputs, "max_tokens")
-	body, inputBound, outputBound, err := assembler.prepareConverged(ctx, snapshot, chatInput)
+	body, inputBound, outputBound, schema, strategy, err := assembler.prepareConverged(ctx, snapshot, chatInput)
 	if err != nil {
 		return aigateway.PreparedCall{}, err
 	}
@@ -546,24 +546,38 @@ func (assembler paidChatAssembler) AssembleAndQuote(ctx context.Context, run aig
 		RequestSHA256: sha256.Sum256(body),
 		Quote: aigateway.QuoteEvidence{
 			PricingVersion: snapshot.Version, PreparedRequestSHA256: sha256.Sum256(body), EffectiveMaxOutputTokens: outputBound,
+			PreparedRequestSchema: schema, InputUpperBoundStrategy: strategy,
 			UpperBoundItems: items, CurrentCallMaxUnits: quoted.AmountUnits, TargetHoldUnits: quoted.AmountUnits,
 		},
 	}, nil
 }
 
-func (assembler paidChatAssembler) prepareConverged(ctx context.Context, snapshot aigateway.PricingSnapshot, input infraai.ChatInput) ([]byte, int64, int, error) {
+func (assembler paidChatAssembler) prepareConverged(ctx context.Context, snapshot aigateway.PricingSnapshot, input infraai.ChatInput) ([]byte, int64, int, string, string, error) {
 	cap := snapshot.EffectiveMaxOutputTokens
 	if cap <= 0 {
-		return nil, 0, 0, pricing.ErrUnsafeTokenUpperBound
+		return nil, 0, 0, "", "", pricing.ErrUnsafeTokenUpperBound
+	}
+	input.EffectiveMaxOutputTokens = cap
+	initialBody, err := assembler.transport.PrepareChat(ctx, input)
+	if err != nil {
+		return nil, 0, 0, "", "", err
+	}
+	schema, err := infraai.DetectPreparedChatSchema(initialBody)
+	if err != nil {
+		return nil, 0, 0, "", "", err
+	}
+	if schema == infraai.PreparedChatSchemaFileManifestV1 {
+		if snapshot.ContextWindowTokens <= 0 || int64(cap) > snapshot.CatalogMaxOutputTokens {
+			return nil, 0, 0, "", "", pricing.ErrUnsafeTokenUpperBound
+		}
+		return initialBody, snapshot.ContextWindowTokens, cap, schema, infraai.SafeInputUpperBoundStrategyNativeFileContextWindowV1, nil
+	}
+	if schema != infraai.PreparedChatSchemaInlineV1 {
+		return nil, 0, 0, "", "", aigateway.ErrUnsupportedPreparedRequestSchema
 	}
 	if snapshot.ContextWindowTokens <= 0 {
-		input.EffectiveMaxOutputTokens = cap
-		body, err := assembler.transport.PrepareChat(ctx, input)
-		if err != nil {
-			return nil, 0, 0, err
-		}
-		inputBound, err := infraai.SafeInputUpperBoundFromRequest(body)
-		return body, inputBound, cap, err
+		inputBound, boundErr := infraai.SafeInputUpperBoundFromRequest(initialBody)
+		return initialBody, inputBound, cap, schema, infraai.SafeInputUpperBoundStrategyUTF8RequestBytesV1, boundErr
 	}
 	var previousHash [32]byte
 	previousBound := 0
@@ -571,32 +585,39 @@ func (assembler paidChatAssembler) prepareConverged(ctx context.Context, snapsho
 		input.EffectiveMaxOutputTokens = cap
 		body, err := assembler.transport.PrepareChat(ctx, input)
 		if err != nil {
-			return nil, 0, 0, err
+			return nil, 0, 0, "", "", err
+		}
+		iterationSchema, detectErr := infraai.DetectPreparedChatSchema(body)
+		if detectErr != nil || iterationSchema != infraai.PreparedChatSchemaInlineV1 {
+			if detectErr != nil {
+				return nil, 0, 0, "", "", detectErr
+			}
+			return nil, 0, 0, "", "", aigateway.ErrUnsupportedPreparedRequestSchema
 		}
 		inputBound, err := infraai.SafeInputUpperBoundFromRequest(body)
 		if err != nil {
-			return nil, 0, 0, err
+			return nil, 0, 0, "", "", err
 		}
 		remaining := snapshot.ContextWindowTokens - inputBound
 		if remaining <= 0 {
-			return nil, 0, 0, pricing.ErrUnsafeTokenUpperBound
+			return nil, 0, 0, "", "", pricing.ErrUnsafeTokenUpperBound
 		}
 		next := int64(snapshot.EffectiveMaxOutputTokens)
 		if remaining < next {
 			next = remaining
 		}
 		if next <= 0 || next > int64(^uint(0)>>1) {
-			return nil, 0, 0, pricing.ErrUnsafeTokenUpperBound
+			return nil, 0, 0, "", "", pricing.ErrUnsafeTokenUpperBound
 		}
 		hash := sha256.Sum256(body)
 		if iteration > 0 && cap == int(next) && previousBound == int(next) && previousHash == hash {
-			return body, inputBound, int(next), nil
+			return body, inputBound, int(next), schema, infraai.SafeInputUpperBoundStrategyUTF8RequestBytesV1, nil
 		}
 		previousHash = hash
 		previousBound = int(next)
 		cap = int(next)
 	}
-	return nil, 0, 0, errPaidChatOutputBoundNotConverged
+	return nil, 0, 0, "", "", errPaidChatOutputBoundNotConverged
 }
 
 func clonePaidChatInput(input infraai.ChatInput) infraai.ChatInput {
@@ -1135,8 +1156,8 @@ func gatewayAttemptFromRow(row replycommand.Attempt) (aigateway.ProviderAttempt,
 		return aigateway.ProviderAttempt{}, fmt.Errorf("%w: attempt identity is incomplete", errPersistedPaidAttemptEvidence)
 	}
 	request := []byte(row.PreparedRequestJSON)
-	if !json.Valid(request) {
-		return aigateway.ProviderAttempt{}, fmt.Errorf("%w: prepared request JSON is invalid", errPersistedPaidAttemptEvidence)
+	if _, err := infraai.DetectPreparedChatSchema(request); err != nil {
+		return aigateway.ProviderAttempt{}, fmt.Errorf("%w: prepared request JSON is invalid: %v", errPersistedPaidAttemptEvidence, err)
 	}
 	if persistedHash := sha256.Sum256(request); !bytes.Equal(persistedHash[:], row.PreparedRequestSHA256) {
 		return aigateway.ProviderAttempt{}, fmt.Errorf("%w: prepared request hash does not match", errPersistedPaidAttemptEvidence)

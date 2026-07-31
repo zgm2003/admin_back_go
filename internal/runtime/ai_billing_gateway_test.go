@@ -106,7 +106,11 @@ func (oscillatingPreparedChatTransport) PrepareChat(_ context.Context, input inf
 	if input.EffectiveMaxOutputTokens == 100 || input.EffectiveMaxOutputTokens == 38 {
 		length = 99
 	}
-	return []byte(strings.Repeat("x", length)), nil
+	return []byte(`{"padding":"` + strings.Repeat("x", length-len(`{"padding":""}`)) + `"}`), nil
+}
+
+func (oscillatingPreparedChatTransport) PreflightPreparedChat(context.Context, []byte) error {
+	return nil
 }
 
 func (oscillatingPreparedChatTransport) StreamPreparedChat(context.Context, infraai.PreparedChatRequest, infraai.EventSink) (*infraai.ChatResult, error) {

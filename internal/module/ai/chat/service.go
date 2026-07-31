@@ -172,6 +172,10 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	if err != nil {
 		return nil, err
 	}
+	selectedContext := selectedChatContext(history, input.UserMessageID, maxHistoryFromMeta(metaForMessage(history, input.UserMessageID)))
+	if appErr := requireNativeFileContextWithinLimit(selectedContext); appErr != nil {
+		return nil, appErr
+	}
 	userMessage, ok := userMessageForID(history, input.UserMessageID)
 	if !ok {
 		msg := "用户消息不存在"
@@ -905,7 +909,10 @@ func (s *Service) engineForAgent(ctx context.Context, agent AgentEngineConfig) (
 	if s.engineFactory == nil {
 		return nil, apperror.Internal("AI引擎工厂未配置")
 	}
-	engine, err := s.engineFactory.NewEngine(ctx, EngineConfig{EngineType: infraai.EngineType(agent.EngineType), BaseURL: agent.EngineBaseURL, APIKey: apiKey})
+	engine, err := s.engineFactory.NewEngine(ctx, EngineConfig{
+		EngineType: infraai.EngineType(agent.EngineType), BaseURL: agent.EngineBaseURL, APIKey: apiKey,
+		FileInputMode: strings.TrimSpace(agent.FileInputMode),
+	})
 	if err != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "创建AI引擎失败", err)
 	}
@@ -1160,11 +1167,57 @@ func chatHistoryWithLimit(rows []MessageHistory, currentUserMessageID int64, max
 	return history
 }
 
+func selectedChatContext(rows []MessageHistory, currentUserMessageID int64, maxHistory int) []MessageHistory {
+	sorted := append([]MessageHistory(nil), rows...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].ID < sorted[j].ID })
+	history := make([]MessageHistory, 0, len(sorted))
+	var current *MessageHistory
+	for index := range sorted {
+		row := sorted[index]
+		if row.ID == currentUserMessageID {
+			copy := row
+			current = &copy
+			continue
+		}
+		if strings.TrimSpace(row.Content) == "" && len(messageAttachments(row)) == 0 {
+			continue
+		}
+		history = append(history, row)
+	}
+	if maxHistory > 0 && len(history) > maxHistory {
+		history = history[len(history)-maxHistory:]
+	}
+	if current != nil {
+		history = append(history, *current)
+	}
+	return history
+}
+
+func chatHistoryInputsWithLimit(rows []MessageHistory, currentUserMessageID int64, maxHistory int) []map[string]any {
+	selected := selectedChatContext(rows, currentUserMessageID, maxHistory)
+	history := make([]map[string]any, 0, len(selected))
+	for _, row := range selected {
+		if row.ID == currentUserMessageID {
+			continue
+		}
+		role := "assistant"
+		if row.Role == enum.AIMessageRoleUser {
+			role = "user"
+		}
+		message := map[string]any{"role": role, "content": row.Content}
+		if attachments := messageAttachments(row); len(attachments) > 0 {
+			message["attachments"] = attachments
+		}
+		history = append(history, message)
+	}
+	return history
+}
+
 func chatInputs(agent AgentEngineConfig, history []MessageHistory, userMessageID int64) map[string]any {
 	meta := metaForMessage(history, userMessageID)
 	inputs := map[string]any{
 		"model_id": agent.ModelID,
-		"history":  chatHistoryWithLimit(history, userMessageID, maxHistoryFromMeta(meta)),
+		"history":  chatHistoryInputsWithLimit(history, userMessageID, maxHistoryFromMeta(meta)),
 	}
 	if systemPrompt := strings.TrimSpace(agent.SystemPrompt); systemPrompt != "" {
 		inputs["system_prompt"] = systemPrompt
@@ -1183,6 +1236,49 @@ func chatInputs(agent AgentEngineConfig, history []MessageHistory, userMessageID
 		inputs["attachments"] = attachments
 	}
 	return inputs
+}
+
+func requireNativeFileContextWithinLimit(messages []MessageHistory) *apperror.Error {
+	var total int64
+	for _, message := range messages {
+		for _, attachment := range messageAttachments(message) {
+			item, ok := attachment.(map[string]any)
+			typeValue, _ := item["type"].(string)
+			if !ok || strings.TrimSpace(typeValue) != "file" {
+				continue
+			}
+			sizeValue, ok := numberFromAny(item["size"])
+			if !ok || sizeValue <= 0 || sizeValue > math.MaxInt64 || sizeValue != math.Trunc(sizeValue) {
+				return nativeFileContextTooLargeError()
+			}
+			size := int64(sizeValue)
+			if size > capability.MaxRequestNativeFileBytes-total {
+				return nativeFileContextTooLargeError()
+			}
+			total += size
+		}
+	}
+	return nil
+}
+
+func nativeFileContextTooLargeError() *apperror.Error {
+	return apperror.BadRequestKey(
+		"ai.attachment.context_total_too_large", nil,
+		"当前对话文件上下文超过 50 MB，请新建对话或减少历史范围",
+	)
+}
+
+func messageAttachments(row MessageHistory) []any {
+	if row.MetaJSON == nil || strings.TrimSpace(*row.MetaJSON) == "" {
+		return nil
+	}
+	var meta struct {
+		Attachments []any `json:"attachments"`
+	}
+	if err := json.Unmarshal([]byte(*row.MetaJSON), &meta); err != nil {
+		return nil
+	}
+	return meta.Attachments
 }
 
 func maxHistoryFromMeta(meta map[string]any) int {

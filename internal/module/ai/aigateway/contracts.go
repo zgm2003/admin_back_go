@@ -32,6 +32,8 @@ type QuoteEvidence struct {
 	PricingVersion           string              `json:"pricing_version"`
 	RequestFingerprint       [32]byte            `json:"request_fingerprint"`
 	PreparedRequestSHA256    [32]byte            `json:"prepared_request_sha256"`
+	PreparedRequestSchema    string              `json:"prepared_request_schema"`
+	InputUpperBoundStrategy  string              `json:"input_upper_bound_strategy"`
 	EffectiveMaxOutputTokens int                 `json:"effective_max_output_tokens"`
 	UpperBoundItems          []billing.UsageItem `json:"upper_bound_items"`
 	CurrentCallMaxUnits      int64               `json:"current_call_max_units"`
@@ -180,6 +182,7 @@ type PreparedUpperBoundProof struct {
 type Provider interface {
 	infraai.CapabilityProvider
 	ProvePreparedUpperBound(context.Context, ProviderAttempt) (PreparedUpperBoundProof, error)
+	PreflightPrepared(context.Context, ProviderAttempt) error
 	Dispatch(context.Context, ProviderAttempt) (DispatchResult, error)
 }
 
@@ -228,8 +231,9 @@ const (
 )
 
 var (
-	ErrNotConfigured = errors.New("ai gateway dependency not configured")
-	ErrNotFound      = errors.New("ai gateway evidence not found")
+	ErrNotConfigured                    = errors.New("ai gateway dependency not configured")
+	ErrNotFound                         = errors.New("ai gateway evidence not found")
+	ErrUnsupportedPreparedRequestSchema = errors.New("unsupported prepared request schema")
 )
 
 func gatewayError(code, message string, status int) error {
@@ -241,6 +245,14 @@ func canonicalPrepared(call PreparedCall) (PreparedCall, error) {
 	if len(call.RequestBody) == 0 {
 		return PreparedCall{}, gatewayError(ErrCodeInvalidPrepared, "prepared request body is required", 400)
 	}
+	schema, err := infraai.DetectPreparedChatSchema(call.RequestBody)
+	if err != nil {
+		return PreparedCall{}, gatewayError(ErrCodeInvalidPrepared, err.Error(), 400)
+	}
+	if call.Quote.PreparedRequestSchema != "" && call.Quote.PreparedRequestSchema != schema {
+		return PreparedCall{}, gatewayError(ErrCodeInvalidPrepared, "prepared quote schema mismatch", 409)
+	}
+	call.Quote.PreparedRequestSchema = schema
 	hash := sha256.Sum256(call.RequestBody)
 	if call.RequestSHA256 != ([32]byte{}) && call.RequestSHA256 != hash {
 		return PreparedCall{}, gatewayError(ErrCodeInvalidPrepared, "prepared request hash mismatch", 409)

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/module/ai/billing"
 	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/pricing"
@@ -231,6 +232,17 @@ func (PersistedQuoteValidator) ValidateQuote(ctx context.Context, run RunSnapsho
 	if snapshot.SchemaVersion < CurrentPricingSnapshotSchemaVersion && quote.EffectiveMaxOutputTokens != snapshot.EffectiveMaxOutputTokens {
 		return gatewayError(ErrCodeInvalidPrepared, "legacy quote output bound differs from the locked snapshot", 409)
 	}
+	strategy := strings.TrimSpace(quote.InputUpperBoundStrategy)
+	if strategy == "" {
+		strategy = infraai.SafeInputUpperBoundStrategyUTF8RequestBytesV1
+	}
+	schema := strings.TrimSpace(quote.PreparedRequestSchema)
+	if schema == "" {
+		schema = infraai.PreparedChatSchemaInlineV1
+	}
+	if (strategy == infraai.SafeInputUpperBoundStrategyNativeFileContextWindowV1) != (schema == infraai.PreparedChatSchemaFileManifestV1) {
+		return gatewayError(ErrCodeInvalidPrepared, "quote request schema and input strategy are inconsistent", 409)
+	}
 	target, err := cumulativeHoldTarget(quote.PriorBillableUnits, quote.CurrentCallMaxUnits)
 	if err != nil || target != quote.TargetHoldUnits {
 		return gatewayError(ErrCodeInvalidPrepared, "quote cumulative hold evidence is inconsistent", 409)
@@ -268,13 +280,22 @@ func (PersistedQuoteValidator) ValidateQuote(ctx context.Context, run RunSnapsho
 		if inputItems != 1 || outputItems != 1 || inputBound <= 0 || outputBound <= 0 {
 			return gatewayError(ErrCodeInvalidPrepared, "current quote requires one positive input and output token bound", 409)
 		}
-		remaining := snapshot.ContextWindowTokens - inputBound
-		safeOutput := int64(snapshot.EffectiveMaxOutputTokens)
-		if remaining < safeOutput {
-			safeOutput = remaining
-		}
-		if safeOutput <= 0 || outputBound != safeOutput || int64(quote.EffectiveMaxOutputTokens) != safeOutput {
-			return gatewayError(ErrCodeInvalidPrepared, "quote output bound does not match the remaining context", 409)
+		switch strategy {
+		case infraai.SafeInputUpperBoundStrategyUTF8RequestBytesV1:
+			remaining := snapshot.ContextWindowTokens - inputBound
+			safeOutput := int64(snapshot.EffectiveMaxOutputTokens)
+			if remaining < safeOutput {
+				safeOutput = remaining
+			}
+			if safeOutput <= 0 || outputBound != safeOutput || int64(quote.EffectiveMaxOutputTokens) != safeOutput {
+				return gatewayError(ErrCodeInvalidPrepared, "quote output bound does not match the remaining context", 409)
+			}
+		case infraai.SafeInputUpperBoundStrategyNativeFileContextWindowV1:
+			if err := validateNativeFileTokenBounds(snapshot, quote, inputBound, outputBound); err != nil {
+				return err
+			}
+		default:
+			return gatewayError(ErrCodeInvalidPrepared, "quote input upper-bound strategy is unsupported", 409)
 		}
 	}
 	selected, err := pricing.UpperBoundLines(snapshot.priceBook(), lines)
@@ -287,6 +308,17 @@ func (PersistedQuoteValidator) ValidateQuote(ctx context.Context, run RunSnapsho
 	}
 	if recomputed.AmountUnits != quote.CurrentCallMaxUnits {
 		return gatewayError(ErrCodeInvalidPrepared, "quote current call maximum differs from locked snapshot pricing", 409)
+	}
+	return nil
+}
+
+func validateNativeFileTokenBounds(snapshot PricingSnapshot, quote QuoteEvidence, inputBound int64, outputBound int64) error {
+	if strings.TrimSpace(quote.InputUpperBoundStrategy) != infraai.SafeInputUpperBoundStrategyNativeFileContextWindowV1 ||
+		strings.TrimSpace(quote.PreparedRequestSchema) != infraai.PreparedChatSchemaFileManifestV1 ||
+		snapshot.ContextWindowTokens <= 0 || inputBound != snapshot.ContextWindowTokens ||
+		snapshot.EffectiveMaxOutputTokens <= 0 || int64(snapshot.EffectiveMaxOutputTokens) > snapshot.CatalogMaxOutputTokens ||
+		quote.EffectiveMaxOutputTokens != snapshot.EffectiveMaxOutputTokens || outputBound != int64(snapshot.EffectiveMaxOutputTokens) {
+		return gatewayError(ErrCodeInvalidPrepared, "native file quote does not use official context and output bounds", 409)
 	}
 	return nil
 }

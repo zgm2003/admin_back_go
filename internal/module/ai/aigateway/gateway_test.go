@@ -200,16 +200,23 @@ type testAttemptStore struct {
 }
 
 type testProvider struct {
-	calls        int
-	proofItems   []billing.UsageItem
-	proofHash    [32]byte
-	proofErr     error
-	capabilities infraai.CapabilityMetadata
+	calls          int
+	preflightCalls int
+	preflightErr   error
+	proofItems     []billing.UsageItem
+	proofHash      [32]byte
+	proofErr       error
+	capabilities   infraai.CapabilityMetadata
 }
 
 func (p *testProvider) Dispatch(context.Context, ProviderAttempt) (DispatchResult, error) {
 	p.calls++
 	return DispatchResult{ProviderRequestID: "provider-request-1", ResponseSHA256: sha256.Sum256([]byte("provider-response")), DispatchState: "dispatched", TerminalState: "succeeded", Usage: completeUsageForGatewayTest()}, nil
+}
+
+func (p *testProvider) PreflightPrepared(context.Context, ProviderAttempt) error {
+	p.preflightCalls++
+	return p.preflightErr
 }
 
 func (p *testProvider) Capabilities() infraai.CapabilityMetadata {
@@ -232,6 +239,20 @@ func (p *testProvider) ProvePreparedUpperBound(_ context.Context, attempt Provid
 		hash = attempt.RequestSHA256
 	}
 	return PreparedUpperBoundProof{RequestSHA256: hash, Strategy: p.Capabilities().SafeInputUpperBoundStrategy, Items: append([]billing.UsageItem(nil), items...)}, nil
+}
+
+func TestGatewayPreflightFailureNeverMarksOrDispatchesAttempt(t *testing.T) {
+	store := &testAttemptStore{attempt: validAttempt(72, 1, 5), state: "prepared"}
+	provider := &testProvider{preflightErr: errors.New("etag changed")}
+	deps := testGatewayDependencies(&testReserve{}, store)
+	deps.Provider = provider
+	_, err := New(deps).Dispatch(context.Background(), store.attempt)
+	if err == nil {
+		t.Fatal("preflight failure was accepted")
+	}
+	if provider.preflightCalls != 1 || store.markCalls != 0 || provider.calls != 0 {
+		t.Fatalf("preflight=%d mark=%d dispatch=%d", provider.preflightCalls, store.markCalls, provider.calls)
+	}
 }
 
 func completeUsageForGatewayTest() infraai.UsageSnapshot {
@@ -1082,3 +1103,5 @@ func (p providerError) Capabilities() infraai.CapabilityMetadata {
 func (p providerError) ProvePreparedUpperBound(_ context.Context, attempt ProviderAttempt) (PreparedUpperBoundProof, error) {
 	return PreparedUpperBoundProof{RequestSHA256: attempt.RequestSHA256, Strategy: p.Capabilities().SafeInputUpperBoundStrategy, Items: append([]billing.UsageItem(nil), attempt.Quote.UpperBoundItems...)}, nil
 }
+
+func (p providerError) PreflightPrepared(context.Context, ProviderAttempt) error { return nil }

@@ -210,9 +210,10 @@ type PaidChatAttemptFailureFinalizer interface {
 }
 
 type EngineConfig struct {
-	EngineType infraai.EngineType
-	BaseURL    string
-	APIKey     string
+	EngineType    infraai.EngineType
+	BaseURL       string
+	APIKey        string
+	FileInputMode string
 }
 
 type EngineFactory interface {
