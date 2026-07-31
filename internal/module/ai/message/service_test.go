@@ -208,6 +208,38 @@ func TestListUsesMessageCursorAndReturnsChronologicalOrder(t *testing.T) {
 	}
 }
 
+func TestListProjectsStoredMetadataToPublicContract(t *testing.T) {
+	now := time.Date(2026, 7, 31, 10, 0, 0, 0, time.UTC)
+	meta := `{"attachments":[{"type":"file","object_key":"ai_chat_attachments/2026/07/report.txt","mime_type":"text/plain","url":"https://trusted.test/report.txt","name":"report.txt","size":141,"etag":"\"v1\""}],"runtime_params":{"temperature":0.2,"max_history":10,"max_tokens":2048},"internal_trace":"not-public"}`
+	repo := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7}, rows: []MessageProjection{{Message: Message{
+		ID: 41, ConversationID: 3, Role: enum.AIMessageRoleUser, ContentType: "text", Content: "summarize", MetaJSON: &meta,
+		CreatedAt: now, UpdatedAt: now,
+	}}}}
+
+	result, appErr := NewService(repo).List(context.Background(), 7, ListQuery{ConversationID: 3})
+	if appErr != nil || len(result.List) != 1 {
+		t.Fatalf("list=%#v error=%v", result, appErr)
+	}
+	payload, err := json.Marshal(result.List[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var published map[string]any
+	if err := json.Unmarshal(payload, &published); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{
+		"attachments": []any{map[string]any{
+			"type": "file", "object_key": "ai_chat_attachments/2026/07/report.txt", "mime_type": "text/plain",
+			"url": "https://trusted.test/report.txt", "name": "report.txt", "size": float64(141),
+		}},
+		"runtime_params": map[string]any{"temperature": 0.2, "max_history": float64(10)},
+	}
+	if !reflect.DeepEqual(published["meta_json"], want) {
+		t.Fatalf("public meta_json=%#v, want %#v", published["meta_json"], want)
+	}
+}
+
 func TestListPreservesAttachmentCardsWithoutInspectingDeletedObjects(t *testing.T) {
 	now := time.Date(2026, 7, 31, 10, 0, 0, 0, time.UTC)
 	meta := `{"attachments":[{"type":"file","object_key":"ai_chat_attachments/2026/07/deleted.pdf","mime_type":"application/pdf","url":"https://trusted.test/deleted.pdf","name":"deleted.pdf","size":4096,"etag":"\"v1\""}]}`
@@ -222,10 +254,13 @@ func TestListPreservesAttachmentCardsWithoutInspectingDeletedObjects(t *testing.
 	if appErr != nil || len(result.List) != 1 {
 		t.Fatalf("list=%#v error=%v", result, appErr)
 	}
-	decoded, ok := result.List[0].MetaJSON.(map[string]any)
-	attachments, okAttachments := decoded["attachments"].([]any)
-	if !ok || !okAttachments || len(attachments) != 1 {
+	metadata := result.List[0].MetaJSON
+	if metadata == nil || len(metadata.Attachments) != 1 {
 		t.Fatalf("attachment card metadata=%#v", result.List[0].MetaJSON)
+	}
+	attachment := metadata.Attachments[0]
+	if attachment.ObjectKey != "ai_chat_attachments/2026/07/deleted.pdf" || attachment.URL != "https://trusted.test/deleted.pdf" || attachment.Name != "deleted.pdf" {
+		t.Fatalf("attachment card=%#v", attachment)
 	}
 	if len(inspector.calls) != 0 {
 		t.Fatalf("message list inspected historical objects: %v", inspector.calls)

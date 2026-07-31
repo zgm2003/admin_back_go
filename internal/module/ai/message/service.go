@@ -721,16 +721,16 @@ func normalizeRuntimeParams(input map[string]float64) (map[string]float64, *appe
 	return out, nil
 }
 
-func decodeMetaJSON(raw string) any {
+func decodeMetaJSON(raw string) *MessageMeta {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return nil
 	}
-	var decoded map[string]any
+	var decoded MessageMeta
 	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
 		return nil
 	}
-	return decoded
+	return &decoded
 }
 
 func (s *Service) requireRepository() (Repository, *apperror.Error) {

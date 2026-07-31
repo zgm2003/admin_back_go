@@ -85,19 +85,38 @@ type CancelPublisher interface {
 	PublishCancel(ctx context.Context, commandID uint64) error
 }
 
+type MessageMetaAttachment struct {
+	Type      string `json:"type"`
+	ObjectKey string `json:"object_key,omitempty"`
+	MIMEType  string `json:"mime_type,omitempty"`
+	URL       string `json:"url"`
+	Name      string `json:"name"`
+	Size      int64  `json:"size"`
+}
+
+type MessageRuntimeParams struct {
+	Temperature *float64 `json:"temperature,omitempty"`
+	MaxHistory  *int     `json:"max_history,omitempty"`
+}
+
+type MessageMeta struct {
+	Attachments   []MessageMetaAttachment `json:"attachments,omitempty"`
+	RuntimeParams *MessageRuntimeParams   `json:"runtime_params,omitempty"`
+}
+
 type MessageItem struct {
-	ID                int64   `json:"id"`
-	Role              int     `json:"role"`
-	ContentType       string  `json:"content_type"`
-	Content           string  `json:"content"`
-	MetaJSON          any     `json:"meta_json,omitempty"`
-	PairedMessageID   *int64  `json:"paired_message_id"`
-	RunID             *int64  `json:"run_id"`
-	Liked             bool    `json:"liked"`
-	DeliveryState     *string `json:"delivery_state"`
-	SettlementPending bool    `json:"settlement_pending"`
-	CreatedAt         string  `json:"created_at"`
-	UpdatedAt         string  `json:"updated_at"`
+	ID                int64        `json:"id"`
+	Role              int          `json:"role"`
+	ContentType       string       `json:"content_type"`
+	Content           string       `json:"content"`
+	MetaJSON          *MessageMeta `json:"meta_json,omitempty"`
+	PairedMessageID   *int64       `json:"paired_message_id"`
+	RunID             *int64       `json:"run_id"`
+	Liked             bool         `json:"liked"`
+	DeliveryState     *string      `json:"delivery_state"`
+	SettlementPending bool         `json:"settlement_pending"`
+	CreatedAt         string       `json:"created_at"`
+	UpdatedAt         string       `json:"updated_at"`
 }
 
 type MessageProjection struct {
