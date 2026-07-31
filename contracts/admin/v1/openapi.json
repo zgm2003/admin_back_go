@@ -2812,17 +2812,18 @@
       "AIRunRequestSummary": {
         "additionalProperties": false,
         "properties": {
+          "api_protocol": {
+            "enum": [
+              "",
+              "chat_completions",
+              "responses"
+            ],
+            "type": "string"
+          },
           "attachment_count": {
             "format": "int64",
             "minimum": 0,
             "type": "integer"
-          },
-          "file_input_mode": {
-            "enum": [
-              "",
-              "chat_completions"
-            ],
-            "type": "string"
           },
           "materialized_request_bytes": {
             "format": "int64",
@@ -2873,8 +2874,8 @@
           }
         },
         "required": [
+          "api_protocol",
           "attachment_count",
-          "file_input_mode",
           "materialized_request_bytes",
           "message_count",
           "native_file_bytes",
@@ -5403,7 +5404,7 @@
         ],
         "type": "object"
       },
-      "Go_internal_module_ai_provider_FileInputModeOption_Output": {
+      "Go_internal_module_ai_provider_APIProtocolOption_Output": {
         "additionalProperties": false,
         "properties": {
           "label": {
@@ -5411,8 +5412,8 @@
           },
           "value": {
             "enum": [
-              "disabled",
-              "chat_completions"
+              "chat_completions",
+              "responses"
             ],
             "type": "string"
           }
@@ -5426,6 +5427,12 @@
       "Go_internal_module_ai_provider_InitDict_Output": {
         "additionalProperties": false,
         "properties": {
+          "api_protocol_arr": {
+            "items": {
+              "$ref": "#/components/schemas/Go_internal_module_ai_provider_APIProtocolOption_Output"
+            },
+            "type": "array"
+          },
           "common_status_arr": {
             "items": {
               "$ref": "#/components/schemas/Go_internal_shared_dict_Option_int_Output"
@@ -5435,12 +5442,6 @@
           "engine_type_arr": {
             "items": {
               "$ref": "#/components/schemas/Go_internal_shared_dict_Option_string_Output"
-            },
-            "type": "array"
-          },
-          "file_input_mode_arr": {
-            "items": {
-              "$ref": "#/components/schemas/Go_internal_module_ai_provider_FileInputModeOption_Output"
             },
             "type": "array"
           },
@@ -5458,9 +5459,9 @@
           }
         },
         "required": [
+          "api_protocol_arr",
           "common_status_arr",
           "engine_type_arr",
-          "file_input_mode_arr",
           "health_status_arr",
           "model_sync_arr"
         ],
@@ -5562,6 +5563,13 @@
           "api_key_masked": {
             "type": "string"
           },
+          "api_protocol": {
+            "enum": [
+              "chat_completions",
+              "responses"
+            ],
+            "type": "string"
+          },
           "base_url": {
             "type": "string"
           },
@@ -5578,13 +5586,6 @@
             "type": "string"
           },
           "engine_type_name": {
-            "type": "string"
-          },
-          "file_input_mode": {
-            "enum": [
-              "disabled",
-              "chat_completions"
-            ],
             "type": "string"
           },
           "health_status": {
@@ -5629,13 +5630,13 @@
         },
         "required": [
           "api_key_masked",
+          "api_protocol",
           "base_url",
           "base_url_effective",
           "created_at",
           "enabled_model_count",
           "engine_type",
           "engine_type_name",
-          "file_input_mode",
           "health_status",
           "id",
           "last_check_error",
@@ -14878,6 +14879,13 @@
             "maxLength": 4096,
             "type": "string"
           },
+          "api_protocol": {
+            "enum": [
+              "chat_completions",
+              "responses"
+            ],
+            "type": "string"
+          },
           "base_url": {
             "maxLength": 512,
             "type": "string"
@@ -14885,13 +14893,6 @@
           "engine_type": {
             "enum": [
               "openai"
-            ],
-            "type": "string"
-          },
-          "file_input_mode": {
-            "enum": [
-              "disabled",
-              "chat_completions"
             ],
             "type": "string"
           },
@@ -14922,8 +14923,8 @@
           }
         },
         "required": [
+          "api_protocol",
           "engine_type",
-          "file_input_mode",
           "model_ids",
           "name",
           "status"
@@ -17158,6 +17159,13 @@
             "maxLength": 4096,
             "type": "string"
           },
+          "api_protocol": {
+            "enum": [
+              "chat_completions",
+              "responses"
+            ],
+            "type": "string"
+          },
           "base_url": {
             "maxLength": 512,
             "type": "string"
@@ -17165,13 +17173,6 @@
           "engine_type": {
             "enum": [
               "openai"
-            ],
-            "type": "string"
-          },
-          "file_input_mode": {
-            "enum": [
-              "disabled",
-              "chat_completions"
             ],
             "type": "string"
           },
@@ -17202,8 +17203,8 @@
           }
         },
         "required": [
+          "api_protocol",
           "engine_type",
-          "file_input_mode",
           "model_ids",
           "name",
           "status"
