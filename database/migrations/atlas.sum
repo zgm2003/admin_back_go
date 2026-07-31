@@ -1,4 +1,4 @@
-h1:74KiQvZ/wj6WHirYDL71UvAX0HSx4tpoeWwGBWIraro=
+h1:5am+RLLMMsw3fHb2F/QDYtKrZhsRMuInZUR56D1aXPw=
 202607150001_baseline.sql h1:elg7qkyR6lLW3sqj22zwsIPT5lz+rWrGmoOMH8qg45c=
 202607150101_ai_reply_durability.sql h1:C9rD6IYDKzwJmBFlSWWDQJwNqYBgcqqg+qq0hGCK8C0=
 202607150102_realtime_retention.sql h1:waqtQw3UdFKVuFeGZsttQi8rz4M/r5KaO/mK/q3ahRc=
@@ -24,3 +24,4 @@ h1:74KiQvZ/wj6WHirYDL71UvAX0HSx4tpoeWwGBWIraro=
 202607300101_ai_chat_stopped_delivery.sql h1:Go4nM3pfAyfCk5F334Dw40Euwb3HCp0ucdn328t2lIk=
 202607300102_ai_chat_native_file_attachments.sql h1:MizzrVUE/iIxEfhwAtGYLkzXIuiXo2a7plWyrUX6OsQ=
 202607310001_ai_run_file_materialization_event.sql h1:e8sXMEPlitNVHLXK4UchAhj4Wz/pPILjGNxvt+KywMY=
+202607310002_upload_rule_extension_normalization.sql h1:34bYsVma6wQ7bfguNzZ8+kDWtum4S7bMVrkGrkykBIU=
