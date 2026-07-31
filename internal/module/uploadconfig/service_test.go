@@ -184,18 +184,28 @@ func TestDriverPageInitReturnsEnumBackedDict(t *testing.T) {
 	}
 }
 
-func TestRulePageInitReturnsEnumBackedDict(t *testing.T) {
+func TestRulePageInitReturnsClosedEnumBackedDict(t *testing.T) {
 	service := NewService(&fakeRepository{}, nil)
 
 	got, appErr := service.RulePageInit(context.Background())
 	if appErr != nil {
 		t.Fatalf("expected init to succeed, got %v", appErr)
 	}
-	if len(got.Dict.UploadImageExtArr) == 0 || got.Dict.UploadImageExtArr[0].Value != "jpeg" {
-		t.Fatalf("unexpected image ext dict: %#v", got.Dict.UploadImageExtArr)
+	if len(got.Dict.UploadImageExtArr) != len(enum.UploadImageExts) {
+		t.Fatalf("image option count=%d want=%d", len(got.Dict.UploadImageExtArr), len(enum.UploadImageExts))
 	}
-	if len(got.Dict.UploadFileExtArr) == 0 || got.Dict.UploadFileExtArr[0].Value != "docx" {
-		t.Fatalf("unexpected file ext dict: %#v", got.Dict.UploadFileExtArr)
+	for index, option := range got.Dict.UploadImageExtArr {
+		if option.Label != enum.UploadImageExts[index] || option.Value != enum.UploadImageExts[index] {
+			t.Fatalf("image option %d=%#v want=%q", index, option, enum.UploadImageExts[index])
+		}
+	}
+	if len(got.Dict.UploadFileExtArr) != len(enum.UploadFileExts) {
+		t.Fatalf("file option count=%d want=%d", len(got.Dict.UploadFileExtArr), len(enum.UploadFileExts))
+	}
+	for index, option := range got.Dict.UploadFileExtArr {
+		if option.Label != enum.UploadFileExts[index] || option.Value != enum.UploadFileExts[index] {
+			t.Fatalf("file option %d=%#v want=%q", index, option, enum.UploadFileExts[index])
+		}
 	}
 }
 
@@ -425,7 +435,7 @@ func TestRuleCreateRejectsUnknownImageExt(t *testing.T) {
 func TestRuleCreateRejectsUnknownFileExt(t *testing.T) {
 	service := NewService(&fakeRepository{}, nil)
 
-	_, appErr := service.CreateRule(context.Background(), RuleMutationInput{Title: "bad", MaxSizeMB: 10, FileExts: []string{"php"}})
+	_, appErr := service.CreateRule(context.Background(), RuleMutationInput{Title: "bad", MaxSizeMB: 10, FileExts: []string{"exe"}})
 	if appErr == nil || !strings.Contains(appErr.Message, "文件扩展名不支持") {
 		t.Fatalf("expected file ext error, got %#v", appErr)
 	}
@@ -457,7 +467,7 @@ func TestRuleCreateNormalizesLowercaseDedupeAndEnumOrder(t *testing.T) {
 	if repo.createdRule.ImageExts != `["jpeg","png"]` {
 		t.Fatalf("expected normalized image exts, got %q", repo.createdRule.ImageExts)
 	}
-	if repo.createdRule.FileExts != `["docx","pdf"]` {
+	if repo.createdRule.FileExts != `["pdf","docx"]` {
 		t.Fatalf("expected normalized file exts, got %q", repo.createdRule.FileExts)
 	}
 }

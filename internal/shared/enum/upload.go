@@ -18,35 +18,19 @@ var UploadDriverLabels = map[string]string{
 }
 
 var UploadImageExts = []string{
-	"jpeg",
-	"jpg",
-	"gif",
-	"png",
-	"svg",
-	"ico",
-	"doc",
-	"psd",
-	"bmp",
-	"tiff",
-	"webp",
-	"tif",
-	"pjpeg",
+	"jpeg", "jpg", "jfif", "pjpeg", "png", "gif", "webp", "bmp",
+	"tif", "tiff", "svg", "ico", "psd", "avif",
 }
 
 var UploadFileExts = []string{
-	"docx",
-	"pdf",
-	"txt",
-	"html",
-	"zip",
-	"tar",
-	"doc",
-	"css",
-	"csv",
-	"ppt",
-	"xlsx",
-	"xls",
-	"xml",
+	"pdf", "doc", "docx", "dot", "odt", "rtf", "ppt", "pptx", "pot", "ppa", "pps", "pwz", "wiz",
+	"xla", "xlb", "xlc", "xlm", "xls", "xlsx", "xlt", "xlw", "csv", "tsv", "iif",
+	"txt", "text", "md", "markdown", "json", "html", "htm", "xml", "css",
+	"asm", "bat", "c", "cc", "cpp", "cxx", "h", "hh", "def", "in",
+	"js", "mjs", "jsx", "ts", "tsx", "py", "go", "java", "cs", "php", "rb", "rs",
+	"sh", "bash", "zsh", "ksh", "ps1", "sql", "pl", "lua", "r", "scala", "swift", "kt", "kts",
+	"yaml", "yml", "toml", "ini", "conf", "properties", "proto",
+	"eml", "log", "rst", "srt", "vtt", "ics", "ifb", "vcf", "diff", "patch", "zip", "tar",
 }
 
 var UploadFolders = []string{
@@ -56,6 +40,7 @@ var UploadFolders = []string{
 	"cover_images",
 	"ai-agents",
 	"ai_chat_images",
+	"ai_chat_attachments",
 	"exports",
 	"reconcile_reports",
 }
