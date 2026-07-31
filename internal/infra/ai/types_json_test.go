@@ -34,6 +34,29 @@ func TestConnectionResultUsesDocumentedJSONNames(t *testing.T) {
 	}
 }
 
+func TestDefaultTransportCapabilitiesDeclareNativeFileProof(t *testing.T) {
+	capabilities, ok := DefaultTransportCapabilities(EngineTypeOpenAI)
+	if !ok {
+		t.Fatal("OpenAI-compatible transport capabilities are missing")
+	}
+	wantModalities := []string{"text", "image", "file"}
+	if stringListJSON(capabilities.InputModalities) != stringListJSON(wantModalities) {
+		t.Fatalf("input modalities=%#v", capabilities.InputModalities)
+	}
+	wantStrategies := []string{SafeInputUpperBoundStrategyUTF8RequestBytesV1, SafeInputUpperBoundStrategyNativeFileContextWindowV1}
+	if stringListJSON(capabilities.SafeInputUpperBoundStrategies) != stringListJSON(wantStrategies) {
+		t.Fatalf("safe input strategies=%#v", capabilities.SafeInputUpperBoundStrategies)
+	}
+	if capabilities.SafeInputUpperBoundStrategy != SafeInputUpperBoundStrategyUTF8RequestBytesV1 {
+		t.Fatalf("legacy inline strategy=%q", capabilities.SafeInputUpperBoundStrategy)
+	}
+}
+
+func stringListJSON(values []string) string {
+	raw, _ := json.Marshal(values)
+	return string(raw)
+}
+
 func TestUsageSnapshotReportedWithoutItemsIsNotComplete(t *testing.T) {
 	snapshot := UsageSnapshot{Status: UsageStatusReported}
 	if snapshot.Complete() {

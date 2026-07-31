@@ -9,6 +9,7 @@ import (
 
 	"admin_back_go/internal/infra/database"
 	"admin_back_go/internal/module/ai/officialmodel"
+	aiprovider "admin_back_go/internal/module/ai/provider"
 	"admin_back_go/internal/module/ai/replycommand"
 	"admin_back_go/internal/module/ai/requestidentity"
 	"admin_back_go/internal/shared/enum"
@@ -425,14 +426,14 @@ func expectNoActiveHistoryCommand(mock sqlmock.Sqlmock, locked bool) {
 }
 
 func expectHistoryRuntime(mock sqlmock.Sqlmock, locked bool) {
-	pattern := "SELECT .* FROM .*ai_conversations.*ai_agents.*ai_providers"
+	pattern := "SELECT .*file_input_mode.* FROM .*ai_conversations.*ai_agents.*ai_providers"
 	if locked {
 		pattern += ".*FOR UPDATE"
 	}
 	mock.ExpectQuery(pattern).WillReturnRows(sqlmock.NewRows([]string{
-		"agent_id", "provider_id", "model_id", "model_display_name", "engine_type", "billing_multiplier_ppm", "status", "scenes_json",
+		"agent_id", "provider_id", "model_id", "model_display_name", "engine_type", "file_input_mode", "billing_multiplier_ppm", "status", "scenes_json",
 		"provider_model_status", "official_model_id", "official_catalog_version", "mapping_status",
-	}).AddRow(5, 9, "gpt-4.1-mini", "GPT-4.1 mini", "openai", 1_250_000, enum.CommonYes, `["chat"]`,
+	}).AddRow(5, 9, "gpt-4.1-mini", "GPT-4.1 mini", "openai", aiprovider.FileInputModeChatCompletions, 1_250_000, enum.CommonYes, `["chat"]`,
 		enum.CommonYes, "gpt-4.1-mini", "catalog-v3", officialmodel.MappingStatusMapped))
 }
 

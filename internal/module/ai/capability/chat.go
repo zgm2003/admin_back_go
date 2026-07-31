@@ -48,15 +48,16 @@ func transportLayer(official officialmodel.Capabilities, metadata infraai.Capabi
 
 func adminChatPlatformCapabilities() officialmodel.Capabilities {
 	return officialmodel.Capabilities{
-		InputModalities:          []string{officialmodel.ModalityText, officialmodel.ModalityImage},
+		InputModalities:          []string{officialmodel.ModalityText, officialmodel.ModalityImage, officialmodel.ModalityFile},
 		OutputModalities:         []string{officialmodel.ModalityText},
 		SupportsStreaming:        true,
 		SupportsTools:            true,
 		SupportsStructuredOutput: false,
 		SupportedParameters:      []string{officialmodel.ParameterTemperature},
+		NativeFileInput:          true,
 		ImageInput: &officialmodel.ImageInputCapability{
-			MIMETypes: []string{"image/jpeg", "image/png", "image/webp", "image/gif"},
-			MaxFiles:  5,
+			MIMETypes: append([]string(nil), ImageMIMETypes...),
+			MaxFiles:  MaxAttachmentsPerMessage,
 			MaxBytes:  10 << 20,
 		},
 	}

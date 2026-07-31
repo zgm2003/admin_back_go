@@ -20,6 +20,7 @@ import (
 	"admin_back_go/internal/shared/dict"
 	"admin_back_go/internal/shared/enum"
 	sharedmoney "admin_back_go/internal/shared/money"
+	"admin_back_go/internal/shared/uploadpolicy"
 )
 
 const (
@@ -41,6 +42,7 @@ type Service struct {
 	tester          ConnectionTester
 	pricingResolver officialmodel.Resolver
 	capabilities    infraai.TransportCapabilityResolver
+	uploadRules     uploadpolicy.Resolver
 }
 
 type Option func(*Service)
@@ -51,6 +53,10 @@ func WithPricingResolver(resolver officialmodel.Resolver) Option {
 
 func WithTransportCapabilityResolver(resolver infraai.TransportCapabilityResolver) Option {
 	return func(service *Service) { service.capabilities = resolver }
+}
+
+func WithUploadRuleResolver(resolver uploadpolicy.Resolver) Option {
+	return func(service *Service) { service.uploadRules = resolver }
 }
 
 func NewService(repository Repository, box secretbox.Box, tester ConnectionTester, options ...Option) *Service {
@@ -71,6 +77,7 @@ func (s *Service) PageInit(ctx context.Context) (*InitResponse, *apperror.Error)
 	if appErr != nil {
 		return nil, appErr
 	}
+	attachmentPolicy := s.resolveRequestAttachmentPolicy(ctx)
 	connections, err := repo.ListActiveProviders(ctx)
 	if err != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI供应商选项失败", err)
@@ -93,7 +100,7 @@ func (s *Service) PageInit(ctx context.Context) (*InitResponse, *apperror.Error)
 				label = model.ModelID
 			}
 			option := ModelOption{Label: label, Value: model.ModelID, ProviderID: row.ID, ModelID: model.ModelID, DisplayName: model.DisplayName, BillingMultiplier: "1"}
-			effective, capabilityErr := s.effectiveCapabilities(row.EngineType, resolved.Model.Capabilities, true)
+			effective, capabilityErr := s.effectiveCapabilityDTO(row.EngineType, resolved.Model.Capabilities, row.FileInputMode, true, attachmentPolicy)
 			if capabilityErr != nil {
 				continue
 			}
@@ -113,13 +120,14 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 	if query.Scene != "" && !isScene(query.Scene) {
 		return nil, apperror.BadRequest("无效的智能体场景")
 	}
+	attachmentPolicy := s.resolveRequestAttachmentPolicy(ctx)
 	rows, total, err := repo.List(ctx, query)
 	if err != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI智能体失败", err)
 	}
 	list := make([]AgentDTO, 0, len(rows))
 	for _, row := range rows {
-		dto, priceErr := s.agentDTO(ctx, row)
+		dto, priceErr := s.agentDTO(ctx, row, attachmentPolicy)
 		if priceErr != nil {
 			return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询当前模型价格失败", priceErr)
 		}
@@ -162,6 +170,7 @@ func (s *Service) Detail(ctx context.Context, id uint64) (*DetailResponse, *appe
 	if appErr != nil {
 		return nil, appErr
 	}
+	attachmentPolicy := s.resolveRequestAttachmentPolicy(ctx)
 	row, err := repo.Get(ctx, id)
 	if err != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI智能体失败", err)
@@ -169,7 +178,7 @@ func (s *Service) Detail(ctx context.Context, id uint64) (*DetailResponse, *appe
 	if row == nil {
 		return nil, apperror.NotFound("AI智能体不存在")
 	}
-	dto, priceErr := s.agentDTO(ctx, *row)
+	dto, priceErr := s.agentDTO(ctx, *row, attachmentPolicy)
 	if priceErr != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询当前模型价格失败", priceErr)
 	}
@@ -358,6 +367,7 @@ func (s *Service) Options(ctx context.Context, query OptionQuery) (*AgentOptions
 	if !isScene(query.Scene) {
 		return nil, apperror.BadRequest("无效的智能体场景")
 	}
+	attachmentPolicy := s.resolveRequestAttachmentPolicy(ctx)
 	rows, err := repo.ListVisibleAgents(ctx, query)
 	if err != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询可用AI智能体失败", err)
@@ -371,14 +381,14 @@ func (s *Service) Options(ctx context.Context, query OptionQuery) (*AgentOptions
 		if err != nil || model.Model.LifecycleStatus == officialmodel.LifecycleRetired {
 			continue
 		}
-		effective, capabilityErr := s.effectiveCapabilities(row.EngineType, model.Model.Capabilities, row.providerRouteEnabled())
+		effective, capabilityErr := s.effectiveCapabilityDTO(row.EngineType, model.Model.Capabilities, row.FileInputMode, row.providerRouteEnabled(), attachmentPolicy)
 		if capabilityErr != nil {
 			continue
 		}
 		list = append(list, AgentOption{
 			ID: row.ID, Name: row.Name, Avatar: row.Avatar, SystemPrompt: row.SystemPrompt,
 			ProviderModelID: row.ProviderModelID, OfficialModel: officialModelSummary(model.Model),
-			Capabilities: effectiveCapabilityDTO(effective),
+			Capabilities: effective,
 		})
 	}
 	return &AgentOptionsResponse{List: list}, nil
@@ -528,13 +538,13 @@ func normalizeMutationFields(input CreateInput) (normalizedFields, *apperror.Err
 	return normalizedFields{providerID: input.ProviderID, name: name, modelID: modelID, scenesJSON: scenesJSON, systemPrompt: systemPrompt, avatar: avatar, status: status, billingMultiplierPPM: multiplier}, nil
 }
 
-func (s *Service) agentDTO(ctx context.Context, row AgentWithProvider) (AgentDTO, error) {
+func (s *Service) agentDTO(ctx context.Context, row AgentWithProvider, attachmentPolicy requestAttachmentPolicy) (AgentDTO, error) {
 	scenes := decodeScenes(row.ScenesJSON)
 	multiplier := defaultMultiplier(row.BillingMultiplierPPM)
 	dto := AgentDTO{ID: row.ID, ProviderID: row.ProviderID, ProviderName: row.ProviderName, EngineType: row.EngineType, Name: row.Name, ModelID: row.ModelID, ModelDisplayName: row.ModelDisplayName, Scenes: scenes, SceneNames: sceneNames(scenes), SystemPrompt: row.SystemPrompt, Avatar: row.Avatar, Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt), BillingMultiplier: formatMultiplier(multiplier)}
 	model, err := s.resolveModelPrice(ctx, row.ModelID)
 	if err == nil {
-		effective, capabilityErr := s.effectiveCapabilities(row.EngineType, model.Model.Capabilities, row.providerRouteEnabled())
+		effective, capabilityErr := s.effectiveCapabilityDTO(row.EngineType, model.Model.Capabilities, row.FileInputMode, row.providerRouteEnabled(), attachmentPolicy)
 		if capabilityErr != nil {
 			return AgentDTO{}, capabilityErr
 		}
@@ -546,9 +556,9 @@ func (s *Service) agentDTO(ctx context.Context, row AgentWithProvider) (AgentDTO
 	return dto, nil
 }
 
-func applyModelPriceToOption(option *ModelOption, model officialmodel.ResolvedModel, effective officialmodel.Capabilities) {
+func applyModelPriceToOption(option *ModelOption, model officialmodel.ResolvedModel, effective *EffectiveCapabilitiesDTO) {
 	option.OfficialModel = officialModelSummary(model.Model)
-	option.Capabilities = effectiveCapabilityDTO(effective)
+	option.Capabilities = effective
 	option.PricingVersion, option.CatalogVersion = model.PricingVersion(), model.Model.CatalogVersion
 	option.CatalogVendor, option.CatalogModelID = model.Model.CatalogVendor, model.Model.ModelID
 	option.PriceSource, option.OverrideVersion = model.PriceSource, model.OverrideVersion
@@ -556,9 +566,9 @@ func applyModelPriceToOption(option *ModelOption, model officialmodel.ResolvedMo
 	option.ContextTierThresholdTokens, option.CatalogRates = model.Model.ContextTierThresholdTokens, catalogRates(model.EffectivePrice)
 }
 
-func applyModelPriceToAgent(dto *AgentDTO, model officialmodel.ResolvedModel, effective officialmodel.Capabilities) {
+func applyModelPriceToAgent(dto *AgentDTO, model officialmodel.ResolvedModel, effective *EffectiveCapabilitiesDTO) {
 	dto.OfficialModel = officialModelSummary(model.Model)
-	dto.Capabilities = effectiveCapabilityDTO(effective)
+	dto.Capabilities = effective
 	dto.PricingVersion, dto.CatalogVersion = model.PricingVersion(), model.Model.CatalogVersion
 	dto.CatalogVendor, dto.CatalogModelID = model.Model.CatalogVendor, model.Model.ModelID
 	dto.PriceSource, dto.OverrideVersion = model.PriceSource, model.OverrideVersion
@@ -573,18 +583,40 @@ func officialModelSummary(model officialmodel.Model) *OfficialModelSummaryDTO {
 	}
 }
 
-func (s *Service) effectiveCapabilities(engineType string, official officialmodel.Capabilities, routeEnabled bool) (officialmodel.Capabilities, error) {
+func (s *Service) effectiveCapabilityDTO(
+	engineType string,
+	official officialmodel.Capabilities,
+	providerMode string,
+	routeEnabled bool,
+	attachmentPolicy requestAttachmentPolicy,
+) (*EffectiveCapabilitiesDTO, error) {
 	if s == nil || s.capabilities == nil {
-		return officialmodel.Capabilities{}, capability.ErrTransportCapabilitiesUnavailable
+		return nil, capability.ErrTransportCapabilitiesUnavailable
 	}
 	metadata, ok := s.capabilities.ResolveCapabilities(infraai.EngineType(strings.TrimSpace(engineType)))
 	if !ok {
-		return officialmodel.Capabilities{}, capability.ErrTransportCapabilitiesUnavailable
+		return nil, capability.ErrTransportCapabilitiesUnavailable
 	}
-	return capability.EffectiveChatCapabilities(official, metadata, routeEnabled)
+	effective, err := capability.EffectiveChatCapabilities(official, metadata, routeEnabled)
+	if err != nil {
+		return nil, err
+	}
+	nativeFile := capability.ResolveNativeFileCapability(capability.NativeFileCapabilityInput{
+		OfficialEnabled:      official.NativeFileInput && containsString(official.InputModalities, officialmodel.ModalityFile),
+		TransportEnabled:     containsString(metadata.InputModalities, officialmodel.ModalityFile),
+		ProviderMode:         providerMode,
+		ProviderRouteEnabled: routeEnabled,
+		PlatformReady:        attachmentPolicy.PlatformReady,
+		AcceptedExtensions:   attachmentPolicy.AcceptedExtensions,
+	})
+	if !nativeFile.Enabled {
+		effective.InputModalities = withoutString(effective.InputModalities, officialmodel.ModalityFile)
+		effective.NativeFileInput = false
+	}
+	return newEffectiveCapabilityDTO(effective, nativeFile), nil
 }
 
-func effectiveCapabilityDTO(value officialmodel.Capabilities) *EffectiveCapabilitiesDTO {
+func newEffectiveCapabilityDTO(value officialmodel.Capabilities, nativeFile capability.NativeFileCapability) *EffectiveCapabilitiesDTO {
 	image := ImageAttachmentCapability{MIMETypes: []string{}}
 	if value.ImageInput != nil && containsString(value.InputModalities, officialmodel.ModalityImage) {
 		image = ImageAttachmentCapability{
@@ -602,8 +634,47 @@ func effectiveCapabilityDTO(value officialmodel.Capabilities) *EffectiveCapabili
 			},
 			MaxHistory: MaxHistoryParameterCapability{Supported: true, Default: 20, Min: 1, Max: 50, Transitional: true},
 		},
-		Attachments: AttachmentCapabilities{Image: image, NativeFile: NativeFileAttachmentCapability{Enabled: false}},
+		Attachments: AttachmentCapabilities{
+			MaxAttachmentsPerMessage:  capability.MaxAttachmentsPerMessage,
+			MaxMessageAttachmentBytes: capability.MaxMessageAttachmentBytes,
+			Image:                     image,
+			NativeFile: NativeFileAttachmentCapability{
+				Enabled: nativeFile.Enabled, DisabledReason: nativeFile.DisabledReason,
+				MaxFilesPerMessage: capability.MaxAttachmentsPerMessage, MaxFileBytesExclusive: capability.MaxNativeFileBytesExclusive,
+				MaxRequestFileBytes: capability.MaxRequestNativeFileBytes, AcceptedExtensions: append([]string{}, nativeFile.AcceptedExtensions...),
+			},
+		},
 	}
+}
+
+type requestAttachmentPolicy struct {
+	PlatformReady      bool
+	AcceptedExtensions []string
+}
+
+func (s *Service) resolveRequestAttachmentPolicy(ctx context.Context) requestAttachmentPolicy {
+	if s == nil || s.uploadRules == nil {
+		return requestAttachmentPolicy{}
+	}
+	rule, err := s.uploadRules.ResolveActive(ctx)
+	if err != nil {
+		return requestAttachmentPolicy{}
+	}
+	accepted := capability.AllowedNativeFileExtensions(rule.FileExtensions)
+	return requestAttachmentPolicy{
+		PlatformReady:      len(accepted) > 0,
+		AcceptedExtensions: accepted,
+	}
+}
+
+func withoutString(values []string, unwanted string) []string {
+	filtered := make([]string, 0, len(values))
+	for _, value := range values {
+		if value != unwanted {
+			filtered = append(filtered, value)
+		}
+	}
+	return filtered
 }
 
 func containsString(values []string, wanted string) bool {

@@ -154,8 +154,10 @@ type MaxHistoryParameterCapability struct {
 }
 
 type AttachmentCapabilities struct {
-	Image      ImageAttachmentCapability      `json:"image"`
-	NativeFile NativeFileAttachmentCapability `json:"native_file"`
+	MaxAttachmentsPerMessage  int                            `json:"max_attachments_per_message"`
+	MaxMessageAttachmentBytes int64                          `json:"max_message_attachment_bytes"`
+	Image                     ImageAttachmentCapability      `json:"image"`
+	NativeFile                NativeFileAttachmentCapability `json:"native_file"`
 }
 
 type ImageAttachmentCapability struct {
@@ -166,7 +168,12 @@ type ImageAttachmentCapability struct {
 }
 
 type NativeFileAttachmentCapability struct {
-	Enabled bool `json:"enabled"`
+	Enabled               bool     `json:"enabled"`
+	DisabledReason        string   `json:"disabled_reason"`
+	MaxFilesPerMessage    int      `json:"max_files_per_message"`
+	MaxFileBytesExclusive int64    `json:"max_file_bytes_exclusive"`
+	MaxRequestFileBytes   int64    `json:"max_request_file_bytes"`
+	AcceptedExtensions    []string `json:"accepted_extensions"`
 }
 
 type CreateInput struct {

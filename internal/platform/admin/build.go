@@ -190,12 +190,15 @@ func Build(input BuildInput) (*BuildResult, error) {
 		}
 		cancelReconcile()
 	}
+	uploadTokenRepository := uploadtoken.NewGormRepository(resources.DB)
+	uploadRuleResolver := uploadtoken.NewActiveRuleResolver(uploadTokenRepository)
 	aiAgentService := aiagent.NewService(
 		aiagent.NewGormRepository(resources.DB),
 		providers.Secretbox,
 		providers.AIConnectionTester,
 		aiagent.WithPricingResolver(aiOfficialModelResolver),
 		aiagent.WithTransportCapabilityResolver(providers.AITransportCapabilities),
+		aiagent.WithUploadRuleResolver(uploadRuleResolver),
 	)
 	aiRunRepository := airun.NewGormRepository(resources.DB)
 	aiRunRecorder := airun.NewRecorder(aiRunRepository, nil)
@@ -221,7 +224,6 @@ func Build(input BuildInput) (*BuildResult, error) {
 		CertResolver: providers.PaymentCertResolver,
 		CertStore:    providers.PaymentCertStore,
 	})
-	uploadTokenRepository := uploadtoken.NewGormRepository(resources.DB)
 	uploadTokenService := uploadtoken.NewService(
 		uploadTokenRepository,
 		providers.Secretbox,

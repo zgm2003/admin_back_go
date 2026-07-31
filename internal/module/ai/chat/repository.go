@@ -317,6 +317,7 @@ func (r *GormRepository) agentRuntimeDB(ctx context.Context) *gorm.DB {
 			a.scenes_json AS scenes_json,
 			a.status AS agent_status,
 			e.engine_type AS engine_type,
+			e.file_input_mode AS file_input_mode,
 			e.base_url AS engine_base_url,
 			e.api_key_enc AS engine_api_key_enc,
 			e.status AS engine_status,

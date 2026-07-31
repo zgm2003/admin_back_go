@@ -13,11 +13,55 @@ import (
 
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/infra/secretbox"
+	"admin_back_go/internal/module/ai/capability"
 	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/pricing"
+	aiprovider "admin_back_go/internal/module/ai/provider"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
+	"admin_back_go/internal/shared/uploadpolicy"
 )
+
+type countingUploadRuleResolver struct {
+	calls int
+	rule  uploadpolicy.Rule
+	err   error
+}
+
+func (resolver *countingUploadRuleResolver) ResolveActive(context.Context) (uploadpolicy.Rule, error) {
+	resolver.calls++
+	return resolver.rule, resolver.err
+}
+
+func TestAgentReadEndpointsResolveUploadRuleOncePerRequest(t *testing.T) {
+	tests := []struct {
+		name string
+		call func(*Service)
+	}{
+		{name: "page init", call: func(service *Service) { _, _ = service.PageInit(context.Background()) }},
+		{name: "list", call: func(service *Service) {
+			_, _ = service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20})
+		}},
+		{name: "detail", call: func(service *Service) { _, _ = service.Detail(context.Background(), 7) }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			rules := &countingUploadRuleResolver{rule: uploadpolicy.Rule{
+				MaxFileBytes: 100 << 20, FileExtensions: []string{"pdf"},
+			}}
+			service := NewService(
+				&fakeAIAgentRepository{},
+				secretbox.New([]byte("12345678901234567890123456789012")),
+				nil,
+				WithUploadRuleResolver(rules),
+			)
+			test.call(service)
+			if rules.calls != 1 {
+				t.Fatalf("active upload rule calls=%d", rules.calls)
+			}
+		})
+	}
+}
 
 func TestAgentContractHasNoConfigurableMaxOutputTokens(t *testing.T) {
 	for _, value := range []any{Agent{}, CreateInput{}, InitDict{}, AgentDTO{}} {
@@ -544,13 +588,20 @@ func TestOptionsExposeOfficialModelAndEffectiveChatCapabilities(t *testing.T) {
 		visibleAgents: []AgentWithProvider{{
 			Agent: Agent{ID: 7, ProviderID: 3, Name: "视觉助手", ModelID: "provider-gpt-vision",
 				Status: enum.CommonYes, IsDel: enum.CommonNo},
-			EngineType: "openai", ProviderStatus: enum.CommonYes,
+			EngineType: "openai", FileInputMode: aiprovider.FileInputModeChatCompletions, ProviderStatus: enum.CommonYes,
+			ProviderModelID: 31, ProviderModelStatus: enum.CommonYes,
+			OfficialModelID: officialID, OfficialCatalogVersion: catalogVersion,
+			MappingStatus: officialmodel.MappingStatusMapped,
+		}, {
+			Agent: Agent{ID: 8, ProviderID: 3, Name: "文档助手", ModelID: "provider-gpt-vision",
+				Status: enum.CommonYes, IsDel: enum.CommonNo},
+			EngineType: "openai", FileInputMode: aiprovider.FileInputModeChatCompletions, ProviderStatus: enum.CommonYes,
 			ProviderModelID: 31, ProviderModelStatus: enum.CommonYes,
 			OfficialModelID: officialID, OfficialCatalogVersion: catalogVersion,
 			MappingStatus: officialmodel.MappingStatusMapped,
 		}},
 		activeProviders: map[uint64]Provider{3: {
-			ID: 3, EngineType: "openai", Status: enum.CommonYes, IsDel: enum.CommonNo,
+			ID: 3, EngineType: "openai", FileInputMode: aiprovider.FileInputModeChatCompletions, Status: enum.CommonYes, IsDel: enum.CommonNo,
 		}},
 		modelsByProvider: map[uint64][]ProviderModel{3: {{
 			ID: 31, ProviderID: 3, ModelID: "provider-gpt-vision", Status: enum.CommonYes,
@@ -558,7 +609,7 @@ func TestOptionsExposeOfficialModelAndEffectiveChatCapabilities(t *testing.T) {
 			MappingStatus: officialmodel.MappingStatusMapped, MappedAt: &mappedAt,
 		}}},
 	}
-	resolver := officialmodel.ResolverFunc(func(_ context.Context, requestedModelID string) (officialmodel.ResolvedModel, error) {
+	modelResolver := officialmodel.ResolverFunc(func(_ context.Context, requestedModelID string) (officialmodel.ResolvedModel, error) {
 		if requestedModelID != "provider-gpt-vision" {
 			t.Fatalf("requested model = %q", requestedModelID)
 		}
@@ -574,16 +625,22 @@ func TestOptionsExposeOfficialModelAndEffectiveChatCapabilities(t *testing.T) {
 			},
 		}}, nil
 	})
+	rules := &countingUploadRuleResolver{rule: uploadpolicy.Rule{MaxFileBytes: 100 << 20, FileExtensions: []string{"pdf", "md", "zip", "go"}}}
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
 	service := NewService(
 		repo,
-		secretbox.New([]byte("12345678901234567890123456789012")),
+		box,
 		nil,
-		WithPricingResolver(resolver),
+		WithPricingResolver(modelResolver),
 		WithTransportCapabilityResolver(infraai.TransportCapabilityResolverFunc(infraai.DefaultTransportCapabilities)),
+		WithUploadRuleResolver(rules),
 	)
 	result, appErr := service.Options(context.Background(), OptionQuery{UserID: 9})
-	if appErr != nil || result == nil || len(result.List) != 1 {
+	if appErr != nil || result == nil || len(result.List) != 2 {
 		t.Fatalf("options failed: %#v %#v", result, appErr)
+	}
+	if rules.calls != 1 {
+		t.Fatalf("active upload rule calls=%d", rules.calls)
 	}
 	option := result.List[0]
 	if option.ProviderModelID != 31 || option.OfficialModel == nil || option.OfficialModel.ModelID != officialID ||
@@ -592,11 +649,59 @@ func TestOptionsExposeOfficialModelAndEffectiveChatCapabilities(t *testing.T) {
 	}
 	if option.Capabilities == nil || !option.Capabilities.RuntimeParameters.Temperature.Supported ||
 		!option.Capabilities.RuntimeParameters.MaxHistory.Supported || !option.Capabilities.RuntimeParameters.MaxHistory.Transitional ||
+		option.Capabilities.Attachments.MaxAttachmentsPerMessage != 5 ||
+		option.Capabilities.Attachments.MaxMessageAttachmentBytes != 50<<20 ||
 		!option.Capabilities.Attachments.Image.Enabled || option.Capabilities.Attachments.Image.MaxFiles != 5 ||
 		option.Capabilities.Attachments.Image.MaxFileBytes != 10<<20 ||
-		!reflect.DeepEqual(option.Capabilities.Attachments.Image.MIMETypes, []string{"image/png"}) ||
-		option.Capabilities.Attachments.NativeFile.Enabled {
+		!reflect.DeepEqual(option.Capabilities.Attachments.Image.MIMETypes, []string{"image/png"}) {
 		t.Fatalf("unexpected effective capabilities: %#v", option.Capabilities)
+	}
+	for _, option := range result.List {
+		files := option.Capabilities.Attachments.NativeFile
+		if !files.Enabled || files.DisabledReason != "" || files.MaxFilesPerMessage != 5 ||
+			files.MaxFileBytesExclusive != 50<<20 || files.MaxRequestFileBytes != 50<<20 ||
+			!reflect.DeepEqual(files.AcceptedExtensions, []string{"pdf", "md", "go"}) {
+			t.Fatalf("native file capability=%#v", files)
+		}
+	}
+
+	tests := []struct {
+		name  string
+		rules uploadpolicy.Resolver
+	}{
+		{name: "resolver missing"},
+		{name: "resolver error", rules: uploadpolicy.ResolverFunc(func(context.Context) (uploadpolicy.Rule, error) {
+			return uploadpolicy.Rule{}, errors.New("upload config unavailable")
+		})},
+		{name: "empty AI intersection", rules: uploadpolicy.ResolverFunc(func(context.Context) (uploadpolicy.Rule, error) {
+			return uploadpolicy.Rule{MaxFileBytes: 100 << 20, FileExtensions: []string{"zip", "tar"}}, nil
+		})},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			service := NewService(repo, box, nil,
+				WithPricingResolver(modelResolver),
+				WithTransportCapabilityResolver(infraai.TransportCapabilityResolverFunc(infraai.DefaultTransportCapabilities)),
+				WithUploadRuleResolver(test.rules),
+			)
+			result, appErr := service.Options(context.Background(), OptionQuery{UserID: 9})
+			if appErr != nil {
+				t.Fatal(appErr)
+			}
+			for _, option := range result.List {
+				attachments := option.Capabilities.Attachments
+				if !attachments.Image.Enabled {
+					t.Fatal("image capability must remain available")
+				}
+				if attachments.NativeFile.Enabled || attachments.NativeFile.DisabledReason != capability.NativeFileDisabledPlatform || len(attachments.NativeFile.AcceptedExtensions) != 0 {
+					t.Fatalf("native file capability=%#v", attachments.NativeFile)
+				}
+				rawExtensions, err := json.Marshal(attachments.NativeFile.AcceptedExtensions)
+				if err != nil || string(rawExtensions) != "[]" {
+					t.Fatalf("disabled accepted extensions JSON=%s err=%v", rawExtensions, err)
+				}
+			}
+		})
 	}
 }
 
