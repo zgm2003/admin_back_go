@@ -1,13 +1,17 @@
 package airun
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
+	"math"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/module/ai/billing"
 	"admin_back_go/internal/shared/clock"
 	"admin_back_go/internal/shared/enum"
@@ -333,6 +337,99 @@ func TestRunDetailBuildsLatencyBreakdownFromDurableTimeline(t *testing.T) {
 	}
 }
 
+func TestRunDetailAggregatesDurableFileLatencyAndFiltersInternalEvents(t *testing.T) {
+	received := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
+	settled := received.Add(time.Second)
+	repo := &fakeRepository{
+		run: &RunDetailRow{
+			ID: 83, BillingStatus: string(billing.BillingStatusHeld), BillingReason: string(billing.BillingReasonHeld), PricingSnapshotJSON: paidPricingSnapshotJSON(),
+			RequestReceivedAt: &received, SettledAt: &settled,
+		},
+		charge: &ChargeRow{ID: 16, HeldUnits: 1, Status: string(billing.ChargeStatusOpen)},
+		events: []EventRow{
+			{ID: 21, Seq: 1, EventType: enum.AIRunEventFileMaterialized, Message: `{"cos_head_ms":12,"cos_stream_ms":34,"materialized_request_bytes":4096}`, CreatedAt: received.Add(300 * time.Millisecond)},
+			{ID: 22, Seq: 2, EventType: enum.AIRunEventFileMaterialized, Message: `{"cos_head_ms":5,"cos_stream_ms":7,"materialized_request_bytes":2048}`, CreatedAt: received.Add(600 * time.Millisecond)},
+			{ID: 23, Seq: 3, EventType: enum.AIRunEventCompleted, Message: "生成完成", CreatedAt: settled},
+		},
+	}
+
+	result, appErr := NewService(repo).Detail(context.Background(), 83)
+	if appErr != nil {
+		t.Fatalf("Detail returned error: %v", appErr)
+	}
+	if result.Latency.COSHeadMS == nil || *result.Latency.COSHeadMS != 17 || result.Latency.COSStreamMS == nil || *result.Latency.COSStreamMS != 41 {
+		t.Fatalf("file latency=%+v", result.Latency)
+	}
+	if len(result.Events) != 1 || result.Events[0].EventType != enum.AIRunEventCompleted {
+		t.Fatalf("internal file metrics events leaked: %#v", result.Events)
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "materialized_request_bytes\\\":4096") || strings.Contains(string(encoded), enum.AIRunEventFileMaterialized) {
+		t.Fatalf("internal metrics payload leaked: %s", encoded)
+	}
+}
+
+func TestRunDetailIgnoresInvalidDurableFileLatencyAndLogsStructureError(t *testing.T) {
+	received := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
+	settled := received.Add(time.Second)
+	var logs bytes.Buffer
+	repo := &fakeRepository{
+		run: &RunDetailRow{
+			ID: 84, BillingStatus: string(billing.BillingStatusHeld), BillingReason: string(billing.BillingReasonHeld), PricingSnapshotJSON: paidPricingSnapshotJSON(),
+			RequestReceivedAt: &received, SettledAt: &settled,
+		},
+		charge: &ChargeRow{ID: 17, HeldUnits: 1, Status: string(billing.ChargeStatusOpen)},
+		events: []EventRow{
+			{ID: 31, Seq: 1, EventType: enum.AIRunEventFileMaterialized, Message: `{"cos_head_ms":1,"cos_stream_ms":2}`, CreatedAt: received.Add(100 * time.Millisecond)},
+			{ID: 32, Seq: 2, EventType: enum.AIRunEventFileMaterialized, Message: `{"cos_head_ms":-1,"cos_stream_ms":2,"materialized_request_bytes":10}`, CreatedAt: received.Add(200 * time.Millisecond)},
+			{ID: 33, Seq: 3, EventType: enum.AIRunEventFileMaterialized, Message: `{"cos_head_ms":600,"cos_stream_ms":500,"materialized_request_bytes":10}`, CreatedAt: received.Add(300 * time.Millisecond)},
+			{ID: 34, Seq: 4, EventType: enum.AIRunEventFileMaterialized, Message: `{"cos_head_ms":1,"cos_stream_ms":2,"materialized_request_bytes":10,"object_key":"ai_chat_attachments/private.pdf"}`, CreatedAt: received.Add(400 * time.Millisecond)},
+		},
+	}
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+
+	result, appErr := NewService(repo, WithLogger(logger)).Detail(context.Background(), 84)
+	if appErr != nil {
+		t.Fatalf("Detail returned error: %v", appErr)
+	}
+	if result.Latency.COSHeadMS != nil || result.Latency.COSStreamMS != nil {
+		t.Fatalf("invalid file latency must not be returned: %+v", result.Latency)
+	}
+	if len(result.Events) != 0 {
+		t.Fatalf("invalid internal events leaked: %#v", result.Events)
+	}
+	if got := logs.String(); strings.Count(got, "invalid durable AI file materialization metrics") != 4 || strings.Contains(got, "ai_chat_attachments/private.pdf") || strings.Contains(got, "object_key") {
+		t.Fatalf("unexpected safe structure logs: %s", got)
+	}
+}
+
+func TestRunDetailIgnoresOverflowingFileLatencyWithoutDiscardingPriorMetrics(t *testing.T) {
+	var logs bytes.Buffer
+	repo := &fakeRepository{
+		run:    &RunDetailRow{ID: 88, BillingStatus: string(billing.BillingStatusHeld), BillingReason: string(billing.BillingReasonHeld), PricingSnapshotJSON: paidPricingSnapshotJSON()},
+		charge: &ChargeRow{ID: 21, HeldUnits: 1, Status: string(billing.ChargeStatusOpen)},
+		events: []EventRow{
+			{ID: 41, Seq: 1, EventType: enum.AIRunEventFileMaterialized, Message: `{"cos_head_ms":9223372036854775807,"cos_stream_ms":0,"materialized_request_bytes":1}`},
+			{ID: 42, Seq: 2, EventType: enum.AIRunEventFileMaterialized, Message: `{"cos_head_ms":1,"cos_stream_ms":0,"materialized_request_bytes":1}`},
+		},
+	}
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+
+	result, appErr := NewService(repo, WithLogger(logger)).Detail(context.Background(), 88)
+	if appErr != nil {
+		t.Fatalf("Detail returned error: %v", appErr)
+	}
+	if result.Latency.COSHeadMS == nil || *result.Latency.COSHeadMS != int64(math.MaxInt64) || result.Latency.COSStreamMS == nil || *result.Latency.COSStreamMS != 0 {
+		t.Fatalf("valid prior metrics were discarded: %+v", result.Latency)
+	}
+	if strings.Count(logs.String(), "invalid durable AI file materialization metrics") != 1 {
+		t.Fatalf("overflow event was not logged once: %s", logs.String())
+	}
+}
+
 func TestRunDetailReturnsSafePreparedRequestSummaryOnly(t *testing.T) {
 	now := time.Date(2026, 7, 28, 12, 1, 0, 0, time.UTC)
 	prepared := `{"model":"gpt-test","messages":[{"role":"user","content":"private prompt"}],"authorization":"secret"}`
@@ -356,6 +453,100 @@ func TestRunDetailReturnsSafePreparedRequestSummaryOnly(t *testing.T) {
 	}
 	for _, forbidden := range []string{"private prompt", "authorization", `"prepared_request_json":`, "secret"} {
 		if strings.Contains(string(encoded), forbidden) {
+			t.Fatalf("safe detail leaked %q: %s", forbidden, encoded)
+		}
+	}
+}
+
+func TestRunDetailCountsPersistedInlineImageAttachments(t *testing.T) {
+	now := time.Date(2026, 7, 30, 12, 1, 0, 0, time.UTC)
+	prepared := `{"model":"gpt-test","messages":[{"role":"system","content":"rules"},{"role":"user","content":[{"type":"text","text":"look"},{"type":"image_url","image_url":{"url":"https://images.example/a.png"}},{"type":"image_url","image_url":{"url":"https://images.example/b.png"}}]}]}`
+	repo := &fakeRepository{
+		run:      &RunDetailRow{ID: 86, Status: enum.AIRunStatusRunning, BillingStatus: string(billing.BillingStatusHeld), BillingReason: string(billing.BillingReasonHeld), PricingSnapshotJSON: paidPricingSnapshotJSON(), CreatedAt: now, UpdatedAt: now},
+		charge:   &ChargeRow{ID: 19, HeldUnits: 1, Status: string(billing.ChargeStatusOpen)},
+		attempts: []ProviderAttemptRow{{ID: 203, AttemptNo: 1, State: string(billing.AttemptStatePrepared), UsageStatus: string(billing.UsageStatusUnavailable), UsageJSON: `{"status":"unavailable"}`, PreparedRequestJSON: prepared}},
+	}
+
+	result, appErr := NewService(repo).Detail(context.Background(), 86)
+	if appErr != nil {
+		t.Fatalf("Detail returned error: %v", appErr)
+	}
+	if result.RequestSummary.MessageCount == nil || *result.RequestSummary.MessageCount != 2 || result.RequestSummary.AttachmentCount != 2 || result.RequestSummary.NativeFileCount != 0 || result.RequestSummary.NativeFileBytes != 0 || result.RequestSummary.PreparedManifestBytes != 0 || result.RequestSummary.MaterializedRequestBytes != 0 || result.RequestSummary.FileInputMode != "" {
+		t.Fatalf("inline request summary=%+v", result.RequestSummary)
+	}
+}
+
+func TestRunDetailReturnsZeroSummaryForInvalidPersistedSchemaWithoutLoggingRequest(t *testing.T) {
+	now := time.Date(2026, 7, 30, 12, 1, 0, 0, time.UTC)
+	prepared := `{"schema":"unknown_private_schema","object_key":"ai_chat_attachments/private.pdf"}`
+	var logs bytes.Buffer
+	repo := &fakeRepository{
+		run:       &RunDetailRow{ID: 87, Status: enum.AIRunStatusFailed, ErrorCode: "ai.run.structure_invalid", BillingStatus: string(billing.BillingStatusHeld), BillingReason: string(billing.BillingReasonHeld), PricingSnapshotJSON: paidPricingSnapshotJSON(), CreatedAt: now, UpdatedAt: now},
+		charge:    &ChargeRow{ID: 20, HeldUnits: 1, Status: string(billing.ChargeStatusOpen)},
+		attempts:  []ProviderAttemptRow{{ID: 204, AttemptNo: 1, State: string(billing.AttemptStatePrepared), UsageStatus: string(billing.UsageStatusUnavailable), UsageJSON: `{"status":"unavailable"}`, PreparedRequestJSON: prepared}},
+		toolCalls: []ToolCallRow{{ID: 1}},
+	}
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+
+	result, appErr := NewService(repo, WithLogger(logger)).Detail(context.Background(), 87)
+	if appErr != nil {
+		t.Fatalf("Detail returned error: %v", appErr)
+	}
+	if !reflect.DeepEqual(result.RequestSummary, SafeRequestSummary{}) {
+		t.Fatalf("invalid persisted request summary must be zero: %+v", result.RequestSummary)
+	}
+	if got := logs.String(); !strings.Contains(got, "invalid persisted AI prepared request summary") || strings.Contains(got, "ai_chat_attachments/private.pdf") || strings.Contains(got, "unknown_private_schema") {
+		t.Fatalf("unexpected safe structure log: %s", got)
+	}
+}
+
+func TestSafeRequestSummaryNeverContainsObjectIdentityOrManifest(t *testing.T) {
+	now := time.Date(2026, 7, 30, 12, 1, 0, 0, time.UTC)
+	request := json.RawMessage(`{"model":"gpt-test","messages":[{"role":"user","content":[{"type":"text","text":"private prompt"},{"type":"image_url","image_url":{"url":"https://images.example/private.png"}},{"type":"file_ref","ref":"file-1"},{"type":"file_ref","ref":"file-2"}]}],"stream":true}`)
+	manifest := infraai.PreparedChatFileManifest{
+		Schema:        infraai.PreparedChatSchemaFileManifestV1,
+		FileInputMode: "chat_completions",
+		Request:       request,
+		Files: []infraai.PreparedFileRef{
+			{Ref: "file-1", ObjectKey: "ai_chat_attachments/secret/report.pdf", ETag: `"report-v1"`, Size: 4, MIMEType: "application/pdf", Filename: "report.pdf"},
+			{Ref: "file-2", ObjectKey: "ai_chat_attachments/secret/notes.txt", ETag: `"notes-v1"`, Size: 2, MIMEType: "text/plain", Filename: "notes.txt"},
+		},
+	}
+	prepared, err := infraai.MarshalPreparedChatFileManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	materialized := `{"model":"gpt-test","messages":[{"role":"user","content":[{"type":"text","text":"private prompt"},{"type":"image_url","image_url":{"url":"https://images.example/private.png"}},{"type":"file","file":{"filename":"report.pdf","file_data":"data:application/pdf;base64,AAAAAAAA"}},{"type":"file","file":{"filename":"notes.txt","file_data":"data:text/plain;base64,AAAA"}}]}],"stream":true}`
+	repo := &fakeRepository{
+		run:       &RunDetailRow{ID: 85, Status: enum.AIRunStatusRunning, BillingStatus: string(billing.BillingStatusHeld), BillingReason: string(billing.BillingReasonHeld), PricingSnapshotJSON: paidPricingSnapshotJSON(), CreatedAt: now, UpdatedAt: now},
+		charge:    &ChargeRow{ID: 18, HeldUnits: 1, Status: string(billing.ChargeStatusOpen)},
+		attempts:  []ProviderAttemptRow{{ID: 202, AttemptNo: 1, State: string(billing.AttemptStatePrepared), UsageStatus: string(billing.UsageStatusUnavailable), UsageJSON: `{"status":"unavailable"}`, PreparedRequestJSON: string(prepared)}},
+		toolCalls: []ToolCallRow{{ID: 1}},
+	}
+
+	result, appErr := NewService(repo).Detail(context.Background(), 85)
+	if appErr != nil {
+		t.Fatalf("Detail returned error: %v", appErr)
+	}
+	messageCount := 1
+	want := SafeRequestSummary{
+		ProviderAttemptCount: 1, ToolCallCount: 1, PreparedRequestBytes: len(prepared), MessageCount: &messageCount,
+		AttachmentCount: 3, NativeFileCount: 2, NativeFileBytes: 6, PreparedManifestBytes: len(prepared),
+		MaterializedRequestBytes: int64(len(materialized)), FileInputMode: "chat_completions",
+	}
+	if !reflect.DeepEqual(result.RequestSummary, want) {
+		t.Fatalf("request summary=%+v want=%+v", result.RequestSummary, want)
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lower := strings.ToLower(string(encoded))
+	for _, forbidden := range []string{
+		"ai_chat_attachments/", "https://images.example/private.png", "report-v1", "notes-v1", "report.pdf", "notes.txt",
+		`"schema":"openai_chat_file_manifest_v1"`, "file_ref", "file_data", ";base64,", "private prompt",
+	} {
+		if strings.Contains(lower, strings.ToLower(forbidden)) {
 			t.Fatalf("safe detail leaked %q: %s", forbidden, encoded)
 		}
 	}

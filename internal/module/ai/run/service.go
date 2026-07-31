@@ -1,9 +1,11 @@
 package airun
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"math"
 	"sort"
@@ -178,7 +180,11 @@ func (s *Service) Detail(ctx context.Context, id int64) (*DetailResponse, *apper
 	if appErr != nil {
 		return nil, appErr
 	}
-	result := detailItem(*row, events, knowledgeRetrievals, toolCalls, billingView, buildLatencyBreakdown(*row, attemptRows), buildSafeRequestSummary(attemptRows, toolCalls))
+	requestSummary, summaryErr := buildSafeRequestSummary(attemptRows, toolCalls)
+	if summaryErr != nil {
+		s.logInvalidPreparedRequestSummary(ctx, row.ID, attemptRows)
+	}
+	result := detailItem(*row, events, knowledgeRetrievals, toolCalls, billingView, s.buildLatencyBreakdown(ctx, *row, attemptRows, events), requestSummary)
 	return &result, nil
 }
 
@@ -665,6 +671,9 @@ func optionalNonBlank(value string) *string {
 func detailItem(row RunDetailRow, events []EventRow, knowledgeRetrievals []KnowledgeRetrievalItem, toolCalls []ToolCallRow, billingView billingDetailView, latency LatencyBreakdown, requestSummary SafeRequestSummary) DetailResponse {
 	items := make([]EventItem, 0, len(events))
 	for _, event := range events {
+		if event.EventType == enum.AIRunEventFileMaterialized {
+			continue
+		}
 		items = append(items, eventItem(event, row.StartedAt))
 	}
 	callItems := make([]ToolCallItem, 0, len(toolCalls))
@@ -692,39 +701,297 @@ func detailItem(row RunDetailRow, events []EventRow, knowledgeRetrievals []Knowl
 	}
 }
 
-func buildLatencyBreakdown(row RunDetailRow, attempts []ProviderAttemptRow) LatencyBreakdown {
+func (s *Service) buildLatencyBreakdown(ctx context.Context, row RunDetailRow, attempts []ProviderAttemptRow, events []EventRow) LatencyBreakdown {
 	result := LatencyBreakdown{
 		AcceptMS:    nonNegativeDurationMS(row.RequestReceivedAt, row.AcceptedAt),
 		QueueMS:     nonNegativeDurationMS(row.AcceptedAt, row.ClaimedAt),
 		EndToEndMS:  nonNegativeDurationMS(row.RequestReceivedAt, row.SettledAt),
 		ClaimSource: strings.TrimSpace(row.ClaimSource),
 	}
-	if len(attempts) == 0 {
-		return result
+	if len(attempts) > 0 {
+		latest := attempts[len(attempts)-1]
+		result.PrepareMS = nonNegativeDurationMS(latest.PrepareStartedAt, latest.DispatchedAt)
+		result.TTFTMS = nonNegativeDurationMS(latest.DispatchedAt, latest.FirstDeltaAt)
+		result.ProviderTotalMS = nonNegativeDurationMS(latest.DispatchedAt, latest.FinishedAt)
+		result.SettlementMS = nonNegativeDurationMS(latest.FinishedAt, row.SettledAt)
 	}
-	latest := attempts[len(attempts)-1]
-	result.PrepareMS = nonNegativeDurationMS(latest.PrepareStartedAt, latest.DispatchedAt)
-	result.TTFTMS = nonNegativeDurationMS(latest.DispatchedAt, latest.FirstDeltaAt)
-	result.ProviderTotalMS = nonNegativeDurationMS(latest.DispatchedAt, latest.FinishedAt)
-	result.SettlementMS = nonNegativeDurationMS(latest.FinishedAt, row.SettledAt)
+	s.addDurableFileLatency(ctx, row.ID, events, &result)
 	return result
 }
 
-func buildSafeRequestSummary(attempts []ProviderAttemptRow, toolCalls []ToolCallRow) SafeRequestSummary {
+type durableFileInputMetrics struct {
+	COSHeadMS                *int64 `json:"cos_head_ms"`
+	COSStreamMS              *int64 `json:"cos_stream_ms"`
+	MaterializedRequestBytes *int64 `json:"materialized_request_bytes"`
+}
+
+func (s *Service) addDurableFileLatency(ctx context.Context, runID int64, events []EventRow, result *LatencyBreakdown) {
+	if result == nil {
+		return
+	}
+	var headTotal int64
+	var streamTotal int64
+	validEvents := 0
+	for _, event := range events {
+		if event.EventType != enum.AIRunEventFileMaterialized {
+			continue
+		}
+		metrics, err := decodeDurableFileInputMetrics(event.Message)
+		if err == nil {
+			err = validateFileInputMetricsDuration(metrics, result.EndToEndMS)
+		}
+		candidateHead := headTotal
+		candidateStream := streamTotal
+		if err == nil {
+			candidateHead, err = addNonNegativeInt64(headTotal, *metrics.COSHeadMS)
+		}
+		if err == nil {
+			candidateStream, err = addNonNegativeInt64(streamTotal, *metrics.COSStreamMS)
+		}
+		if err != nil {
+			s.logInvalidFileInputMetrics(ctx, runID, event)
+			continue
+		}
+		headTotal = candidateHead
+		streamTotal = candidateStream
+		validEvents++
+	}
+	if validEvents == 0 {
+		return
+	}
+	if result.EndToEndMS != nil {
+		total, err := addNonNegativeInt64(headTotal, streamTotal)
+		if err != nil || total > *result.EndToEndMS {
+			s.logInvalidFileInputMetrics(ctx, runID, EventRow{})
+			return
+		}
+	}
+	result.COSHeadMS = &headTotal
+	result.COSStreamMS = &streamTotal
+}
+
+func decodeDurableFileInputMetrics(message string) (durableFileInputMetrics, error) {
+	var metrics durableFileInputMetrics
+	decoder := json.NewDecoder(strings.NewReader(message))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&metrics); err != nil {
+		return durableFileInputMetrics{}, fmt.Errorf("decode metrics: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		if err == nil {
+			return durableFileInputMetrics{}, fmt.Errorf("metrics contain multiple JSON values")
+		}
+		return durableFileInputMetrics{}, fmt.Errorf("decode metrics trailer: %w", err)
+	}
+	if metrics.COSHeadMS == nil || metrics.COSStreamMS == nil || metrics.MaterializedRequestBytes == nil {
+		return durableFileInputMetrics{}, fmt.Errorf("metrics require all fields")
+	}
+	if *metrics.COSHeadMS < 0 || *metrics.COSStreamMS < 0 || *metrics.MaterializedRequestBytes < 0 {
+		return durableFileInputMetrics{}, fmt.Errorf("metrics must be non-negative")
+	}
+	return metrics, nil
+}
+
+func validateFileInputMetricsDuration(metrics durableFileInputMetrics, endToEndMS *int64) error {
+	if endToEndMS == nil {
+		return nil
+	}
+	total, err := addNonNegativeInt64(*metrics.COSHeadMS, *metrics.COSStreamMS)
+	if err != nil || total > *endToEndMS {
+		return fmt.Errorf("COS latency exceeds end-to-end duration")
+	}
+	return nil
+}
+
+func addNonNegativeInt64(left, right int64) (int64, error) {
+	if left < 0 || right < 0 || right > math.MaxInt64-left {
+		return 0, fmt.Errorf("non-negative integer overflow")
+	}
+	return left + right, nil
+}
+
+func (s *Service) logInvalidFileInputMetrics(ctx context.Context, runID int64, event EventRow) {
+	logger := s.logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	logger.ErrorContext(ctx, "invalid durable AI file materialization metrics",
+		slog.Int64("run_id", runID),
+		slog.Int64("event_id", event.ID),
+		slog.Uint64("event_seq", uint64(event.Seq)),
+	)
+}
+
+func buildSafeRequestSummary(attempts []ProviderAttemptRow, toolCalls []ToolCallRow) (SafeRequestSummary, error) {
 	result := SafeRequestSummary{ProviderAttemptCount: len(attempts), ToolCallCount: len(toolCalls)}
 	if len(attempts) == 0 {
-		return result
+		return result, nil
 	}
-	prepared := attempts[len(attempts)-1].PreparedRequestJSON
-	result.PreparedRequestBytes = len(prepared)
+	prepared := []byte(attempts[len(attempts)-1].PreparedRequestJSON)
+	schema, err := infraai.DetectPreparedChatSchema(prepared)
+	if err != nil {
+		return SafeRequestSummary{}, err
+	}
+	switch schema {
+	case infraai.PreparedChatSchemaInlineV1:
+		messageCount, attachmentCount, _, summaryErr := summarizePreparedChatRequest(prepared)
+		if summaryErr != nil {
+			return SafeRequestSummary{}, summaryErr
+		}
+		result.PreparedRequestBytes = len(prepared)
+		result.MessageCount = messageCount
+		result.AttachmentCount = attachmentCount
+		return result, nil
+	case infraai.PreparedChatSchemaFileManifestV1:
+		manifest, parseErr := infraai.ParsePreparedChatFileManifest(prepared)
+		if parseErr != nil {
+			return SafeRequestSummary{}, parseErr
+		}
+		messageCount, attachmentCount, fileRefParts, summaryErr := summarizePreparedChatRequest(manifest.Request)
+		if summaryErr != nil {
+			return SafeRequestSummary{}, summaryErr
+		}
+		if len(fileRefParts) != len(manifest.Files) {
+			return SafeRequestSummary{}, fmt.Errorf("prepared request file refs do not match manifest files")
+		}
+		var nativeFileBytes int64
+		for _, file := range manifest.Files {
+			nativeFileBytes, summaryErr = addNonNegativeInt64(nativeFileBytes, file.Size)
+			if summaryErr != nil {
+				return SafeRequestSummary{}, summaryErr
+			}
+		}
+		materializedBytes, summaryErr := materializedPreparedRequestBytes(manifest, fileRefParts)
+		if summaryErr != nil {
+			return SafeRequestSummary{}, summaryErr
+		}
+		result.PreparedRequestBytes = len(prepared)
+		result.MessageCount = messageCount
+		result.AttachmentCount = attachmentCount
+		result.NativeFileCount = len(manifest.Files)
+		result.NativeFileBytes = nativeFileBytes
+		result.PreparedManifestBytes = len(prepared)
+		result.MaterializedRequestBytes = materializedBytes
+		result.FileInputMode = manifest.FileInputMode
+		return result, nil
+	default:
+		return SafeRequestSummary{}, fmt.Errorf("unsupported prepared request schema")
+	}
+}
+
+type preparedRequestMessageSummary struct {
+	Content json.RawMessage `json:"content"`
+}
+
+func summarizePreparedChatRequest(request []byte) (*int, int, []json.RawMessage, error) {
 	var envelope struct {
-		Messages []json.RawMessage `json:"messages"`
+		Messages []preparedRequestMessageSummary `json:"messages"`
 	}
-	if json.Unmarshal([]byte(prepared), &envelope) == nil && envelope.Messages != nil {
+	if err := json.Unmarshal(request, &envelope); err != nil {
+		return nil, 0, nil, fmt.Errorf("decode prepared chat request summary: %w", err)
+	}
+	var messageCount *int
+	if envelope.Messages != nil {
 		count := len(envelope.Messages)
-		result.MessageCount = &count
+		messageCount = &count
 	}
-	return result
+	attachmentCount := 0
+	fileRefParts := make([]json.RawMessage, 0)
+	for _, message := range envelope.Messages {
+		content := bytes.TrimSpace(message.Content)
+		if len(content) == 0 {
+			return nil, 0, nil, fmt.Errorf("prepared chat message content is missing")
+		}
+		if content[0] == '"' || bytes.Equal(content, []byte("null")) {
+			continue
+		}
+		if content[0] != '[' {
+			return nil, 0, nil, fmt.Errorf("prepared chat message content has an invalid shape")
+		}
+		var parts []json.RawMessage
+		if err := json.Unmarshal(content, &parts); err != nil {
+			return nil, 0, nil, fmt.Errorf("decode prepared chat content parts: %w", err)
+		}
+		for _, rawPart := range parts {
+			var part struct {
+				Type string `json:"type"`
+			}
+			if err := json.Unmarshal(rawPart, &part); err != nil {
+				return nil, 0, nil, fmt.Errorf("decode prepared chat content part: %w", err)
+			}
+			switch part.Type {
+			case "image_url":
+				attachmentCount++
+			case "file_ref":
+				attachmentCount++
+				fileRefParts = append(fileRefParts, append(json.RawMessage(nil), rawPart...))
+			}
+		}
+	}
+	return messageCount, attachmentCount, fileRefParts, nil
+}
+
+func materializedPreparedRequestBytes(manifest infraai.PreparedChatFileManifest, fileRefParts []json.RawMessage) (int64, error) {
+	total := int64(len(manifest.Request))
+	for index, file := range manifest.Files {
+		refBytes := int64(len(fileRefParts[index]))
+		if refBytes > total {
+			return 0, fmt.Errorf("prepared file ref length exceeds request length")
+		}
+		total -= refBytes
+		part := struct {
+			Type string `json:"type"`
+			File struct {
+				Filename string `json:"filename"`
+				FileData string `json:"file_data"`
+			} `json:"file"`
+		}{Type: "file"}
+		part.File.Filename = file.Filename
+		part.File.FileData = "data:" + file.MIMEType + ";base64,"
+		encodedPart, err := json.Marshal(part)
+		if err != nil {
+			return 0, fmt.Errorf("encode materialized file part summary: %w", err)
+		}
+		total, err = addNonNegativeInt64(total, int64(len(encodedPart)))
+		if err != nil {
+			return 0, err
+		}
+		base64Bytes, err := base64EncodedFileLength(file.Size)
+		if err != nil {
+			return 0, err
+		}
+		total, err = addNonNegativeInt64(total, base64Bytes)
+		if err != nil {
+			return 0, err
+		}
+	}
+	return total, nil
+}
+
+func base64EncodedFileLength(size int64) (int64, error) {
+	if size < 0 || size > math.MaxInt64-2 {
+		return 0, fmt.Errorf("file size cannot be represented as Base64 length")
+	}
+	groups := (size + 2) / 3
+	if groups > math.MaxInt64/4 {
+		return 0, fmt.Errorf("Base64 length overflows int64")
+	}
+	return groups * 4, nil
+}
+
+func (s *Service) logInvalidPreparedRequestSummary(ctx context.Context, runID int64, attempts []ProviderAttemptRow) {
+	logger := s.logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	var attemptID int64
+	if len(attempts) > 0 {
+		attemptID = attempts[len(attempts)-1].ID
+	}
+	logger.ErrorContext(ctx, "invalid persisted AI prepared request summary",
+		slog.Int64("run_id", runID),
+		slog.Int64("attempt_id", attemptID),
+	)
 }
 
 func nonNegativeDurationMS(start, end *time.Time) *int64 {

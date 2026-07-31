@@ -1803,7 +1803,12 @@ ai_runs records Run-level history for current chat/text/tool/image execution and
 Chat runs may link ai_conversations/ai_messages; text/tool/image runs do not fake messages, and their task identity stays in their owning task tables instead of ai_runs polymorphic source fields.
 AI audio and video generation are retired. Ordinary image/video/audio upload, editor media, ai_assets metadata, object storage, MIME handling, and the generic media billing category remain available and are not generation runtimes.
 Provider usage is normalized only into token totals; token totals are never guessed from prompt length, image count, duration, or model name, and there is no usage_status column.
-ai_run_events records lifecycle events only: start/completed/failed/canceled/timeout.
+Native file request: immutable manifest -> conditional COS stream -> provider body.
+Recovery source: persisted manifest only.
+Financial proof: native_file_context_window_v1.
+Settlement source: complete upstream usage only.
+Forbidden persistence: file bytes, Base64, materialized request, temporary credentials.
+ai_run_events exposes lifecycle events only. The internal durable file_materialized_v1 event stores exactly three non-negative integer metrics (COS HEAD ms, COS stream ms, and materialized request bytes), is validated against the Run duration before aggregation, and is always filtered from public Run events.
 ai_tool_calls records tool execution audit and is shown on run detail; tool calls are not stuffed into ai_run_events.
 ai_knowledge_retrievals and ai_knowledge_retrieval_hits record knowledge retrieval audit and are shown on run detail; knowledge retrievals are not stuffed into ai_run_events.
 Each ai.response.delta.v2 is published only after its contiguous command-scoped delivery chunk is committed in MySQL. Delivery chunks are temporary recovery facts and are cleaned in bounded batches after a terminal commit, with reconciler compensation.

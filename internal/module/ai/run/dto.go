@@ -221,6 +221,8 @@ type LatencyBreakdown struct {
 	AcceptMS        *int64 `json:"accept_ms"`
 	QueueMS         *int64 `json:"queue_ms"`
 	PrepareMS       *int64 `json:"prepare_ms"`
+	COSHeadMS       *int64 `json:"cos_head_ms"`
+	COSStreamMS     *int64 `json:"cos_stream_ms"`
 	TTFTMS          *int64 `json:"ttft_ms"`
 	ProviderTotalMS *int64 `json:"provider_total_ms"`
 	SettlementMS    *int64 `json:"settlement_ms"`
@@ -229,10 +231,16 @@ type LatencyBreakdown struct {
 }
 
 type SafeRequestSummary struct {
-	ProviderAttemptCount int  `json:"provider_attempt_count"`
-	ToolCallCount        int  `json:"tool_call_count"`
-	PreparedRequestBytes int  `json:"prepared_request_bytes"`
-	MessageCount         *int `json:"message_count"`
+	ProviderAttemptCount     int    `json:"provider_attempt_count"`
+	ToolCallCount            int    `json:"tool_call_count"`
+	PreparedRequestBytes     int    `json:"prepared_request_bytes"`
+	MessageCount             *int   `json:"message_count"`
+	AttachmentCount          int    `json:"attachment_count"`
+	NativeFileCount          int    `json:"native_file_count"`
+	NativeFileBytes          int64  `json:"native_file_bytes"`
+	PreparedManifestBytes    int    `json:"prepared_manifest_bytes"`
+	MaterializedRequestBytes int64  `json:"materialized_request_bytes"`
+	FileInputMode            string `json:"file_input_mode"`
 }
 
 type PricingDetail struct {

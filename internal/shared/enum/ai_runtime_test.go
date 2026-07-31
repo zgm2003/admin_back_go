@@ -12,7 +12,7 @@ func TestAIRuntimeEnumsAreStable(t *testing.T) {
 	if AIRunStatusTimeout == "timed_out" {
 		t.Fatal("Run timeout must remain distinct from reply-command timed_out")
 	}
-	if !IsAIRunEvent(AIRunEventStart) || !IsAIRunEvent(AIRunEventCompleted) || !IsAIRunEvent(AIRunEventFailed) || !IsAIRunEvent(AIRunEventCanceled) || !IsAIRunEvent(AIRunEventTimeout) || IsAIRunEvent("delta") {
+	if !IsAIRunEvent(AIRunEventStart) || !IsAIRunEvent(AIRunEventCompleted) || !IsAIRunEvent(AIRunEventFailed) || !IsAIRunEvent(AIRunEventCanceled) || !IsAIRunEvent(AIRunEventTimeout) || !IsAIRunEvent(AIRunEventFileMaterialized) || AIRunEventFileMaterialized != "file_materialized_v1" || IsAIRunEvent("delta") {
 		t.Fatalf("run event enum mismatch")
 	}
 }
