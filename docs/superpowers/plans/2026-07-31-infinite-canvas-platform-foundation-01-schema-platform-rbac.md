@@ -12,7 +12,10 @@
 
 ## 执行边界
 
+> **并行与提交覆盖规则：** 实施时同时遵守 `E:\admin\LONG_TASK_PARALLEL_EXECUTION.md` 和 execution index。子执行器只修改分配给自己的文件并返回 diff/测试证据，不运行 `git add`、`git commit`、merge 或 rebase；下文所有“提交”步骤均为主线程审查后的集成检查点。Plan 01 的 migration、canonical HCL 和 `atlas.sum` 是单一写入 lane，其他并发槽位只能做只读审查。
+
 - 所有路径相对 `E:\admin\admin_back_go`。
+- 开始前必须证明 reviewed backend capability baseline `d028e17ffd2a66d08b898f905e44cb93cb262bcf` 是当前 HEAD 的祖先；若此后 schema、migration、Contract、COS 或 runtime 又变化，先按 execution index 审查并更新基线。`202607310101..103` 只能追加在当前 `database/migrations` 尾部，并基于最新 `database/schema/admin.hcl`/`atlas.sum` 生成，禁止恢复旧 checksum 或覆盖 AI provider/COS 相关 schema。
 - 本 Plan 在 Wave 0 独占 `database/schema/admin.hcl` 和 `database/migrations/atlas.sum`；Plan 07 只可追加已批准的 `202607310104` 数据激活 migration 并重算 checksum，不得改 canonical DDL。
 - migrations 只 expand/backfill，不物理删除 `users.role_id`、历史 `ai_assets/ai_prompts` 列或任何数据表。
 - 运行 migration 前停止会写 users/roles/permissions/assets/prompts 的 API 和 Worker；自动测试不连接真实业务库。

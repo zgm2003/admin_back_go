@@ -94,11 +94,13 @@ transport and compile-time registry entry.
 
 本仓库采用 `Gin modular monolith`。
 
-完整架构规则见：
+当前架构与长任务执行规则见：
 
 ```text
-E:\admin_go\docs\architecture\04-go-backend-framework.md
-E:\admin_go\docs\architecture\05-development-quality-rules.md
+E:\admin\admin_back_go\docs\architecture.md
+E:\admin\admin_back_go\internal\module\README.md
+E:\admin\admin_back_go\internal\platform\README.md
+E:\admin\LONG_TASK_PARALLEL_EXECUTION.md
 ```
 
 ## 当前阶段

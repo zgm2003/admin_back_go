@@ -12,13 +12,16 @@
 
 ## 执行边界
 
-- 此 Plan 依赖 Plans 01-06 全部合并，且三个仓库都从干净、已提交的基线开始；`canvas_front_next/a` 的用户删除状态仍不属于任何提交。
+> **并行与提交覆盖规则：** 实施时同时遵守 `E:\admin\LONG_TASK_PARALLEL_EXECUTION.md` 和 execution index。本 Plan 的 migration、Atlas、Contract、generated tree、release evidence、部署动作和所有提交均由主线程串行执行；执行器只能承担互不写共享状态的定向验证并返回证据。下文所有“提交”步骤均为主线程检查点。
+
+- 此 Plan 依赖 Plans 01-06 全部合并，且三个仓库都从已提交基线开始并保持 clean。`canvas_front_next/a` 已在基础 baseline 中正式删除，任何工作树或 index 都不得重新出现该路径。
 - 只有此 Plan 可以创建 `database/migrations/202607310104_infinite_canvas_runtime_activation.sql` 并为它重算 `database/migrations/atlas.sum`；不得修改 101-103、canonical HCL 或已有 migration。
 - activation migration 只允许启用 `infinite_canvas_prompt_sync` 与 `infinite_canvas_asset_upload_cleanup` 两行，不能修改 cron、handler、title、其他 schedule 或业务数据。
 - 两个 Contract manifest 必须绑定同一个 40 位 backend runtime commit。冻结后如任何 Go、migration、route、permission 或 DTO 改变，废弃该 SHA，重新运行全部 backend gates 并重新生成两个 Bundle。
 - 自动 E2E 使用 disposable MySQL/Redis、测试 SMTP/验证码读取器和本地 COS-compatible fixture；真实腾讯云 COS、邮件投递和公网 prompt feed 另做人工 smoke，不能把凭证写入仓库或测试报告。
 - Playwright 必须访问同一个真实 Go router 和生成 client，不允许用 MSW/page.route 替换业务 API。只有外部邮件/COS/feed adapter 可由 acceptance fixture 替代。
 - 不启用任何 AI generation、audio/video 或计费功能；发现相关 route/UI 即阻断发布。
+- “继续执行计划”默认只授权开发短门禁；`go test ./...`、race、真实 Go router Playwright、长 smoke、真实 COS/mail/feed 属于 release acceptance，必须由用户明确授权后运行。
 
 ## Release Invariants
 
@@ -35,13 +38,32 @@ task types:
   infinite-canvas:asset-upload-cleanup:v1
 ```
 
+## Verification Tiers
+
+**Development-complete short gate（默认自动执行）：**
+
+- 受影响 Go package 定向 tests、architecture tests、route/registry tests。
+- `verify-runtime-contracts.ps1`、Contract drift/hash check。
+- 通过固定 `--network none` 的 `atlas.ps1` 执行 checksum-backed `migrate validate`，并通过 architecture test 静态验证 guarded activation；短门禁不执行任何需要数据库 URL 的 `migrate status`。
+- 两个前端的 contract check、typecheck、定向 Vitest、lint/format 和 production build。
+- `git diff --check`、敏感字段和退役 surface 静态扫描。
+
+**Release-acceptance long gate（需要用户明确授权）：**
+
+- `go test ./...`、指定 package race、完整 database verifier，以及 disposable database 上的 migration status/apply/status smoke。
+- 真实 Go router + disposable services 的 Playwright 全流程。
+- 真实腾讯云 COS、真实邮件投递、公网 prompt feed 的人工 smoke。
+- cron 部署、canary、104 activation 和停用演练。
+
+短门禁全部通过且长门禁被准确列为未执行项时，可以声明“开发完成”，不能声明“发布验收完成”。只有 release long gate 与人工 smoke 都有证据后才能使用后者。
+
 ### Task 1: 追加 guarded runtime activation migration
 
 **Files:**
 - Create: `database/migrations/202607310104_infinite_canvas_runtime_activation.sql`
 - Create: `internal/architecture/infinite_canvas_activation_test.go`
 - Modify: `database/migrations/atlas.sum`
-- Modify: `docs/operations/infinite-canvas.md`
+- Create: `docs/operations/infinite-canvas.md`
 
 - [ ] **Step 1: 先写 migration 静态失败测试**
 
@@ -121,22 +143,32 @@ COS fixture 只接受已签发的单一 key、PUT/HEAD/GET/DELETE 和 SHA metada
 6. Admin manual prompt/source CRUD 与 queue sync；Canvas 只读启用 prompt。
 7. prompt sync 失败保留旧数据；cleanup 对 missing object 幂等。
 8. 两条 cron 在 activation migration 前仍 disabled，registry 和 Worker handler 已存在。
+9. `-Mode MigrationStatus -ExpectedPending 202607310104` 创建独立 disposable schema，通过 `atlas-runtime-common.ps1` 的临时受限 config 和 fixture network 运行 pinned Atlas：先 apply 到 103，解析 status 并要求 pending 文件精确只有 104；再 apply 104，要求输出包含 `Migration Status: OK`、pending 数为零，并验证除两条目标 cron 的 `status` 外没有数据变化。不得调用固定 `--network none` 的 `scripts/database/atlas.ps1` 执行数据库命令，也不得接受未知 pending migration。
 
-- [ ] **Step 4: 实现统一后端 verifier**
+- [ ] **Step 4: 实现默认短门禁和显式 `-Release` 长门禁**
 
-脚本按 fail-fast 顺序运行，不吞 exit code：
+`scripts/verify-infinite-canvas.ps1` 默认按 fail-fast 顺序只运行短门禁，不吞 exit code：
+
+```powershell
+go test ./internal/module/auth/... ./internal/module/permission/... ./internal/module/role/... ./internal/module/user/... ./internal/module/canvasproject/... ./internal/module/ai/asset/... ./internal/module/ai/prompt/... ./internal/module/crontask/... ./internal/infra/storage/cos ./internal/platform/admin ./internal/platform/infinitecanvas ./internal/server/... ./internal/jobs/... ./internal/runtime ./internal/admincontract ./internal/infinitecanvascontract
+go test ./internal/architecture -run 'InfiniteCanvas|PlatformRBAC' -count=1
+pwsh -NoProfile -File scripts/verify-runtime-contracts.ps1
+pwsh -NoProfile -File scripts/database/atlas.ps1 migrate validate --dir file://database/migrations
+go vet ./internal/module/auth/... ./internal/module/permission/... ./internal/module/role/... ./internal/module/user/... ./internal/module/canvasproject/... ./internal/module/ai/asset/... ./internal/module/ai/prompt/... ./internal/module/crontask/... ./internal/infra/storage/cos ./internal/platform/admin ./internal/platform/infinitecanvas ./internal/server/... ./internal/jobs/... ./internal/runtime ./internal/admincontract ./internal/infinitecanvascontract
+git diff --check
+```
+
+只有调用者显式传入 `-Release` 时，脚本才追加：
 
 ```powershell
 go test ./...
-pwsh -NoProfile -File scripts/verify-runtime-contracts.ps1
 pwsh -NoProfile -File scripts/verify-durable-work.ps1
-pwsh -NoProfile -File scripts/database/atlas.ps1 migrate validate --dir file://database/migrations
 pwsh -NoProfile -File scripts/verify-database.ps1 -Mode all
-go vet ./...
+pwsh -NoProfile -File scripts/infinite-canvas-smoke.ps1 -Mode MigrationStatus -ExpectedPending 202607310104
 go test -race ./internal/module/auth ./internal/module/permission ./internal/module/role ./internal/module/user ./internal/module/canvasproject ./internal/module/ai/asset ./internal/module/ai/prompt ./internal/server ./internal/runtime
 ```
 
-Windows 无 C compiler 时复用 `verify-runtime-contracts.ps1` 的 pinned Linux Go image 执行同一 race package list，不能降级为无 race 通过。
+Pester tests 必须证明默认 invocation 不调用任何 long command 或数据库连接型 Atlas command，`-Release` 才调用 migration status fixture 和其他 long command，且任一失败立即返回非零。Windows 无 C compiler 时复用 `verify-runtime-contracts.ps1` 的 pinned Linux Go image 执行同一 race package list，不能降级为无 race 通过。
 
 - [ ] **Step 5: 运行 smoke script 自测并提交**
 
@@ -145,6 +177,8 @@ Invoke-Pester scripts/tests/infinite-canvas-smoke.tests.ps1
 pwsh -NoProfile -File scripts/verify-infinite-canvas.ps1
 git diff --check
 ```
+
+Expected: 默认只执行 short gate。此 Task 不自动调用 `-Release`。
 
 ```bash
 git add internal/acceptance/infinitecanvas scripts/verify-infinite-canvas.ps1 scripts/infinite-canvas-smoke.ps1 scripts/tests/infinite-canvas-smoke.tests.ps1 scripts/verify-runtime-contracts.ps1
@@ -161,15 +195,18 @@ git commit -m "test(canvas): 增加平台全链路后端门禁"
 
 - [ ] **Step 1: 在 clean checkout 运行冻结前全部门禁**
 
-确保 Task 1/2 已提交，Plans 01-05 的所有 runtime changes 都已提交，且 `git status --porcelain --untracked-files=all` 为空。运行 `scripts/verify-infinite-canvas.ps1` 成功后记录：
+确保 Task 1/2 已提交，Plans 01-05 的所有 runtime changes 都已提交，且 `git status --porcelain --untracked-files=all` 为空。运行 `scripts/verify-infinite-canvas.ps1` 成功后再次确认工作树仍为空，再记录：
 
 ```powershell
+pwsh -NoProfile -File scripts/verify-infinite-canvas.ps1
+$status = git status --porcelain --untracked-files=all
+if ($status) { throw "backend changed during freeze gates" }
 $backendCommit = (git rev-parse HEAD).Trim()
 ```
 
 必须是 40 位小写 SHA。这个 SHA 是最终 runtime commit；后续 bundle artifact commit 只能修改 generated contracts/release evidence，不能修改 Go、migration、schema、seed 或 scripts。
 
-- [ ] **Step 2: 用同一 SHA 原子生成两个 Bundle**
+- [ ] **Step 2: 用同一 SHA 串行生成并校验两个 Bundle**
 
 ```powershell
 pwsh -NoProfile -File scripts/generate-admin-contract.ps1 -BackendCommit $backendCommit
@@ -179,6 +216,8 @@ pwsh -NoProfile -File scripts/check-infinite-canvas-contract.ps1 -BackendCommit 
 ```
 
 读取两个 manifest，断言 `backend_commit` 都逐字等于 `$backendCommit`；逐个重算 artifact SHA。Admin bundle 必须保留 views/realtime artifacts并含新增 RBAC/prompt routes；Canvas bundle 只能有三文件和 `/api/infinite-canvas/v1/**` routes。
+
+两个 generator 各自对单个 Bundle 原子写入，但二者不是跨目录事务；任一 generate/check 失败时不得 stage 或提交任何一边，修复后从同一 clean `$backendCommit` 重新生成并校验两边。
 
 - [ ] **Step 3: 做 route/permission 差异审计**
 
@@ -211,6 +250,8 @@ npm -C E:/admin/admin_front_ts run build:check
 
 运行角色、用户平台 binding、提示词、来源页面定向测试，再运行 `npm -C E:/admin/admin_front_ts run verify:frontend`。禁止手工改 generated client 通过编译。
 
+Admin lock 和同步后的 manifest 中 `backend_commit` 必须逐字等于 `$backendCommit`。
+
 - [ ] **Step 2: 同步 Canvas Bundle 并生成 client**
 
 ```powershell
@@ -220,7 +261,7 @@ npm -C E:/admin/canvas_front_next run contract:check
 npm -C E:/admin/canvas_front_next run verify
 ```
 
-Canvas lock 和 manifest commit 必须等于 `$backendCommit`。检查 `git status --short -- a` 仍为 ` D a`，显式暂存 generated contract/client/evidence，不触碰 `a`。
+Canvas lock 和 manifest commit 必须等于 `$backendCommit`。检查 `git ls-files -- a` 无输出且 `Test-Path -LiteralPath .\a` 为 `False`，显式暂存 generated contract/client/evidence，不重新创建 `a`。
 
 - [ ] **Step 3: 校验两个前端无跨 Bundle 依赖**
 
@@ -235,7 +276,7 @@ admin_front_ts:   chore(contract): 同步无限画布管理契约
 canvas_front_next: chore(contract): 锁定无限画布发布契约
 ```
 
-### Task 5: 完成真实 Go backend Playwright 业务验收
+### Task 5: 经用户授权后完成真实 Go backend Playwright 发布验收
 
 **Files:**
 - Modify: `E:\admin\canvas_front_next\playwright.config.ts`
@@ -261,7 +302,7 @@ runner 验证 backend executable/image revision 等于 `$backendCommit`，对 di
 
 上传 JPEG/PNG/WebP fixture，验证 intent -> COS PUT -> asset confirm -> picker -> image/config reference -> autosave。刷新签名、跨设备加载图片、被引用删除 409、解除引用后删除成功。尝试超限/伪图片必须失败且无 asset row。
 
-浏览/筛选/查看 prompt，以纯文本插入 text/config 节点并保存。UI 中不能出现来源编辑、同步、渠道、provider、WebDAV、Agent、插件、文档、外链、audio/video 或生成按钮。
+浏览/筛选/查看 prompt，以纯文本插入 text/config 节点并保存。UI 中不能出现来源编辑、同步、渠道、provider、WebDAV、Agent、插件、文档站、智能体/GitHub/版本发布外链、audio/video 或生成按钮；经过校验的提示词 HTTPS cover/reference 可以显示。
 
 - [ ] **Step 5: 验收 owner/RBAC 404 和视觉布局**
 
@@ -269,7 +310,7 @@ runner 验证 backend executable/image revision 等于 `$backendCommit`，对 di
 
 在 1440x900、1280x720、390x844、360x800 采集 screenshot 和 bounding-box assertions。检查 canvas root 非空、图片像素非占位、toolbar/nav/dialog/drawer/node 不重叠、长 title/prompt/error 不溢出、移动端触控目标可点击。
 
-- [ ] **Step 6: 运行无 API mock 的 Playwright suite**
+- [ ] **Step 6: 在 release authorization 下运行无 API mock 的 Playwright suite**
 
 ```powershell
 npm -C E:/admin/canvas_front_next run test:e2e
@@ -277,15 +318,20 @@ npm -C E:/admin/canvas_front_next run test:e2e
 
 Expected: 所有 spec 通过；runner 报告中业务 API interception count 为 0，backend revision 精确匹配，退出后 disposable state 被验证并清理。
 
+没有用户对 release long gate 的明确授权时，本 Task 保持未执行并进入最终手工验收清单，不阻断“开发完成”，但阻断“发布验收完成”和 Task 6 cron activation。
+
 ### Task 6: 部署 handler 后激活 cron 并验证异步运行
 
 **Files:**
-- Modify: deployment/release manifest and `docs/operations/infinite-canvas.md`
-- Create: redacted release evidence under `docs/releases/**`
+- External prerequisite: approved immutable release manifest covering backend、Admin frontend、Canvas frontend and migration hold/apply phases
+- Modify: `docs/operations/infinite-canvas.md`
+- Create after release authorization: `docs/releases/infinite-canvas-release-evidence.md`
+
+现有 `release/admin-only/**`、`scripts/release/*admin-only*` 和两制品 manifest 只覆盖 backend + Admin frontend，不能用于本 Task，也不能为一次发布临时放宽。若用户未授权 release long gate，或平台发布系统尚未提供三制品 manifest、revision/contract lock 校验和独立 migration hold/apply 能力，本 Task 保持 `manual_pending`，不得创建空白/占位 `infinite-canvas-release-evidence.md`；这不阻断“开发完成”，但阻断 cron activation 和“发布验收完成”。
 
 - [ ] **Step 1: 发布冻结 backend runtime commit**
 
-先部署 API 和 Worker `$backendCommit`，再验证 API route registry、cron registry 和 Asynq handler registry 都含固定 name/type。至少执行一次直接 enqueue 的 prompt dispatch/source sync 和 asset cleanup canary，确认 Worker 消费成功；此时数据库两条 cron 必须仍为 status 2。
+release manifest 必须分别固定 backend artifact HEAD、运行时 `$backendCommit`、Admin frontend HEAD/lock、Canvas frontend HEAD/lock，并在 canary phase 明确 `apply_migrations=false`（或等价的 target 103 hold）。获批 release controller 使用其受管数据库连接运行 pinned Atlas status，必须证明 current version 是 103、pending 文件精确只有 `202607310104_infinite_canvas_runtime_activation.sql`；不得使用固定 `--network none` 的 `scripts/database/atlas.ps1`，也不得在日志或 evidence 中落 database URL。然后部署 API 和 Worker `$backendCommit`，验证 API route registry、cron registry 和 Asynq handler registry 都含固定 name/type。至少执行一次直接 enqueue 的 prompt dispatch/source sync 和 asset cleanup canary，确认 Worker 消费成功；此时数据库两条 cron 必须仍为 status 2。任何未知 pending migration 或部署器自动 apply 104 都是 release blocker，不能事后把 schedule 关回去伪造通过。
 
 - [ ] **Step 2: 发布两个前端并验证 manifest**
 
@@ -293,7 +339,7 @@ Expected: 所有 spec 通过；runner 报告中业务 API interception count 为
 
 - [ ] **Step 3: 执行 104 activation migration**
 
-只有前两步全部通过才运行 Atlas migrate apply 到 104。读取 `cron_task` 证明两行 status 1、handler/cron 不变；scheduler reload 后观察下次运行时间。禁止直接在 Admin UI 手工提前开启来规避 migration。
+只有前两步全部通过才由同一获批 release controller 运行 Atlas migrate apply 到 104。apply 后立即再次运行 status，输出必须包含 `Migration Status: OK` 且 pending 数为零；读取 `cron_task` 证明两行 status 1、handler/cron 不变，scheduler reload 后观察下次运行时间。禁止直接在 Admin UI 手工提前开启来规避 migration，status 非 clean 时不得继续 schedule 验收。
 
 - [ ] **Step 4: 验证两条 schedule 的真实行为**
 
@@ -303,7 +349,20 @@ Expected: 所有 spec 通过；runner 报告中业务 API interception count 为
 
 在 disposable 环境执行文档中的 `status=1 -> 2` 条件停用并 reload scheduler，证明不再新建 schedule job、已排队 job 可控消费/暂停、业务 HTTP 不受影响。随后按 guarded 流程恢复 status 1。生产只有发生 incident 时执行停用，不为验收反复改数据。
 
+- [ ] **Step 6: 写入并提交脱敏 release evidence**
+
+只有 Steps 1-5 获得授权并全部通过后才创建 `docs/releases/infinite-canvas-release-evidence.md`。记录批准单/三制品 immutable manifest 标识、三个 artifact revision、四处 `$backendCommit` lock、103 hold、activation 前唯一 pending 104、apply 后 `Migration Status: OK`、canary/schedule/停用演练时间与结果；只记录命令摘要和脱敏状态，不记录 database URL、secret、Cookie、signed query、邮箱或 prompt 正文。
+
+```bash
+git add docs/operations/infinite-canvas.md docs/releases/infinite-canvas-release-evidence.md
+git commit -m "docs(canvas): 记录发布激活证据"
+```
+
+Task 保持 `manual_pending` 时跳过本 Step，文件必须不存在；Task 7 只在 coverage matrix 中记录未执行原因，不得提交占位 evidence。
+
 ### Task 7: 最终静态泄露、架构文档和覆盖矩阵
+
+Task 7 的开发证据部分可在 Task 4 short gates 后执行；若 Task 5/6 尚未获得 release authorization，则对应行记录为 `manual_pending`。授权并完成 release acceptance 后，主线程更新同一份矩阵为最终状态。
 
 **Files:**
 - Modify: `docs/architecture.md`
@@ -323,21 +382,27 @@ Expected: 所有 spec 通过；runner 报告中业务 API interception count 为
 
 - [ ] **Step 3: 建立规格到证据覆盖矩阵**
 
-`infinite-canvas-foundation-acceptance.md` 对设计规格 1-17 节逐项列出实现 commit、自动测试、Playwright spec、人工 COS/mail/feed smoke 和结果。任何 pending/跳过项阻断完成，不允许用“前端隐藏了”替代服务端 404/403/无 route 证据。
+`infinite-canvas-foundation-acceptance.md` 对设计规格 1-17 节逐项列出实现 commit、自动短门禁、Playwright spec、人工 COS/mail/feed smoke 和结果。状态只允许 `passed | manual_pending | failed`：`failed` 阻断开发完成；`manual_pending` 不阻断开发完成但阻断发布验收完成。任何服务端 route/授权缺口都必须是 `failed`，不允许用“前端隐藏了”降级成 `manual_pending`。
 
-- [ ] **Step 4: 运行最终总门禁**
+- [ ] **Step 4: 运行开发完成总门禁；按授权追加 release gate**
 
 ```powershell
 pwsh -NoProfile -File scripts/verify-infinite-canvas.ps1
 npm -C E:/admin/admin_front_ts run verify:frontend
 npm -C E:/admin/canvas_front_next run verify
-npm -C E:/admin/canvas_front_next run test:e2e
 pwsh -NoProfile -File scripts/check-admin-contract.ps1 -BackendCommit $backendCommit
 pwsh -NoProfile -File scripts/check-infinite-canvas-contract.ps1 -BackendCommit $backendCommit
 git diff --check
 ```
 
-在三个仓库分别运行 status；除 `canvas_front_next` 用户预先存在的 ` D a` 外必须干净。读取两个 backend manifest 和两个 frontend lock，四处 commit 必须完全相同。
+只有用户已授权 release long gate 时再运行：
+
+```powershell
+pwsh -NoProfile -File scripts/verify-infinite-canvas.ps1 -Release
+npm -C E:/admin/canvas_front_next run test:e2e
+```
+
+在三个仓库分别运行 status，三者都必须 clean；`canvas_front_next/a` 必须仍不存在且未被跟踪。读取两个 backend manifest 和两个 frontend lock，四处 `backend_commit` 字段必须逐字等于 `$backendCommit`；三个仓库各自 HEAD 另行记录，不要求跨仓库 SHA 相同。
 
 - [ ] **Step 5: 提交最终文档证据**
 
@@ -348,12 +413,18 @@ git add docs/architecture.md docs/operations/infinite-canvas.md docs/releases/in
 git commit -m "docs(canvas): 记录平台基础接入验收"
 ```
 
-## 完成标准
+## 开发完成标准
 
-- 104 migration 只在冻结 backend handler 已部署并 canary 成功后执行，两条 schedule 可明确停用且没有 destructive rollback。
 - Admin 与 Infinite Canvas Bundle 绑定同一 runtime commit，两个前端 lock 与之完全一致，所有 drift/check/build 门禁通过。
-- disposable database、全量 Go、race、Atlas、route registry、durable task 和静态泄露测试通过。
-- Playwright 在真实 Go router 上覆盖验证码登录即注册、密码登录、项目、上传、跨设备、冲突两分支、提示词和越权 404，且不 mock 业务 API。
+- 定向 Go、Atlas checksum-backed validate、activation 静态测试、route registry、durable task、前端短门禁和静态泄露测试通过。
 - Admin/Canvas 身份、角色、permission、token、Cookie、session、logout、Origin 和登录日志无串用。
-- Canvas 产品面没有渠道、WebDAV、Agent、插件、文档、外链、audio/video、第三方生成或计费入口。
-- 真实 COS、邮件和公网 prompt feed smoke 完成，验收证据已脱敏；三个仓库只有用户原有且明确排除的改动。
+- Canvas 产品面没有渠道、WebDAV、Agent、插件、文档站、智能体/GitHub/版本发布外链、audio/video、第三方生成或计费入口；提示词 HTTPS cover/reference 符合 allowlist。
+- 未执行的 release long gate 和真实外部服务 smoke 已以 `manual_pending` 准确交付；三个仓库都 clean，且 `canvas_front_next/a` 没有重新出现。
+
+## 发布验收完成标准
+
+- disposable database、全量 Go、race、完整 Atlas/database verifier、migration status/apply/status、route registry、durable task 和静态泄露测试通过。
+- Playwright 在真实 Go router 上覆盖验证码登录即注册、密码登录、项目、上传、跨设备、冲突两分支、提示词和越权 404，且不 mock 业务 API。
+- 真实 COS、邮件和公网 prompt feed smoke 完成，验收证据已脱敏。
+- 104 migration 只在冻结 backend handler 已部署并 canary 成功后执行，两条 schedule 可明确停用且没有 destructive rollback。
+- 覆盖矩阵中没有 `manual_pending` 或 `failed`。

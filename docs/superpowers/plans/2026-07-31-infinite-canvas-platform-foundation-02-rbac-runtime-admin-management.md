@@ -12,6 +12,8 @@
 
 ## 执行边界
 
+> **并行与提交覆盖规则：** 实施时同时遵守 `E:\admin\LONG_TASK_PARALLEL_EXECUTION.md` 和 execution index。子执行器只修改分配给自己的文件并返回 diff/测试证据，不运行 `git add`、`git commit`、merge 或 rebase；下文所有“提交”步骤均为主线程审查后的集成检查点。Tasks 1-4 是强依赖 runtime chain，使用一个写 lane 按顺序推进；其他槽位只能做不写共享状态的 SQL/授权/Contract 审查和定向验证。Contract/generated tree 始终由主线程处理。
+
 - 依赖 Plan 01 migrations/HCL 已合并，测试 fixture 必须写 `roles.platform`、`role_permissions.platform` 和 `user_platform_roles`。
 - 所有后端路径相对 `E:\admin\admin_back_go`；Admin 前端路径相对 `E:\admin\admin_front_ts`。
 - 本 Plan 不新增 Canvas HTTP route、session 或 Cookie；`enum.RegisteredPlatforms()` 在完成态仍只返回 Admin。
@@ -428,16 +430,18 @@ git commit -m "feat(user): 管理平台角色绑定"
 ### Task 5: 发布 Admin RBAC contract 并改造角色/用户页面
 
 **Files:**
-- Modify: `contracts/admin/v1/**`
+- Main-thread generation only: `contracts/admin/v1/**`
 - Create: `E:\admin\admin_front_ts\tests\shared\permission\platform-role-api.test.ts`
 - Create: `E:\admin\admin_front_ts\tests\shared\user\platform-role-bindings.test.ts`
 - Modify: `E:\admin\admin_front_ts\contracts/backend/admin/v1/**`
 - Modify: `E:\admin\admin_front_ts\src/modules/http/generated/{admin,operations}.ts`
 - Modify: Admin frontend API/types/views/i18n listed above
 
-- [ ] **Step 1: 先生成开发期 Admin Bundle 并确认 schema 包含新字段**
+- [ ] **Step 1: 主线程确认 runtime 已提交，再生成 Admin Bundle**
 
 ```powershell
+$status = git status --porcelain --untracked-files=all
+if ($status) { throw "RBAC runtime must be committed before contract generation" }
 $commit = (git rev-parse HEAD).Trim()
 pwsh -NoProfile -File scripts/generate-admin-contract.ps1 -BackendCommit $commit
 go test ./internal/admincontract -count=1
@@ -445,7 +449,23 @@ go test ./internal/admincontract -count=1
 
 Expected: exit 0；OpenAPI 的 role mutation 必含 `platform`，user update 必含 `platform_roles`，旧列表 item 不再有全局 `role_id`。
 
-- [ ] **Step 2: 同步前端并写失败契约测试**
+- [ ] **Step 2: 主线程校验并单独提交后端 Bundle artifacts**
+
+```powershell
+pwsh -NoProfile -File scripts/check-admin-contract.ps1 -BackendCommit $commit
+git diff --check
+```
+
+Expected: exit 0；`contracts/admin/v1/manifest.json` 的 `backend_commit` 逐字等于 `$commit`，artifact hash 全部匹配，当前差异只包含 generator 输出的 Admin Bundle。
+
+```bash
+git add contracts/admin/v1
+git commit -m "feat(contract): 发布平台 RBAC 管理契约"
+```
+
+提交后再次确认 backend 工作树 clean。Admin 前端只能从这个已提交 Bundle 同步，不能读取后端尚未提交的生成物。
+
+- [ ] **Step 3: 同步前端并写失败契约测试**
 
 在 `E:\admin\admin_front_ts`：
 
@@ -460,7 +480,7 @@ Run: `npm test -- tests/shared/permission/platform-role-api.test.ts tests/shared
 
 Expected: FAIL，现有 adapter 仍发送单个 `role_id` 且 role API 没有 platform。
 
-- [ ] **Step 3: 改造角色 API 和页面**
+- [ ] **Step 4: 改造角色 API 和页面**
 
 ```ts
 export interface RoleListParams {
@@ -479,7 +499,7 @@ export interface RoleAddPayload {
 
 页面 `activePlatform` 改变时重新请求 role list；新增/编辑 dialog 的 platform 固定为当前 tab，编辑期间不能切换；permission matrix 只显示当前 platform；默认角色 switch 只影响当前平台。列表增加“平台”列，所有按钮保持现有 RBAC directive。
 
-- [ ] **Step 4: 改造用户 API 和编辑表单**
+- [ ] **Step 5: 改造用户 API 和编辑表单**
 
 ```ts
 export interface UserPlatformRole {
@@ -502,7 +522,7 @@ export interface UserEditParams {
 
 筛选先选平台再显示该平台 roles；编辑 dialog 每个平台使用一个 select，允许清空 binding。列表用紧凑 tag 展示“后台 / 无限画布”角色，不嵌套卡片；Canvas-only 用户仍可编辑、禁用、删除。前端不得从旧 `role_id` 合成 bindings。
 
-- [ ] **Step 5: 更新双语文案并运行前端门禁**
+- [ ] **Step 6: 更新双语文案并运行前端门禁**
 
 ```powershell
 npm run locale:generate
@@ -514,16 +534,7 @@ npm run build
 
 Expected: 全部退出 0；两个新测试 PASS，Admin 角色和用户页面不使用 `any` 或手写 fallback DTO。
 
-- [ ] **Step 6: 分仓提交**
-
-后端：
-
-```bash
-git add contracts/admin/v1 internal/admincontract
-git commit -m "feat(contract): 发布平台 RBAC 管理契约"
-```
-
-Admin 前端：
+- [ ] **Step 7: 提交 Admin 前端**
 
 ```bash
 git add contracts/backend/admin src/modules/http/generated src/api/permission src/api/user src/types/user src/views/Main/permission/role src/views/Main/user/userManager src/i18n tests/shared/permission/platform-role-api.test.ts tests/shared/user/platform-role-bindings.test.ts
@@ -562,7 +573,7 @@ git -C E:/admin/admin_front_ts status --short
 git -C E:/admin/canvas_front_next status --short
 ```
 
-Expected: 后端和 Admin 前端干净；Canvas 仅显示用户原有 `D a`。
+Expected: 后端、Admin 前端和 Canvas 前端都 clean；`canvas_front_next/a` 不存在且未被重新跟踪。
 
 ## 完成标准
 

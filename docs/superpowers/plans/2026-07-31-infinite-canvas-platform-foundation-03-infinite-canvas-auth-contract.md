@@ -12,6 +12,8 @@
 
 ## 执行边界
 
+> **并行与提交覆盖规则：** 实施时同时遵守 `E:\admin\LONG_TASK_PARALLEL_EXECUTION.md` 和 execution index。子执行器只修改分配给自己的文件并返回 diff/测试证据，不运行 `git add`、`git commit`、merge 或 rebase；下文所有“提交”步骤均为主线程审查后的集成检查点。首轮只并发：Task 1 auth capability、Task 2 的 `internal/config/**` + `internal/middleware/cors.go`、Task 5 Step 2 contractbundle core。`internal/server/**`、`internal/platform/**`、runtime composition、Canvas contract package/CLI/artifacts 只归主线程；三条 lane 返回后再串行完成 Tasks 3-6 的依赖部分。
+
 - 依赖 Plan 02 已完成：principal 只读 `user_platform_roles`，通用包名为 `internal/server/routepolicy`。
 - 本 Plan 结束时 `enum.RegisteredPlatforms()` 才从 `[admin]` 变为 `[admin,infinite_canvas]`。
 - Canvas transport 不导入 Admin transport，也不调用 Admin presenter；共享逻辑留在 `internal/module/auth` 和 `internal/module/user`。
@@ -489,9 +491,25 @@ infinite-canvas-contract <generate|check> -out contracts/infinite-canvas/v1 -com
 
 scripts 与 Admin 一样：默认生成要求 clean committed checkout；check 默认读取 manifest backend_commit；任何 dirty/default commit 猜测都失败。
 
-- [ ] **Step 5: 生成 bundle 并运行 contract tests**
+- [ ] **Step 5: 主线程先提交 Contract runtime，再从 clean HEAD 生成 bundle**
+
+先运行 generator/contract 定向测试，再显式提交非生成物：
 
 ```powershell
+go test ./internal/contractbundle ./internal/infinitecanvascontract ./cmd/infinite-canvas-contract ./internal/admincontract -count=1
+git diff --check
+```
+
+```bash
+git add internal/contractbundle internal/infinitecanvascontract internal/admincontract cmd/infinite-canvas-contract scripts/generate-infinite-canvas-contract.ps1 scripts/check-infinite-canvas-contract.ps1
+git commit -m "feat(contract): 建立无限画布契约生成器"
+```
+
+确认 backend clean 后才读取 SHA 和生成 artifacts：
+
+```powershell
+$status = git status --porcelain --untracked-files=all
+if ($status) { throw "backend must be clean before contract generation" }
 $commit = (git rev-parse HEAD).Trim()
 pwsh -NoProfile -File scripts/generate-infinite-canvas-contract.ps1 -BackendCommit $commit
 go test ./internal/infinitecanvascontract ./cmd/infinite-canvas-contract ./internal/admincontract -count=1
@@ -500,10 +518,10 @@ pwsh -NoProfile -File scripts/check-infinite-canvas-contract.ps1 -BackendCommit 
 
 Expected: 全部退出 0；Canvas bundle 只有三文件且 SHA 正确，Admin bundle artifacts 不减少。
 
-- [ ] **Step 6: 提交 Contract Bundle**
+- [ ] **Step 6: 单独提交 Contract artifacts**
 
 ```bash
-git add internal/contractbundle internal/infinitecanvascontract internal/admincontract cmd/infinite-canvas-contract scripts/generate-infinite-canvas-contract.ps1 scripts/check-infinite-canvas-contract.ps1 contracts/infinite-canvas/v1
+git add contracts/infinite-canvas/v1
 git commit -m "feat(contract): 发布无限画布认证契约"
 ```
 

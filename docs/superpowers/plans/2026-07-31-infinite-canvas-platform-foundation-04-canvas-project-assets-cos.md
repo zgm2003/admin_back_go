@@ -12,12 +12,16 @@
 
 ## 执行边界
 
+> **并行与提交覆盖规则：** 实施时同时遵守 `E:\admin\LONG_TASK_PARALLEL_EXECUTION.md` 和 execution index。Project、Asset/COS 使用不同 worktree 和独占目录；子执行器只返回 diff/测试证据，不运行 `git add`、`git commit`、merge、rebase 或 Contract 生成。`internal/platform/**`、`internal/server/**`、`internal/jobs/**`、`internal/module/crontask/**`、`internal/runtime/**` 和 Contract 全部由主线程在 Wave 3I 一次性集成；下文“提交”步骤均为主线程检查点。
+
 - 依赖 Plan 03 的 Canvas graph、trusted route group 和 Contract Bundle。
+- 还依赖 AI native file attachment 工作已经合并并形成干净 backend 基线；实施前必须重新读取现有 `internal/infra/storage/cos/object_inspector.go`、`object_stream.go`、`object_reader.go`、`object_writer.go`、`signer.go` 及测试。
 - 所有后端路径相对 `E:\admin\admin_back_go`。
 - 本 Plan 不实现 AI 生成、图片编辑处理、视频/音频素材写入、永久公开 URL 或素材物理删除任务。
 - 所有 owner query 必须在 SQL 中包含 `platform='infinite_canvas' + user_id + is_del=2`；越权与不存在统一 `404`。
 - COS bucket 保持私有。object key 固定为 `infinite-canvas/users/{userId}/assets/{yyyy}/{mm}/{32 lowercase hex}.{jpg|png|webp}`；客户端不能提交 key。
 - 单图最大 `20 MiB`；intent TTL 10 分钟；读取签名 TTL 5 分钟；项目 JSON 最大 5 MiB。
+- Canvas COS 能力必须复用现有 config provider、signed client、HEAD/GET metadata、context body 和错误映射。允许抽取 transport-neutral primitive，但禁止复制一套 SDK client/config/error 实现；AI key policy 与 Canvas key policy 保持各自 adapter，不能互相放宽 namespace。
 
 ## 文件结构
 
@@ -25,7 +29,7 @@
 
 - `internal/module/canvasproject/{model,dto,document,repository,service}.go` 及对应测试。
 - `internal/module/canvasproject/transport/infinitecanvas/{route,request,handler,presenter}.go` 及测试。
-- `internal/infra/storage/cos/private_object_gateway.go`、`private_object_gateway_test.go`。
+- `internal/infra/storage/cos/private_object_gateway.go`、`private_object_gateway_test.go`：从现有 inspector/streamer 抽出的 transport-neutral private object core。
 - `internal/module/ai/asset/{upload_intent,image_verifier,upload_service,cleanup_job}.go` 及测试。
 - `internal/module/ai/asset/transport/infinitecanvas/{route,request,handler,presenter}.go` 及测试。
 - `internal/architecture/infinite_canvas_resource_isolation_test.go`。
@@ -33,7 +37,11 @@
 **Modify:**
 
 - `internal/module/ai/asset/{model,dto,repository,service}.go` 及测试。
+- `internal/infra/storage/cos/{object_inspector,object_stream}.go` 及测试：保持 AI adapter 行为并改为复用 private object core。
 - `internal/infra/storage/cos/signer.go`、`signer_test.go`：证明 policy 仍只授权单个 key。
+
+**Main-thread integration only:**
+
 - `internal/platform/infinitecanvas/{graph,build}.go` 及测试。
 - `internal/server/router.go`、Canvas route golden。
 - `internal/jobs/noop.go`、`noop_test.go`：注册 cleanup task definition。
@@ -226,13 +234,12 @@ git add internal/module/canvasproject
 git commit -m "feat(canvas): 持久化版本化画布项目"
 ```
 
-### Task 3: 暴露项目 REST routes 和冲突契约
+### Task 3: 交付项目 REST transport 和冲突契约
 
 **Files:**
 - Create: `internal/module/canvasproject/transport/infinitecanvas/**`
-- Modify: `internal/platform/infinitecanvas/{graph,build}.go`
-- Modify: `internal/server/router.go`
-- Test: transport、graph、router tests
+- Main-thread integration only: `internal/platform/infinitecanvas/{graph,build}.go`、`internal/server/router.go`
+- Test in executor lane: project transport tests
 
 - [ ] **Step 1: 写六条 route 的 handler 失败测试**
 
@@ -275,35 +282,39 @@ DELETE /projects/:id                     infinite_canvas_project_write
 
 规格列出的项目 HTTP 共六条；复制通过 POST body 实现。所有 mutation 写 operation audit，但 `SkipRequestPayload=true` 用于 document save，日志只记录 project id/revision/size outcome，不保存完整 document。
 
-- [ ] **Step 4: 更新 graph/build/router 并运行测试**
+- [ ] **Step 4: 执行器运行 transport 测试，主线程登记 integration input**
 
-`Graph` 新增 `Workspace.Projects *canvasproject.Service`；Build 构造 Gorm repository。Router 注册 transport，Canvas route golden 增加六条。
+执行器只完成 transport 与 handler tests，并向主线程返回以下固定 integration input：`Graph.Workspace.Projects *canvasproject.Service`、GORM repository constructor、六条 route definitions。主线程在 Wave 3I 更新 Graph/Build/Router 和 route golden。
 
 ```powershell
-go test ./internal/module/canvasproject/... ./internal/platform/infinitecanvas ./internal/server -run 'Project|InfiniteCanvas' -count=1
+go test ./internal/module/canvasproject/... -run 'Project|InfiniteCanvas' -count=1
 ```
 
-Expected: PASS。
+Expected: PASS；执行器 diff 不包含 `internal/platform` 或 `internal/server`。
 
 - [ ] **Step 5: 提交项目 HTTP surface**
 
 ```bash
-git add internal/module/canvasproject/transport internal/platform/infinitecanvas internal/server
-git commit -m "feat(canvas): 发布画布项目接口"
+# main-thread checkpoint after integration review
+git add internal/module/canvasproject/transport
+git commit -m "feat(canvas): 交付画布项目接口"
 ```
 
 ### Task 4: 建立私有 COS object gateway
 
 **Files:**
+- Create: `internal/infra/storage/cos/private_object_core.go`
 - Create: `internal/infra/storage/cos/private_object_gateway.go`
 - Create: `internal/infra/storage/cos/private_object_gateway_test.go`
+- Modify: `internal/infra/storage/cos/{object_inspector,object_stream}.go`
+- Modify: `internal/infra/storage/cos/{object_inspector,object_stream}_test.go`
 - Modify: `internal/infra/storage/cos/signer_test.go`
 
-- [ ] **Step 1: 写 HEAD/Open/Delete/SignGetURL 失败测试**
+- [ ] **Step 1: 写通用 core、AI adapter 回归和 Canvas policy 失败测试**
 
-httptest/fake client 覆盖：禁用/缺 config fail closed；key traversal/backslash/错误 prefix 被拒绝；HEAD 返回 size/type/etag/`x-cos-meta-sha256`；Open 暴露 streaming body 不调用 `io.ReadAll`；context cancel 关闭 body；Delete 404 幂等；signed URL 只含目标 key 且 5 分钟过期。
+先保留现有 inspector/streamer/reader/writer/signer tests，再增加 httptest/fake client 覆盖：通用 core 禁用/缺 config fail closed；key traversal/backslash/错误 prefix 由注入的 policy 拒绝；HEAD 返回 size/type/etag/`x-cos-meta-sha256`；Open 暴露 streaming body 不调用 `io.ReadAll`；context cancel 关闭 body；Delete 404 幂等；signed URL 只含目标 key 且 5 分钟过期。回归测试证明 AI chat prefixes/ETag/If-Match 行为完全不变，Canvas policy 只接受 `infinite-canvas/users/...`。
 
-- [ ] **Step 2: 定义独立 gateway 接口**
+- [ ] **Step 2: 定义 transport-neutral gateway 和显式 key validator**
 
 ```go
 type PrivateObjectHead struct {
@@ -323,13 +334,14 @@ type PrivateObjectGateway interface {
     Delete(context.Context, string) error
     SignGetURL(context.Context, string, time.Duration) (string, time.Time, error)
 }
+type ObjectKeyValidator func(string) (string, error)
 ```
 
-constructor 接收 `ObjectConfigProvider` 和 config；每次调用读取 active COS config，不缓存密钥。可信 key validator 只接受固定 Canvas namespace 和规范 path。
+constructor 接收既有 `ObjectConfigProvider`、config 和 `ObjectKeyValidator`；每次调用读取 active COS config，不缓存密钥。gateway 文件不得 import `internal/infra/ai`，也不得硬编码 AI/Canvas prefix。AI adapter 继续调用既有 `TrustedAIChatObjectKey`；Canvas adapter 使用只接受当前 user namespace 和规范 path 的 validator。
 
-- [ ] **Step 3: 用 COS SDK 实现流式 server-side 操作**
+- [ ] **Step 3: 抽取并复用现有 COS SDK 流式操作**
 
-每个方法创建带 timeout/context 的 signed client。Open 返回 SDK response body 给调用者并由调用者 close；gateway 不整体读入。SignGetURL 使用 SDK presign GET，返回 `now+ttl`；日志与 error 不包含 secret、session token 或完整签名 query。
+把 `object_inspector.go`、`object_stream.go` 中重复的 active config、signed client、HEAD/GET metadata 和错误映射抽入 transport-neutral private core；既有 AI types 通过薄 adapter 做 DTO 投影。core 必须复用现有 `object_writer.go`/`object_reader.go` 已提供的 `bucketURL`、`signedHTTPClient`、`HTTPStatus`，不得再实现一套 endpoint、签名 transport 或 COS error parser；reader/writer 的现有公开行为保持不变。Open 返回 SDK response body 给调用者并由调用者 close；gateway 不整体读入。SignGetURL 使用同一 SDK client presign GET，返回 `now+ttl`；日志与 error 不包含 secret、session token 或完整签名 query。
 
 - [ ] **Step 4: 证明 STS policy 仍是单 key 写权限**
 
@@ -338,11 +350,11 @@ constructor 接收 `ObjectConfigProvider` 和 config；每次调用读取 active
 - [ ] **Step 5: 运行 COS tests 和源码门禁**
 
 ```powershell
-go test ./internal/infra/storage/cos -run 'PrivateObject|Signer' -count=1
+go test ./internal/infra/storage/cos -run 'PrivateObject|ObjectInspector|ObjectStream|Signer' -count=1
 rg -n 'io\.ReadAll' internal/infra/storage/cos/private_object_gateway.go
 ```
 
-Expected: tests PASS；rg 无输出。
+Expected: tests PASS；rg 无输出；现有 AI object tests 无行为变化。
 
 - [ ] **Step 6: 提交 gateway**
 
@@ -443,21 +455,18 @@ git add internal/module/ai/asset
 git commit -m "feat(canvas): 接入私有图片素材"
 ```
 
-### Task 6: 暴露素材 routes 并注册 cleanup durable task
+### Task 6: 交付素材 routes 与 cleanup durable task contract
 
 **Files:**
 - Create: `internal/module/ai/asset/transport/infinitecanvas/**`
 - Create: `internal/module/ai/asset/cleanup_job.go`
-- Modify: `internal/platform/infinitecanvas/{graph,build}.go`
-- Modify: `internal/jobs/noop.go`
-- Modify: `internal/module/crontask/registry.go`
-- Modify: `internal/runtime/worker.go`
-- Modify: `internal/server/router.go`
-- Test: corresponding package tests
+- Main-thread integration only: `internal/platform/infinitecanvas/{graph,build}.go`、`internal/jobs/noop.go`、`internal/module/crontask/registry.go`、`internal/runtime/worker.go`、`internal/server/router.go`
+- Main-thread generation only: `internal/infinitecanvascontract/**`、`contracts/infinite-canvas/v1/**`
+- Test in executor lane: asset transport/cleanup package tests
 
-- [ ] **Step 1: 写素材 HTTP 和 task registry 失败测试**
+- [ ] **Step 1: 写素材 HTTP 和 task registration contract 失败测试**
 
-验证七条素材 routes、读写 permission、strict body、owner provenance、cleanup task type/policy、cron registry name 映射。Cleanup 对 object not found 幂等，delete 失败留 pending 供重试，成功后条件更新 expired。
+在 asset package 内验证七条素材 routes、读写 permission、strict body、owner provenance，以及交付给主线程的 cleanup task type/policy/cron name descriptor。Cleanup 对 object not found 幂等，delete 失败留 pending 供重试，成功后条件更新 expired。真实 `crontask.NewDefaultRegistry()` 映射测试由主线程在 Wave 3I 添加并运行，执行器不创建或修改 shared registry test。
 
 - [ ] **Step 2: 注册正式素材 routes**
 
@@ -473,7 +482,7 @@ POST   /asset-upload-intents           infinite_canvas_asset_write
 
 规格实际为七条素材相关 routes。POST `/assets` 是 discriminated request：`type=text` 必须带 content 且无 intent；`type=image` 必须带 `upload_intent_id` 且无 content/object_key。客户端提交 object_key/read_url/storage_provider 由 strict decoder 拒绝。
 
-- [ ] **Step 3: 定义并注册 cleanup task**
+- [ ] **Step 3: 定义 cleanup task 和供主线程注册的 contract**
 
 ```go
 const TypeAssetUploadCleanupV1 = "infinite-canvas:asset-upload-cleanup:v1"
@@ -482,32 +491,32 @@ type AssetUploadCleanupPayload struct { Limit int `json:"limit,omitempty"` }
 
 registry policy：queue low、timeout 10 分钟、max retry 5、unique TTL 30 分钟。handler 每批最多 100 个 `pending AND expires_at<=now` intent；每项 acquire 同一 lease、重新读取、Delete（404 视成功）、条件 mark expired。循环最多 10 批，避免单任务无界。
 
-`crontask.NewDefaultRegistry()` 增加 name `infinite_canvas_asset_upload_cleanup`，BuildTask payload limit=100；cron row 仍保持 disabled。
+asset package 导出 task constructor 和 handler 所需窄接口。`crontask.NewDefaultRegistry()` 最终必须增加 name `infinite_canvas_asset_upload_cleanup`、BuildTask payload limit=100；cron row 仍保持 disabled。执行器不修改 registry，主线程在 Wave 3I 按此固定 contract 注册。
 
-- [ ] **Step 4: 装配 graph/API/Worker**
+- [ ] **Step 4: 向主线程交付 graph/API/Worker integration input**
 
-Canvas graph 新增 `Workspace.Assets *asset.Service`；Build 使用 `uploadtoken.NewObjectConfigProvider`、private gateway、credential signer、Redis lease。Worker 创建同样的 repository/gateway/lease cleanup service，注入 `jobs.Dependencies.AssetUploadCleanup`，不依赖 HTTP graph 实例。
+执行器返回 `Workspace.Assets *asset.Service`、service constructor、七条 route definitions、cleanup handler constructor 和 task policy。主线程在 Wave 3I 使用 `uploadtoken.NewObjectConfigProvider`、private gateway、credential signer、Redis lease 完成 API/Worker composition，并注入 `jobs.Dependencies.AssetUploadCleanup`；Worker 不依赖 HTTP graph 实例。
 
-- [ ] **Step 5: 更新 Canvas Bundle 并运行定向门禁**
+- [ ] **Step 5: 运行 capability 定向门禁，Contract 延后到组合 runtime**
 
 ```powershell
-go test ./internal/module/ai/asset/... ./internal/infra/storage/cos ./internal/jobs ./internal/module/crontask ./internal/platform/infinitecanvas ./internal/server ./internal/runtime -run 'Asset|Upload|Cleanup|InfiniteCanvas' -count=1
-$commit = (git rev-parse HEAD).Trim()
-pwsh -NoProfile -File scripts/generate-infinite-canvas-contract.ps1 -BackendCommit $commit
-go test ./internal/infinitecanvascontract -count=1
+go test ./internal/module/ai/asset/... ./internal/infra/storage/cos -run 'Asset|Upload|Cleanup|PrivateObject|InfiniteCanvas' -count=1
 git diff --check
 ```
 
-Expected: 全部退出 0；OpenAPI 包含六条项目和七条素材 routes，没有 AI generation route。
+Expected: 全部退出 0；执行器 diff 不含 platform/server/jobs/crontask/runtime/Contract。主线程在 Plan 05 Task 5 的组合 runtime 提交后一次性生成包含项目、素材和提示词的 Canvas Bundle。
 
-- [ ] **Step 6: 提交 HTTP/task/contract**
+- [ ] **Step 6: 主线程审查并提交 HTTP/task capability slice**
 
 ```bash
-git add internal/module/ai/asset/transport internal/module/ai/asset/cleanup_job.go internal/platform/infinitecanvas internal/jobs internal/module/crontask internal/runtime internal/server internal/infinitecanvascontract contracts/infinite-canvas/v1
-git commit -m "feat(canvas): 发布项目素材与上传清理"
+# main-thread checkpoint after review; shared integration is committed separately in Wave 3I
+git add internal/module/ai/asset/transport internal/module/ai/asset/cleanup_job.go
+git commit -m "feat(canvas): 交付项目素材与上传清理"
 ```
 
 ### Task 7: 执行资源隔离和泄露静态门禁
+
+本 Task 只由主线程在 Wave 3I 的组合 runtime 提交后执行；architecture test 是共享门禁文件，不分配给 Project 或 Asset/COS executor。
 
 **Files:**
 - Create: `internal/architecture/infinite_canvas_resource_isolation_test.go`

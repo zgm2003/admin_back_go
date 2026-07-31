@@ -12,7 +12,9 @@
 
 ## 执行边界
 
-- 依赖 Plan 03；可与 Plan 04 在独立 worktree 开发，但合并 `infinitecanvas/build.go`、`jobs/noop.go`、`runtime/worker.go` 时必须 rebase。
+> **并行与提交覆盖规则：** 实施时同时遵守 `E:\admin\LONG_TASK_PARALLEL_EXECUTION.md` 和 execution index。Prompt backend executor 只修改 `internal/module/ai/prompt/**` 并返回 diff/测试证据，不运行 `git add`、`git commit`、merge、rebase 或 Contract 生成。shared graph/router/jobs/crontask/runtime/Contract 归主线程；Admin frontend 必须等待绑定组合 backend runtime SHA 的正式 Bundle。下文“提交”步骤均为主线程检查点。
+
+- 依赖 Plan 03；Prompt capability 可与 Plan 04 在独立 worktree 开发，但执行器不得修改 shared graph/router/jobs/crontask/runtime/Contract。主线程等待三个 capability lane 返回后，在 Wave 3I 一次性完成组合，不以 rebase 解决同文件并发写入。
 - 后端路径相对 `E:\admin\admin_back_go`；Admin 前端路径相对 `E:\admin\admin_front_ts`。
 - Canvas 前端不保存来源、schedule、ETag 或远端 cache；不运行 browser interval。
 - Admin prompt/source workflow 固定目标平台 `infinite_canvas`，request 不接受任意 platform。
@@ -40,11 +42,17 @@
 **Modify:**
 
 - `internal/module/ai/prompt/{model,dto,repository,service}.go` 及测试。
+
+**Main-thread integration only:**
+
 - `internal/platform/admin/{graph,build}.go`、`internal/platform/infinitecanvas/{graph,build}.go`。
 - `internal/jobs/noop.go`、`internal/module/crontask/registry.go`、`internal/runtime/worker.go` 及测试。
 - `internal/server/routes_admin_ai.go`、`router.go`、route goldens。
 - `internal/admincontract/**`、`internal/infinitecanvascontract/**`、两个 generated bundle。
 - `internal/admincontract/views.go`：新增两个 Admin local view keys。
+
+**Admin frontend executor after Contract sync:**
+
 - Admin 前端 generated contract、view registry、i18n。
 
 ### Task 1: 将 ai_prompts 收敛为 platform/origin-aware capability
@@ -264,10 +272,8 @@ git commit -m "feat(prompt): 安全拉取并严格解析来源"
 
 **Files:**
 - Create: `internal/module/ai/prompt/{sync,sync_test,jobs,jobs_test}.go`
-- Modify: `internal/jobs/noop.go`
-- Modify: `internal/module/crontask/registry.go`
-- Modify: `internal/runtime/worker.go`
-- Test: jobs/crontask/runtime tests
+- Main-thread integration only: `internal/jobs/noop.go`、`internal/module/crontask/registry.go`、`internal/runtime/worker.go`
+- Test in executor lane: `internal/module/ai/prompt/**`
 
 - [ ] **Step 1: 写完整同步语义失败测试**
 
@@ -307,9 +313,9 @@ type PromptSourceSyncPayload struct { SourceID int64 `json:"source_id"` }
 
 dispatch handler 列出 enabled source ids 并逐一 enqueue source task；单个 enqueue 失败让 dispatch retry。source task queue low、timeout 2 分钟、max retry 5、unique TTL 5 分钟；dispatch unique TTL 30 分钟。
 
-- [ ] **Step 4: 注册 cron registry**
+- [ ] **Step 4: 固定供主线程注册的 cron contract**
 
-`crontask.NewDefaultRegistry()` 增加：
+Prompt package 导出稳定的 task constructor/type；定向测试证明以下 registry input 可以无网络副作用地构造 dispatch task：
 
 ```go
 RegistryEntry{
@@ -320,31 +326,32 @@ RegistryEntry{
 }
 ```
 
-Cron 只创建 dispatch task，不直接请求网络。Plan 01 row 仍 disabled。
+Cron 只允许创建 dispatch task，不直接请求网络。Plan 01 row 仍 disabled。执行器不修改 `crontask.NewDefaultRegistry()`；主线程在 Wave 3I 按上述精确值注册。
 
-- [ ] **Step 5: 装配 Worker**
+- [ ] **Step 5: 交付 Worker 所需窄接口和 handler constructor**
 
-`jobs.Dependencies` 增加 `PromptSyncDispatcher` 和 `PromptSourceSyncer` 窄接口。Worker 使用 DB repo、validated fetcher、`redislock.New(resources.Redis.Redis)`、clock/logger/telemetry 构造 SyncService；API graph 不拥有 fetcher，不执行远端同步。
+Prompt package 导出 `PromptSyncDispatcher`、`PromptSourceSyncer` 窄接口兼容的 handler constructor，并用 fake queue/lease/fetcher 完成定向测试。主线程在 Wave 3I 修改 `jobs.Dependencies` 和 Worker composition，使用 DB repo、validated fetcher、`redislock.New(resources.Redis.Redis)`、clock/logger/telemetry 构造 SyncService；API graph 不拥有 fetcher，不执行远端同步。
 
-- [ ] **Step 6: 运行 sync/jobs/runtime tests 并提交**
+- [ ] **Step 6: 运行 capability 定向测试并交付主线程**
 
 ```powershell
-go test ./internal/module/ai/prompt ./internal/jobs ./internal/module/crontask ./internal/runtime -run 'Prompt|Sync|Cron' -count=1
+go test ./internal/module/ai/prompt -run 'Prompt|Sync|Cron|Job' -count=1
 ```
 
-Expected: PASS；cron test 证明只 enqueue。
+Expected: PASS；task constructor test 证明只 enqueue，执行器 diff 不包含 `internal/jobs`、`internal/module/crontask` 或 `internal/runtime`。
 
 ```bash
-git add internal/module/ai/prompt internal/jobs internal/module/crontask internal/runtime
+# main-thread checkpoint after review
+git add internal/module/ai/prompt
 git commit -m "feat(prompt): 接入持久化来源同步任务"
 ```
 
-### Task 5: 发布 Admin 管理 routes、Canvas 只读 routes 和两个 Bundle
+### Task 5: 交付 Prompt transports 并由主线程发布组合 Runtime/Bundle
 
 **Files:**
 - Create: prompt Admin/Canvas transport files
-- Modify: platform graphs/builds、server route files/goldens
-- Modify: Admin/Canvas contract packages and generated bundles
+- Main-thread integration only: platform graphs/builds、server route files/goldens、jobs/crontask/runtime
+- Main-thread generation only: Admin/Canvas contract packages and generated bundles
 
 - [ ] **Step 1: 写 Admin/Canvas handler 失败测试**
 
@@ -387,33 +394,68 @@ GET /api/infinite-canvas/v1/prompts/:id   infinite_canvas_prompt_read
 
 query 精确为 `current_page/page_size/keyword/category/tag[]`；response 提供结构化 categories/tags/page。无来源配置、刷新、同步或 status mutation route。
 
-- [ ] **Step 4: 更新两个 graph 和 route goldens**
-
-Admin graph `AI.Prompts` 和 `AI.PromptSources` 可以指向同一个 prompt service；Canvas graph `Workspace.Prompts` 只暴露只读接口。API graph 构造 manual/source service 与 queue enqueuer，绝不构造 remote fetcher。
-
-- [ ] **Step 5: 发布开发期 Bundles**
+- [ ] **Step 4: 执行器交付 transport，主线程先提交 capability slice**
 
 ```powershell
+go test ./internal/module/ai/prompt/transport/... -count=1
+git diff --check
+```
+
+Expected: PASS；执行器 diff 只包含 `internal/module/ai/prompt/**`，不包含 platform/server/jobs/crontask/runtime/Contract。主线程审查 transport、测试和固定 integration input 后单独提交：
+
+```bash
+git add internal/module/ai/prompt/transport
+git commit -m "feat(prompt): 交付双平台提示词接口"
+```
+
+- [ ] **Step 5: 主线程统一更新 composition、registry 和 route goldens**
+
+等待 Plan 04 Project、Asset/COS 与本 Plan Prompt lane 全部返回后再开始。Admin graph `AI.Prompts` 和 `AI.PromptSources` 可以指向同一个 prompt service；Canvas graph `Workspace.Prompts` 只暴露只读接口。API graph 构造 manual/source service 与 queue enqueuer，绝不构造 remote fetcher。主线程同时把 prompt/asset task 注册进 `jobs`、`crontask` 和 Worker，避免多个执行器写同一 registry。
+
+同一 runtime slice 必须更新 `internal/admincontract/{views,permissions}.go` 及 tests：发布 `ai/prompts/index`、`ai/promptSources/index` 两个 local view keys，并让对应 Admin operations/permission codes 进入 Bundle。所有后端 view/permission 变化都必须在本 Step 提交，Task 6 不得再修改后端 Contract 输入。
+
+主线程在当前组合工作树重新运行共享门禁并形成 runtime commit：
+
+```powershell
+go test ./internal/module/canvasproject/... ./internal/module/ai/asset/... ./internal/module/ai/prompt/... ./internal/infra/storage/cos ./internal/platform/admin ./internal/platform/infinitecanvas ./internal/server ./internal/jobs ./internal/module/crontask ./internal/runtime -count=1
+git diff --check
+```
+
+```bash
+git add internal/platform/admin internal/platform/infinitecanvas internal/server internal/jobs internal/module/crontask internal/runtime internal/admincontract internal/infinitecanvascontract
+git commit -m "feat(canvas): 组装项目素材与提示词运行时"
+```
+
+- [ ] **Step 6: 先提交组合 backend runtime，再发布开发期 Bundles**
+
+在 Step 5 的组合 runtime 提交后，先完成并提交 Plan 04 Task 7 的资源隔离门禁。只有该门禁通过、提交完成且 backend 再次 clean，才允许读取最终 backend source SHA 并生成两个 Bundle：
+
+```powershell
+$status = git status --porcelain --untracked-files=all
+if ($status) { throw "backend runtime must be committed before contract generation" }
 $commit = (git rev-parse HEAD).Trim()
 pwsh -NoProfile -File scripts/generate-admin-contract.ps1 -BackendCommit $commit
 pwsh -NoProfile -File scripts/generate-infinite-canvas-contract.ps1 -BackendCommit $commit
 go test ./internal/admincontract ./internal/infinitecanvascontract -count=1
+pwsh -NoProfile -File scripts/check-admin-contract.ps1 -BackendCommit $commit
+pwsh -NoProfile -File scripts/check-infinite-canvas-contract.ps1 -BackendCommit $commit
 ```
 
-Expected: Admin OpenAPI 有 13 条管理 routes；Canvas OpenAPI 只新增两条只读 routes；Canvas permissions 仍只有既定六项。
+Expected: 两个 manifest 的 `backend_commit` 都等于同一个已提交组合 runtime SHA；Admin OpenAPI 有 13 条管理 routes；Canvas OpenAPI 同时包含 Auth、项目、素材和两条提示词只读 routes；Canvas permissions 仍只有既定六项。
 
-- [ ] **Step 6: 提交 transports/contracts**
+- [ ] **Step 7: 单独提交生成的双 Contract artifacts**
 
 ```bash
-git add internal/module/ai/prompt/transport internal/platform/admin internal/platform/infinitecanvas internal/server internal/admincontract internal/infinitecanvascontract contracts/admin/v1 contracts/infinite-canvas/v1
-git commit -m "feat(prompt): 发布管理与画布提示词接口"
+# runtime 和 artifacts 是两个主线程检查点，不得混成一个未绑定 SHA 的提交
+git add contracts/admin/v1 contracts/infinite-canvas/v1
+git commit -m "feat(contract): 发布无限画布组合资源契约"
 ```
 
-### Task 6: 实现 Admin 提示词与来源管理页面
+### Task 6: 从已发布 Bundle 实现 Admin 提示词与来源管理页面
 
 **Files:**
 - Create: Admin frontend API/views/tests listed above
-- Modify: generated contract、routing views、i18n
+- Modify in `E:\admin\admin_front_ts` only: generated contract/client、generated routing views、i18n
 
 - [ ] **Step 1: 同步 contract 并写 API 失败测试**
 
@@ -448,7 +490,7 @@ source prompt 内容使用 `<pre>{{ prompt }}</pre>` 或 text binding，禁止 `
 
 - [ ] **Step 5: 注册 views/i18n 并运行门禁**
 
-后端 `views.go` 和 permissions 指向 `ai/prompts/index`、`ai/promptSources/index`；前端运行 `routes:generate`。补齐中英文文案后：
+先断言同步后的 Admin Bundle 已包含 `ai/prompts/index`、`ai/promptSources/index` 两个 view keys 和对应 permission codes；缺失即返回 3I 修复、提交 runtime 并重新生成 Bundle，禁止在本 Task 修改后端源码。前端运行 `routes:generate` 并补齐中英文文案后：
 
 ```powershell
 npm run routes:generate
