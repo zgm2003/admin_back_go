@@ -124,6 +124,7 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	}
 	paidReply := input.CommandID > 0
 	var acceptedRun *airun.Run
+	preDispatchRunID := int64(0)
 	if paidReply {
 		var err error
 		acceptedRun, err = repo.AcceptedRunForReply(ctx, input.UserID, strings.TrimSpace(input.RequestID))
@@ -142,6 +143,20 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		}
 		if recoverPrepared {
 			return s.executePreparedPaidAttemptRecovery(ctx, repo, acceptedRun, input)
+		}
+		if s.paidAttemptExecutor != nil {
+			preDispatchRunID = acceptedRun.ID
+			defer func() {
+				if preDispatchRunID <= 0 || replyErr == nil || !terminalPaidPreDispatchFailure(input, replyErr) {
+					return
+				}
+				finalized, finalizationErr := s.finalizePaidFailure(context.WithoutCancel(ctx), preDispatchRunID, input, true)
+				if finalizationErr != nil {
+					replyErr = errors.Join(replyErr, finalizationErr)
+					return
+				}
+				replyResult, replyErr = finalized, nil
+			}()
 		}
 	}
 	conversation, err := repo.ConversationForReply(ctx, input.ConversationID, input.UserID)
@@ -182,13 +197,14 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	if err != nil {
 		return nil, err
 	}
+	selectedContext := selectedChatContext(history, input.UserMessageID, maxHistoryFromMeta(metaForMessage(history, input.UserMessageID)))
+	if appErr := requireNativeFileContextWithinLimit(selectedContext); appErr != nil {
+		return nil, appErr
+	}
 	userMessage, ok := userMessageForID(history, input.UserMessageID)
 	if !ok {
 		msg := "用户消息不存在"
 		appErr := apperror.BadRequest(msg)
-		return nil, appErr
-	}
-	if appErr := requireNativeFileContextWithinLimit(userMessage); appErr != nil {
 		return nil, appErr
 	}
 	userContent := userMessage.Content
@@ -281,6 +297,7 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	if paidReply && s.paidAttemptExecutor != nil {
 		identity, identityErr := paidReplyRequestIdentity(acceptedRun, input, userMessage)
 		if identityErr != nil {
+			preDispatchRunID = 0
 			result, finalizationErr := s.finalizePaidFailure(context.WithoutCancel(ctx), runID, input, true)
 			if finalizationErr != nil {
 				return nil, errors.Join(identityErr, finalizationErr)
@@ -292,12 +309,14 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	runtimeTools, appErr := s.runtimeTools(ctx, uint64(input.AgentID))
 	if appErr != nil {
 		if paidReply {
+			preDispatchRunID = 0
 			return s.finalizePaidFailure(context.WithoutCancel(ctx), runID, input, true)
 		}
 		finishRun(enum.AIRunStatusFailed, appErr.Message, appErr)
 		return nil, appErr
 	}
 	chatInput.Tools = toolDefinitions(runtimeTools)
+	preDispatchRunID = 0
 	paidResult, err := s.streamChatWithAttempt(ctx, runID, input, engine, chatInput, sink)
 	if flushErr := delivery.Flush(context.WithoutCancel(ctx)); flushErr != nil {
 		if err != nil {
@@ -443,6 +462,17 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		}
 	}
 	return &ConversationReplyResult{ConversationID: input.ConversationID, AssistantMessageID: assistantID}, nil
+}
+
+func terminalPaidPreDispatchFailure(input ConversationReplyInput, err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, infraai.ErrCanceled) {
+		return false
+	}
+	var appErr *apperror.Error
+	if errors.As(err, &appErr) {
+		return !appErr.Retryable()
+	}
+	return input.CommandMaxAttempts > 0 && input.CommandAttempt >= input.CommandMaxAttempts
 }
 
 func (s *Service) hasPreparedPaidAttempt(ctx context.Context, runID int64, commandID uint64) (bool, error) {
@@ -1315,7 +1345,11 @@ func chatHistoryInputsWithLimit(rows []MessageHistory, currentUserMessageID int6
 		if row.Role == enum.AIMessageRoleUser {
 			role = "user"
 		}
-		history = append(history, map[string]any{"role": role, "content": row.Content})
+		message := map[string]any{"role": role, "content": row.Content}
+		if attachments := messageAttachments(row); len(attachments) > 0 {
+			message["attachments"] = attachments
+		}
+		history = append(history, message)
 	}
 	return history
 }
@@ -1345,23 +1379,25 @@ func chatInputs(agent AgentEngineConfig, history []MessageHistory, userMessageID
 	return inputs
 }
 
-func requireNativeFileContextWithinLimit(message MessageHistory) *apperror.Error {
+func requireNativeFileContextWithinLimit(messages []MessageHistory) *apperror.Error {
 	var total int64
-	for _, attachment := range messageAttachments(message) {
-		item, ok := attachment.(map[string]any)
-		typeValue, _ := item["type"].(string)
-		if !ok || strings.TrimSpace(typeValue) != "file" {
-			continue
+	for _, message := range messages {
+		for _, attachment := range messageAttachments(message) {
+			item, ok := attachment.(map[string]any)
+			typeValue, _ := item["type"].(string)
+			if !ok || strings.TrimSpace(typeValue) != "file" {
+				continue
+			}
+			sizeValue, ok := numberFromAny(item["size"])
+			if !ok || sizeValue <= 0 || sizeValue > math.MaxInt64 || sizeValue != math.Trunc(sizeValue) {
+				return nativeFileContextTooLargeError()
+			}
+			size := int64(sizeValue)
+			if size > capability.MaxRequestNativeFileBytes-total {
+				return nativeFileContextTooLargeError()
+			}
+			total += size
 		}
-		sizeValue, ok := numberFromAny(item["size"])
-		if !ok || sizeValue <= 0 || sizeValue > math.MaxInt64 || sizeValue != math.Trunc(sizeValue) {
-			return nativeFileContextTooLargeError()
-		}
-		size := int64(sizeValue)
-		if size > capability.MaxRequestNativeFileBytes-total {
-			return nativeFileContextTooLargeError()
-		}
-		total += size
 	}
 	return nil
 }

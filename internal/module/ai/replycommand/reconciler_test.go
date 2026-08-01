@@ -39,6 +39,28 @@ type fakeOutcomeFinalizer struct {
 	err       error
 }
 
+type fakeOrphanedPreDispatchRepository struct {
+	fakeOutcomeRepository
+	work   *OrphanedPreDispatchWork
+	source ClaimSource
+	now    time.Time
+}
+
+func (f *fakeOrphanedPreDispatchRepository) ClaimOrphanedPreDispatch(_ context.Context, source ClaimSource, now time.Time) (*OrphanedPreDispatchWork, error) {
+	f.source, f.now = source, now
+	return f.work, nil
+}
+
+type fakeOrphanedPreDispatchFinalizer struct {
+	fakeOutcomeFinalizer
+	orphanCommandID uint64
+}
+
+func (f *fakeOrphanedPreDispatchFinalizer) FinalizeOrphanedPreDispatch(_ context.Context, commandID uint64) error {
+	f.orphanCommandID = commandID
+	return nil
+}
+
 func (f *fakeOutcomeFinalizer) FinalizeOutcomeUnknown(_ context.Context, commandID uint64) error {
 	f.commandID = commandID
 	return f.err
@@ -73,6 +95,25 @@ func TestOutcomeReconcilerMarksRecoverySource(t *testing.T) {
 	}
 	if repository.source != ClaimSourceRecovery || !repository.now.Equal(now) {
 		t.Fatalf("source=%q now=%v", repository.source, repository.now)
+	}
+}
+
+func TestReconcilerFinalizesOrphanedPreDispatchViaFinalizer(t *testing.T) {
+	now := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	repository := &fakeOrphanedPreDispatchRepository{work: &OrphanedPreDispatchWork{CommandID: 46}}
+	finalizer := &fakeOrphanedPreDispatchFinalizer{}
+	reconciler := NewReconciler(ReconcilerOptions{
+		Repository: repository,
+		Finalizer:  finalizer,
+		Now:        func() time.Time { return now },
+	})
+
+	worked, err := reconciler.RunOnce(context.Background())
+	if err != nil || !worked {
+		t.Fatalf("worked=%v err=%v", worked, err)
+	}
+	if finalizer.orphanCommandID != 46 || repository.source != ClaimSourceRecovery || !repository.now.Equal(now) {
+		t.Fatalf("command=%d source=%q now=%v", finalizer.orphanCommandID, repository.source, repository.now)
 	}
 }
 

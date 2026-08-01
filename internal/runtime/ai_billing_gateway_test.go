@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -13,8 +14,10 @@ import (
 	"admin_back_go/internal/infra/ai/openaicompat"
 	"admin_back_go/internal/infra/storage/cos"
 	"admin_back_go/internal/module/ai/aigateway"
+	aichat "admin_back_go/internal/module/ai/chat"
 	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/pricing"
+	"admin_back_go/internal/shared/apperror"
 )
 
 func TestPaidChatAssemblerConvergesPreparedRequestAndSafeOutputBound(t *testing.T) {
@@ -125,6 +128,19 @@ func TestETagMismatchBeforeDispatchIsPermanentPreDispatchFailure(t *testing.T) {
 				t.Fatalf("isPermanentPreDispatchError(%v) = false", err)
 			}
 		})
+	}
+}
+
+func TestMustFinalizePreDispatchErrorAtCommandAttemptBoundary(t *testing.T) {
+	retryable := apperror.New("dependency.storage", apperror.CategoryDependency, http.StatusServiceUnavailable, apperror.Retryable, "", nil, "storage unavailable")
+	if mustFinalizePreDispatchError(aichat.PaidChatAttemptInput{CommandAttempt: 1, CommandMaxAttempts: 3}, retryable) {
+		t.Fatal("retryable pre-dispatch error finalized before the command attempt boundary")
+	}
+	if !mustFinalizePreDispatchError(aichat.PaidChatAttemptInput{CommandAttempt: 3, CommandMaxAttempts: 3}, retryable) {
+		t.Fatal("retryable pre-dispatch error remained open after the command attempt boundary")
+	}
+	if !mustFinalizePreDispatchError(aichat.PaidChatAttemptInput{CommandAttempt: 1, CommandMaxAttempts: 3}, infraai.ErrInvalidConfig) {
+		t.Fatal("permanent pre-dispatch error remained retryable")
 	}
 }
 

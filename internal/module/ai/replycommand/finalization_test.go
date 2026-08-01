@@ -2,6 +2,7 @@ package replycommand
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -94,5 +95,22 @@ func TestNormalizePaidCommandFinalizationRejectsInvalidTerminalPayload(t *testin
 	valid := PaidCommandFinalizationInput{CommandID: 41, UserID: 7, RequestID: "request-1", State: StateCanceled, Now: now}
 	if err := normalizePaidCommandFinalization(&valid); err != nil || valid.Content != "" || valid.ErrorCode != "" || valid.ErrorMessage != "" {
 		t.Fatalf("valid cancellation normalized incorrectly: %+v err=%v", valid, err)
+	}
+}
+
+func TestPaidCommandFinalizationSourceStatesAllowFailedRepairOnly(t *testing.T) {
+	states, err := paidCommandFinalizationSourceStates(StateFailed, StateFailed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, state := range states {
+		found = found || state == StateFailed
+	}
+	if !found {
+		t.Fatalf("failed repair source missing from %v", states)
+	}
+	if _, err := paidCommandFinalizationSourceStates(StateFailed, StateSucceeded); !errors.Is(err, ErrPaidCommandFinalizationConflict) {
+		t.Fatalf("failed command changed terminal meaning: %v", err)
 	}
 }

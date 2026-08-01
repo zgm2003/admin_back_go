@@ -53,6 +53,9 @@ func deriveChatFinalizationTrigger(command replycommand.Command, attempts []repl
 		}
 	}
 	if len(attempts) == 0 {
+		if command.State == replycommand.StateFailed {
+			return aigateway.TriggerPreDispatchFailed, nil
+		}
 		return "", aigateway.ErrFinalizationPending
 	}
 

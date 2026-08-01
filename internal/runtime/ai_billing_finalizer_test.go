@@ -79,6 +79,49 @@ func TestPersistedSettlementPricingSelectsFrozenTierPerAttempt(t *testing.T) {
 	}
 }
 
+func TestPersistedSettlementPricingOmitsZeroQuantityItems(t *testing.T) {
+	rates := []pricing.Rate{
+		{Category: pricing.InputTokens, Unit: "token", PriceUnits: 1, UnitScale: 1},
+		{Category: pricing.OutputTokens, Unit: "token", PriceUnits: 3, UnitScale: 1},
+		{Category: pricing.CacheWrite, Unit: "token", PriceUnits: 5, UnitScale: 1},
+	}
+	model := officialmodel.ResolvedModel{
+		Model:          officialmodel.Model{CatalogVersion: "catalog-v3", CatalogVendor: "openai", ModelID: "gpt-zero-usage", ContextWindowTokens: 2000, MaxOutputTokens: 1000},
+		EffectivePrice: pricing.PriceBook{ModelID: "gpt-zero-usage", Rates: rates}, PriceSource: officialmodel.PriceSourceOfficial,
+		PriceSourceURL: "https://openai.com/pricing", PriceVerifiedAt: time.Date(2026, 7, 27, 0, 0, 0, 0, time.UTC),
+	}
+	raw, err := aigateway.EncodePricingSnapshot(model, aigateway.PricingSnapshotInput{
+		TransportEngine: "openai", RequestedModelID: model.Model.ModelID, EffectiveMaxOutputTokens: 100, MultiplierPPM: 1_000_000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	usage, err := infraai.NewUsageSnapshot(infraai.UsageStatusReported, []byte(`{"usage":"complete"}`), []infraai.UsageItem{
+		{Category: infraai.UsageCategoryInput, Unit: "token", Quantity: 10},
+		{Category: infraai.UsageCategoryOutput, Unit: "token", Quantity: 2},
+		{Category: infraai.UsageCategoryCacheWrite, Unit: "token", Quantity: 0},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	quoted, err := (persistedSettlementPricer{}).PriceSettlement(context.Background(), aigateway.SettlementPricingInput{
+		Run:      aigateway.RunSnapshot{PricingSnapshotJSON: raw},
+		Attempts: []aigateway.BillableAttempt{{ID: 11, AttemptNo: 1, Usage: usage}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if quoted.ActualUnits != 16 || len(quoted.Items) != 2 {
+		t.Fatalf("settlement = %#v", quoted)
+	}
+	for _, item := range quoted.Items {
+		if item.Quantity <= 0 {
+			t.Fatalf("non-consumed usage became a charge item: %#v", item)
+		}
+	}
+}
+
 func TestFinalizationWritesSettledAtInTerminalTransaction(t *testing.T) {
 	db, mock, closeDB := newFinalizerMockDB(t)
 	defer closeDB()
@@ -298,6 +341,11 @@ func TestDeriveChatFinalizationTriggerUsesOnlyPersistedFacts(t *testing.T) {
 		{
 			name:    "pre dispatch failure",
 			command: replycommand.Command{LastErrorCode: "ai.provider_pre_dispatch_failed", LastErrorMessage: string(aigateway.TriggerPreDispatchFailed)},
+			want:    aigateway.TriggerPreDispatchFailed,
+		},
+		{
+			name:    "orphaned failed command without provider attempt",
+			command: replycommand.Command{State: replycommand.StateFailed, LastErrorCode: "internal.unknown", LastErrorMessage: "解密AI供应商API Key失败"},
 			want:    aigateway.TriggerPreDispatchFailed,
 		},
 		{

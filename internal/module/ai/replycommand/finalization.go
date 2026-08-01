@@ -78,6 +78,10 @@ func (r *GormRepository) FinalizePaidCommandInTransaction(ctx context.Context, t
 		First(&command).Error; err != nil {
 		return nil, err
 	}
+	sourceStates, err := paidCommandFinalizationSourceStates(command.State, input.State)
+	if err != nil {
+		return nil, err
+	}
 
 	result := &PaidCommandFinalizationResult{}
 	var existing replyMessage
@@ -158,7 +162,7 @@ func (r *GormRepository) FinalizePaidCommandInTransaction(ctx context.Context, t
 		}
 	}
 	update := tx.Model(&Command{}).
-		Where("id = ? AND user_id = ? AND request_id = ? AND state IN ?", command.ID, command.UserID, command.RequestID, []State{StatePending, StateClaimed, StateRunning, StateOutcomeUnknown}).
+		Where("id = ? AND user_id = ? AND request_id = ? AND state IN ?", command.ID, command.UserID, command.RequestID, sourceStates).
 		Updates(updates)
 	if update.Error != nil {
 		return nil, update.Error
@@ -167,4 +171,15 @@ func (r *GormRepository) FinalizePaidCommandInTransaction(ctx context.Context, t
 		return nil, ErrPaidCommandFinalizationConflict
 	}
 	return result, nil
+}
+
+func paidCommandFinalizationSourceStates(current State, target State) ([]State, error) {
+	states := []State{StatePending, StateClaimed, StateRunning, StateOutcomeUnknown}
+	if current != StateFailed {
+		return states, nil
+	}
+	if target != StateFailed {
+		return nil, ErrPaidCommandFinalizationConflict
+	}
+	return append(states, StateFailed), nil
 }

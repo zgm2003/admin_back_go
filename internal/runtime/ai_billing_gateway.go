@@ -159,7 +159,7 @@ func (executor *paidChatAttemptExecutor) ExecutePaidChatAttempt(ctx context.Cont
 			UserID: input.RequestIdentity.UserID, RunID: input.RunID, RequestID: input.RequestID, Identity: input.RequestIdentity,
 		})
 		if assembleErr != nil {
-			if isPermanentPreDispatchError(assembleErr) {
+			if mustFinalizePreDispatchError(input, assembleErr) {
 				return executor.finalizePreDispatchFailure(context.WithoutCancel(ctx), input)
 			}
 			return nil, mapPaidGatewayError(assembleErr)
@@ -170,7 +170,7 @@ func (executor *paidChatAttemptExecutor) ExecutePaidChatAttempt(ctx context.Cont
 		if isPaidInsufficientBalance(err) {
 			return executor.finalizePaidAttempt(context.WithoutCancel(ctx), input, nil)
 		}
-		if isPermanentPreDispatchError(err) {
+		if mustFinalizePreDispatchError(input, err) {
 			return executor.finalizePreDispatchFailure(context.WithoutCancel(ctx), input)
 		}
 		return nil, mapPaidGatewayError(err)
@@ -184,7 +184,7 @@ func (executor *paidChatAttemptExecutor) ExecutePaidChatAttempt(ctx context.Cont
 	}
 	dispatch, dispatchErr := gateway.Dispatch(ctx, attempt)
 	if dispatchErr != nil {
-		if dispatch.TerminalState == "" && isPermanentPreDispatchError(dispatchErr) {
+		if dispatch.TerminalState == "" && mustFinalizePreDispatchError(input, dispatchErr) {
 			return executor.finalizePreDispatchFailure(context.WithoutCancel(ctx), input)
 		}
 		if executor.mustFinalizeProviderError(input, attempt, dispatch, dispatchErr) {
@@ -231,15 +231,25 @@ func (executor *paidChatAttemptExecutor) FinalizePaidChatLocalFailure(ctx contex
 }
 
 func (executor *paidChatAttemptExecutor) FinalizeOutcomeUnknown(ctx context.Context, commandID uint64) error {
+	return executor.finalizeCommandRun(ctx, commandID, replycommand.StateOutcomeUnknown)
+}
+
+func (executor *paidChatAttemptExecutor) FinalizeOrphanedPreDispatch(ctx context.Context, commandID uint64) error {
+	return executor.finalizeCommandRun(ctx, commandID, replycommand.StateFailed)
+}
+
+func (executor *paidChatAttemptExecutor) finalizeCommandRun(ctx context.Context, commandID uint64, state replycommand.State) error {
 	if executor == nil || executor.db == nil || executor.finalizer == nil || commandID == 0 {
 		return aigateway.ErrNotConfigured
 	}
 	var command replycommand.Command
-	if err := executor.db.WithContext(ctx).Where("id = ? AND state = ?", commandID, replycommand.StateOutcomeUnknown).First(&command).Error; err != nil {
+	if err := executor.db.WithContext(ctx).Where("id = ? AND state = ?", commandID, state).First(&command).Error; err != nil {
 		return err
 	}
 	var run airun.Run
-	if err := executor.db.WithContext(ctx).Where("user_id = ? AND request_id = ?", command.UserID, command.RequestID).First(&run).Error; err != nil {
+	if err := executor.db.WithContext(ctx).
+		Where("user_id = ? AND request_id = ? AND status = ? AND billing_status IN ?", command.UserID, command.RequestID, enum.AIRunStatusRunning, []billing.BillingStatus{billing.BillingStatusPending, billing.BillingStatusHeld}).
+		First(&run).Error; err != nil {
 		return err
 	}
 	return executor.finalizer.Finalize(ctx, aigateway.FinalizeRequest{RunID: run.ID})
@@ -405,6 +415,11 @@ func isPermanentPreDispatchError(err error) bool {
 	}
 	var gatewayErr *aigateway.Error
 	return errors.As(err, &gatewayErr)
+}
+
+func mustFinalizePreDispatchError(input aichat.PaidChatAttemptInput, err error) bool {
+	return isPermanentPreDispatchError(err) ||
+		(input.CommandMaxAttempts > 0 && input.CommandAttempt >= input.CommandMaxAttempts)
 }
 
 func userStopped(ctx context.Context) bool {
@@ -850,6 +865,9 @@ func completeRawUsage(usage infraai.UsageSnapshot) bool {
 func billingItemsFromProviderUsage(usage infraai.UsageSnapshot) []billing.UsageItem {
 	items := make([]billing.UsageItem, 0, len(usage.Items))
 	for _, item := range usage.Items {
+		if item.Quantity == 0 {
+			continue
+		}
 		items = append(items, billing.UsageItem{
 			Category: billing.UsageCategory(item.Category), Unit: strings.TrimSpace(item.Unit),
 			TierKey: strings.TrimSpace(item.TierKey), Quantity: item.Quantity,

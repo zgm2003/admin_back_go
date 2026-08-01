@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"admin_back_go/internal/module/ai/billing"
 	"admin_back_go/internal/shared/enum"
 
 	"gorm.io/gorm"
@@ -25,6 +26,18 @@ type OutcomeRepository interface {
 // the same Run/Charge/wallet/Hold settlement transaction as live execution.
 type OutcomeFinalizer interface {
 	FinalizeOutcomeUnknown(context.Context, uint64) error
+}
+
+type OrphanedPreDispatchWork struct {
+	CommandID uint64
+}
+
+type OrphanedPreDispatchRepository interface {
+	ClaimOrphanedPreDispatch(context.Context, ClaimSource, time.Time) (*OrphanedPreDispatchWork, error)
+}
+
+type OrphanedPreDispatchFinalizer interface {
+	FinalizeOrphanedPreDispatch(context.Context, uint64) error
 }
 
 type DeliveryCleanupCandidate struct {
@@ -75,6 +88,20 @@ func (r *Reconciler) RunOnce(ctx context.Context) (bool, error) {
 			return true, err
 		}
 		worked = true
+	}
+	if repository, ok := r.repository.(OrphanedPreDispatchRepository); ok {
+		if finalizer, finalizerOK := r.finalizer.(OrphanedPreDispatchFinalizer); finalizerOK {
+			orphan, claimErr := repository.ClaimOrphanedPreDispatch(ctx, ClaimSourceRecovery, r.now())
+			if claimErr != nil {
+				return worked, claimErr
+			}
+			if orphan != nil {
+				if err := finalizer.FinalizeOrphanedPreDispatch(ctx, orphan.CommandID); err != nil {
+					return true, err
+				}
+				worked = true
+			}
+		}
 	}
 
 	cleanupRepository, ok := r.repository.(DeliveryCleanupRepository)
@@ -161,6 +188,49 @@ func (r *GormRepository) ClaimOutcomeUnknown(ctx context.Context, source ClaimSo
 		}
 		if result.RowsAffected == 1 {
 			work = &OutcomeUnknownWork{CommandID: command.ID}
+		}
+		return nil
+	})
+	return work, err
+}
+
+func (r *GormRepository) ClaimOrphanedPreDispatch(ctx context.Context, source ClaimSource, now time.Time) (*OrphanedPreDispatchWork, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if source != ClaimSourceRecovery || now.IsZero() {
+		return nil, ErrCreateInputInvalid
+	}
+	var work *OrphanedPreDispatchWork
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var command Command
+		err := tx.Table("ai_reply_commands AS commands").
+			Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
+			Select("commands.*").
+			Joins("JOIN ai_runs AS runs ON runs.user_id = commands.user_id AND runs.request_id = commands.request_id").
+			Joins("JOIN ai_usage_charges AS charges ON charges.run_id = runs.id").
+			Where("commands.state = ? AND commands.finished_at IS NOT NULL AND commands.assistant_message_id IS NULL", StateFailed).
+			Where("runs.status = ? AND runs.billing_status IN ?", enum.AIRunStatusRunning, []billing.BillingStatus{billing.BillingStatusPending, billing.BillingStatusHeld}).
+			Where("charges.status = ? AND charges.finalized_at IS NULL", billing.ChargeStatusOpen).
+			Where("NOT EXISTS (SELECT 1 FROM ai_provider_attempts AS attempts WHERE attempts.command_id = commands.id)").
+			Order("commands.finished_at ASC, commands.id ASC").
+			First(&command).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		result := tx.Model(&Command{}).Where("id = ? AND state = ?", command.ID, StateFailed).
+			Updates(map[string]any{"claimed_at": now, "claim_source": source, "updated_at": now})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 1 {
+			work = &OrphanedPreDispatchWork{CommandID: command.ID}
 		}
 		return nil
 	})
