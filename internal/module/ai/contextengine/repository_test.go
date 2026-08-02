@@ -1,0 +1,319 @@
+package contextengine
+
+import (
+	"context"
+	"crypto/sha256"
+	"errors"
+	"regexp"
+	"sync"
+	"testing"
+	"time"
+
+	"admin_back_go/internal/infra/database"
+
+	"github.com/DATA-DOG/go-sqlmock"
+	mysqldriver "github.com/go-sql-driver/mysql"
+	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
+)
+
+func TestPersistTerminalRejectsInvalidInputBeforeTransaction(t *testing.T) {
+	repository, mock, closeDB := newPlanRepositoryFixture(t)
+	defer closeDB()
+	plan := validReadyPlan()
+
+	if _, _, err := repository.PersistTerminal(t.Context(), plan, nil, validPlanCommitToken(plan)); !errors.Is(err, ErrNilPlanCommitGuard) {
+		t.Fatalf("nil guard error = %v", err)
+	}
+	token := validPlanCommitToken(plan)
+	token.InputFingerprintSHA256 = sha256.Sum256([]byte("other input"))
+	if _, _, err := repository.PersistTerminal(t.Context(), plan, &recordingPlanGuard{}, token); !errors.Is(err, ErrInvalidPlanCommitToken) {
+		t.Fatalf("snapshot token error = %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("repository opened a transaction for invalid input: %v", err)
+	}
+}
+
+func TestPersistTerminalUsesSameTransactionAndPersistsSnapshotConflict(t *testing.T) {
+	repository, mock, closeDB := newPlanRepositoryFixture(t)
+	defer closeDB()
+	plan := validReadyPlan()
+	guard := &recordingPlanGuard{result: PlanCommitGuardResult{SnapshotConflict: &PlanError{
+		Stage: "authority", Code: ErrCodeSnapshotConflict,
+	}}}
+
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `ai_context_plans`")).
+		WillReturnResult(sqlmock.NewResult(91, 1))
+	mock.ExpectCommit()
+
+	got, disposition, err := repository.PersistTerminal(t.Context(), plan, guard, validPlanCommitToken(plan))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if disposition != PersistCreated || got.ID != 91 || got.State != PlanFailed || got.PlanSHA256 != nil || len(got.Items) != 0 {
+		t.Fatalf("persisted conflict = %#v, disposition = %q", got, disposition)
+	}
+	if got.Error == nil || got.Error.Code != ErrCodeSnapshotConflict {
+		t.Fatalf("persisted conflict error = %#v", got.Error)
+	}
+	if guard.transaction == nil || guard.transaction == repository.db {
+		t.Fatal("guard did not receive the repository transaction")
+	}
+	assertPlanMockExpectations(t, mock)
+}
+
+func TestPersistTerminalDuplicateReloadsCommittedWinner(t *testing.T) {
+	repository, mock, closeDB := newPlanRepositoryFixture(t)
+	defer closeDB()
+	candidate := validReadyPlan()
+	winner := candidate
+	winner.ID = 73
+	winnerHash := sha256.Sum256([]byte("winner"))
+	winner.PlanSHA256 = &winnerHash
+
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `ai_context_plans`")).WillReturnError(&mysqldriver.MySQLError{
+		Number: 1062, Message: "Duplicate entry '44' for key 'uk_ai_context_plans_run'",
+	})
+	mock.ExpectRollback()
+	expectFindTerminalPlan(mock, winner)
+
+	got, disposition, err := repository.PersistTerminal(t.Context(), candidate, &recordingPlanGuard{}, validPlanCommitToken(candidate))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if disposition != PersistLoadedExisting || got.ID != winner.ID || got.PlanSHA256 == nil || *got.PlanSHA256 != winnerHash {
+		t.Fatalf("reloaded plan = %#v, disposition = %q", got, disposition)
+	}
+	assertPlanMockExpectations(t, mock)
+}
+
+func TestPersistTerminalDuplicateReloadsFailedWinnerWithNullHash(t *testing.T) {
+	repository, mock, closeDB := newPlanRepositoryFixture(t)
+	defer closeDB()
+	candidate := validReadyPlan()
+	winner := candidate
+	winner.ID = 74
+	winner.State = PlanFailed
+	winner.RetrievalOutcome = RetrievalFailed
+	winner.PlanSHA256 = nil
+	winner.Items = nil
+	winner.Error = &PlanError{Stage: "retrieval", Code: ErrCodeRetrievalFailed}
+
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `ai_context_plans`")).WillReturnError(&mysqldriver.MySQLError{
+		Number: 1062, Message: "Duplicate entry '44' for key 'uk_ai_context_plans_run'",
+	})
+	mock.ExpectRollback()
+	expectFindTerminalPlan(mock, winner)
+
+	got, disposition, err := repository.PersistTerminal(t.Context(), candidate, &recordingPlanGuard{}, validPlanCommitToken(candidate))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if disposition != PersistLoadedExisting || got.ID != winner.ID || got.PlanSHA256 != nil || got.State != PlanFailed {
+		t.Fatalf("reloaded failed plan = %#v, disposition = %q", got, disposition)
+	}
+	assertPlanMockExpectations(t, mock)
+}
+
+func TestPersistDispositionRejectsUnknownValue(t *testing.T) {
+	if err := PersistCreated.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := PersistDisposition("unknown").Validate(); err == nil {
+		t.Fatal("unknown persist disposition was accepted")
+	}
+}
+
+func TestPersistTerminalConcurrentLoserReloadsWinner(t *testing.T) {
+	repository, mock, closeDB := newPlanRepositoryFixture(t)
+	defer closeDB()
+	mock.MatchExpectationsInOrder(false)
+	left := validReadyPlan()
+	right := validReadyPlan()
+	right.InputFingerprintSHA256 = sha256.Sum256([]byte("right-input"))
+	rightHash := sha256.Sum256([]byte("right"))
+	right.PlanSHA256 = &rightHash
+	winner := left
+	winner.ID = 101
+
+	mock.ExpectBegin()
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `ai_context_plans`")).WillReturnResult(sqlmock.NewResult(101, 1))
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `ai_context_plans`")).
+		WillDelayFor(20 * time.Millisecond).
+		WillReturnError(&mysqldriver.MySQLError{Number: 1062, Message: "Duplicate entry '44' for key 'uk_ai_context_plans_run'"})
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `ai_context_plan_items`")).WillReturnResult(sqlmock.NewResult(201, 1))
+	mock.ExpectCommit()
+	mock.ExpectRollback()
+	expectFindTerminalPlan(mock, winner)
+
+	guard := &orderedPlanGuard{
+		winnerInput: left.InputFingerprintSHA256,
+		loserReady:  make(chan struct{}),
+		winnerDone:  make(chan struct{}),
+	}
+	results := make(chan ContextPlan, 2)
+	errorsChannel := make(chan error, 2)
+	for _, plan := range []ContextPlan{left, right} {
+		plan := plan
+		go func() {
+			got, _, err := repository.PersistTerminal(context.Background(), plan, guard, validPlanCommitToken(plan))
+			if plan.InputFingerprintSHA256 == guard.winnerInput {
+				close(guard.winnerDone)
+			}
+			results <- got
+			errorsChannel <- err
+		}()
+	}
+	<-guard.loserReady
+
+	first, second := <-results, <-results
+	if err := <-errorsChannel; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-errorsChannel; err != nil {
+		t.Fatal(err)
+	}
+	if first.ID == 0 || first.ID != second.ID || first.PlanSHA256 == nil || second.PlanSHA256 == nil || *first.PlanSHA256 != *second.PlanSHA256 {
+		t.Fatalf("concurrent callers returned different terminal plans: %#v %#v", first, second)
+	}
+	assertPlanMockExpectations(t, mock)
+}
+
+func TestPersistTerminalGuardAbortRollsBackWithoutPlan(t *testing.T) {
+	repository, mock, closeDB := newPlanRepositoryFixture(t)
+	defer closeDB()
+	plan := validReadyPlan()
+	mock.ExpectBegin()
+	mock.ExpectRollback()
+
+	_, _, err := repository.PersistTerminal(t.Context(), plan, &recordingPlanGuard{err: ErrPlanCommitAborted}, validPlanCommitToken(plan))
+	if !errors.Is(err, ErrPlanCommitAborted) {
+		t.Fatalf("guard abort error = %v", err)
+	}
+	assertPlanMockExpectations(t, mock)
+}
+
+func TestPersistTerminalContextCancellationIsCommitAbort(t *testing.T) {
+	repository, mock, closeDB := newPlanRepositoryFixture(t)
+	defer closeDB()
+	plan := validReadyPlan()
+	mock.ExpectBegin()
+	mock.ExpectRollback()
+
+	_, _, err := repository.PersistTerminal(t.Context(), plan, &recordingPlanGuard{err: context.Canceled}, validPlanCommitToken(plan))
+	if !errors.Is(err, ErrPlanCommitAborted) {
+		t.Fatalf("context cancellation error = %v", err)
+	}
+	assertPlanMockExpectations(t, mock)
+}
+
+type recordingPlanGuard struct {
+	transaction *gorm.DB
+	result      PlanCommitGuardResult
+	err         error
+}
+
+func (guard *recordingPlanGuard) GuardPlanCommitInTransaction(_ context.Context, transaction *gorm.DB, _ PlanCommitToken) (PlanCommitGuardResult, error) {
+	guard.transaction = transaction
+	return guard.result, guard.err
+}
+
+type orderedPlanGuard struct {
+	once        sync.Once
+	winnerInput [sha256.Size]byte
+	loserReady  chan struct{}
+	winnerDone  chan struct{}
+}
+
+func (guard *orderedPlanGuard) GuardPlanCommitInTransaction(_ context.Context, _ *gorm.DB, token PlanCommitToken) (PlanCommitGuardResult, error) {
+	if token.InputFingerprintSHA256 == guard.winnerInput {
+		return PlanCommitGuardResult{}, nil
+	}
+	guard.once.Do(func() { close(guard.loserReady) })
+	<-guard.winnerDone
+	return PlanCommitGuardResult{}, nil
+}
+
+func newPlanRepositoryFixture(t *testing.T) (*GormPlanRepository, sqlmock.Sqlmock, func()) {
+	t.Helper()
+	sqlDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := gorm.Open(mysql.New(mysql.Config{Conn: sqlDB, SkipInitializeWithVersion: true}), &gorm.Config{
+		DisableAutomaticPing:   true,
+		SkipDefaultTransaction: false,
+		Logger:                 logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		_ = sqlDB.Close()
+		t.Fatal(err)
+	}
+	return NewPlanRepository(&database.Client{Gorm: db, SQL: sqlDB}), mock, func() { _ = sqlDB.Close() }
+}
+
+func validPlanCommitToken(plan ContextPlan) PlanCommitToken {
+	return PlanCommitToken{
+		RunID: plan.RunID, ReplyCommandID: 77, LeaseOwner: "worker-a", LeaseToken: 3,
+		InputFingerprintSHA256:  plan.InputFingerprintSHA256,
+		AuthoritySnapshotSHA256: sha256.Sum256([]byte("authority")),
+	}
+}
+
+func expectFindTerminalPlan(mock sqlmock.Sqlmock, plan ContextPlan) {
+	profileID, profileHash, generation := any(nil), any(nil), any(nil)
+	if plan.Profile != nil {
+		profileID, profileHash, generation = plan.Profile.ID, plan.Profile.SHA256[:], plan.Profile.IndexGeneration
+	}
+	planHash := any(nil)
+	if plan.PlanSHA256 != nil {
+		planHash = plan.PlanSHA256[:]
+	}
+	errorStage, errorCode, errorMessage := any(nil), any(nil), any(nil)
+	if plan.Error != nil {
+		errorStage, errorCode = plan.Error.Stage, string(plan.Error.Code)
+		if plan.Error.Message != nil {
+			errorMessage = *plan.Error.Message
+		}
+	}
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `ai_context_plans` WHERE run_id = ? ORDER BY id ASC LIMIT ?")).
+		WithArgs(plan.RunID, 1).
+		WillReturnRows(sqlmock.NewRows(contextPlanColumnNames()).AddRow(
+			plan.ID, plan.RunID, profileID, profileHash, generation, plan.PolicyVersion,
+			plan.InputFingerprintSHA256[:], planHash, plan.ModelCapabilitySHA256[:],
+			plan.APIProtocol, plan.TokenCounterID, plan.Budget.ContextWindowTokens,
+			plan.Budget.EffectiveOutputTokens, plan.Budget.ProviderProtocolUpperBound,
+			plan.Budget.ToolContinuationInputReserve, plan.Budget.PolicySafetyMargin,
+			plan.Budget.KnownInputBudget, plan.Budget.KnownInputUpperBound, plan.Budget.Proof,
+			plan.RetrievalOutcome, plan.State, errorStage, errorCode, errorMessage,
+			`{"schema":"context_plan_metrics_v1"}`, time.Now(),
+		))
+	if len(plan.Items) == 0 {
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `ai_context_plan_items` WHERE plan_id = ? ORDER BY ordinal ASC")).
+			WithArgs(plan.ID).
+			WillReturnRows(sqlmock.NewRows(contextPlanItemColumnNames()))
+		return
+	}
+	item := plan.Items[0]
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `ai_context_plan_items` WHERE plan_id = ? ORDER BY ordinal ASC")).
+		WithArgs(plan.ID).
+		WillReturnRows(sqlmock.NewRows(contextPlanItemColumnNames()).AddRow(
+			201, plan.ID, item.Ordinal, item.Block.Kind, item.Block.SourceType, item.Block.SourceRef,
+			item.Block.SourceSHA256[:], item.Block.AtomicGroupKey, 1, item.Block.Priority, item.Decision,
+			nil, item.Block.TokenUpperBound, nil, nil, nil, *item.Block.ContentSnapshot,
+			`{"schema":"context_block_metadata_v1"}`, time.Now(),
+		))
+}
+
+func assertPlanMockExpectations(t *testing.T, mock sqlmock.Sqlmock) {
+	t.Helper()
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
