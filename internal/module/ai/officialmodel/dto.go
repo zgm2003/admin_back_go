@@ -81,6 +81,7 @@ type OfficialModelDTO struct {
 	CatalogVersion             string          `json:"catalog_version"`
 	ContextWindowTokens        int64           `json:"context_window_tokens"`
 	MaxOutputTokens            int64           `json:"max_output_tokens"`
+	TokenCounterID             string          `json:"token_counter_id"`
 	ContextTierThresholdTokens int64           `json:"context_tier_threshold_tokens"`
 	Capabilities               CapabilityDTO   `json:"capabilities"`
 	PricingProfile             string          `json:"pricing_profile"`

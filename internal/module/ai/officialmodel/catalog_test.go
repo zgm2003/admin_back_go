@@ -22,6 +22,7 @@ func validCatalogModel(id string) Model {
 		LifecycleStatus:     LifecycleActive,
 		ContextWindowTokens: 128000,
 		MaxOutputTokens:     4096,
+		TokenCounterID:      "utf8_bytes_v1",
 		Capabilities: Capabilities{
 			InputModalities:     []string{ModalityText},
 			OutputModalities:    []string{ModalityText},
@@ -97,6 +98,9 @@ func TestOfficialCatalogDefaultHasCompleteSourcesAndLimits(t *testing.T) {
 		if model.ContextWindowTokens <= 0 || model.MaxOutputTokens <= 0 || model.MaxOutputTokens > model.ContextWindowTokens {
 			t.Fatalf("invalid model limits: %#v", model)
 		}
+		if model.TokenCounterID != "utf8_bytes_v1" {
+			t.Fatalf("%s token counter = %q", model.ModelID, model.TokenCounterID)
+		}
 		if len(model.OfficialPrice.Rates) == 0 || model.OfficialPrice.ModelID != model.ModelID {
 			t.Fatalf("missing official price: %#v", model)
 		}
@@ -114,6 +118,18 @@ func TestOfficialCatalogDefaultHasCompleteSourcesAndLimits(t *testing.T) {
 		if err != nil || !reviewAfter.After(retrieved) {
 			t.Fatalf("invalid review_after for %s: %q", model.ModelID, model.ReviewAfter)
 		}
+	}
+}
+
+func TestOfficialCatalogRequiresRegisteredTokenCounter(t *testing.T) {
+	model := validCatalogModel("model-a")
+	model.TokenCounterID = ""
+	if _, err := NewCatalog("test-v1", []Model{model}); !errors.Is(err, ErrInvalidCatalog) {
+		t.Fatalf("missing token counter error = %v", err)
+	}
+	model.TokenCounterID = "unknown_v1"
+	if _, err := NewCatalog("test-v1", []Model{model}); !errors.Is(err, ErrInvalidCatalog) {
+		t.Fatalf("unknown token counter error = %v", err)
 	}
 }
 
@@ -218,9 +234,9 @@ func TestOfficialModelManagementDTOEncodesEmptyCollectionsAsArrays(t *testing.T)
 		t.Fatal(err)
 	}
 	encoded := string(payload)
-	for _, field := range []string{`"aliases":[]`, `"supported_parameters":[]`} {
+	for _, field := range []string{`"aliases":[]`, `"supported_parameters":[]`, `"token_counter_id":"utf8_bytes_v1"`} {
 		if !strings.Contains(encoded, field) {
-			t.Fatalf("management DTO must encode %s as an array: %s", field, encoded)
+			t.Fatalf("management DTO must encode %s: %s", field, encoded)
 		}
 	}
 }

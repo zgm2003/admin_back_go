@@ -189,6 +189,7 @@ func (service *Service) managementModel(ctx context.Context, model Model) (Offic
 		CatalogVendor: model.CatalogVendor, ModelFamily: model.ModelFamily, ModelID: model.ModelID,
 		Aliases: cloneStrings(model.Aliases), LifecycleStatus: model.LifecycleStatus, CatalogVersion: model.CatalogVersion,
 		ContextWindowTokens: model.ContextWindowTokens, MaxOutputTokens: model.MaxOutputTokens,
+		TokenCounterID:             model.TokenCounterID,
 		ContextTierThresholdTokens: model.ContextTierThresholdTokens,
 		Capabilities: CapabilityDTO{
 			InputModalities: cloneStrings(capabilities.InputModalities), OutputModalities: cloneStrings(capabilities.OutputModalities),

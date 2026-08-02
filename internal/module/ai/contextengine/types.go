@@ -11,6 +11,9 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf8"
+
+	infraai "admin_back_go/internal/infra/ai"
 )
 
 const (
@@ -268,8 +271,14 @@ func (budget Budget) Validate() error {
 		budget.PolicySafetyMargin < 0 || budget.KnownInputBudget < 0 || budget.KnownInputUpperBound < 0 {
 		return ErrInvalidBudget
 	}
-	want := budget.ContextWindowTokens - budget.EffectiveOutputTokens - budget.ProviderProtocolUpperBound - budget.PolicySafetyMargin
-	if want < 0 || budget.KnownInputBudget != want ||
+	want := budget.ContextWindowTokens
+	for _, reserved := range []int64{budget.EffectiveOutputTokens, budget.ProviderProtocolUpperBound, budget.PolicySafetyMargin} {
+		if reserved > want {
+			return ErrInvalidBudget
+		}
+		want -= reserved
+	}
+	if budget.KnownInputBudget != want ||
 		budget.ToolContinuationInputReserve > budget.ProviderProtocolUpperBound ||
 		budget.KnownInputUpperBound > budget.KnownInputBudget {
 		return ErrInvalidBudget
@@ -416,9 +425,10 @@ func (metrics ContextPlanMetricsV1) Validate() error {
 }
 
 type ContextBlockMetadataV1 struct {
-	Schema    string               `json:"schema"`
-	Locator   *ContextLocatorV1    `json:"locator,omitempty"`
-	Retrieval *RetrievalBranchesV1 `json:"retrieval,omitempty"`
+	Schema     string               `json:"schema"`
+	Locator    *ContextLocatorV1    `json:"locator,omitempty"`
+	Retrieval  *RetrievalBranchesV1 `json:"retrieval,omitempty"`
+	Attachment *ContextAttachmentV1 `json:"attachment,omitempty"`
 }
 
 func (metadata ContextBlockMetadataV1) Validate() error {
@@ -433,6 +443,52 @@ func (metadata ContextBlockMetadataV1) Validate() error {
 	if metadata.Retrieval != nil {
 		if err := metadata.Retrieval.Validate(); err != nil {
 			return err
+		}
+	}
+	if metadata.Attachment != nil {
+		if err := metadata.Attachment.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type AttachmentKind = infraai.AttachmentKind
+
+const (
+	AttachmentImage = infraai.AttachmentImage
+	AttachmentFile  = infraai.AttachmentFile
+)
+
+type ContextAttachmentV1 struct {
+	Kind      AttachmentKind `json:"kind"`
+	URL       string         `json:"url,omitempty"`
+	ObjectKey string         `json:"object_key"`
+	ETag      string         `json:"etag"`
+	Size      int64          `json:"size"`
+	MIMEType  string         `json:"mime_type"`
+	Filename  string         `json:"filename"`
+}
+
+func (attachment ContextAttachmentV1) Validate() error {
+	if err := attachment.Kind.Validate(); err != nil {
+		return fmt.Errorf("%w: attachment kind", ErrInvalidContextPlan)
+	}
+	for _, value := range []string{attachment.URL, attachment.ObjectKey, attachment.ETag, attachment.MIMEType, attachment.Filename} {
+		if !utf8.ValidString(value) || strings.TrimSpace(value) != value {
+			return fmt.Errorf("%w: attachment facts", ErrInvalidContextPlan)
+		}
+	}
+	switch attachment.Kind {
+	case AttachmentImage:
+		if attachment.URL == "" || attachment.Size < 0 ||
+			(attachment.MIMEType != "" && !strings.HasPrefix(strings.ToLower(attachment.MIMEType), "image/")) {
+			return fmt.Errorf("%w: image attachment facts", ErrInvalidContextPlan)
+		}
+	case AttachmentFile:
+		if attachment.ObjectKey == "" || attachment.ETag == "" || attachment.Size <= 0 ||
+			attachment.MIMEType == "" || attachment.Filename == "" {
+			return fmt.Errorf("%w: file attachment facts", ErrInvalidContextPlan)
 		}
 	}
 	return nil
@@ -592,7 +648,7 @@ func SHA256FromBytes(raw []byte) ([sha256.Size]byte, error) {
 
 func validatePlanItems(items []ContextPlanItem, expectedUpperBound int64) error {
 	var selectedUpperBound int64
-	citations := make(map[string]struct{})
+	nextCitation := 1
 	for index, item := range items {
 		if item.Ordinal != uint32(index+1) {
 			return ErrInvalidContextPlan
@@ -606,11 +662,11 @@ func validatePlanItems(items []ContextPlanItem, expectedUpperBound int64) error 
 			}
 			selectedUpperBound += item.Block.TokenUpperBound
 		}
-		if item.CitationKey != nil {
-			if _, exists := citations[*item.CitationKey]; exists {
+		if item.Decision == DecisionSelected && item.Block.Kind == BlockDocumentEvidence {
+			if item.CitationKey == nil || *item.CitationKey != fmt.Sprintf("C%d", nextCitation) {
 				return ErrInvalidContextPlan
 			}
-			citations[*item.CitationKey] = struct{}{}
+			nextCitation++
 		}
 	}
 	if selectedUpperBound != expectedUpperBound {
@@ -630,6 +686,9 @@ func validatePlanItem(item ContextPlanItem) error {
 	}
 	if err := item.Block.Metadata.Validate(); err != nil {
 		return err
+	}
+	if item.Block.Kind.isAttachment() != (item.Block.Metadata.Attachment != nil) {
+		return ErrInvalidContextPlan
 	}
 	if err := item.Decision.Validate(); err != nil {
 		return err
@@ -668,6 +727,8 @@ func validatePlanItem(item ContextPlanItem) error {
 			item.Decision != DecisionSelected || item.Block.Kind != BlockDocumentEvidence {
 			return ErrInvalidContextPlan
 		}
+	} else if item.Decision == DecisionSelected && item.Block.Kind == BlockDocumentEvidence {
+		return ErrInvalidContextPlan
 	}
 	return nil
 }

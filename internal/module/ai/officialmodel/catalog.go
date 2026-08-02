@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/module/ai/pricing"
 	"admin_back_go/internal/shared/money"
 )
@@ -38,6 +39,7 @@ type Model struct {
 	LifecycleStatus            LifecycleStatus
 	ContextWindowTokens        int64
 	MaxOutputTokens            int64
+	TokenCounterID             string
 	ContextTierThresholdTokens int64
 	Capabilities               Capabilities
 	PricingProfile             string
@@ -155,6 +157,9 @@ func validateModel(version string, model Model) error {
 	if model.ContextWindowTokens <= 0 || model.MaxOutputTokens <= 0 || model.MaxOutputTokens > model.ContextWindowTokens ||
 		model.ContextTierThresholdTokens < 0 || model.ContextTierThresholdTokens > model.ContextWindowTokens {
 		return fmt.Errorf("%w: invalid limits for %q", ErrInvalidCatalog, model.ModelID)
+	}
+	if _, err := infraai.ResolveTokenCounter(model.TokenCounterID); err != nil {
+		return fmt.Errorf("%w: invalid token counter for %q", ErrInvalidCatalog, model.ModelID)
 	}
 	if err := validateCapabilities(model.Capabilities); err != nil {
 		return fmt.Errorf("%w: %s: %v", ErrInvalidCatalog, model.ModelID, err)
@@ -297,6 +302,7 @@ type catalogModelJSON struct {
 	LifecycleStatus            LifecycleStatus       `json:"lifecycle_status"`
 	ContextWindowTokens        int64                 `json:"context_window_tokens"`
 	MaxOutputTokens            int64                 `json:"max_output_tokens"`
+	TokenCounterID             string                `json:"token_counter_id"`
 	ContextTierThresholdTokens int64                 `json:"context_tier_threshold_tokens,omitempty"`
 	InputModalities            []string              `json:"input_modalities"`
 	OutputModalities           []string              `json:"output_modalities"`
@@ -352,6 +358,7 @@ func loadCatalog(data []byte) (*Catalog, error) {
 			CatalogVersion: document.Version, CatalogVendor: raw.CatalogVendor, ModelFamily: raw.ModelFamily,
 			ModelID: raw.ModelID, Aliases: raw.Aliases, LifecycleStatus: raw.LifecycleStatus,
 			ContextWindowTokens: raw.ContextWindowTokens, MaxOutputTokens: raw.MaxOutputTokens,
+			TokenCounterID:             raw.TokenCounterID,
 			ContextTierThresholdTokens: raw.ContextTierThresholdTokens,
 			Capabilities: Capabilities{
 				InputModalities: raw.InputModalities, OutputModalities: raw.OutputModalities,

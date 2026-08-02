@@ -76,6 +76,19 @@ func TestContextPlanValidateRejectsInvalidAggregateFacts(t *testing.T) {
 	}
 }
 
+func TestBudgetValidateRejectsIntegerWraparound(t *testing.T) {
+	budget := validReadyPlan().Budget
+	budget.ContextWindowTokens = 1
+	budget.EffectiveOutputTokens = math.MaxInt64
+	budget.ProviderProtocolUpperBound = math.MaxInt64
+	budget.PolicySafetyMargin = 0
+	budget.KnownInputBudget = 3
+	budget.KnownInputUpperBound = 0
+	if err := budget.Validate(); err == nil {
+		t.Fatal("overflowing budget subtraction was accepted")
+	}
+}
+
 func TestClosedContextEnumsRejectUnknownValues(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -113,6 +126,61 @@ func TestDocumentEvidenceCitationPlacement(t *testing.T) {
 	plan.Items[0].CitationKey = stringPointer("C0")
 	if err := plan.Validate(); err == nil {
 		t.Fatal("invalid citation key was accepted")
+	}
+}
+
+func TestDocumentEvidenceCitationsAreCompleteAndContiguous(t *testing.T) {
+	plan := validReadyPlan()
+	content := "evidence"
+	plan.Items[0].Block.Kind = BlockDocumentEvidence
+	plan.Items[0].Block.ContentSnapshot = &content
+	plan.Items[0].CitationKey = stringPointer("C2")
+	if err := plan.Validate(); err == nil {
+		t.Fatal("citation sequence did not start at C1")
+	}
+	plan.Items[0].CitationKey = nil
+	if err := plan.Validate(); err == nil {
+		t.Fatal("selected document evidence without a citation was accepted")
+	}
+}
+
+func TestAttachmentBlocksRequireTypedObjectFacts(t *testing.T) {
+	plan := validReadyPlan()
+	plan.Items[0].Block.Kind = BlockCurrentAttachment
+	plan.Items[0].Block.ContentSnapshot = nil
+	plan.Items[0].Block.Metadata.Attachment = &ContextAttachmentV1{
+		Kind: AttachmentFile, ObjectKey: "ai_chat_attachments/a.txt", ETag: "etag-1",
+		Size: 3, MIMEType: "text/plain", Filename: "a.txt",
+	}
+	if err := plan.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	nonAttachment := plan
+	nonAttachment.Items = append([]ContextPlanItem(nil), plan.Items...)
+	nonAttachment.Items[0].Block.Kind = BlockCurrentUserMessage
+	content := "not an attachment"
+	nonAttachment.Items[0].Block.ContentSnapshot = &content
+	if err := nonAttachment.Validate(); err == nil {
+		t.Fatal("non-attachment block with attachment object facts was accepted")
+	}
+
+	plan.Items[0].Block.Metadata.Attachment = nil
+	if err := plan.Validate(); err == nil {
+		t.Fatal("attachment block without object facts was accepted")
+	}
+}
+
+func TestAttachmentBlocksPreserveLegacyImageURLContract(t *testing.T) {
+	plan := validReadyPlan()
+	plan.Items[0].Block.Kind = BlockHistoryAttachment
+	plan.Items[0].Block.ContentSnapshot = nil
+	plan.Items[0].Block.Metadata.Attachment = &ContextAttachmentV1{
+		Kind: AttachmentImage,
+		URL:  "https://example.test/history.png",
+	}
+	if err := plan.Validate(); err != nil {
+		t.Fatal(err)
 	}
 }
 
