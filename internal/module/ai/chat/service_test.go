@@ -789,7 +789,9 @@ func TestRecoveredNativeFileAttemptUsesPersistedManifestOnly(t *testing.T) {
 		factory.input.APIKey != "recovery-provider-key" || factory.input.APIProtocol != "chat_completions" || factory.input.FileOpener != fileOpener {
 		t.Fatalf("recovery engine config=%+v", factory.input)
 	}
-	if paid.input.ChatInput.Content != "" || len(paid.input.ChatInput.Inputs) != 0 || !reflect.DeepEqual(paid.input.RequestIdentity, requestidentity.Input{}) {
+	if paid.input.ChatInput.AgentID != 5 || paid.input.ChatInput.RunID != 100 || paid.input.ChatInput.UserID != 7 || paid.input.ChatInput.UserKey != "admin:7" ||
+		paid.input.ChatInput.ModelID != "" || len(paid.input.ChatInput.Messages) != 0 || paid.input.ChatInput.Temperature != nil ||
+		!reflect.DeepEqual(paid.input.RequestIdentity, requestidentity.Input{}) {
 		t.Fatalf("mutable request identity leaked into recovery: %+v", paid.input)
 	}
 }
@@ -1142,12 +1144,10 @@ func TestExecuteConversationReplyAllowsImageOnlyUserMessage(t *testing.T) {
 	if res.AssistantMessageID != 22 || repo.assistant.Content != "看到了图片" {
 		t.Fatalf("unexpected assistant result: res=%#v assistant=%#v", res, repo.assistant)
 	}
-	attachments, ok := engine.input.Inputs["attachments"].([]any)
-	if !ok || len(attachments) != 1 {
-		t.Fatalf("image attachments not passed to engine: %#v", engine.input.Inputs)
-	}
-	if engine.input.Content != "" {
-		t.Fatalf("image-only message should keep empty text content, got %q", engine.input.Content)
+	if len(engine.input.Messages) != 1 || engine.input.Messages[0].Role != infraai.MessageRoleUser || len(engine.input.Messages[0].Parts) != 1 ||
+		engine.input.Messages[0].Parts[0].Kind != infraai.ContentPartAttachment || engine.input.Messages[0].Parts[0].Attachment == nil ||
+		engine.input.Messages[0].Parts[0].Attachment.Kind != infraai.AttachmentImage || engine.input.Messages[0].Parts[0].Attachment.URL != "https://example.test/a.png" {
+		t.Fatalf("image-only typed message = %#v", engine.input.Messages)
 	}
 	if !strings.Contains(recorder.started.InputSnapshot, "attachments") || strings.TrimSpace(recorder.started.InputSnapshot) == "" {
 		t.Fatalf("image-only run snapshot must use source message metadata, got %q", recorder.started.InputSnapshot)
@@ -1179,25 +1179,19 @@ func TestExecuteConversationReplyPreservesSelectedHistoryAttachments(t *testing.
 		t.Fatalf("selected historical attachment was rejected: %v", err)
 	}
 
-	history, ok := engine.input.Inputs["history"].([]map[string]any)
-	if !ok || len(history) != 2 || history[0]["content"] != "historical question" || history[1]["content"] != "historical answer" {
-		t.Fatalf("historical text was not preserved: %#v", engine.input.Inputs["history"])
+	messages := engine.input.Messages
+	if len(messages) != 3 || messages[0].Role != infraai.MessageRoleUser || messages[1].Role != infraai.MessageRoleAssistant ||
+		messages[2].Role != infraai.MessageRoleUser || messages[0].Parts[0].Text != "historical question" ||
+		messages[1].Parts[0].Text != "historical answer" || messages[2].Parts[0].Text != "current question" {
+		t.Fatalf("typed history messages = %#v", messages)
 	}
-	historyAttachments, ok := history[0]["attachments"].([]any)
-	if !ok || len(historyAttachments) != 1 {
-		t.Fatalf("historical attachment was dropped: %#v", history)
+	if len(messages[0].Parts) != 2 || messages[0].Parts[1].Attachment == nil ||
+		messages[0].Parts[1].Attachment.ObjectKey != "ai_chat_attachments/history.pdf" {
+		t.Fatalf("historical attachment = %#v", messages[0])
 	}
-	historyAttachment, ok := historyAttachments[0].(map[string]any)
-	if !ok || historyAttachment["object_key"] != "ai_chat_attachments/history.pdf" {
-		t.Fatalf("unexpected historical attachment: %#v", historyAttachments[0])
-	}
-	attachments, ok := engine.input.Inputs["attachments"].([]any)
-	if !ok || len(attachments) != 1 {
-		t.Fatalf("current attachments were not preserved: %#v", engine.input.Inputs["attachments"])
-	}
-	attachment, ok := attachments[0].(map[string]any)
-	if !ok || attachment["object_key"] != "ai_chat_attachments/current.txt" {
-		t.Fatalf("unexpected current attachment: %#v", attachments[0])
+	if len(messages[2].Parts) != 2 || messages[2].Parts[1].Attachment == nil ||
+		messages[2].Parts[1].Attachment.ObjectKey != "ai_chat_attachments/current.txt" {
+		t.Fatalf("current attachment = %#v", messages[2])
 	}
 }
 
@@ -1327,35 +1321,38 @@ func TestTimeoutRunsAllowsInputStaleTimeoutOverride(t *testing.T) {
 	}
 }
 
-func TestChatHistoryExcludesCurrentUserMessageAndKeepsOrder(t *testing.T) {
+func TestSelectedChatContextKeepsHistoryOrderAndAppendsCurrentUser(t *testing.T) {
 	now := time.Now()
-	history := chatHistory([]MessageHistory{
+	selected := selectedChatContext([]MessageHistory{
 		{ID: 3, Role: enum.AIMessageRoleAssistant, Content: "two", CreatedAt: now},
 		{ID: 1, Role: enum.AIMessageRoleUser, Content: "one", CreatedAt: now},
 		{ID: 4, Role: enum.AIMessageRoleUser, Content: "current", CreatedAt: now},
-	}, 4)
-	if len(history) != 2 || history[0]["content"] != "one" || history[1]["content"] != "two" {
-		t.Fatalf("unexpected history: %#v", history)
+	}, 4, 0)
+	if len(selected) != 3 || selected[0].Content != "one" || selected[1].Content != "two" || selected[2].Content != "current" {
+		t.Fatalf("unexpected selected context: %#v", selected)
 	}
 }
 
-func TestChatInputsExtractsAttachmentsAndRuntimeParamsFromCurrentMessageMeta(t *testing.T) {
+func TestTypedChatInputExtractsAttachmentsTemperatureAndMaxHistory(t *testing.T) {
 	meta := `{"attachments":[{"type":"image","url":"https://example.test/a.png"}],"runtime_params":{"temperature":0.7,"max_tokens":1024,"max_history":1}}`
-	inputs := chatInputs(AgentEngineConfig{ModelID: "gpt-test"}, []MessageHistory{
+	rows := []MessageHistory{
 		{ID: 1, Role: enum.AIMessageRoleUser, Content: "old"},
 		{ID: 2, Role: enum.AIMessageRoleAssistant, Content: "older"},
 		{ID: 3, Role: enum.AIMessageRoleUser, Content: "current", MetaJSON: &meta},
-	}, 3)
-	if inputs["temperature"] != 0.7 || inputs["max_tokens"] != 1024.0 {
-		t.Fatalf("runtime params not extracted: %#v", inputs)
 	}
-	attachments, ok := inputs["attachments"].([]any)
-	if !ok || len(attachments) != 1 {
-		t.Fatalf("attachments not extracted: %#v", inputs["attachments"])
+	selected := selectedChatContext(rows, 3, maxHistoryFromMeta(metaForMessage(rows, 3)))
+	messages, err := chatMessages(AgentEngineConfig{}, selected, 3, "current")
+	if err != nil {
+		t.Fatal(err)
 	}
-	history, ok := inputs["history"].([]map[string]any)
-	if !ok || len(history) != 1 || history[0]["content"] != "older" {
-		t.Fatalf("max_history not applied: %#v", inputs["history"])
+	temperature := chatTemperature(rows, 3)
+	if temperature == nil || *temperature != 0.7 {
+		t.Fatalf("temperature not extracted: %#v", temperature)
+	}
+	if len(messages) != 2 || messages[0].Role != infraai.MessageRoleAssistant || messages[0].Parts[0].Text != "older" ||
+		messages[1].Role != infraai.MessageRoleUser || len(messages[1].Parts) != 2 || messages[1].Parts[0].Text != "current" ||
+		messages[1].Parts[1].Attachment == nil || messages[1].Parts[1].Attachment.URL != "https://example.test/a.png" {
+		t.Fatalf("typed messages or max_history changed: %#v", messages)
 	}
 }
 
@@ -1387,15 +1384,22 @@ func TestNativeFileContextLimitIncludesSelectedHistory(t *testing.T) {
 	}
 }
 
-func TestChatInputsOnlyIncludesConfiguredSystemPrompt(t *testing.T) {
-	inputs := chatInputs(AgentEngineConfig{ModelID: "gpt-test", SystemPrompt: "  "}, nil, 9)
-	if _, ok := inputs["system_prompt"]; ok {
-		t.Fatalf("blank system prompt must not be sent downstream: %#v", inputs)
+func TestChatMessagesOnlyIncludesConfiguredSystemPrompt(t *testing.T) {
+	current := []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, Content: "hello"}}
+	messages, err := chatMessages(AgentEngineConfig{SystemPrompt: "  "}, current, 9, "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 1 || messages[0].Role != infraai.MessageRoleUser {
+		t.Fatalf("blank system prompt must not be sent downstream: %#v", messages)
 	}
 
-	inputs = chatInputs(AgentEngineConfig{ModelID: "gpt-test", SystemPrompt: "你是客服"}, nil, 9)
-	if inputs["system_prompt"] != "你是客服" {
-		t.Fatalf("configured system prompt must be preserved, got %#v", inputs["system_prompt"])
+	messages, err = chatMessages(AgentEngineConfig{SystemPrompt: "你是客服"}, current, 9, "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 2 || messages[0].Role != infraai.MessageRoleSystem || messages[0].Parts[0].Text != "你是客服" {
+		t.Fatalf("configured system prompt must be preserved, got %#v", messages)
 	}
 }
 
@@ -1453,8 +1457,16 @@ func TestExecuteConversationReplyInjectsKnowledgeContext(t *testing.T) {
 	if knowledge.input.RunID != 100 || knowledge.input.AgentID != 5 || knowledge.input.ConversationID != 3 || knowledge.input.UserMessageID != 9 || knowledge.input.Query != "这个项目后端架构是什么？" {
 		t.Fatalf("knowledge runtime input mismatch: %#v", knowledge.input)
 	}
-	if !strings.Contains(engine.input.Content, "Gin modular monolith") || !strings.Contains(engine.input.Content, "用户问题：\n这个项目后端架构是什么？") {
-		t.Fatalf("knowledge context not injected into model input: %q", engine.input.Content)
+	if len(engine.input.Messages) == 0 {
+		t.Fatal("knowledge request has no typed messages")
+	}
+	current := engine.input.Messages[len(engine.input.Messages)-1]
+	if current.Role != infraai.MessageRoleUser || len(current.Parts) == 0 ||
+		!strings.Contains(current.Parts[0].Text, "Gin modular monolith") || !strings.Contains(current.Parts[0].Text, "用户问题：\n这个项目后端架构是什么？") {
+		t.Fatalf("knowledge context not injected into model input: %#v", current)
+	}
+	if repo.history[0].Content != "这个项目后端架构是什么？" {
+		t.Fatalf("knowledge injection mutated persisted message: %#v", repo.history[0])
 	}
 }
 
@@ -1471,8 +1483,12 @@ func TestExecuteConversationReplyContinuesWhenKnowledgeRetrievalFails(t *testing
 	if err != nil {
 		t.Fatalf("knowledge failure must not block chat: %v", err)
 	}
-	if res.AssistantMessageID != 22 || engine.input.Content != "hi" {
-		t.Fatalf("chat should continue with original message: res=%#v input=%q", res, engine.input.Content)
+	if len(engine.input.Messages) == 0 {
+		t.Fatal("fallback request has no typed messages")
+	}
+	current := engine.input.Messages[len(engine.input.Messages)-1]
+	if res.AssistantMessageID != 22 || current.Role != infraai.MessageRoleUser || len(current.Parts) != 1 || current.Parts[0].Text != "hi" {
+		t.Fatalf("chat should continue with original message: res=%#v input=%#v", res, current)
 	}
 }
 

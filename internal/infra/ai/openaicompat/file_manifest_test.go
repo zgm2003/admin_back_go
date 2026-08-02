@@ -126,13 +126,16 @@ func TestFileManifestPreflightClassifiesMetadataDriftAsPermanentObjectError(t *t
 }
 
 func TestAPIProtocolSnapshotControlsPreparationButNotRecovery(t *testing.T) {
-	input := infraai.ChatInput{Content: "read", Inputs: map[string]any{
-		"model_id": "gpt-test",
-		"attachments": []any{map[string]any{
-			"type": "file", "object_key": "ai_chat_attachments/a.txt", "etag": `"etag-v1"`,
-			"size": int64(3), "mime_type": "text/plain", "name": "a.txt",
-		}},
-	}}
+	input := infraai.ChatInput{
+		ModelID: "gpt-test",
+		Messages: []infraai.Message{{Role: infraai.MessageRoleUser, Parts: []infraai.ContentPart{
+			{Kind: infraai.ContentPartText, Text: "read"},
+			{Kind: infraai.ContentPartAttachment, Attachment: &infraai.AttachmentRef{
+				Kind: infraai.AttachmentFile, ObjectKey: "ai_chat_attachments/a.txt", ETag: `"etag-v1"`,
+				Size: 3, MIMEType: "text/plain", Filename: "a.txt",
+			}},
+		}}},
+	}
 	if _, err := New(Config{APIProtocol: "chat_completions", FileOpener: testPreparedFileOpener()}).PrepareChat(context.Background(), input); err == nil {
 		t.Fatal("Chat Completions prepared a new native file request")
 	}
@@ -147,7 +150,7 @@ func TestAPIProtocolSnapshotControlsPreparationButNotRecovery(t *testing.T) {
 	if err != nil || manifest.APIProtocol != "responses" {
 		t.Fatalf("manifest=%#v err=%v", manifest, err)
 	}
-	if _, err := New(Config{}).PrepareChat(context.Background(), infraai.ChatInput{Content: "text", Inputs: map[string]any{"model_id": "gpt-test"}}); err != nil {
+	if _, err := New(Config{}).PrepareChat(context.Background(), textChatInput("gpt-test", "text")); err != nil {
 		t.Fatalf("plain text requires file configuration: %v", err)
 	}
 
@@ -158,20 +161,25 @@ func TestAPIProtocolSnapshotControlsPreparationButNotRecovery(t *testing.T) {
 }
 
 func TestFileManifestPreparationPreservesHistoryAndCurrentFileOrder(t *testing.T) {
-	input := infraai.ChatInput{Content: "current", Inputs: map[string]any{
-		"model_id": "gpt-test",
-		"history": []map[string]any{{
-			"role": "user", "content": "history",
-			"attachments": []any{map[string]any{
-				"type": "file", "object_key": "ai_chat_attachments/a.txt", "etag": `"etag-v1"`,
-				"size": int64(3), "mime_type": "text/plain", "name": "a.txt",
+	input := infraai.ChatInput{
+		ModelID: "gpt-test",
+		Messages: []infraai.Message{
+			{Role: infraai.MessageRoleUser, Parts: []infraai.ContentPart{
+				{Kind: infraai.ContentPartText, Text: "historical"},
+				{Kind: infraai.ContentPartAttachment, Attachment: &infraai.AttachmentRef{
+					Kind: infraai.AttachmentFile, ObjectKey: "ai_chat_attachments/a.txt", ETag: `"etag-v1"`,
+					Size: 3, MIMEType: "text/plain", Filename: "a.txt",
+				}},
 			}},
-		}},
-		"attachments": []any{map[string]any{
-			"type": "file", "object_key": "ai_chat_attachments/b.json", "etag": `"etag-v2"`,
-			"size": int64(2), "mime_type": "application/json", "name": "b.json",
-		}},
-	}}
+			{Role: infraai.MessageRoleUser, Parts: []infraai.ContentPart{
+				{Kind: infraai.ContentPartText, Text: "current"},
+				{Kind: infraai.ContentPartAttachment, Attachment: &infraai.AttachmentRef{
+					Kind: infraai.AttachmentFile, ObjectKey: "ai_chat_attachments/b.json", ETag: `"etag-v2"`,
+					Size: 2, MIMEType: "application/json", Filename: "b.json",
+				}},
+			}},
+		},
+	}
 	prepared, err := New(Config{APIProtocol: "responses", FileOpener: testPreparedFileOpener()}).PrepareChat(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
@@ -183,8 +191,19 @@ func TestFileManifestPreparationPreservesHistoryAndCurrentFileOrder(t *testing.T
 	if len(manifest.Files) != 2 || manifest.Files[0].Filename != "a.txt" || manifest.Files[1].Filename != "b.json" {
 		t.Fatalf("manifest file order=%#v", manifest.Files)
 	}
-	if strings.Index(string(manifest.Request), `"ref":"file-1"`) > strings.Index(string(manifest.Request), `"ref":"file-2"`) {
-		t.Fatalf("request file ref order changed: %s", manifest.Request)
+	var request struct {
+		Input []struct {
+			Role    string           `json:"role"`
+			Content []map[string]any `json:"content"`
+		} `json:"input"`
+	}
+	if err := json.Unmarshal(manifest.Request, &request); err != nil {
+		t.Fatal(err)
+	}
+	if len(request.Input) != 2 || request.Input[0].Role != "user" || request.Input[1].Role != "user" ||
+		len(request.Input[0].Content) != 2 || request.Input[0].Content[0]["type"] != "input_text" || request.Input[0].Content[0]["text"] != "historical" || request.Input[0].Content[1]["ref"] != "file-1" ||
+		len(request.Input[1].Content) != 2 || request.Input[1].Content[0]["type"] != "input_text" || request.Input[1].Content[0]["text"] != "current" || request.Input[1].Content[1]["ref"] != "file-2" {
+		t.Fatalf("request message order changed: %#v", request.Input)
 	}
 }
 

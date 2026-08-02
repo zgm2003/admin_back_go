@@ -567,11 +567,7 @@ func (assembler paidChatAssembler) AssembleAndQuote(ctx context.Context, run aig
 		return aigateway.PreparedCall{}, err
 	}
 	chatInput := clonePaidChatInput(assembler.input)
-	if chatInput.Inputs == nil {
-		chatInput.Inputs = map[string]any{}
-	}
-	chatInput.Inputs["model_id"] = snapshot.RequestedModelID
-	delete(chatInput.Inputs, "max_tokens")
+	chatInput.ModelID = snapshot.RequestedModelID
 	body, inputBound, outputBound, schema, strategy, err := assembler.prepareConverged(ctx, snapshot, chatInput)
 	if err != nil {
 		return aigateway.PreparedCall{}, err
@@ -668,14 +664,65 @@ func (assembler paidChatAssembler) prepareConverged(ctx context.Context, snapsho
 
 func clonePaidChatInput(input infraai.ChatInput) infraai.ChatInput {
 	copy := input
-	copy.Inputs = make(map[string]any, len(input.Inputs)+2)
-	for key, value := range input.Inputs {
-		copy.Inputs[key] = value
+	copy.Messages = make([]infraai.Message, len(input.Messages))
+	for messageIndex, message := range input.Messages {
+		copy.Messages[messageIndex] = message
+		copy.Messages[messageIndex].Parts = make([]infraai.ContentPart, len(message.Parts))
+		for partIndex, part := range message.Parts {
+			copy.Messages[messageIndex].Parts[partIndex] = part
+			if part.Attachment != nil {
+				attachment := *part.Attachment
+				copy.Messages[messageIndex].Parts[partIndex].Attachment = &attachment
+			}
+		}
 	}
-	copy.Tools = append([]infraai.ToolDefinition(nil), input.Tools...)
+	if input.Temperature != nil {
+		temperature := *input.Temperature
+		copy.Temperature = &temperature
+	}
+	copy.Tools = make([]infraai.ToolDefinition, len(input.Tools))
+	for index, tool := range input.Tools {
+		copy.Tools[index] = tool
+		if tool.Parameters != nil {
+			copy.Tools[index].Parameters = cloneChatJSONMap(tool.Parameters)
+		}
+	}
 	copy.ToolCalls = append([]infraai.ToolCall(nil), input.ToolCalls...)
 	copy.ToolOutputs = append([]infraai.ToolOutput(nil), input.ToolOutputs...)
+	if input.Continuation != nil {
+		continuation := *input.Continuation
+		continuation.Items = append(json.RawMessage(nil), input.Continuation.Items...)
+		copy.Continuation = &continuation
+	}
 	return copy
+}
+
+func cloneChatJSONMap(input map[string]any) map[string]any {
+	if input == nil {
+		return nil
+	}
+	output := make(map[string]any, len(input))
+	for key, value := range input {
+		output[key] = cloneChatJSONValue(value)
+	}
+	return output
+}
+
+func cloneChatJSONValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return cloneChatJSONMap(typed)
+	case []any:
+		output := make([]any, len(typed))
+		for index, item := range typed {
+			output[index] = cloneChatJSONValue(item)
+		}
+		return output
+	case json.RawMessage:
+		return append(json.RawMessage(nil), typed...)
+	default:
+		return value
+	}
 }
 
 func pricingBookFromSnapshot(snapshot aigateway.PricingSnapshot) pricing.PriceBook {

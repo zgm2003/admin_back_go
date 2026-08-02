@@ -11,7 +11,6 @@ import (
 	"hash"
 	"io"
 	"log/slog"
-	"math"
 	"net/http"
 	"strings"
 	"sync"
@@ -153,15 +152,10 @@ func (c *Client) PrepareChat(ctx context.Context, input infraai.ChatInput) ([]by
 			return nil, err
 		}
 	}
-	if strings.TrimSpace(input.Content) == "" {
-		if !hasCurrentAttachments(input.Inputs) {
-			return nil, fmt.Errorf("%w: missing message content", infraai.ErrInvalidConfig)
-		}
+	if err := input.Validate(); err != nil {
+		return nil, err
 	}
-	model := inputString(input.Inputs, "model_id")
-	if model == "" {
-		return nil, fmt.Errorf("%w: missing model_id", infraai.ErrInvalidConfig)
-	}
+	model := strings.TrimSpace(input.ModelID)
 	if len(input.ToolOutputs) > 0 && len(input.ToolCalls) == 0 {
 		return nil, fmt.Errorf("%w: tool outputs require preceding tool calls", infraai.ErrInvalidConfig)
 	}
@@ -182,9 +176,7 @@ func (c *Client) PrepareChat(ctx context.Context, input infraai.ChatInput) ([]by
 			Messages:      messages,
 			Tools:         chatTools(input.Tools),
 		}
-		if temperature, ok := inputNumber(input.Inputs, "temperature"); ok {
-			body.Temperature = &temperature
-		}
+		body.Temperature = input.Temperature
 		if input.EffectiveMaxOutputTokens < 0 {
 			return nil, fmt.Errorf("%w: effective max output tokens must not be negative", infraai.ErrInvalidConfig)
 		}
@@ -1017,21 +1009,15 @@ type chatStreamToolCall struct {
 }
 
 func prepareChatMessages(input infraai.ChatInput) ([]chatMessage, []infraai.PreparedFileRef, error) {
-	messages := []chatMessage{}
+	messages := make([]chatMessage, 0, len(input.Messages)+len(input.ToolOutputs)+1)
 	files := make([]infraai.PreparedFileRef, 0)
-	if systemPrompt := inputString(input.Inputs, "system_prompt"); systemPrompt != "" {
-		messages = append(messages, chatMessage{Role: "system", Content: systemPrompt})
+	for _, message := range input.Messages {
+		content, err := typedChatMessageContent(message, &files)
+		if err != nil {
+			return nil, nil, err
+		}
+		messages = append(messages, chatMessage{Role: string(message.Role), Content: content})
 	}
-	history, err := historyMessages(input.Inputs, &files)
-	if err != nil {
-		return nil, nil, err
-	}
-	messages = append(messages, history...)
-	content, err := chatMessageContent(strings.TrimSpace(input.Content), input.Inputs["attachments"], &files)
-	if err != nil {
-		return nil, nil, err
-	}
-	messages = append(messages, chatMessage{Role: "user", Content: content})
 	if toolCalls := chatAssistantToolCalls(input.ToolCalls); len(toolCalls) > 0 {
 		messages = append(messages, chatMessage{Role: "assistant", Content: nil, ToolCalls: toolCalls})
 	}
@@ -1042,6 +1028,44 @@ func prepareChatMessages(input infraai.ChatInput) ([]chatMessage, []infraai.Prep
 		messages = append(messages, chatMessage{Role: "tool", ToolCallID: strings.TrimSpace(output.CallID), Content: strings.TrimSpace(output.Output)})
 	}
 	return messages, files, nil
+}
+
+func typedChatMessageContent(message infraai.Message, files *[]infraai.PreparedFileRef) (any, error) {
+	if message.Role == infraai.MessageRoleSystem || (len(message.Parts) == 1 && message.Parts[0].Kind == infraai.ContentPartText) {
+		return message.Parts[0].Text, nil
+	}
+	parts := make([]any, 0, len(message.Parts))
+	for _, part := range message.Parts {
+		switch part.Kind {
+		case infraai.ContentPartText:
+			parts = append(parts, map[string]any{"type": "text", "text": part.Text})
+		case infraai.ContentPartAttachment:
+			if part.Attachment == nil {
+				return nil, fmt.Errorf("%w: attachment content part is invalid", infraai.ErrInvalidConfig)
+			}
+			switch part.Attachment.Kind {
+			case infraai.AttachmentImage:
+				parts = append(parts, map[string]any{
+					"type": "image_url", "image_url": map[string]any{"url": strings.TrimSpace(part.Attachment.URL)},
+				})
+			case infraai.AttachmentFile:
+				file := infraai.PreparedFileRef{
+					Ref:       fmt.Sprintf("file-%d", len(*files)+1),
+					ObjectKey: strings.TrimSpace(part.Attachment.ObjectKey),
+					ETag:      strings.TrimSpace(part.Attachment.ETag),
+					Size:      part.Attachment.Size,
+					MIMEType:  strings.ToLower(strings.TrimSpace(part.Attachment.MIMEType)),
+					Filename:  strings.TrimSpace(part.Attachment.Filename),
+				}
+				*files = append(*files, file)
+				parts = append(parts, struct {
+					Type string `json:"type"`
+					Ref  string `json:"ref"`
+				}{Type: "file_ref", Ref: file.Ref})
+			}
+		}
+	}
+	return parts, nil
 }
 
 func chatAssistantToolCalls(calls []infraai.ToolCall) []chatMessageToolCall {
@@ -1084,184 +1108,9 @@ func chatTools(tools []infraai.ToolDefinition) []chatTool {
 	return out
 }
 
-func historyMessages(inputs map[string]any, files *[]infraai.PreparedFileRef) ([]chatMessage, error) {
-	raw := inputs["history"]
-	rows := make([]map[string]any, 0)
-	switch values := raw.(type) {
-	case []map[string]any:
-		rows = values
-	case []map[string]string:
-		rows = make([]map[string]any, 0, len(values))
-		for _, value := range values {
-			rows = append(rows, map[string]any{"role": value["role"], "content": value["content"]})
-		}
-	default:
-		return nil, nil
-	}
-	messages := make([]chatMessage, 0, len(rows))
-	for _, row := range rows {
-		role := strings.TrimSpace(stringFromAny(row["role"]))
-		content := strings.TrimSpace(stringFromAny(row["content"]))
-		switch role {
-		case "user", "assistant", "system":
-			preparedContent, err := chatMessageContent(content, row["attachments"], files)
-			if err != nil {
-				return nil, err
-			}
-			if content == "" {
-				if parts, ok := preparedContent.([]any); !ok || len(parts) == 0 {
-					continue
-				}
-			}
-			messages = append(messages, chatMessage{Role: role, Content: preparedContent})
-		}
-	}
-	return messages, nil
-}
-
-func chatMessageContent(text string, rawAttachments any, files *[]infraai.PreparedFileRef) (any, error) {
-	attachments := attachmentRows(rawAttachments)
-	if len(attachments) == 0 {
-		return text, nil
-	}
-	parts := make([]any, 0, len(attachments)+1)
-	if text != "" {
-		parts = append(parts, map[string]any{"type": "text", "text": text})
-	}
-	for _, row := range attachments {
-		typeValue := strings.TrimSpace(stringFromAny(row["type"]))
-		switch typeValue {
-		case "image":
-			url := strings.TrimSpace(stringFromAny(row["url"]))
-			if url == "" {
-				continue
-			}
-			parts = append(parts, map[string]any{
-				"type": "image_url", "image_url": map[string]any{"url": url},
-			})
-		case "file":
-			file, err := preparedFileRefFromAttachment(row, len(*files)+1)
-			if err != nil {
-				return nil, err
-			}
-			*files = append(*files, file)
-			parts = append(parts, struct {
-				Type string `json:"type"`
-				Ref  string `json:"ref"`
-			}{Type: "file_ref", Ref: file.Ref})
-		}
-	}
-	if len(parts) == 0 {
-		return text, nil
-	}
-	return parts, nil
-}
-
-func hasCurrentAttachments(inputs map[string]any) bool {
-	if inputs == nil {
-		return false
-	}
-	for _, row := range attachmentRows(inputs["attachments"]) {
-		switch strings.TrimSpace(stringFromAny(row["type"])) {
-		case "image", "file":
-			return true
-		}
-	}
-	return false
-}
-
-func attachmentRows(raw any) []map[string]any {
-	values, ok := raw.([]any)
-	if !ok {
-		return nil
-	}
-	rows := make([]map[string]any, 0, len(values))
-	for _, value := range values {
-		if row, ok := value.(map[string]any); ok {
-			rows = append(rows, row)
-		}
-	}
-	return rows
-}
-
-func preparedFileRefFromAttachment(row map[string]any, sequence int) (infraai.PreparedFileRef, error) {
-	size, ok := positiveInt64(row["size"])
-	file := infraai.PreparedFileRef{
-		Ref:       fmt.Sprintf("file-%d", sequence),
-		ObjectKey: strings.TrimSpace(stringFromAny(row["object_key"])),
-		ETag:      strings.TrimSpace(stringFromAny(row["etag"])),
-		Size:      size,
-		MIMEType:  strings.ToLower(strings.TrimSpace(stringFromAny(row["mime_type"]))),
-		Filename:  strings.TrimSpace(stringFromAny(row["name"])),
-	}
-	if !ok || file.ObjectKey == "" || file.ETag == "" || file.MIMEType == "" || file.Filename == "" {
-		return infraai.PreparedFileRef{}, fmt.Errorf("%w: native file attachment facts are incomplete", infraai.ErrInvalidConfig)
-	}
-	return file, nil
-}
-
-func positiveInt64(value any) (int64, bool) {
-	switch number := value.(type) {
-	case int:
-		return int64(number), number > 0
-	case int64:
-		return number, number > 0
-	case uint64:
-		if number == 0 || number > math.MaxInt64 {
-			return 0, false
-		}
-		return int64(number), true
-	case float64:
-		if number <= 0 || number > math.MaxInt64 || number != math.Trunc(number) {
-			return 0, false
-		}
-		return int64(number), true
-	case json.Number:
-		parsed, err := number.Int64()
-		return parsed, err == nil && parsed > 0
-	default:
-		return 0, false
-	}
-}
-
-func inputString(inputs map[string]any, key string) string {
-	if inputs == nil {
-		return ""
-	}
-	value, _ := inputs[key].(string)
-	return strings.TrimSpace(value)
-}
-
 func stringFromAny(value any) string {
 	text, _ := value.(string)
 	return strings.TrimSpace(text)
-}
-
-func inputNumber(inputs map[string]any, key string) (float64, bool) {
-	if inputs == nil {
-		return 0, false
-	}
-	switch value := inputs[key].(type) {
-	case float64:
-		return value, true
-	case int:
-		return float64(value), true
-	case int64:
-		return float64(value), true
-	case json.Number:
-		n, err := value.Float64()
-		return n, err == nil
-	default:
-		return 0, false
-	}
-}
-
-func inputInt(inputs map[string]any, key string) (int, bool) {
-	number, ok := inputNumber(inputs, key)
-	if !ok || number < 1 {
-		return 0, false
-	}
-	return int(number), true
 }
 
 func normalizeBaseURL(value string) (string, error) {

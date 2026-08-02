@@ -76,9 +76,7 @@ func prepareResponsesRequest(input infraai.ChatInput, model string, messages []c
 		Include: []string{"reasoning.encrypted_content"}, Stream: true, Store: false,
 		Tools: responsesTools(input.Tools),
 	}
-	if temperature, ok := inputNumber(input.Inputs, "temperature"); ok {
-		request.Temperature = &temperature
-	}
+	request.Temperature = input.Temperature
 	if input.EffectiveMaxOutputTokens < 0 {
 		return responsesRequest{}, fmt.Errorf("%w: effective max output tokens must not be negative", infraai.ErrInvalidConfig)
 	}

@@ -175,14 +175,7 @@ func (executor *paidTextTaskExecutor) dispatchText(ctx context.Context, executio
 	if !ok {
 		return executor.failTextTask(execution.Task, aitext.ErrorCodeConfiguration, "AI供应商不支持prepared请求")
 	}
-	chatInput := infraai.ChatInput{
-		AgentID: execution.Task.AgentID, RunID: uint64(execution.Task.RunID), UserID: uint64(execution.Task.UserID),
-		UserKey: fmt.Sprintf("%s:%d", execution.Task.Platform, execution.Task.UserID), Content: snapshot.Prompt,
-		Inputs: map[string]any{"model_id": execution.Task.ModelID},
-	}
-	if snapshot.SystemPrompt != "" {
-		chatInput.Inputs["system_prompt"] = snapshot.SystemPrompt
-	}
+	chatInput := paidTextChatInput(execution.Task, snapshot)
 	provider := aigateway.NewPreparedChatProvider(transport, discardTextSink{}, func(result *infraai.ChatResult) (*string, error) {
 		return encodeTextResultCandidate(execution.Task.Kind, result)
 	})
@@ -235,6 +228,28 @@ func (executor *paidTextTaskExecutor) dispatchText(ctx context.Context, executio
 		return err
 	}
 	return executor.finalizer.Finalize(context.WithoutCancel(ctx), aigateway.FinalizeRequest{RunID: execution.Task.RunID})
+}
+
+func paidTextChatInput(task aitext.TextTask, snapshot aitext.ProviderInputSnapshot) infraai.ChatInput {
+	messages := make([]infraai.Message, 0, 2)
+	if snapshot.SystemPrompt != "" {
+		messages = append(messages, infraai.Message{
+			Role:  infraai.MessageRoleSystem,
+			Parts: []infraai.ContentPart{{Kind: infraai.ContentPartText, Text: snapshot.SystemPrompt}},
+		})
+	}
+	messages = append(messages, infraai.Message{
+		Role:  infraai.MessageRoleUser,
+		Parts: []infraai.ContentPart{{Kind: infraai.ContentPartText, Text: snapshot.Prompt}},
+	})
+	return infraai.ChatInput{
+		AgentID:  task.AgentID,
+		RunID:    uint64(task.RunID),
+		UserID:   uint64(task.UserID),
+		UserKey:  fmt.Sprintf("%s:%d", task.Platform, task.UserID),
+		ModelID:  task.ModelID,
+		Messages: messages,
+	}
 }
 
 func (executor *paidTextTaskExecutor) newTextEngine(ctx context.Context, kind string, input aichat.EngineConfig) (infraai.Engine, error) {

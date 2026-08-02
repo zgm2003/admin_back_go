@@ -250,6 +250,23 @@ func TestRunTextGatewayAttemptPreparedRecoveryIsByteIdentical(t *testing.T) {
 	}
 }
 
+func TestPaidTextChatInputUsesTypedSystemAndUserMessages(t *testing.T) {
+	input := paidTextChatInput(aitext.TextTask{
+		Platform: "admin", UserID: 7, AgentID: 5, RunID: 51, ModelID: "gpt-test",
+	}, aitext.ProviderInputSnapshot{SystemPrompt: "strict json", Prompt: "count users"})
+
+	if input.ModelID != "gpt-test" || input.AgentID != 5 || input.RunID != 51 || input.UserID != 7 || input.UserKey != "admin:7" ||
+		len(input.Messages) != 2 || input.Messages[0].Role != infraai.MessageRoleSystem || input.Messages[0].Parts[0].Text != "strict json" ||
+		input.Messages[1].Role != infraai.MessageRoleUser || input.Messages[1].Parts[0].Text != "count users" {
+		t.Fatalf("typed text input = %#v", input)
+	}
+
+	withoutSystem := paidTextChatInput(aitext.TextTask{ModelID: "gpt-test"}, aitext.ProviderInputSnapshot{Prompt: "hello"})
+	if len(withoutSystem.Messages) != 1 || withoutSystem.Messages[0].Role != infraai.MessageRoleUser {
+		t.Fatalf("text input without system = %#v", withoutSystem)
+	}
+}
+
 func TestRunTextGatewayAttemptReserveFailureDoesNotDispatch(t *testing.T) {
 	gateway := &fakeTextGateway{
 		assembled:  aigateway.PreparedCall{RequestBody: []byte(`{"model":"gpt-4.1"}`)},

@@ -170,8 +170,10 @@ func TestAIChatEngineFactorySupportsOpenAI(t *testing.T) {
 	}
 
 	result, err := engine.StreamChat(context.Background(), infraai.ChatInput{
-		Content: "hi",
-		Inputs:  map[string]any{"model_id": "gpt-test"},
+		ModelID: "gpt-test",
+		Messages: []infraai.Message{{Role: infraai.MessageRoleUser, Parts: []infraai.ContentPart{{
+			Kind: infraai.ContentPartText, Text: "hi",
+		}}}},
 	}, nil)
 	if err != nil {
 		t.Fatalf("StreamChat returned error: %v", err)
@@ -202,8 +204,10 @@ func TestAIToolEngineFactoryUsesConfiguredResponsesProtocol(t *testing.T) {
 		t.Fatalf("NewEngine returned error: %v", err)
 	}
 	result, err := engine.StreamChat(context.Background(), infraai.ChatInput{
-		Content: "hi",
-		Inputs:  map[string]any{"model_id": "gpt-test"},
+		ModelID: "gpt-test",
+		Messages: []infraai.Message{{Role: infraai.MessageRoleUser, Parts: []infraai.ContentPart{{
+			Kind: infraai.ContentPartText, Text: "hi",
+		}}}},
 	}, nil)
 	if err != nil {
 		t.Fatalf("StreamChat returned error: %v", err)

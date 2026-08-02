@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -25,8 +26,10 @@ func TestPaidChatAssemblerConvergesPreparedRequestAndSafeOutputBound(t *testing.
 	assembler := paidChatAssembler{
 		transport: openaicompat.New(openaicompat.Config{}),
 		input: infraai.ChatInput{
-			Content: "hello",
-			Inputs:  map[string]any{"model_id": "forged", "max_tokens": 1},
+			ModelID: "forged",
+			Messages: []infraai.Message{{Role: infraai.MessageRoleUser, Parts: []infraai.ContentPart{{
+				Kind: infraai.ContentPartText, Text: "hello",
+			}}}},
 		},
 	}
 
@@ -50,7 +53,8 @@ func TestPaidChatAssemblerConvergesPreparedRequestAndSafeOutputBound(t *testing.
 	if call.RequestSHA256 != sha256.Sum256(call.RequestBody) || call.Quote.PreparedRequestSHA256 != call.RequestSHA256 {
 		t.Fatal("prepared bytes, hash and quote are not bound to the same request")
 	}
-	if !strings.Contains(string(call.RequestBody), `"max_tokens":`+stringInt(int(wantOutputBound))) || strings.Contains(string(call.RequestBody), `"max_tokens":1,`) {
+	if !strings.Contains(string(call.RequestBody), `"model":"gpt-test"`) || strings.Contains(string(call.RequestBody), `"model":"forged"`) ||
+		!strings.Contains(string(call.RequestBody), `"max_tokens":`+stringInt(int(wantOutputBound))) {
 		t.Fatalf("prepared request did not freeze the converged system bound: %s", call.RequestBody)
 	}
 }
@@ -61,8 +65,10 @@ func TestPaidChatAssemblerConvergesResponsesPreparedRequestAndSafeOutputBound(t 
 	assembler := paidChatAssembler{
 		transport: openaicompat.New(openaicompat.Config{APIProtocol: infraai.APIProtocolResponses}),
 		input: infraai.ChatInput{
-			Content: "hello",
-			Inputs:  map[string]any{"model_id": "forged", "max_tokens": 1},
+			ModelID: "forged",
+			Messages: []infraai.Message{{Role: infraai.MessageRoleUser, Parts: []infraai.ContentPart{{
+				Kind: infraai.ContentPartText, Text: "hello",
+			}}}},
 		},
 	}
 
@@ -91,8 +97,8 @@ func TestPaidChatAssemblerConvergesResponsesPreparedRequestAndSafeOutputBound(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(envelope.Request), `"max_output_tokens":`+stringInt(int(wantOutputBound))) ||
-		strings.Contains(string(envelope.Request), `"max_tokens":1,`) {
+	if !strings.Contains(string(envelope.Request), `"model":"gpt-test"`) || strings.Contains(string(envelope.Request), `"model":"forged"`) ||
+		!strings.Contains(string(envelope.Request), `"max_output_tokens":`+stringInt(int(wantOutputBound))) {
 		t.Fatalf("prepared Responses request did not freeze the converged system bound: %s", envelope.Request)
 	}
 }
@@ -100,13 +106,52 @@ func TestPaidChatAssemblerConvergesResponsesPreparedRequestAndSafeOutputBound(t 
 func TestPaidChatAssemblerFailsClosedWhenBoundDoesNotConverge(t *testing.T) {
 	assembler := paidChatAssembler{
 		transport: oscillatingPreparedChatTransport{},
-		input:     infraai.ChatInput{Content: "hello", Inputs: map[string]any{}},
+		input: infraai.ChatInput{ModelID: "forged", Messages: []infraai.Message{{
+			Role: infraai.MessageRoleUser, Parts: []infraai.ContentPart{{Kind: infraai.ContentPartText, Text: "hello"}},
+		}}},
 	}
 	_, err := assembler.AssembleAndQuote(context.Background(), aigateway.RunSnapshot{
 		RunID: 2, ModelID: "gpt-test", PricingSnapshotJSON: paidChatAssemblerPricingSnapshot(t, 200, 100),
 	}, aigateway.RunRequest{})
 	if err == nil || !errors.Is(err, errPaidChatOutputBoundNotConverged) {
 		t.Fatalf("err=%v, want non-converged output bound", err)
+	}
+}
+
+func TestClonePaidChatInputDeepCopiesTypedRequest(t *testing.T) {
+	temperature := 0.25
+	input := infraai.ChatInput{
+		ModelID: "gpt-original",
+		Messages: []infraai.Message{
+			{Role: infraai.MessageRoleUser, Parts: []infraai.ContentPart{{Kind: infraai.ContentPartText, Text: "hello"}}},
+			{Role: infraai.MessageRoleUser, Parts: []infraai.ContentPart{{
+				Kind: infraai.ContentPartAttachment, Attachment: &infraai.AttachmentRef{Kind: infraai.AttachmentImage, URL: "https://example.test/a.png"},
+			}}},
+		},
+		Temperature: &temperature,
+		Tools: []infraai.ToolDefinition{{Name: "lookup", Parameters: map[string]any{
+			"type": "object", "properties": map[string]any{"id": map[string]any{"type": "integer"}},
+		}}},
+		ToolCalls:    []infraai.ToolCall{{ID: "call-1", Name: "lookup", Arguments: `{"id":1}`}},
+		ToolOutputs:  []infraai.ToolOutput{{CallID: "call-1", Name: "lookup", Output: "one"}},
+		Continuation: &infraai.ChatContinuation{Protocol: infraai.APIProtocolResponses, Items: json.RawMessage(`[{"type":"function_call"}]`)},
+	}
+
+	cloned := clonePaidChatInput(input)
+	cloned.Messages[0].Parts[0].Text = "changed"
+	cloned.Messages[1].Parts[0].Attachment.URL = "https://example.test/changed.png"
+	*cloned.Temperature = 0.9
+	cloned.Tools[0].Parameters["type"] = "changed"
+	cloned.Tools[0].Parameters["properties"].(map[string]any)["id"].(map[string]any)["type"] = "string"
+	cloned.ToolCalls[0].Name = "changed"
+	cloned.ToolOutputs[0].Output = "changed"
+	cloned.Continuation.Items[0] = '{'
+
+	if input.Messages[0].Parts[0].Text != "hello" || input.Messages[1].Parts[0].Attachment.URL != "https://example.test/a.png" ||
+		*input.Temperature != 0.25 || input.Tools[0].Parameters["type"] != "object" ||
+		input.Tools[0].Parameters["properties"].(map[string]any)["id"].(map[string]any)["type"] != "integer" ||
+		input.ToolCalls[0].Name != "lookup" || input.ToolOutputs[0].Output != "one" || input.Continuation.Items[0] != '[' {
+		t.Fatalf("clone mutated original input: %#v", input)
 	}
 }
 

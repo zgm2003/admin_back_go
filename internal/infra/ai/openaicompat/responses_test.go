@@ -19,10 +19,7 @@ import (
 )
 
 func TestResponsesInlinePreparedRequestFreezesProtocolForRecovery(t *testing.T) {
-	prepared, err := New(Config{APIProtocol: infraai.APIProtocolResponses}).PrepareChat(context.Background(), infraai.ChatInput{
-		Content: "hello",
-		Inputs:  map[string]any{"model_id": "gpt-5.6"},
-	})
+	prepared, err := New(Config{APIProtocol: infraai.APIProtocolResponses}).PrepareChat(context.Background(), textChatInput("gpt-5.6", "hello"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,17 +90,17 @@ func TestResponsesProtocolMaterializesInputFileAndStreamsUsage(t *testing.T) {
 		APIProtocol: "responses", FileOpener: testPreparedFileOpener(),
 	})
 	prepared, err := client.PrepareChat(context.Background(), infraai.ChatInput{
-		Content: "读取附件",
-		Inputs: map[string]any{
-			"model_id":      "gpt-5.6",
-			"system_prompt": "只根据附件回答",
-			"attachments": []any{
-				map[string]any{"type": "image", "url": "https://example.test/image.png"},
-				map[string]any{
-					"type": "file", "object_key": "ai_chat_attachments/a.txt", "etag": `"etag-v1"`,
-					"size": int64(3), "mime_type": "text/plain", "name": "a.txt",
-				},
-			},
+		ModelID: "gpt-5.6",
+		Messages: []infraai.Message{
+			{Role: infraai.MessageRoleSystem, Parts: []infraai.ContentPart{{Kind: infraai.ContentPartText, Text: "只根据附件回答"}}},
+			{Role: infraai.MessageRoleUser, Parts: []infraai.ContentPart{
+				{Kind: infraai.ContentPartText, Text: "读取附件"},
+				{Kind: infraai.ContentPartAttachment, Attachment: &infraai.AttachmentRef{Kind: infraai.AttachmentImage, URL: "https://example.test/image.png"}},
+				{Kind: infraai.ContentPartAttachment, Attachment: &infraai.AttachmentRef{
+					Kind: infraai.AttachmentFile, ObjectKey: "ai_chat_attachments/a.txt", ETag: `"etag-v1"`,
+					Size: 3, MIMEType: "text/plain", Filename: "a.txt",
+				}},
+			}},
 		},
 	})
 	if err != nil {
@@ -186,16 +183,14 @@ func TestResponsesProtocolMapsFunctionToolsAndStreamedCalls(t *testing.T) {
 	defer server.Close()
 
 	sink := &captureSink{}
+	input := textChatInput("gpt-5.6", "北京天气")
+	input.Tools = []infraai.ToolDefinition{{
+		Name: "weather", Description: "查询天气",
+		Parameters: map[string]any{"type": "object", "properties": map[string]any{"city": map[string]any{"type": "string"}}},
+	}}
 	result, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", StreamHTTPClient: server.Client(), APIProtocol: "responses"}).StreamChat(
 		context.Background(),
-		infraai.ChatInput{
-			Content: "北京天气",
-			Inputs:  map[string]any{"model_id": "gpt-5.6"},
-			Tools: []infraai.ToolDefinition{{
-				Name: "weather", Description: "查询天气",
-				Parameters: map[string]any{"type": "object", "properties": map[string]any{"city": map[string]any{"type": "string"}}},
-			}},
-		},
+		input,
 		sink,
 	)
 	if err != nil {
@@ -235,11 +230,11 @@ func TestResponsesProtocolPreservesReasoningContinuationForToolOutput(t *testing
 		t.Fatalf("continuation=%#v", result.Continuation)
 	}
 
-	prepared, err := client.PrepareChat(context.Background(), infraai.ChatInput{
-		Content: "北京天气", Inputs: map[string]any{"model_id": "gpt-5.6"},
-		ToolCalls: result.ToolCalls, Continuation: result.Continuation,
-		ToolOutputs: []infraai.ToolOutput{{CallID: "call_1", Name: "weather", Output: `{"temperature":26}`}},
-	})
+	input := textChatInput("gpt-5.6", "北京天气")
+	input.ToolCalls = result.ToolCalls
+	input.Continuation = result.Continuation
+	input.ToolOutputs = []infraai.ToolOutput{{CallID: "call_1", Name: "weather", Output: `{"temperature":26}`}}
+	prepared, err := client.PrepareChat(context.Background(), input)
 	if err != nil {
 		t.Fatalf("prepare continuation request: %v", err)
 	}
@@ -316,7 +311,7 @@ func TestResponsesTerminalFailuresReturnDispatchEvidence(t *testing.T) {
 			defer server.Close()
 
 			result, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", StreamHTTPClient: server.Client(), APIProtocol: infraai.APIProtocolResponses}).StreamChat(
-				context.Background(), infraai.ChatInput{Content: "hello", Inputs: map[string]any{"model_id": "gpt-5.6"}}, nil,
+				context.Background(), textChatInput("gpt-5.6", "hello"), nil,
 			)
 			if err == nil {
 				t.Fatal("terminal failure returned no error")
@@ -377,7 +372,7 @@ func TestResponsesIncompleteReturnsPartialResultAndUsage(t *testing.T) {
 	defer server.Close()
 
 	result, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", StreamHTTPClient: server.Client(), APIProtocol: infraai.APIProtocolResponses}).StreamChat(
-		context.Background(), infraai.ChatInput{Content: "hello", Inputs: map[string]any{"model_id": "gpt-5.6"}}, nil,
+		context.Background(), textChatInput("gpt-5.6", "hello"), nil,
 	)
 	if err != nil {
 		t.Fatalf("incomplete response returned error: %v", err)
@@ -397,7 +392,7 @@ func TestResponsesEOFWithoutTerminalIsOutcomeUnknown(t *testing.T) {
 	}))
 	defer server.Close()
 	result, err := New(Config{BaseURL: server.URL, APIKey: "sk-test", StreamHTTPClient: server.Client(), APIProtocol: infraai.APIProtocolResponses}).StreamChat(
-		context.Background(), infraai.ChatInput{Content: "hello", Inputs: map[string]any{"model_id": "gpt-5.6"}}, nil,
+		context.Background(), textChatInput("gpt-5.6", "hello"), nil,
 	)
 	if err == nil || result != nil {
 		t.Fatalf("result=%+v err=%v", result, err)
@@ -434,9 +429,7 @@ func TestLegacyChatFileManifestRecoveryIgnoresCurrentResponsesProtocol(t *testin
 }
 
 func TestPreparedTextResponsesRecoveryIgnoresCurrentChatProtocol(t *testing.T) {
-	prepared, err := New(Config{APIProtocol: infraai.APIProtocolResponses}).PrepareChat(context.Background(), infraai.ChatInput{
-		Content: "hello", Inputs: map[string]any{"model_id": "gpt-5.6"},
-	})
+	prepared, err := New(Config{APIProtocol: infraai.APIProtocolResponses}).PrepareChat(context.Background(), textChatInput("gpt-5.6", "hello"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -470,13 +463,16 @@ func bytesJoin(values []json.RawMessage) []byte {
 
 func TestChatCompletionsProtocolRejectsNativeFilesBeforeDispatch(t *testing.T) {
 	client := New(Config{APIProtocol: "chat_completions", FileOpener: testPreparedFileOpener()})
-	_, err := client.PrepareChat(context.Background(), infraai.ChatInput{Content: "read", Inputs: map[string]any{
-		"model_id": "gpt-test",
-		"attachments": []any{map[string]any{
-			"type": "file", "object_key": "ai_chat_attachments/a.txt", "etag": `"etag-v1"`,
-			"size": int64(3), "mime_type": "text/plain", "name": "a.txt",
-		}},
-	}})
+	_, err := client.PrepareChat(context.Background(), infraai.ChatInput{
+		ModelID: "gpt-test",
+		Messages: []infraai.Message{{Role: infraai.MessageRoleUser, Parts: []infraai.ContentPart{
+			{Kind: infraai.ContentPartText, Text: "read"},
+			{Kind: infraai.ContentPartAttachment, Attachment: &infraai.AttachmentRef{
+				Kind: infraai.AttachmentFile, ObjectKey: "ai_chat_attachments/a.txt", ETag: `"etag-v1"`,
+				Size: 3, MIMEType: "text/plain", Filename: "a.txt",
+			}},
+		}}},
+	})
 	if err == nil || !strings.Contains(err.Error(), "Responses") {
 		t.Fatalf("chat completions file error=%v", err)
 	}

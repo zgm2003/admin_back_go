@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 )
 
@@ -314,6 +315,130 @@ type ToolOutput struct {
 	Output string
 }
 
+type MessageRole string
+
+const (
+	MessageRoleSystem    MessageRole = "system"
+	MessageRoleUser      MessageRole = "user"
+	MessageRoleAssistant MessageRole = "assistant"
+)
+
+func (role MessageRole) Validate() error {
+	switch role {
+	case MessageRoleSystem, MessageRoleUser, MessageRoleAssistant:
+		return nil
+	}
+	return fmt.Errorf("%w: unsupported chat message role %q", ErrInvalidConfig, role)
+}
+
+type ContentPartKind string
+
+const (
+	ContentPartText       ContentPartKind = "text"
+	ContentPartAttachment ContentPartKind = "attachment"
+)
+
+func (kind ContentPartKind) Validate() error {
+	switch kind {
+	case ContentPartText, ContentPartAttachment:
+		return nil
+	}
+	return fmt.Errorf("%w: unsupported chat content part kind %q", ErrInvalidConfig, kind)
+}
+
+type AttachmentKind string
+
+const (
+	AttachmentImage AttachmentKind = "image"
+	AttachmentFile  AttachmentKind = "file"
+)
+
+func (kind AttachmentKind) Validate() error {
+	switch kind {
+	case AttachmentImage, AttachmentFile:
+		return nil
+	}
+	return fmt.Errorf("%w: unsupported chat attachment kind %q", ErrInvalidConfig, kind)
+}
+
+type AttachmentRef struct {
+	Kind      AttachmentKind
+	URL       string
+	ObjectKey string
+	ETag      string
+	Size      int64
+	MIMEType  string
+	Filename  string
+}
+
+func (ref AttachmentRef) Validate() error {
+	if err := ref.Kind.Validate(); err != nil {
+		return err
+	}
+	switch ref.Kind {
+	case AttachmentImage:
+		if strings.TrimSpace(ref.URL) == "" ||
+			(strings.TrimSpace(ref.MIMEType) != "" && !strings.HasPrefix(strings.ToLower(strings.TrimSpace(ref.MIMEType)), "image/")) {
+			return fmt.Errorf("%w: image attachment URL or MIME type is invalid", ErrInvalidConfig)
+		}
+	case AttachmentFile:
+		if strings.TrimSpace(ref.ObjectKey) == "" || strings.TrimSpace(ref.ETag) == "" || ref.Size <= 0 ||
+			strings.TrimSpace(ref.MIMEType) == "" || strings.TrimSpace(ref.Filename) == "" {
+			return fmt.Errorf("%w: native file attachment facts are incomplete", ErrInvalidConfig)
+		}
+	}
+	return nil
+}
+
+type ContentPart struct {
+	Kind       ContentPartKind
+	Text       string
+	Attachment *AttachmentRef
+}
+
+func (part ContentPart) Validate() error {
+	if err := part.Kind.Validate(); err != nil {
+		return err
+	}
+	switch part.Kind {
+	case ContentPartText:
+		if strings.TrimSpace(part.Text) == "" || part.Attachment != nil {
+			return fmt.Errorf("%w: text content part is invalid", ErrInvalidConfig)
+		}
+	case ContentPartAttachment:
+		if part.Text != "" || part.Attachment == nil {
+			return fmt.Errorf("%w: attachment content part is invalid", ErrInvalidConfig)
+		}
+		if err := part.Attachment.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type Message struct {
+	Role  MessageRole
+	Parts []ContentPart
+}
+
+func (message Message) Validate() error {
+	if err := message.Role.Validate(); err != nil {
+		return err
+	}
+	if len(message.Parts) == 0 {
+		return fmt.Errorf("%w: chat message parts are required", ErrInvalidConfig)
+	}
+	if message.Role == MessageRoleSystem && (len(message.Parts) != 1 || message.Parts[0].Kind != ContentPartText) {
+		return fmt.Errorf("%w: system messages require exactly one text part", ErrInvalidConfig)
+	}
+	for _, part := range message.Parts {
+		if err := part.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ChatContinuation carries provider-owned output items that must be replayed
 // on the next Responses turn, notably encrypted reasoning and function calls.
 // Items is an opaque JSON array validated by the compatible transport.
@@ -329,14 +454,37 @@ type ChatInput struct {
 	RunID                    uint64
 	UserID                   uint64
 	UserKey                  string
-	Content                  string
+	ModelID                  string
+	Messages                 []Message
+	Temperature              *float64
 	ConversationEngineID     string
 	EffectiveMaxOutputTokens int
-	Inputs                   map[string]any
 	Tools                    []ToolDefinition
 	ToolCalls                []ToolCall
 	ToolOutputs              []ToolOutput
 	Continuation             *ChatContinuation
+}
+
+func (input ChatInput) Validate() error {
+	if strings.TrimSpace(input.ModelID) == "" || len(input.Messages) == 0 {
+		return fmt.Errorf("%w: chat model and messages are required", ErrInvalidConfig)
+	}
+	hasUser := false
+	for _, message := range input.Messages {
+		if err := message.Validate(); err != nil {
+			return err
+		}
+		if message.Role == MessageRoleUser {
+			hasUser = true
+		}
+	}
+	if !hasUser {
+		return fmt.Errorf("%w: chat input requires a user message", ErrInvalidConfig)
+	}
+	if input.Temperature != nil && (math.IsNaN(*input.Temperature) || math.IsInf(*input.Temperature, 0)) {
+		return fmt.Errorf("%w: chat temperature must be finite", ErrInvalidConfig)
+	}
+	return nil
 }
 
 type ChatResult struct {

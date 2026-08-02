@@ -263,6 +263,11 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 			userContent = strings.TrimSpace(knowledge.Context) + "\n\n用户问题：\n" + userContent
 		}
 	}
+	messages, messageErr := chatMessages(*agent, selectedContext, input.UserMessageID, userContent)
+	if messageErr != nil {
+		finishRun(enum.AIRunStatusFailed, messageErr.Error(), messageErr)
+		return nil, messageErr
+	}
 	delivery := newDeliverySink(deliverySinkOptions{
 		DeliveryContext: input.DeliveryContext,
 		Committer:       s.deliveryCommitter,
@@ -287,12 +292,13 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	}()
 	sink := infraai.EventSink(delivery)
 	chatInput := infraai.ChatInput{
-		AgentID: uint64(input.AgentID),
-		RunID:   uint64(runID),
-		UserID:  uint64(input.UserID),
-		UserKey: userKey(input.UserID),
-		Content: userContent,
-		Inputs:  chatInputs(*agent, history, input.UserMessageID),
+		AgentID:     uint64(input.AgentID),
+		RunID:       uint64(runID),
+		UserID:      uint64(input.UserID),
+		UserKey:     userKey(input.UserID),
+		ModelID:     agent.ModelID,
+		Messages:    messages,
+		Temperature: chatTemperature(history, input.UserMessageID),
 	}
 	if paidReply && s.paidAttemptExecutor != nil {
 		identity, identityErr := paidReplyRequestIdentity(acceptedRun, input, userMessage)
@@ -1285,27 +1291,101 @@ func historyRequestIdentityFromSnapshot(raw string) (*historyRequestIdentitySnap
 	return &snapshot, nil
 }
 
-func chatHistory(rows []MessageHistory, currentUserMessageID int64) []map[string]string {
-	return chatHistoryWithLimit(rows, currentUserMessageID, 0)
+func chatMessages(
+	agent AgentEngineConfig,
+	selected []MessageHistory,
+	currentUserMessageID int64,
+	currentText string,
+) ([]infraai.Message, error) {
+	messages := make([]infraai.Message, 0, len(selected)+1)
+	if systemPrompt := strings.TrimSpace(agent.SystemPrompt); systemPrompt != "" {
+		messages = append(messages, infraai.Message{
+			Role:  infraai.MessageRoleSystem,
+			Parts: []infraai.ContentPart{{Kind: infraai.ContentPartText, Text: systemPrompt}},
+		})
+	}
+	for _, row := range selected {
+		role := infraai.MessageRoleAssistant
+		if row.Role == enum.AIMessageRoleUser {
+			role = infraai.MessageRoleUser
+		}
+		content := row.Content
+		if row.ID == currentUserMessageID {
+			content = currentText
+		}
+		parts := make([]infraai.ContentPart, 0, 1)
+		if strings.TrimSpace(content) != "" {
+			parts = append(parts, infraai.ContentPart{Kind: infraai.ContentPartText, Text: content})
+		}
+		attachments, err := chatAttachmentRefs(row)
+		if err != nil {
+			return nil, err
+		}
+		for index := range attachments {
+			attachment := attachments[index]
+			parts = append(parts, infraai.ContentPart{Kind: infraai.ContentPartAttachment, Attachment: &attachment})
+		}
+		message := infraai.Message{Role: role, Parts: parts}
+		if err := message.Validate(); err != nil {
+			return nil, err
+		}
+		messages = append(messages, message)
+	}
+	return messages, nil
 }
 
-func chatHistoryWithLimit(rows []MessageHistory, currentUserMessageID int64, maxHistory int) []map[string]string {
-	sort.Slice(rows, func(i, j int) bool { return rows[i].ID < rows[j].ID })
-	history := make([]map[string]string, 0, len(rows))
-	for _, row := range rows {
-		if row.ID == currentUserMessageID || strings.TrimSpace(row.Content) == "" {
-			continue
-		}
-		role := "assistant"
-		if row.Role == enum.AIMessageRoleUser {
-			role = "user"
-		}
-		history = append(history, map[string]string{"role": role, "content": row.Content})
+func chatAttachmentRefs(message MessageHistory) ([]infraai.AttachmentRef, error) {
+	if message.MetaJSON == nil || strings.TrimSpace(*message.MetaJSON) == "" {
+		return nil, nil
 	}
-	if maxHistory > 0 && len(history) > maxHistory {
-		history = history[len(history)-maxHistory:]
+	var meta struct {
+		Attachments []map[string]any `json:"attachments"`
 	}
-	return history
+	if err := json.Unmarshal([]byte(*message.MetaJSON), &meta); err != nil {
+		return nil, fmt.Errorf("%w: decode persisted chat attachments", infraai.ErrInvalidConfig)
+	}
+	attachments := make([]infraai.AttachmentRef, 0, len(meta.Attachments))
+	for _, row := range meta.Attachments {
+		kind, _ := row["type"].(string)
+		ref := infraai.AttachmentRef{
+			Kind:      infraai.AttachmentKind(strings.TrimSpace(kind)),
+			URL:       chatAttachmentString(row, "url"),
+			ObjectKey: chatAttachmentString(row, "object_key"),
+			ETag:      chatAttachmentString(row, "etag"),
+			MIMEType:  strings.ToLower(chatAttachmentString(row, "mime_type")),
+			Filename:  chatAttachmentString(row, "name"),
+		}
+		if rawSize, exists := row["size"]; exists {
+			size, ok := numberFromAny(rawSize)
+			if !ok || size <= 0 || size > math.MaxInt64 || size != math.Trunc(size) {
+				return nil, fmt.Errorf("%w: persisted chat attachment size is invalid", infraai.ErrInvalidConfig)
+			}
+			ref.Size = int64(size)
+		}
+		if err := ref.Validate(); err != nil {
+			return nil, err
+		}
+		attachments = append(attachments, ref)
+	}
+	return attachments, nil
+}
+
+func chatAttachmentString(row map[string]any, key string) string {
+	value, _ := row[key].(string)
+	return strings.TrimSpace(value)
+}
+
+func chatTemperature(rows []MessageHistory, currentUserMessageID int64) *float64 {
+	meta := metaForMessage(rows, currentUserMessageID)
+	runtimeParams, ok := meta["runtime_params"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	temperature, ok := numberFromAny(runtimeParams["temperature"])
+	if !ok {
+		return nil
+	}
+	return &temperature
 }
 
 func selectedChatContext(rows []MessageHistory, currentUserMessageID int64, maxHistory int) []MessageHistory {
@@ -1332,51 +1412,6 @@ func selectedChatContext(rows []MessageHistory, currentUserMessageID int64, maxH
 		history = append(history, *current)
 	}
 	return history
-}
-
-func chatHistoryInputsWithLimit(rows []MessageHistory, currentUserMessageID int64, maxHistory int) []map[string]any {
-	selected := selectedChatContext(rows, currentUserMessageID, maxHistory)
-	history := make([]map[string]any, 0, len(selected))
-	for _, row := range selected {
-		if row.ID == currentUserMessageID {
-			continue
-		}
-		role := "assistant"
-		if row.Role == enum.AIMessageRoleUser {
-			role = "user"
-		}
-		message := map[string]any{"role": role, "content": row.Content}
-		if attachments := messageAttachments(row); len(attachments) > 0 {
-			message["attachments"] = attachments
-		}
-		history = append(history, message)
-	}
-	return history
-}
-
-func chatInputs(agent AgentEngineConfig, history []MessageHistory, userMessageID int64) map[string]any {
-	meta := metaForMessage(history, userMessageID)
-	inputs := map[string]any{
-		"model_id": agent.ModelID,
-		"history":  chatHistoryInputsWithLimit(history, userMessageID, maxHistoryFromMeta(meta)),
-	}
-	if systemPrompt := strings.TrimSpace(agent.SystemPrompt); systemPrompt != "" {
-		inputs["system_prompt"] = systemPrompt
-	}
-	if len(meta) == 0 {
-		return inputs
-	}
-	if value, ok := meta["runtime_params"].(map[string]any); ok {
-		for key, raw := range value {
-			if number, ok := numberFromAny(raw); ok {
-				inputs[key] = number
-			}
-		}
-	}
-	if attachments, ok := meta["attachments"].([]any); ok && len(attachments) > 0 {
-		inputs["attachments"] = attachments
-	}
-	return inputs
 }
 
 func requireNativeFileContextWithinLimit(messages []MessageHistory) *apperror.Error {

@@ -14,8 +14,10 @@ func TestInstrumentedEngineRecordsFirstByteTotalAndTokensWithoutProviderPayload(
 	recorder := telemetry.NewMemoryRecorder()
 	engine := InstrumentEngine("openai", "chat", fakeTelemetryEngine{}, recorder)
 	result, err := engine.StreamChat(context.Background(), ChatInput{
-		Content: "private prompt",
-		Inputs:  map[string]any{"authorization": "Bearer private"},
+		ModelID: "gpt-test",
+		Messages: []Message{{Role: MessageRoleUser, Parts: []ContentPart{{
+			Kind: ContentPartText, Text: "private prompt",
+		}}}},
 	}, EventSinkFunc(func(context.Context, Event) error { return nil }))
 	if err != nil || result.TotalTokens != 5 {
 		t.Fatalf("result=%+v err=%v", result, err)
@@ -38,7 +40,10 @@ func TestInstrumentEnginePreservesPreparedChatDispatch(t *testing.T) {
 	if !ok {
 		t.Fatal("instrumented engine dropped PreparedChatEngine capability")
 	}
-	body, err := prepared.PrepareChat(context.Background(), ChatInput{Content: "hello"})
+	body, err := prepared.PrepareChat(context.Background(), ChatInput{
+		ModelID:  "gpt-test",
+		Messages: []Message{{Role: MessageRoleUser, Parts: []ContentPart{{Kind: ContentPartText, Text: "hello"}}}},
+	})
 	if err != nil || string(body) != `{"prepared":true}` {
 		t.Fatalf("prepared body=%q err=%v", body, err)
 	}
