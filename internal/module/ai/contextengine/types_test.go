@@ -89,6 +89,41 @@ func TestBudgetValidateRejectsIntegerWraparound(t *testing.T) {
 	}
 }
 
+func TestContextPlanBudgetProofMatchesCounterAndSelectedAttachments(t *testing.T) {
+	plan := validReadyPlan()
+	plan.Budget.Proof = BudgetExact
+	if err := plan.Validate(); err == nil {
+		t.Fatal("conservative UTF-8 byte counter claimed an exact budget proof")
+	}
+
+	plan.Budget.Proof = BudgetConservative
+	if err := plan.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	plan.Items[0].Block.Kind = BlockCurrentAttachment
+	plan.Items[0].Block.ContentSnapshot = nil
+	plan.Items[0].Block.Metadata.Attachment = &ContextAttachmentV1{
+		Kind: AttachmentFile, ObjectKey: "ai_chat_attachments/a.txt", ETag: "etag-1",
+		Size: 3, MIMEType: "text/plain", Filename: "a.txt",
+	}
+	if err := plan.Validate(); err == nil {
+		t.Fatal("selected opaque attachment retained a conservative text-only proof")
+	}
+	plan.Budget.Proof = BudgetOpaqueAttachment
+	if err := plan.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	plan.Items[0].Block.Kind = BlockCurrentUserMessage
+	content := "message"
+	plan.Items[0].Block.ContentSnapshot = &content
+	plan.Items[0].Block.Metadata.Attachment = nil
+	if err := plan.Validate(); err == nil {
+		t.Fatal("opaque attachment proof without a selected attachment was accepted")
+	}
+}
+
 func TestClosedContextEnumsRejectUnknownValues(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -341,7 +376,7 @@ func validReadyPlan() ContextPlan {
 			PolicySafetyMargin:           50,
 			KnownInputBudget:             800,
 			KnownInputUpperBound:         10,
-			Proof:                        BudgetExact,
+			Proof:                        BudgetConservative,
 		},
 		RetrievalOutcome: RetrievalSkipped,
 		State:            PlanReady,

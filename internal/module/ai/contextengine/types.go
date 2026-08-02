@@ -354,6 +354,9 @@ func (plan ContextPlan) Validate() error {
 	if err := plan.Budget.Validate(); err != nil {
 		return err
 	}
+	if err := plan.validateBudgetProof(); err != nil {
+		return err
+	}
 	if err := plan.RetrievalOutcome.Validate(); err != nil {
 		return err
 	}
@@ -377,6 +380,31 @@ func (plan ContextPlan) Validate() error {
 		return plan.Error.Validate()
 	}
 	return ErrInvalidContextPlan
+}
+
+func (plan ContextPlan) validateBudgetProof() error {
+	selectedAttachment := false
+	for _, item := range plan.Items {
+		if item.Decision == DecisionSelected && item.Block.Kind.isAttachment() {
+			selectedAttachment = true
+			break
+		}
+	}
+	switch plan.Budget.Proof {
+	case BudgetExact:
+		if plan.TokenCounterID == infraai.TokenCounterUTF8BytesV1 || selectedAttachment {
+			return ErrInvalidBudget
+		}
+	case BudgetConservative:
+		if selectedAttachment {
+			return ErrInvalidBudget
+		}
+	case BudgetOpaqueAttachment:
+		if !selectedAttachment {
+			return ErrInvalidBudget
+		}
+	}
+	return nil
 }
 
 type ContextPlanItem struct {
