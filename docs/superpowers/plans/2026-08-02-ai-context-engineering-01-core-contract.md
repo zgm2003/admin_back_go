@@ -320,24 +320,24 @@ CREATE TABLE `ai_context_profiles` (
   CONSTRAINT `chk_ai_context_profiles_embedding_shape`
     CHECK (`embedding_dimensions` > 0 AND `embedding_max_input_tokens` > 0),
   CONSTRAINT `chk_ai_context_profiles_dense_distance`
-    CHECK (`dense_distance` IN ('cosine', 'dot', 'euclid')),
+    CHECK (`dense_distance` IN (_ascii'cosine', _ascii'dot', _ascii'euclid')),
   CONSTRAINT `chk_ai_context_profiles_sparse_encoder`
-    CHECK (`sparse_encoder` = 'unicode_lexical_v1'),
+    CHECK (`sparse_encoder` = _ascii'unicode_lexical_v1'),
   CONSTRAINT `chk_ai_context_profiles_reranker_pair`
     CHECK ((`reranker_provider_model_id` IS NULL AND `reranker_min_score` IS NULL)
       OR (`reranker_provider_model_id` IS NOT NULL AND `reranker_min_score` IS NOT NULL)),
   CONSTRAINT `chk_ai_context_profiles_status`
-    CHECK (`status` IN ('enabled', 'retired')),
+    CHECK (`status` IN (_ascii'enabled', _ascii'retired')),
   CONSTRAINT `chk_ai_context_profiles_index_state`
-    CHECK (`index_state` IN ('provisioning', 'ready', 'rebuilding', 'failed')),
+    CHECK (`index_state` IN (_ascii'provisioning', _ascii'ready', _ascii'rebuilding', _ascii'failed')),
   CONSTRAINT `chk_ai_context_profiles_generation_shape`
     CHECK (
-      (`index_state` = 'provisioning' AND `active_index_generation` IS NULL
+      (`index_state` = _ascii'provisioning' AND `active_index_generation` IS NULL
         AND `target_index_generation` IS NOT NULL)
-      OR (`index_state` = 'ready' AND `active_index_generation` IS NOT NULL
+      OR (`index_state` = _ascii'ready' AND `active_index_generation` IS NOT NULL
         AND `target_index_generation` IS NULL)
-      OR (`index_state` = 'rebuilding' AND `target_index_generation` IS NOT NULL)
-      OR (`index_state` = 'failed')
+      OR (`index_state` = _ascii'rebuilding' AND `target_index_generation` IS NOT NULL)
+      OR (`index_state` = _ascii'failed')
     ),
   CONSTRAINT `chk_ai_context_profiles_generation_order`
     CHECK ((`active_index_generation` IS NULL OR `active_index_generation` > 0)
@@ -345,13 +345,13 @@ CREATE TABLE `ai_context_profiles` (
       AND (`active_index_generation` IS NULL OR `target_index_generation` IS NULL
         OR `target_index_generation` > `active_index_generation`)),
   CONSTRAINT `chk_ai_context_profiles_index_error`
-    CHECK (`index_state` <> 'failed'
+    CHECK (`index_state` <> _ascii'failed'
       OR (`index_error_code` IS NOT NULL AND CHAR_LENGTH(`index_error_code`) > 0))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE `ai_context_spaces` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `platform` VARCHAR(32) NOT NULL,
+  `platform` VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   `profile_id` BIGINT UNSIGNED NOT NULL,
   `name` VARCHAR(191) NOT NULL,
   `description` VARCHAR(1024) NOT NULL DEFAULT '',
@@ -371,10 +371,10 @@ CREATE TABLE `ai_context_spaces` (
     FOREIGN KEY (`created_by`) REFERENCES `users` (`id`)
     ON UPDATE RESTRICT ON DELETE RESTRICT,
   CONSTRAINT `chk_ai_context_spaces_platform`
-    CHECK (`platform` REGEXP '^[a-z][a-z0-9_]{1,48}$'
-      AND `platform` NOT IN ('app', 'canvas', 'all')),
+    CHECK (`platform` REGEXP _ascii'^[a-z][a-z0-9_]{1,48}$'
+      AND `platform` NOT IN (_ascii'app', _ascii'canvas', _ascii'all')),
   CONSTRAINT `chk_ai_context_spaces_status`
-    CHECK (`status` IN ('enabled', 'disabled'))
+    CHECK (`status` IN (_ascii'enabled', _ascii'disabled'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- Add the active-Version foreign key only after Version owns the composite parent key.
@@ -420,7 +420,7 @@ CREATE TABLE `ai_context_documents` (
         AND `source_message_id` IS NOT NULL AND `source_attachment_index` IS NOT NULL)
     ),
   CONSTRAINT `chk_ai_context_documents_status`
-    CHECK (`status` IN ('enabled', 'disabled'))
+    CHECK (`status` IN (_ascii'enabled', _ascii'disabled'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE `ai_context_document_versions` (
@@ -471,28 +471,28 @@ CREATE TABLE `ai_context_document_versions` (
       AND CHAR_LENGTH(`source_mime_type`) > 0
       AND CHAR_LENGTH(`source_filename`) > 0),
   CONSTRAINT `chk_ai_context_document_versions_state`
-    CHECK (`state` IN ('queued', 'processing', 'ready', 'failed')),
+    CHECK (`state` IN (_ascii'queued', _ascii'processing', _ascii'ready', _ascii'failed')),
   CONSTRAINT `chk_ai_context_document_versions_lease_pair`
     CHECK ((`lease_token` IS NULL AND `lease_expires_at` IS NULL)
       OR (`lease_token` IS NOT NULL AND `lease_expires_at` IS NOT NULL)),
   CONSTRAINT `chk_ai_context_document_versions_terminal_shape`
     CHECK (
-      (`state` = 'queued' AND `source_sha256` IS NULL
+      (`state` = _ascii'queued' AND `source_sha256` IS NULL
         AND `failure_stage` IS NULL AND `error_code` IS NULL AND `error_message` IS NULL
         AND `started_at` IS NULL AND `finished_at` IS NULL
         AND `lease_token` IS NULL AND `lease_expires_at` IS NULL)
-      OR (`state` = 'processing' AND `failure_stage` IS NULL
+      OR (`state` = _ascii'processing' AND `failure_stage` IS NULL
         AND `error_code` IS NULL AND `error_message` IS NULL
         AND `started_at` IS NOT NULL AND `finished_at` IS NULL
         AND `attempt_count` > 0 AND `lease_token` IS NOT NULL
         AND `lease_expires_at` IS NOT NULL)
-      OR (`state` = 'ready' AND `source_sha256` IS NOT NULL
+      OR (`state` = _ascii'ready' AND `source_sha256` IS NOT NULL
         AND `failure_stage` IS NULL AND `error_code` IS NULL AND `error_message` IS NULL
         AND `chunk_count` > 0 AND `embedding_input_token_upper_bound` > 0
         AND `embedding_request_count` > 0 AND `started_at` IS NOT NULL
         AND `finished_at` IS NOT NULL AND `attempt_count` > 0
         AND `lease_token` IS NULL AND `lease_expires_at` IS NULL)
-      OR (`state` = 'failed' AND `failure_stage` IS NOT NULL
+      OR (`state` = _ascii'failed' AND `failure_stage` IS NOT NULL
         AND CHAR_LENGTH(`failure_stage`) > 0 AND `error_code` IS NOT NULL
         AND CHAR_LENGTH(`error_code`) > 0
         AND (`error_message` IS NULL OR CHAR_LENGTH(`error_message`) > 0)
@@ -549,7 +549,7 @@ CREATE TABLE `ai_context_bindings` (
     FOREIGN KEY (`space_id`) REFERENCES `ai_context_spaces` (`id`)
     ON UPDATE RESTRICT ON DELETE RESTRICT,
   CONSTRAINT `chk_ai_context_bindings_status`
-    CHECK (`status` IN ('enabled', 'disabled'))
+    CHECK (`status` IN (_ascii'enabled', _ascii'disabled'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE `ai_context_plans` (
@@ -598,20 +598,20 @@ CREATE TABLE `ai_context_plans` (
         AND (`context_index_generation_snapshot` IS NULL
           OR `context_index_generation_snapshot` > 0))),
   CONSTRAINT `chk_ai_context_plans_api_protocol`
-    CHECK (`api_protocol_snapshot` IN ('chat_completions', 'responses')),
+    CHECK (`api_protocol_snapshot` IN (_ascii'chat_completions', _ascii'responses')),
   CONSTRAINT `chk_ai_context_plans_budget_proof`
-    CHECK (`budget_proof` IN ('exact', 'conservative', 'opaque_attachment')),
+    CHECK (`budget_proof` IN (_ascii'exact', _ascii'conservative', _ascii'opaque_attachment')),
   CONSTRAINT `chk_ai_context_plans_retrieval_outcome`
-    CHECK (`retrieval_outcome` IN ('skipped', 'no_hit', 'hit', 'failed')),
+    CHECK (`retrieval_outcome` IN (_ascii'skipped', _ascii'no_hit', _ascii'hit', _ascii'failed')),
   CONSTRAINT `chk_ai_context_plans_state`
-    CHECK (`state` IN ('ready', 'failed')),
+    CHECK (`state` IN (_ascii'ready', _ascii'failed')),
   CONSTRAINT `chk_ai_context_plans_terminal_shape`
     CHECK (
-      (`state` = 'ready' AND `plan_sha256` IS NOT NULL
-        AND `retrieval_outcome` IN ('skipped', 'no_hit', 'hit')
+      (`state` = _ascii'ready' AND `plan_sha256` IS NOT NULL
+        AND `retrieval_outcome` IN (_ascii'skipped', _ascii'no_hit', _ascii'hit')
         AND `error_stage` IS NULL AND `error_code` IS NULL AND `error_message` IS NULL)
-      OR (`state` = 'failed' AND `plan_sha256` IS NULL
-        AND `retrieval_outcome` = 'failed'
+      OR (`state` = _ascii'failed' AND `plan_sha256` IS NULL
+        AND `retrieval_outcome` = _ascii'failed'
         AND `error_stage` IS NOT NULL AND CHAR_LENGTH(`error_stage`) > 0
         AND `error_code` IS NOT NULL AND CHAR_LENGTH(`error_code`) > 0
         AND (`error_message` IS NULL OR CHAR_LENGTH(`error_message`) > 0))
@@ -656,35 +656,35 @@ CREATE TABLE `ai_context_plan_items` (
     ON UPDATE RESTRICT ON DELETE RESTRICT,
   CONSTRAINT `chk_ai_context_plan_items_block_kind`
     CHECK (`block_kind` IN (
-      'system_instruction', 'current_user_message', 'current_attachment',
-      'recent_turn', 'recalled_turn', 'history_attachment',
-      'conversation_memory', 'document_evidence', 'tool_definition',
-      'tool_call', 'tool_result'
+      _ascii'system_instruction', _ascii'current_user_message', _ascii'current_attachment',
+      _ascii'recent_turn', _ascii'recalled_turn', _ascii'history_attachment',
+      _ascii'conversation_memory', _ascii'document_evidence', _ascii'tool_definition',
+      _ascii'tool_call', _ascii'tool_result'
     )),
   CONSTRAINT `chk_ai_context_plan_items_required`
     CHECK (`required` IN (0, 1)),
   CONSTRAINT `chk_ai_context_plan_items_decision`
     CHECK (
-      (`decision` = 'selected' AND `exclusion_reason` IS NULL)
-      OR (`decision` = 'excluded' AND `exclusion_reason` IS NOT NULL
+      (`decision` = _ascii'selected' AND `exclusion_reason` IS NULL)
+      OR (`decision` = _ascii'excluded' AND `exclusion_reason` IS NOT NULL
         AND `exclusion_reason` IN (
-        'budget_exceeded', 'duplicate_content', 'below_relevance_threshold',
-        'superseded_memory', 'inactive_source', 'permission_changed',
-        'unsupported_attachment'
+        _ascii'budget_exceeded', _ascii'duplicate_content', _ascii'below_relevance_threshold',
+        _ascii'superseded_memory', _ascii'inactive_source', _ascii'permission_changed',
+        _ascii'unsupported_attachment'
       ))
     ),
   CONSTRAINT `chk_ai_context_plan_items_citation`
     CHECK (`citation_key` IS NULL
-      OR (`decision` = 'selected' AND `block_kind` = 'document_evidence'
-        AND `citation_key` REGEXP '^C[1-9][0-9]*$')),
+      OR (`decision` = _ascii'selected' AND `block_kind` = _ascii'document_evidence'
+        AND `citation_key` REGEXP _ascii'^C[1-9][0-9]*$')),
   CONSTRAINT `chk_ai_context_plan_items_content_snapshot`
     CHECK (
-      (`decision` = 'excluded' AND `content_snapshot` IS NULL)
-      OR (`decision` = 'selected'
-        AND `block_kind` IN ('current_attachment', 'history_attachment')
+      (`decision` = _ascii'excluded' AND `content_snapshot` IS NULL)
+      OR (`decision` = _ascii'selected'
+        AND `block_kind` IN (_ascii'current_attachment', _ascii'history_attachment')
         AND `content_snapshot` IS NULL)
-      OR (`decision` = 'selected'
-        AND `block_kind` NOT IN ('current_attachment', 'history_attachment')
+      OR (`decision` = _ascii'selected'
+        AND `block_kind` NOT IN (_ascii'current_attachment', _ascii'history_attachment')
         AND `content_snapshot` IS NOT NULL
         AND OCTET_LENGTH(`content_snapshot`) > 0)
     )
@@ -732,25 +732,31 @@ CREATE TABLE `ai_conversation_memories` (
     FOREIGN KEY (`through_message_id`) REFERENCES `ai_messages` (`id`)
     ON UPDATE RESTRICT ON DELETE RESTRICT,
   CONSTRAINT `chk_ai_conversation_memories_interval`
-    CHECK (`from_message_id` <= `through_message_id`
-      AND (`previous_memory_id` IS NULL OR `previous_memory_id` <> `id`)),
+    CHECK (`from_message_id` <= `through_message_id`),
   CONSTRAINT `chk_ai_conversation_memories_usage_pair`
     CHECK ((`prompt_tokens` IS NULL AND `completion_tokens` IS NULL)
       OR (`prompt_tokens` IS NOT NULL AND `completion_tokens` IS NOT NULL)),
   CONSTRAINT `chk_ai_conversation_memories_state`
-    CHECK (`state` IN ('ready', 'failed', 'invalidated')),
+    CHECK (`state` IN (_ascii'ready', _ascii'failed', _ascii'invalidated')),
   CONSTRAINT `chk_ai_conversation_memories_terminal_shape`
     CHECK (
-      (`state` = 'ready' AND `summary` IS NOT NULL AND OCTET_LENGTH(`summary`) > 0
+      (`state` = _ascii'ready' AND `summary` IS NOT NULL AND OCTET_LENGTH(`summary`) > 0
         AND `summary_sha256` IS NOT NULL AND `error_code` IS NULL)
-      OR (`state` = 'failed' AND `summary` IS NULL AND `summary_sha256` IS NULL
+      OR (`state` = _ascii'failed' AND `summary` IS NULL AND `summary_sha256` IS NULL
         AND `error_code` IS NOT NULL AND CHAR_LENGTH(`error_code`) > 0)
-      OR (`state` = 'invalidated' AND `summary` IS NOT NULL
+      OR (`state` = _ascii'invalidated' AND `summary` IS NOT NULL
         AND OCTET_LENGTH(`summary`) > 0 AND `summary_sha256` IS NOT NULL
         AND `error_code` IS NULL)
     )
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 ```
+
+MySQL 8.4 rejects any `CHECK` that references an `AUTO_INCREMENT` column, so
+`previous_memory_id <> id` cannot be expressed in this table constraint. Keep
+the executable interval CHECK above. Plan 04 Task 5 must reject preassigned new
+Memory IDs and self-parenting, and must validate the locked latest parent,
+Profile and continuous interval in the Memory Repository before every insert.
+Do not replace that domain rule with a trigger or a different ID allocator.
 
 The same migration must expand existing tables exactly as follows:
 
@@ -762,7 +768,7 @@ ALTER TABLE `ai_provider_models`
   ADD UNIQUE KEY `uk_ai_provider_models_provider_model_kind`
     (`provider_id`, `model_id`, `model_kind`),
   ADD CONSTRAINT `chk_ai_provider_models_model_kind`
-    CHECK (`model_kind` IN ('chat', 'embedding', 'rerank'));
+    CHECK (`model_kind` IN (_ascii'chat', _ascii'embedding', _ascii'rerank'));
 
 ALTER TABLE `ai_agents`
   ADD COLUMN `context_profile_id` BIGINT UNSIGNED NULL,
@@ -820,13 +826,17 @@ Run: `pwsh -NoProfile -File scripts/tests/ai-context-expand.tests.ps1 -BaselineC
 Expected: PASS against an owned disposable `mysql:8.4.10` container. The script
 must verify the baseline commit is an ancestor, apply that commit's canonical
 HCL to `admin_context_before_<12hex>`, apply only migration `202608020101` with
-the MySQL client, apply the current canonical HCL independently to
+the MySQL client, apply the immutable Expand HCL independently to
 `admin_context_after_<12hex>`, and compare the two `admin-db fingerprint`
-documents including columns, indexes, foreign keys and CHECK expressions. It
-must also prove an excluded Plan Item with `exclusion_reason=NULL` is rejected,
-publish no host port beyond loopback, and remove only its labeled container and
-two regex-validated schemas in `finally`. It must never read `admin-go.env`, use
-the local development database, or apply a migration to a user schema.
+documents including columns, indexes, foreign keys and CHECK expressions. Before
+the migration is committed, the Expand HCL is the worktree HCL; afterward it is
+the HCL from the unique commit that introduced `202608020101`. Plan 05's cutover
+script separately proves the final HCL after all three migrations. This script
+must also prove an excluded Plan Item with `exclusion_reason=NULL` and an
+uppercase Space platform are rejected, publish no host port beyond loopback,
+and remove only its labeled container and two regex-validated schemas in
+`finally`. It must never read `admin-go.env`, use the local development database,
+or apply a migration to a user schema.
 
 Run: `pwsh -NoProfile -File scripts/verify-database.ps1 -Mode empty`
 

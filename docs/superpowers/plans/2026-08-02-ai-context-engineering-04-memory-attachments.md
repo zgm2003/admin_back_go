@@ -330,6 +330,13 @@ Cover no Memory model, below 25%, above 25% summarized to at most 12.5%, multipl
 
 Assert editing User Message anchor `N` invalidates every ready Memory with `through_message_id >= N` in one update and leaves earlier nodes intact; deleting its paired Assistant uses that same User anchor rather than the Assistant ID. Planner never reads `failed` or `invalidated` rows and never treats empty Summary as success.
 
+Add Repository tests that reject a preassigned ID for a new Memory, reject a
+self-parent candidate, reject a parent from another Conversation/Profile or a
+non-contiguous parent interval, and prove parent identity/range fields are
+never updated after insert. MySQL 8.4 cannot put the self-parent comparison in
+a CHECK because `id` is `AUTO_INCREMENT`; the locked Repository write path is
+the executable owner of this invariant.
+
 Add two exhausted-window tests. If `FinalizeExhausted` commits the terminal failed row and the process dies afterward, replay observes that exact unique identity and makes no Provider call. If the process dies before that row commits, no durable fact says the retry was exhausted: Reconciler re-enqueues the same Source Hash and the Provider may be called again. In both cases the unique key permits only one terminal row and no forked parent chain.
 
 - [ ] **Step 2: Run tests and verify RED**
@@ -360,6 +367,11 @@ Unique key includes every field. Source Hash covers Profile ID/Hash, parent ID/S
 - [ ] **Step 4: Implement no-long-transaction model calls and CAS commit**
 
 Use the Profile's explicit Chat-kind Memory Provider Model and its own trusted window/output/counter for each bounded prefix. Do not use the current Agent Chat model implicitly and do not charge the user wallet. Before calling, snapshot parent/profile/turn hashes without a long transaction. After response, lock Conversation and revalidate latest parent, bounds and hashes; stale result is discarded and current task re-enqueued, never inserted as a fork.
+
+The insert contract accepts only a zero candidate ID, derives the parent from
+the locked latest valid chain, and writes parent identity and interval fields
+once. It rejects self-parenting, cross-Conversation/Profile parents and gaps;
+no update method may mutate those fields later.
 
 Temporary network errors remain Asynq retries and do not insert failed rows. Permanent errors lock/revalidate the chain and insert a terminal failed Memory with NULL summary/hash and a safe code before returning `asynq.SkipRetry`. Register the Plan 02 `FinalizeExhausted` hook for `memory-build`: on the last retryable attempt it locks Conversation, revalidates Profile/parent/range/source hash, and inserts the same terminal failed shape. If that hook crashes before commit, Reconciler cannot infer exhaustion from the terminal-only Memory table; it re-enqueues the identical current Source Hash and a later handler may call the Provider again. If the failed row committed, the unique identity short-circuits replay. The unique key and parent/source revalidation prevent divergent terminal rows in either window. Ready insert stores usage and provider request ID for operations audit.
 

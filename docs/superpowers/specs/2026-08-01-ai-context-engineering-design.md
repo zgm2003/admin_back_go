@@ -557,6 +557,8 @@ created_at
 
 Memory 是从会话首个有效完整轮次开始的累积派生事实，不替代消息。第一条 Memory 直接总结原始轮次；后续 Memory 输入同 Profile 的上一条 ready Summary 和新增加的完整轮次，保存 `previous_memory_id`。`source_sha256` 对 Profile ID/Hash、父 Memory ID/Summary Hash 和本次新增的统一 ConversationTurn Hash 清单计算，因而覆盖消息、附件、工具事实与 Assistant Delivery State；`summary_sha256` 校验输出。唯一键为 `(conversation_id, context_profile_id_snapshot, through_message_id, source_sha256)`。
 
+MySQL 8.4 不允许 `CHECK` 引用本表 `AUTO_INCREMENT` 列，因此数据库只能直接约束 `from_message_id <= through_message_id`，不能用 `previous_memory_id <> id` 伪装成可执行约束。Memory Repository 插入时禁止调用方预设新行 ID，在锁定 Conversation 后验证父节点是同 Profile 的最新有效节点、覆盖边界连续且父节点不是候选自身；父身份和区间字段插入后不可修改。这样自环和分叉在唯一写入口被消灭，不引入触发器或第二套 ID 分配器。
+
 数据库 CHECK 保证 `ready` 必须有 Summary、Summary Hash 且没有错误；`failed` 的两个摘要输出字段必须为 `NULL` 并保存稳定错误码；`invalidated` 只允许从 `ready` 转入并保留原摘要用于审计，但 Planner 永远不读取。禁止用空字符串伪装失败摘要。
 
 Chunk/Version 的 `embedding_input_token_upper_bound` 只绑定不可变 Profile 的 Embedding Counter，用于摄取上限和批处理审计。Memory 不保存伪通用 Token 数。Planner 必须用当前 Agent Chat Model 的 Tokenizer/保守算法重新计算 Chunk、Memory、消息和工具 Block 的 `ai_context_plan_items.token_upper_bound`；Profile 可被不同 Chat Model 使用时也不会复用错误计数。
