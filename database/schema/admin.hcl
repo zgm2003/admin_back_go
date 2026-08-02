@@ -281,8 +281,22 @@ table "ai_agents" {
     default   = sql("CURRENT_TIMESTAMP")
     on_update = sql("CURRENT_TIMESTAMP")
   }
+  column "context_profile_id" {
+    null     = true
+    type     = bigint
+    unsigned = true
+  }
   primary_key {
     columns = [column.id]
+  }
+  foreign_key "fk_ai_agents_context_profile" {
+    columns     = [column.context_profile_id]
+    ref_columns = [table.ai_context_profiles.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  index "idx_ai_agents_context_profile" {
+    columns = [column.context_profile_id]
   }
   index "idx_ai_agents_model" {
     columns = [column.provider_id, column.model_id, column.status, column.is_del]
@@ -383,6 +397,1191 @@ table "ai_assets" {
   index "uk_ai_assets_user_slug" {
     unique  = true
     columns = [column.user_id, column.slug]
+  }
+}
+table "ai_context_profiles" {
+  schema = schema.admin
+  column "id" {
+    null           = false
+    type           = bigint
+    unsigned       = true
+    auto_increment = true
+  }
+  column "name" {
+    null = false
+    type = varchar(191)
+  }
+  column "embedding_provider_model_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "embedding_dimensions" {
+    null     = false
+    type     = int
+    unsigned = true
+  }
+  column "embedding_max_input_tokens" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "embedding_token_counter_id" {
+    null    = false
+    type    = varchar(64)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "dense_distance" {
+    null    = false
+    type    = varchar(16)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "dense_min_score" {
+    null = false
+    type = decimal(20,6)
+  }
+  column "sparse_encoder" {
+    null    = false
+    type    = varchar(64)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "sparse_encoder_version" {
+    null    = false
+    type    = varchar(64)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "reranker_provider_model_id" {
+    null     = true
+    type     = bigint
+    unsigned = true
+  }
+  column "reranker_min_score" {
+    null = true
+    type = decimal(20,6)
+  }
+  column "memory_provider_model_id" {
+    null     = true
+    type     = bigint
+    unsigned = true
+  }
+  column "status" {
+    null    = false
+    type    = varchar(16)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "active_index_generation" {
+    null     = true
+    type     = bigint
+    unsigned = true
+  }
+  column "target_index_generation" {
+    null     = true
+    type     = bigint
+    unsigned = true
+  }
+  column "index_state" {
+    null    = false
+    type    = varchar(16)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "index_error_code" {
+    null    = true
+    type    = varchar(64)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "index_verified_at" {
+    null = true
+    type = datetime(6)
+  }
+  column "created_by" {
+    null     = false
+    type     = int
+    unsigned = true
+  }
+  column "created_at" {
+    null    = false
+    type    = datetime(6)
+    default = sql("CURRENT_TIMESTAMP(6)")
+  }
+  column "updated_at" {
+    null      = false
+    type      = datetime(6)
+    default   = sql("CURRENT_TIMESTAMP(6)")
+    on_update = sql("CURRENT_TIMESTAMP(6)")
+  }
+  primary_key {
+    columns = [column.id]
+  }
+  foreign_key "fk_ai_context_profiles_embedding_model" {
+    columns     = [column.embedding_provider_model_id]
+    ref_columns = [table.ai_provider_models.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  foreign_key "fk_ai_context_profiles_reranker_model" {
+    columns     = [column.reranker_provider_model_id]
+    ref_columns = [table.ai_provider_models.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  foreign_key "fk_ai_context_profiles_memory_model" {
+    columns     = [column.memory_provider_model_id]
+    ref_columns = [table.ai_provider_models.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  foreign_key "fk_ai_context_profiles_created_by" {
+    columns     = [column.created_by]
+    ref_columns = [table.users.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  index "idx_ai_context_profiles_status_state" {
+    columns = [column.status, column.index_state, column.id]
+  }
+  index "idx_ai_context_profiles_embedding_model" {
+    columns = [column.embedding_provider_model_id]
+  }
+  index "idx_ai_context_profiles_reranker_model" {
+    columns = [column.reranker_provider_model_id]
+  }
+  index "idx_ai_context_profiles_memory_model" {
+    columns = [column.memory_provider_model_id]
+  }
+  index "idx_ai_context_profiles_created_by" {
+    columns = [column.created_by]
+  }
+  check "chk_ai_context_profiles_embedding_shape" {
+    expr = "((`embedding_dimensions` > 0) and (`embedding_max_input_tokens` > 0))"
+  }
+  check "chk_ai_context_profiles_dense_distance" {
+    expr = "(`dense_distance` in (_ascii'cosine',_ascii'dot',_ascii'euclid'))"
+  }
+  check "chk_ai_context_profiles_sparse_encoder" {
+    expr = "(`sparse_encoder` = _ascii'unicode_lexical_v1')"
+  }
+  check "chk_ai_context_profiles_reranker_pair" {
+    expr = "(((`reranker_provider_model_id` is null) and (`reranker_min_score` is null)) or ((`reranker_provider_model_id` is not null) and (`reranker_min_score` is not null)))"
+  }
+  check "chk_ai_context_profiles_status" {
+    expr = "(`status` in (_ascii'enabled',_ascii'retired'))"
+  }
+  check "chk_ai_context_profiles_index_state" {
+    expr = "(`index_state` in (_ascii'provisioning',_ascii'ready',_ascii'rebuilding',_ascii'failed'))"
+  }
+  check "chk_ai_context_profiles_generation_shape" {
+    expr = "(((`index_state` = _ascii'provisioning') and (`active_index_generation` is null) and (`target_index_generation` is not null)) or ((`index_state` = _ascii'ready') and (`active_index_generation` is not null) and (`target_index_generation` is null)) or ((`index_state` = _ascii'rebuilding') and (`target_index_generation` is not null)) or (`index_state` = _ascii'failed'))"
+  }
+  check "chk_ai_context_profiles_generation_order" {
+    expr = "(((`active_index_generation` is null) or (`active_index_generation` > 0)) and ((`target_index_generation` is null) or (`target_index_generation` > 0)) and ((`active_index_generation` is null) or (`target_index_generation` is null) or (`target_index_generation` > `active_index_generation`)))"
+  }
+  check "chk_ai_context_profiles_index_error" {
+    expr = "((`index_state` <> _ascii'failed') or ((`index_error_code` is not null) and (char_length(`index_error_code`) > 0)))"
+  }
+}
+table "ai_context_spaces" {
+  schema = schema.admin
+  column "id" {
+    null           = false
+    type           = bigint
+    unsigned       = true
+    auto_increment = true
+  }
+  column "platform" {
+    null    = false
+    type    = varchar(32)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "profile_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "name" {
+    null = false
+    type = varchar(191)
+  }
+  column "description" {
+    null    = false
+    type    = varchar(1024)
+    default = ""
+  }
+  column "status" {
+    null    = false
+    type    = varchar(16)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "deleted_at" {
+    null = true
+    type = datetime(6)
+  }
+  column "created_by" {
+    null     = false
+    type     = int
+    unsigned = true
+  }
+  column "created_at" {
+    null    = false
+    type    = datetime(6)
+    default = sql("CURRENT_TIMESTAMP(6)")
+  }
+  column "updated_at" {
+    null      = false
+    type      = datetime(6)
+    default   = sql("CURRENT_TIMESTAMP(6)")
+    on_update = sql("CURRENT_TIMESTAMP(6)")
+  }
+  primary_key {
+    columns = [column.id]
+  }
+  foreign_key "fk_ai_context_spaces_profile" {
+    columns     = [column.profile_id]
+    ref_columns = [table.ai_context_profiles.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  foreign_key "fk_ai_context_spaces_created_by" {
+    columns     = [column.created_by]
+    ref_columns = [table.users.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  index "idx_ai_context_spaces_platform_status" {
+    columns = [column.platform, column.status, column.deleted_at, column.id]
+  }
+  index "idx_ai_context_spaces_profile_status" {
+    columns = [column.profile_id, column.status, column.deleted_at, column.id]
+  }
+  index "idx_ai_context_spaces_created_by" {
+    columns = [column.created_by]
+  }
+  check "chk_ai_context_spaces_platform" {
+    expr = "((`platform` regexp _ascii'^[a-z][a-z0-9_]{1,48}$') and (`platform` not in (_ascii'app',_ascii'canvas',_ascii'all')))"
+  }
+  check "chk_ai_context_spaces_status" {
+    expr = "(`status` in (_ascii'enabled',_ascii'disabled'))"
+  }
+}
+table "ai_context_documents" {
+  schema = schema.admin
+  column "id" {
+    null           = false
+    type           = bigint
+    unsigned       = true
+    auto_increment = true
+  }
+  column "space_id" {
+    null     = true
+    type     = bigint
+    unsigned = true
+  }
+  column "conversation_id" {
+    null     = true
+    type     = int
+    unsigned = true
+  }
+  column "source_message_id" {
+    null     = true
+    type     = bigint
+    unsigned = true
+  }
+  column "source_attachment_index" {
+    null     = true
+    type     = int
+    unsigned = true
+  }
+  column "title" {
+    null = false
+    type = varchar(512)
+  }
+  column "active_version_id" {
+    null     = true
+    type     = bigint
+    unsigned = true
+  }
+  column "status" {
+    null    = false
+    type    = varchar(16)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "deleted_at" {
+    null = true
+    type = datetime(6)
+  }
+  column "created_by" {
+    null     = false
+    type     = int
+    unsigned = true
+  }
+  column "created_at" {
+    null    = false
+    type    = datetime(6)
+    default = sql("CURRENT_TIMESTAMP(6)")
+  }
+  column "updated_at" {
+    null      = false
+    type      = datetime(6)
+    default   = sql("CURRENT_TIMESTAMP(6)")
+    on_update = sql("CURRENT_TIMESTAMP(6)")
+  }
+  primary_key {
+    columns = [column.id]
+  }
+  foreign_key "fk_ai_context_documents_space" {
+    columns     = [column.space_id]
+    ref_columns = [table.ai_context_spaces.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  foreign_key "fk_ai_context_documents_conversation" {
+    columns     = [column.conversation_id]
+    ref_columns = [table.ai_conversations.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  foreign_key "fk_ai_context_documents_source_message" {
+    columns     = [column.source_message_id]
+    ref_columns = [table.ai_messages.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  foreign_key "fk_ai_context_documents_created_by" {
+    columns     = [column.created_by]
+    ref_columns = [table.users.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  foreign_key "fk_ai_context_documents_active_version" {
+    columns     = [column.id, column.active_version_id]
+    ref_columns = [table.ai_context_document_versions.column.document_id, table.ai_context_document_versions.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  index "uk_ai_context_documents_conversation_attachment" {
+    unique  = true
+    columns = [column.conversation_id, column.source_message_id, column.source_attachment_index]
+  }
+  index "idx_ai_context_documents_space_status" {
+    columns = [column.space_id, column.status, column.deleted_at, column.id]
+  }
+  index "idx_ai_context_documents_conversation_status" {
+    columns = [column.conversation_id, column.status, column.deleted_at, column.id]
+  }
+  index "idx_ai_context_documents_source_message" {
+    columns = [column.source_message_id]
+  }
+  index "idx_ai_context_documents_active_owner" {
+    columns = [column.id, column.active_version_id]
+  }
+  index "idx_ai_context_documents_created_by" {
+    columns = [column.created_by]
+  }
+  check "chk_ai_context_documents_owner_source" {
+    expr = "(((`space_id` is not null) and (`conversation_id` is null) and (`source_message_id` is null) and (`source_attachment_index` is null)) or ((`space_id` is null) and (`conversation_id` is not null) and (`source_message_id` is not null) and (`source_attachment_index` is not null)))"
+  }
+  check "chk_ai_context_documents_status" {
+    expr = "(`status` in (_ascii'enabled',_ascii'disabled'))"
+  }
+}
+table "ai_context_document_versions" {
+  schema = schema.admin
+  column "id" {
+    null           = false
+    type           = bigint
+    unsigned       = true
+    auto_increment = true
+  }
+  column "document_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "profile_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "source_storage_provider" {
+    null    = false
+    type    = varchar(32)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "source_object_key" {
+    null    = false
+    type    = varchar(1024)
+    charset = "utf8mb4"
+    collate = "utf8mb4_bin"
+  }
+  column "source_etag" {
+    null    = false
+    type    = varchar(191)
+    charset = "utf8mb4"
+    collate = "utf8mb4_bin"
+  }
+  column "source_size_bytes" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "source_mime_type" {
+    null    = false
+    type    = varchar(191)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "source_filename" {
+    null = false
+    type = varchar(512)
+  }
+  column "source_facts_sha256" {
+    null = false
+    type = binary(32)
+  }
+  column "source_sha256" {
+    null = true
+    type = binary(32)
+  }
+  column "parser_name" {
+    null    = false
+    type    = varchar(64)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "parser_version" {
+    null    = false
+    type    = varchar(64)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "chunker_version" {
+    null    = false
+    type    = varchar(64)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "state" {
+    null    = false
+    type    = varchar(16)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "failure_stage" {
+    null    = true
+    type    = varchar(64)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "error_code" {
+    null    = true
+    type    = varchar(64)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "error_message" {
+    null = true
+    type = varchar(1024)
+  }
+  column "chunk_count" {
+    null     = false
+    type     = int
+    unsigned = true
+    default  = 0
+  }
+  column "embedding_input_token_upper_bound" {
+    null     = false
+    type     = bigint
+    unsigned = true
+    default  = 0
+  }
+  column "embedding_request_count" {
+    null     = false
+    type     = int
+    unsigned = true
+    default  = 0
+  }
+  column "embedding_input_tokens" {
+    null     = true
+    type     = bigint
+    unsigned = true
+  }
+  column "started_at" {
+    null = true
+    type = datetime(6)
+  }
+  column "finished_at" {
+    null = true
+    type = datetime(6)
+  }
+  column "attempt_count" {
+    null     = false
+    type     = int
+    unsigned = true
+    default  = 0
+  }
+  column "lease_token" {
+    null     = true
+    type     = bigint
+    unsigned = true
+  }
+  column "lease_expires_at" {
+    null = true
+    type = datetime(6)
+  }
+  column "created_at" {
+    null    = false
+    type    = datetime(6)
+    default = sql("CURRENT_TIMESTAMP(6)")
+  }
+  column "updated_at" {
+    null      = false
+    type      = datetime(6)
+    default   = sql("CURRENT_TIMESTAMP(6)")
+    on_update = sql("CURRENT_TIMESTAMP(6)")
+  }
+  primary_key {
+    columns = [column.id]
+  }
+  foreign_key "fk_ai_context_document_versions_document" {
+    columns     = [column.document_id]
+    ref_columns = [table.ai_context_documents.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  foreign_key "fk_ai_context_document_versions_profile" {
+    columns     = [column.profile_id]
+    ref_columns = [table.ai_context_profiles.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  index "uk_ai_context_document_versions_document_id" {
+    unique  = true
+    columns = [column.document_id, column.id]
+  }
+  index "idx_ai_context_document_versions_document_created" {
+    columns = [column.document_id, column.created_at, column.id]
+  }
+  index "idx_ai_context_document_versions_profile_state" {
+    columns = [column.profile_id, column.state, column.id]
+  }
+  index "idx_ai_context_document_versions_lease" {
+    columns = [column.state, column.lease_expires_at, column.id]
+  }
+  check "chk_ai_context_document_versions_source" {
+    expr = "((`source_size_bytes` > 0) and (char_length(`source_object_key`) > 0) and (char_length(`source_etag`) > 0) and (char_length(`source_mime_type`) > 0) and (char_length(`source_filename`) > 0))"
+  }
+  check "chk_ai_context_document_versions_state" {
+    expr = "(`state` in (_ascii'queued',_ascii'processing',_ascii'ready',_ascii'failed'))"
+  }
+  check "chk_ai_context_document_versions_lease_pair" {
+    expr = "(((`lease_token` is null) and (`lease_expires_at` is null)) or ((`lease_token` is not null) and (`lease_expires_at` is not null)))"
+  }
+  check "chk_ai_context_document_versions_terminal_shape" {
+    expr = "(((`state` = _ascii'queued') and (`source_sha256` is null) and (`failure_stage` is null) and (`error_code` is null) and (`error_message` is null) and (`started_at` is null) and (`finished_at` is null) and (`lease_token` is null) and (`lease_expires_at` is null)) or ((`state` = _ascii'processing') and (`failure_stage` is null) and (`error_code` is null) and (`error_message` is null) and (`started_at` is not null) and (`finished_at` is null) and (`attempt_count` > 0) and (`lease_token` is not null) and (`lease_expires_at` is not null)) or ((`state` = _ascii'ready') and (`source_sha256` is not null) and (`failure_stage` is null) and (`error_code` is null) and (`error_message` is null) and (`chunk_count` > 0) and (`embedding_input_token_upper_bound` > 0) and (`embedding_request_count` > 0) and (`started_at` is not null) and (`finished_at` is not null) and (`attempt_count` > 0) and (`lease_token` is null) and (`lease_expires_at` is null)) or ((`state` = _ascii'failed') and (`failure_stage` is not null) and (char_length(`failure_stage`) > 0) and (`error_code` is not null) and (char_length(`error_code`) > 0) and ((`error_message` is null) or (char_length(`error_message`) > 0)) and (`started_at` is not null) and (`finished_at` is not null) and (`attempt_count` > 0) and (`lease_token` is null) and (`lease_expires_at` is null)))"
+  }
+}
+table "ai_context_chunks" {
+  schema = schema.admin
+  column "id" {
+    null           = false
+    type           = bigint
+    unsigned       = true
+    auto_increment = true
+  }
+  column "document_version_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "ordinal" {
+    null     = false
+    type     = int
+    unsigned = true
+  }
+  column "heading_path" {
+    null = false
+    type = text
+  }
+  column "content" {
+    null = false
+    type = longtext
+  }
+  column "content_sha256" {
+    null = false
+    type = binary(32)
+  }
+  column "chunk_facts_sha256" {
+    null = false
+    type = binary(32)
+  }
+  column "embedding_input_token_upper_bound" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "locator_json" {
+    null = false
+    type = json
+  }
+  column "created_at" {
+    null    = false
+    type    = datetime(6)
+    default = sql("CURRENT_TIMESTAMP(6)")
+  }
+  primary_key {
+    columns = [column.id]
+  }
+  foreign_key "fk_ai_context_chunks_version" {
+    columns     = [column.document_version_id]
+    ref_columns = [table.ai_context_document_versions.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  index "uk_ai_context_chunks_version_ordinal" {
+    unique  = true
+    columns = [column.document_version_id, column.ordinal]
+  }
+  index "idx_ai_context_chunks_version_id" {
+    columns = [column.document_version_id, column.id]
+  }
+  check "chk_ai_context_chunks_content" {
+    expr = "((octet_length(`content`) > 0) and (`embedding_input_token_upper_bound` > 0))"
+  }
+}
+table "ai_context_bindings" {
+  schema = schema.admin
+  column "id" {
+    null           = false
+    type           = bigint
+    unsigned       = true
+    auto_increment = true
+  }
+  column "agent_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "space_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "status" {
+    null    = false
+    type    = varchar(16)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "created_at" {
+    null    = false
+    type    = datetime(6)
+    default = sql("CURRENT_TIMESTAMP(6)")
+  }
+  column "updated_at" {
+    null      = false
+    type      = datetime(6)
+    default   = sql("CURRENT_TIMESTAMP(6)")
+    on_update = sql("CURRENT_TIMESTAMP(6)")
+  }
+  primary_key {
+    columns = [column.id]
+  }
+  foreign_key "fk_ai_context_bindings_agent" {
+    columns     = [column.agent_id]
+    ref_columns = [table.ai_agents.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  foreign_key "fk_ai_context_bindings_space" {
+    columns     = [column.space_id]
+    ref_columns = [table.ai_context_spaces.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  index "uk_ai_context_bindings_agent_space" {
+    unique  = true
+    columns = [column.agent_id, column.space_id]
+  }
+  index "idx_ai_context_bindings_agent_status" {
+    columns = [column.agent_id, column.status, column.id]
+  }
+  index "idx_ai_context_bindings_space_status" {
+    columns = [column.space_id, column.status, column.id]
+  }
+  check "chk_ai_context_bindings_status" {
+    expr = "(`status` in (_ascii'enabled',_ascii'disabled'))"
+  }
+}
+table "ai_context_plans" {
+  schema = schema.admin
+  column "id" {
+    null           = false
+    type           = bigint
+    unsigned       = true
+    auto_increment = true
+  }
+  column "run_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "context_profile_id_snapshot" {
+    null     = true
+    type     = bigint
+    unsigned = true
+  }
+  column "context_profile_sha256" {
+    null = true
+    type = binary(32)
+  }
+  column "context_index_generation_snapshot" {
+    null     = true
+    type     = bigint
+    unsigned = true
+  }
+  column "policy_version" {
+    null    = false
+    type    = varchar(64)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "input_fingerprint_sha256" {
+    null = false
+    type = binary(32)
+  }
+  column "plan_sha256" {
+    null = true
+    type = binary(32)
+  }
+  column "model_capability_sha256" {
+    null = false
+    type = binary(32)
+  }
+  column "api_protocol_snapshot" {
+    null    = false
+    type    = varchar(32)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "token_counter_id_snapshot" {
+    null    = false
+    type    = varchar(64)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "context_window_tokens" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "effective_output_tokens" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "provider_protocol_upper_bound" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "tool_continuation_input_reserve" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "policy_safety_margin" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "known_input_budget" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "known_input_upper_bound" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "budget_proof" {
+    null    = false
+    type    = varchar(24)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "retrieval_outcome" {
+    null    = false
+    type    = varchar(16)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "state" {
+    null    = false
+    type    = varchar(16)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "error_stage" {
+    null    = true
+    type    = varchar(64)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "error_code" {
+    null    = true
+    type    = varchar(64)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "error_message" {
+    null = true
+    type = varchar(1024)
+  }
+  column "metrics_json" {
+    null = false
+    type = json
+  }
+  column "created_at" {
+    null    = false
+    type    = datetime(6)
+    default = sql("CURRENT_TIMESTAMP(6)")
+  }
+  primary_key {
+    columns = [column.id]
+  }
+  foreign_key "fk_ai_context_plans_run" {
+    columns     = [column.run_id]
+    ref_columns = [table.ai_runs.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  foreign_key "fk_ai_context_plans_profile" {
+    columns     = [column.context_profile_id_snapshot]
+    ref_columns = [table.ai_context_profiles.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  index "uk_ai_context_plans_run" {
+    unique  = true
+    columns = [column.run_id]
+  }
+  index "idx_ai_context_plans_profile_generation" {
+    columns = [column.context_profile_id_snapshot, column.context_index_generation_snapshot, column.id]
+  }
+  check "chk_ai_context_plans_profile_snapshot" {
+    expr = "(((`context_profile_id_snapshot` is null) and (`context_profile_sha256` is null) and (`context_index_generation_snapshot` is null)) or ((`context_profile_id_snapshot` is not null) and (`context_profile_sha256` is not null) and ((`context_index_generation_snapshot` is null) or (`context_index_generation_snapshot` > 0))))"
+  }
+  check "chk_ai_context_plans_api_protocol" {
+    expr = "(`api_protocol_snapshot` in (_ascii'chat_completions',_ascii'responses'))"
+  }
+  check "chk_ai_context_plans_budget_proof" {
+    expr = "(`budget_proof` in (_ascii'exact',_ascii'conservative',_ascii'opaque_attachment'))"
+  }
+  check "chk_ai_context_plans_retrieval_outcome" {
+    expr = "(`retrieval_outcome` in (_ascii'skipped',_ascii'no_hit',_ascii'hit',_ascii'failed'))"
+  }
+  check "chk_ai_context_plans_state" {
+    expr = "(`state` in (_ascii'ready',_ascii'failed'))"
+  }
+  check "chk_ai_context_plans_terminal_shape" {
+    expr = "(((`state` = _ascii'ready') and (`plan_sha256` is not null) and (`retrieval_outcome` in (_ascii'skipped',_ascii'no_hit',_ascii'hit')) and (`error_stage` is null) and (`error_code` is null) and (`error_message` is null)) or ((`state` = _ascii'failed') and (`plan_sha256` is null) and (`retrieval_outcome` = _ascii'failed') and (`error_stage` is not null) and (char_length(`error_stage`) > 0) and (`error_code` is not null) and (char_length(`error_code`) > 0) and ((`error_message` is null) or (char_length(`error_message`) > 0))))"
+  }
+  check "chk_ai_context_plans_budget" {
+    expr = "((`context_window_tokens` > 0) and (`effective_output_tokens` > 0) and ((((`known_input_budget` + `effective_output_tokens`) + `provider_protocol_upper_bound`) + `policy_safety_margin`) = `context_window_tokens`) and (`tool_continuation_input_reserve` <= `provider_protocol_upper_bound`) and (`known_input_upper_bound` <= `known_input_budget`))"
+  }
+}
+table "ai_context_plan_items" {
+  schema = schema.admin
+  column "id" {
+    null           = false
+    type           = bigint
+    unsigned       = true
+    auto_increment = true
+  }
+  column "plan_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "ordinal" {
+    null     = false
+    type     = int
+    unsigned = true
+  }
+  column "block_kind" {
+    null    = false
+    type    = varchar(32)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "source_type" {
+    null    = false
+    type    = varchar(32)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "source_ref" {
+    null    = false
+    type    = varchar(512)
+    charset = "utf8mb4"
+    collate = "utf8mb4_bin"
+  }
+  column "source_sha256" {
+    null = false
+    type = binary(32)
+  }
+  column "atomic_group_key" {
+    null    = false
+    type    = varchar(191)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "required" {
+    null     = false
+    type     = tinyint
+    unsigned = true
+  }
+  column "priority" {
+    null = false
+    type = int
+  }
+  column "decision" {
+    null    = false
+    type    = varchar(16)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "exclusion_reason" {
+    null    = true
+    type    = varchar(32)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "token_upper_bound" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "fusion_score" {
+    null = true
+    type = decimal(20,6)
+  }
+  column "rerank_score" {
+    null = true
+    type = decimal(20,6)
+  }
+  column "citation_key" {
+    null    = true
+    type    = varchar(32)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "content_snapshot" {
+    null = true
+    type = longtext
+  }
+  column "metadata_json" {
+    null = false
+    type = json
+  }
+  column "created_at" {
+    null    = false
+    type    = datetime(6)
+    default = sql("CURRENT_TIMESTAMP(6)")
+  }
+  primary_key {
+    columns = [column.id]
+  }
+  foreign_key "fk_ai_context_plan_items_plan" {
+    columns     = [column.plan_id]
+    ref_columns = [table.ai_context_plans.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  index "uk_ai_context_plan_items_plan_ordinal" {
+    unique  = true
+    columns = [column.plan_id, column.ordinal]
+  }
+  index "uk_ai_context_plan_items_plan_citation" {
+    unique  = true
+    columns = [column.plan_id, column.citation_key]
+  }
+  index "idx_ai_context_plan_items_plan_decision" {
+    columns = [column.plan_id, column.decision, column.ordinal]
+  }
+  check "chk_ai_context_plan_items_block_kind" {
+    expr = "(`block_kind` in (_ascii'system_instruction',_ascii'current_user_message',_ascii'current_attachment',_ascii'recent_turn',_ascii'recalled_turn',_ascii'history_attachment',_ascii'conversation_memory',_ascii'document_evidence',_ascii'tool_definition',_ascii'tool_call',_ascii'tool_result'))"
+  }
+  check "chk_ai_context_plan_items_required" {
+    expr = "(`required` in (0,1))"
+  }
+  check "chk_ai_context_plan_items_decision" {
+    expr = "(((`decision` = _ascii'selected') and (`exclusion_reason` is null)) or ((`decision` = _ascii'excluded') and (`exclusion_reason` is not null) and (`exclusion_reason` in (_ascii'budget_exceeded',_ascii'duplicate_content',_ascii'below_relevance_threshold',_ascii'superseded_memory',_ascii'inactive_source',_ascii'permission_changed',_ascii'unsupported_attachment'))))"
+  }
+  check "chk_ai_context_plan_items_citation" {
+    expr = "((`citation_key` is null) or ((`decision` = _ascii'selected') and (`block_kind` = _ascii'document_evidence') and (`citation_key` regexp _ascii'^C[1-9][0-9]*$')))"
+  }
+  check "chk_ai_context_plan_items_content_snapshot" {
+    expr = "(((`decision` = _ascii'excluded') and (`content_snapshot` is null)) or ((`decision` = _ascii'selected') and (`block_kind` in (_ascii'current_attachment',_ascii'history_attachment')) and (`content_snapshot` is null)) or ((`decision` = _ascii'selected') and (`block_kind` not in (_ascii'current_attachment',_ascii'history_attachment')) and (`content_snapshot` is not null) and (octet_length(`content_snapshot`) > 0)))"
+  }
+}
+table "ai_conversation_memories" {
+  schema = schema.admin
+  column "id" {
+    null           = false
+    type           = bigint
+    unsigned       = true
+    auto_increment = true
+  }
+  column "conversation_id" {
+    null     = false
+    type     = int
+    unsigned = true
+  }
+  column "context_profile_id_snapshot" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "context_profile_sha256" {
+    null = false
+    type = binary(32)
+  }
+  column "previous_memory_id" {
+    null     = true
+    type     = bigint
+    unsigned = true
+  }
+  column "from_message_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "through_message_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
+  column "source_sha256" {
+    null = false
+    type = binary(32)
+  }
+  column "summary_sha256" {
+    null = true
+    type = binary(32)
+  }
+  column "policy_version" {
+    null    = false
+    type    = varchar(64)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "summary" {
+    null = true
+    type = mediumtext
+  }
+  column "prompt_tokens" {
+    null     = true
+    type     = bigint
+    unsigned = true
+  }
+  column "completion_tokens" {
+    null     = true
+    type     = bigint
+    unsigned = true
+  }
+  column "provider_request_id" {
+    null = true
+    type = varchar(191)
+  }
+  column "state" {
+    null    = false
+    type    = varchar(16)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "error_code" {
+    null    = true
+    type    = varchar(64)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
+  column "created_at" {
+    null    = false
+    type    = datetime(6)
+    default = sql("CURRENT_TIMESTAMP(6)")
+  }
+  primary_key {
+    columns = [column.id]
+  }
+  foreign_key "fk_ai_conversation_memories_conversation" {
+    columns     = [column.conversation_id]
+    ref_columns = [table.ai_conversations.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  foreign_key "fk_ai_conversation_memories_profile" {
+    columns     = [column.context_profile_id_snapshot]
+    ref_columns = [table.ai_context_profiles.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  foreign_key "fk_ai_conversation_memories_previous" {
+    columns     = [column.previous_memory_id]
+    ref_columns = [table.ai_conversation_memories.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  foreign_key "fk_ai_conversation_memories_from_message" {
+    columns     = [column.from_message_id]
+    ref_columns = [table.ai_messages.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  foreign_key "fk_ai_conversation_memories_through_message" {
+    columns     = [column.through_message_id]
+    ref_columns = [table.ai_messages.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  index "uk_ai_conversation_memories_identity" {
+    unique  = true
+    columns = [column.conversation_id, column.context_profile_id_snapshot, column.through_message_id, column.source_sha256]
+  }
+  index "idx_ai_conversation_memories_latest_ready" {
+    columns = [column.conversation_id, column.context_profile_id_snapshot, column.state, column.through_message_id, column.id]
+  }
+  index "idx_ai_conversation_memories_previous" {
+    columns = [column.previous_memory_id]
+  }
+  index "idx_ai_conversation_memories_from_message" {
+    columns = [column.from_message_id]
+  }
+  index "idx_ai_conversation_memories_through_message" {
+    columns = [column.through_message_id]
+  }
+  check "chk_ai_conversation_memories_interval" {
+    expr = "(`from_message_id` <= `through_message_id`)"
+  }
+  check "chk_ai_conversation_memories_usage_pair" {
+    expr = "(((`prompt_tokens` is null) and (`completion_tokens` is null)) or ((`prompt_tokens` is not null) and (`completion_tokens` is not null)))"
+  }
+  check "chk_ai_conversation_memories_state" {
+    expr = "(`state` in (_ascii'ready',_ascii'failed',_ascii'invalidated'))"
+  }
+  check "chk_ai_conversation_memories_terminal_shape" {
+    expr = "(((`state` = _ascii'ready') and (`summary` is not null) and (octet_length(`summary`) > 0) and (`summary_sha256` is not null) and (`error_code` is null)) or ((`state` = _ascii'failed') and (`summary` is null) and (`summary_sha256` is null) and (`error_code` is not null) and (char_length(`error_code`) > 0)) or ((`state` = _ascii'invalidated') and (`summary` is not null) and (octet_length(`summary`) > 0) and (`summary_sha256` is not null) and (`error_code` is null)))"
   }
 }
 table "ai_conversations" {
@@ -1630,8 +2829,23 @@ table "ai_provider_attempts" {
     default   = sql("CURRENT_TIMESTAMP(6)")
     on_update = sql("CURRENT_TIMESTAMP(6)")
   }
+  column "context_plan_id" {
+    null     = true
+    type     = bigint
+    unsigned = true
+  }
+  column "context_plan_sha256" {
+    null = true
+    type = binary(32)
+  }
   primary_key {
     columns = [column.id]
+  }
+  foreign_key "fk_ai_provider_attempts_context_plan" {
+    columns     = [column.context_plan_id]
+    ref_columns = [table.ai_context_plans.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
   }
   foreign_key "fk_ai_provider_attempts_run" {
     columns     = [column.run_id]
@@ -1647,6 +2861,9 @@ table "ai_provider_attempts" {
   }
   index "idx_ai_provider_attempts_error_run" {
     columns = [column.error_code, column.run_id, column.id]
+  }
+  index "idx_ai_provider_attempts_context_plan" {
+    columns = [column.context_plan_id]
   }
   index "uk_ai_attempt_run_no" {
     unique  = true
@@ -1664,6 +2881,9 @@ table "ai_provider_attempts" {
   }
   check "chk_ai_provider_attempts_dispatch_state" {
     expr = "(`dispatch_state` in (_utf8mb4'not_dispatched',_utf8mb4'dispatched',_utf8mb4'unknown'))"
+  }
+  check "chk_ai_provider_attempts_context_plan_pair" {
+    expr = "(((`context_plan_id` is null) and (`context_plan_sha256` is null)) or ((`context_plan_id` is not null) and (`context_plan_sha256` is not null)))"
   }
 }
 table "ai_provider_models" {
@@ -1683,6 +2903,13 @@ table "ai_provider_models" {
   column "model_id" {
     null = false
     type = varchar(191)
+  }
+  column "model_kind" {
+    null    = false
+    type    = varchar(16)
+    charset = "ascii"
+    collate = "ascii_bin"
+    default = "chat"
   }
   column "display_name" {
     null    = false
@@ -1738,15 +2965,18 @@ table "ai_provider_models" {
   index "idx_ai_provider_models_official_mapping" {
     columns = [column.mapping_status, column.official_model_id, column.status]
   }
-  index "uk_ai_provider_models_provider_model" {
+  index "uk_ai_provider_models_provider_model_kind" {
     unique  = true
-    columns = [column.provider_id, column.model_id]
+    columns = [column.provider_id, column.model_id, column.model_kind]
   }
   check "chk_ai_provider_models_mapping_status" {
     expr = "(`mapping_status` in (_ascii'mapped',_ascii'unmapped'))"
   }
   check "chk_ai_provider_models_mapping" {
     expr = "(((`mapping_status` = _ascii'mapped') and (`official_model_id` is not null) and (`official_catalog_version` is not null) and (`mapped_at` is not null)) or ((`mapping_status` = _ascii'unmapped') and (`official_model_id` is null) and (`official_catalog_version` is null) and (`mapped_at` is null)))"
+  }
+  check "chk_ai_provider_models_model_kind" {
+    expr = "(`model_kind` in (_ascii'chat',_ascii'embedding',_ascii'rerank'))"
   }
 }
 table "ai_providers" {
