@@ -18,7 +18,7 @@ belong to `internal/runtime`. Each constructor takes a process-owned
 `config.Snapshot` before hooks capture configuration, so later mutations of a
 caller's slices cannot change a running process.
 
-## Context engineering core checkpoint
+## Context engineering ingestion checkpoint
 
 `internal/module/ai/contextengine` owns the closed Context domain facts and
 deterministic policy: Plan persistence, typed blocks, token bounds, packing,
@@ -26,15 +26,33 @@ hashing, and Plan evidence. It does not own provider protocol JSON, Qdrant
 transport, or process composition.
 
 Provider compilers under `internal/infra/ai` remain the only owners of
-provider-specific request JSON. The future `internal/infra/contextindex`
-boundary will own Qdrant access. Process wiring and dependency lifecycle remain
-in `internal/platform/admin` and `internal/runtime`; business modules must not
-construct those adapters themselves.
+provider-specific request JSON. `internal/infra/contextindex` owns the neutral
+index contract and `internal/infra/contextindex/qdrant` owns Qdrant transport.
+Process wiring and dependency lifecycle remain in `internal/platform/admin`
+and `internal/runtime`; business modules do not construct those adapters.
 
-This checkpoint establishes schema and evidence contracts only. It has not
-replaced `aichat.KnowledgeRuntime`, and Context retrieval is not active.
-Deployments must not claim Context retrieval until Plan 03 switches the chat
-command path and its recovery guards.
+MySQL is the sole Context business truth. Qdrant contains only rebuildable
+Dense/Sparse points and generation-scoped physical collections. Redis/Asynq
+delivers bounded work and is never a source of document, profile, generation,
+or completion state. Runtime readers name a physical collection from the MySQL
+generation snapshot; the stable Qdrant Alias is an operations and consistency
+pointer, not runtime truth.
+
+Document ingestion uses immutable Version and Chunk facts plus MySQL lease
+fencing. Profile rebuilds create and verify a target generation, switch the
+Alias, then promote Target to Active with a MySQL CAS. The existing Context
+reconciler repairs the two-system crash window and marks missing/corrupt active
+collections or promised Document Points inconsistent. Cleanup rechecks MySQL
+visibility, Active/Target/Alias pointers, and retirement grace before deleting
+derived data.
+
+This checkpoint implements the schema, evidence, parser, ingestion, Qdrant
+adapter, rebuild, cleanup, and Worker contracts. It has not replaced
+`aichat.KnowledgeRuntime`, and Context retrieval is not active. Deployments must
+not claim Context retrieval until Plan 03 switches the chat command path and
+its recovery guards. The Qdrant server candidate is also not promoted into
+Compose until the explicit real-server capability gate records an immutable
+image digest.
 
 The backend publishes `contracts/admin/v1` from the compiled runtime route
 registry. The bundle contains OpenAPI 3.1, operation access/audit policy, the
