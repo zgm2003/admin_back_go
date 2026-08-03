@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"admin_back_go/internal/infra/database"
-	"admin_back_go/internal/module/ai/contextengine"
 	"admin_back_go/internal/module/ai/officialmodel"
 	aiprovider "admin_back_go/internal/module/ai/provider"
 	"admin_back_go/internal/module/ai/replycommand"
@@ -161,9 +160,9 @@ func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]MessagePr
 	return rows, hasMore, nil
 }
 
-func (r *GormRepository) ContextPlans(ctx context.Context, runIDs []uint64) (map[uint64]contextengine.ContextPlan, error) {
+func (r *GormRepository) ContextPlans(ctx context.Context, runIDs []uint64) (map[uint64]messageContextPlan, error) {
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured
 	}
-	return contextengine.NewPlanRepositoryFromGorm(r.db).FindTerminalByRunIDs(ctx, runIDs)
+	return loadMessageContextPlans(ctx, r.db, runIDs)
 }

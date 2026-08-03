@@ -1806,6 +1806,17 @@ internal/module/ai/conversation   # current-user conversations; canonical agent_
 internal/module/ai/message        # conversation messages, feedback, branch cleanup
 internal/module/ai/run            # ai_runs / ai_run_events unified provider-attempt monitor
 internal/module/ai/chat           # chat runtime through infra/ai.Engine, ai.response.*.v1 publish
+internal/module/ai/contextengine # canonical ConversationTurn, private retrieval, attachment evidence, rolling Memory and verifiable context Plans
+```
+
+Context Engineering continuity boundary:
+
+```text
+ai_messages / ai_reply_commands / ai_runs remain the durable conversation facts. ConversationTurn, private index points, document versions and ai_conversation_memories are derived and must be rebuilt or invalidated from those facts.
+The Planner composes current input, the newest complete Turn, authorized document evidence, the newest valid Memory, direct older Turns and private recalled Turns in a deterministic priority order. A Turn is one atomic group and direct/recalled copies are deduplicated by its canonical Source Hash.
+Memory and Conversation Index are post-finalization asynchronous enhancements. Their enqueue or provider failure cannot roll back a visible completed/stopped Assistant Message or reopen a terminal Run; the Context Reconciler repairs missing derived work.
+Before provider dispatch, the persisted Plan and every selected source are re-authorized. Historical message edits/deletes, attachment fact changes, stale private points or invalid Memory parents abort dispatch rather than compiling a different history.
+Refreshing or restarting the process reads terminal Assistant/Run facts from MySQL and never depends on an in-memory stream buffer.
 ```
 
 Retired AI active runtime:

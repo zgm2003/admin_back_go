@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"admin_back_go/internal/module/ai/contextengine"
 	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/replycommand"
 	"admin_back_go/internal/shared/apperror"
@@ -99,8 +98,6 @@ type MessageRuntimeParams struct {
 	Temperature *float64 `json:"temperature,omitempty"`
 	MaxHistory  *int     `json:"max_history,omitempty"`
 }
-
-type MessageContext = contextengine.MessageContext
 
 type MessageMeta struct {
 	Attachments   []MessageMetaAttachment `json:"attachments,omitempty"`
@@ -198,10 +195,6 @@ type Repository interface {
 	List(ctx context.Context, query ListQuery) ([]MessageProjection, bool, error)
 	CreateReply(ctx context.Context, input replycommand.CreateReplyInput) (replycommand.CreateReplyResult, error)
 	RequestCancel(ctx context.Context, input replycommand.RequestCancelInput) (replycommand.RequestCancelResult, error)
-}
-
-type ContextPlanRepository interface {
-	ContextPlans(context.Context, []uint64) (map[uint64]contextengine.ContextPlan, error)
 }
 
 type HistoryRepository interface {

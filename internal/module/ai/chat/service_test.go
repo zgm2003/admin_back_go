@@ -111,9 +111,10 @@ func newTestChatService(deps Dependencies) *Service {
 		deps.DeliveryCommitter = &fakeDeliveryCommitter{}
 	}
 	if deps.ContextRuntime == nil {
-		deps.ContextRuntime = contextRuntimeFunc(func(_ context.Context, input ContextRuntimeInput) (ContextRuntimeResult, error) {
-			return ContextRuntimeResult{Evidence: aigateway.ContextPlanEvidence{ID: 1, SHA256: sha256.Sum256([]byte("test-plan"))}, ChatInput: infraai.ChatInput{RunID: input.RunID, Messages: input.Messages}}, nil
-		})
+		deps.ContextRuntime = contextRuntimeWithMessages([]infraai.Message{{
+			Role:  infraai.MessageRoleUser,
+			Parts: []infraai.ContentPart{{Kind: infraai.ContentPartText, Text: "test message"}},
+		}})
 	}
 	return NewService(deps)
 }
@@ -126,6 +127,15 @@ func (build contextRuntimeFunc) BuildPlan(ctx context.Context, input ContextRunt
 
 func (contextRuntimeFunc) GuardToolContinuation(context.Context, ContextToolContinuationInput) *apperror.Error {
 	return nil
+}
+
+func contextRuntimeWithMessages(messages []infraai.Message) contextRuntimeFunc {
+	return func(_ context.Context, input ContextRuntimeInput) (ContextRuntimeResult, error) {
+		return ContextRuntimeResult{
+			Evidence:  aigateway.ContextPlanEvidence{ID: 1, SHA256: sha256.Sum256([]byte("test-plan"))},
+			ChatInput: infraai.ChatInput{RunID: input.RunID, Messages: messages},
+		}, nil
+	}
 }
 
 type fakeRepository struct {
@@ -1168,8 +1178,14 @@ func TestExecuteConversationReplyAllowsImageOnlyUserMessage(t *testing.T) {
 		history:      []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, ContentType: "text", Content: "", MetaJSON: &meta}},
 	}
 	recorder := &fakeRunRecorder{nextID: 100}
+	contextRuntime := contextRuntimeWithMessages([]infraai.Message{{
+		Role: infraai.MessageRoleUser,
+		Parts: []infraai.ContentPart{{Kind: infraai.ContentPartAttachment, Attachment: &infraai.AttachmentRef{
+			Kind: infraai.AttachmentImage, URL: "https://example.test/a.png", Filename: "a.png", Size: 1,
+		}}},
+	}})
 
-	res, err := newTestChatService(Dependencies{Repository: repo, AssistantPublisher: repo, Publisher: &fakePublisher{}, RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
+	res, err := newTestChatService(Dependencies{Repository: repo, AssistantPublisher: repo, Publisher: &fakePublisher{}, RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box, ContextRuntime: contextRuntime}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
 
 	if err != nil {
 		t.Fatalf("image-only user message must not be treated as missing: %v", err)
@@ -1201,10 +1217,21 @@ func TestExecuteConversationReplyPreservesSelectedHistoryAttachments(t *testing.
 			{ID: 9, Role: enum.AIMessageRoleUser, ContentType: "text", Content: "current question", MetaJSON: &currentMeta},
 		},
 	}
+	contextRuntime := contextRuntimeWithMessages([]infraai.Message{
+		{Role: infraai.MessageRoleUser, Parts: []infraai.ContentPart{
+			{Kind: infraai.ContentPartText, Text: "historical question"},
+			{Kind: infraai.ContentPartAttachment, Attachment: &infraai.AttachmentRef{Kind: infraai.AttachmentFile, ObjectKey: "ai_chat_attachments/history.pdf", ETag: "\"h1\"", MIMEType: "application/pdf", Filename: "history.pdf", Size: 1048576}},
+		}},
+		{Role: infraai.MessageRoleAssistant, Parts: []infraai.ContentPart{{Kind: infraai.ContentPartText, Text: "historical answer"}}},
+		{Role: infraai.MessageRoleUser, Parts: []infraai.ContentPart{
+			{Kind: infraai.ContentPartText, Text: "current question"},
+			{Kind: infraai.ContentPartAttachment, Attachment: &infraai.AttachmentRef{Kind: infraai.AttachmentFile, ObjectKey: "ai_chat_attachments/current.txt", ETag: "\"c1\"", MIMEType: "text/plain", Filename: "current.txt", Size: 1}},
+		}},
+	})
 
 	_, err := newTestChatService(Dependencies{
 		Repository: repo, AssistantPublisher: repo, Publisher: &fakePublisher{}, RunRecorder: &fakeRunRecorder{nextID: 100},
-		EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box,
+		EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box, ContextRuntime: contextRuntime,
 	}).ExecuteConversationReply(context.Background(), ConversationReplyInput{
 		ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid-current-attachment",
 	})

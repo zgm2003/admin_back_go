@@ -20,7 +20,6 @@ import (
 	storagecos "admin_back_go/internal/infra/storage/cos"
 	"admin_back_go/internal/module/ai/aigateway"
 	"admin_back_go/internal/module/ai/capability"
-	"admin_back_go/internal/module/ai/contextengine"
 	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/pricing"
 	"admin_back_go/internal/module/ai/replycommand"
@@ -46,7 +45,7 @@ type Service struct {
 	capabilities          infraai.TransportCapabilityResolver
 	objectInspector       storagecos.ObjectInspector
 	uploadRules           uploadpolicy.Resolver
-	conversationDocuments contextengine.ConversationDocumentEnsurer
+	conversationDocuments ConversationDocumentEnsurer
 }
 
 type Option func(*Service)
@@ -83,7 +82,11 @@ func WithUploadRuleResolver(resolver uploadpolicy.Resolver) Option {
 	return func(s *Service) { s.uploadRules = resolver }
 }
 
-func WithConversationDocumentEnsurer(ensurer contextengine.ConversationDocumentEnsurer) Option {
+type ConversationDocumentEnsurer interface {
+	EnsureConversationDocuments(context.Context, uint64) error
+}
+
+func WithConversationDocumentEnsurer(ensurer ConversationDocumentEnsurer) Option {
 	return func(s *Service) { s.conversationDocuments = ensurer }
 }
 
@@ -134,7 +137,7 @@ func (s *Service) List(ctx context.Context, userID int64, query ListQuery) (*Lis
 	return &ListResponse{List: list, NextID: nextID, HasMore: hasMore}, nil
 }
 
-func messageContexts(ctx context.Context, repository Repository, rows []MessageProjection) (map[int64]*contextengine.MessageContext, *apperror.Error) {
+func messageContexts(ctx context.Context, repository Repository, rows []MessageProjection) (map[int64]*MessageContext, *apperror.Error) {
 	runIDs := make([]uint64, 0)
 	seen := make(map[uint64]struct{})
 	for _, row := range rows {
@@ -148,7 +151,7 @@ func messageContexts(ctx context.Context, repository Repository, rows []MessageP
 		seen[runID] = struct{}{}
 		runIDs = append(runIDs, runID)
 	}
-	result := make(map[int64]*contextengine.MessageContext)
+	result := make(map[int64]*MessageContext)
 	if len(runIDs) == 0 {
 		return result, nil
 	}
@@ -172,7 +175,7 @@ func messageContexts(ctx context.Context, repository Repository, rows []MessageP
 		if plan.RunID != runID {
 			return nil, apperror.Internal("AI消息上下文关联无效")
 		}
-		projection, err := contextengine.ProjectMessageContext(row.Content, plan)
+		projection, err := projectMessageContext(row.Content, plan)
 		if err != nil {
 			return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "AI消息上下文无效", err)
 		}

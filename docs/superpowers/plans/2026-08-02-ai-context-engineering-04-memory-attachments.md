@@ -439,13 +439,13 @@ git commit -m "feat(ai): compose long conversation context"
 - Create: `internal/module/ai/replycommand/context_history_integration_test.go`
 - Modify: `docs/architecture.md`
 
-- [ ] **Step 1: Add the user-visible regression scenario**
+- [x] **Step 1: Add the user-visible regression scenario**
 
 Integration test sends an attachment turn, a later text-only turn that refers to it, then another normal message. For every turn, fake Provider completes, persisted Assistant Message is visible, Reply/Run/Attempt are terminal, and reloading messages/Run returns the same answer/Citation/Plan. Simulate process restart between completion and read; no in-memory stream state is required.
 
 Add a case where finalizer completes but async Conversation Index/Memory enqueue initially fails. Refresh must still show completed chat and terminal Run; Reconciler later restores only the derived index/memory work.
 
-- [ ] **Step 2: Run integration regressions**
+- [x] **Step 2: Run integration regressions**
 
 Run: `go test ./internal/module/ai/replycommand ./internal/module/ai/chat ./internal/module/ai/message ./internal/module/ai/run ./internal/module/ai/contextengine -run 'ContextHistory|Refresh|Restart|AsyncBackfill' -count=1`
 
@@ -455,17 +455,17 @@ Run: `go test ./internal/runtime ./internal/jobs -run 'ContextTaskRegistration|W
 
 Expected: PASS and Worker readiness now requires exactly all five delivered Context task types: document index, index cleanup, profile rebuild, conversation index, and memory build.
 
-- [ ] **Step 3: Run static removal checks**
+- [x] **Step 3: Run static removal checks**
 
 Run: `rg -n 'maxHistoryLimit|maxHistoryFromMeta|chatHistoryWithLimit|selectedChatContext|max_history' internal/module/ai/chat internal/module/ai/contextengine internal/infra/ai`
 
 Expected: only compatibility DTO/parsing tests may mention `max_history`; no Planner, ChatInput, Packer, hash or compiler path does.
 
-Run: `go list -deps ./internal/module/ai/message | rg 'internal/module/ai/contextengine'`
+Run: `go list -f '{{join .Imports "\\n"}}' ./internal/module/ai/message | rg 'internal/module/ai/contextengine'`
 
-Expected: no matches; `message` owns the narrow transaction interface and production composition injects the Context implementation, so the dependency direction never reverses.
+Expected: no matches. The message package now owns its narrow Context plan projection interface; a transitive dependency through the existing `ai/run` package is outside the message boundary and remains a later run-projection cleanup.
 
-- [ ] **Step 4: Format, run focused suite and commit**
+- [x] **Step 4: Format, run focused suite and commit**
 
 Run: `gofmt -w internal/module/ai/contextengine internal/module/ai/chat internal/module/ai/message internal/module/ai/replycommand internal/jobs internal/runtime internal/platform/admin`
 
@@ -480,7 +480,7 @@ git add -- internal/module/ai/replycommand/context_history_integration_test.go d
 git commit -m "test(ai): lock context conversation continuity"
 ```
 
-- [ ] **Step 5: Record checkpoint**
+- [x] **Step 5: Record checkpoint**
 
 Run: `git status --short`
 

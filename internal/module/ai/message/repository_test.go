@@ -3,6 +3,7 @@ package aimessage
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"reflect"
 	"testing"
 	"time"
@@ -17,12 +18,17 @@ type messageContextRepository struct {
 	planRuns []uint64
 }
 
-func (repository *messageContextRepository) ContextPlans(_ context.Context, runIDs []uint64) (map[uint64]contextengine.ContextPlan, error) {
+func (repository *messageContextRepository) ContextPlans(_ context.Context, runIDs []uint64) (map[uint64]messageContextPlan, error) {
 	repository.planRuns = append(repository.planRuns, runIDs...)
-	result := make(map[uint64]contextengine.ContextPlan, len(runIDs))
+	result := make(map[uint64]messageContextPlan, len(runIDs))
 	for _, runID := range runIDs {
 		if plan, ok := repository.plans[runID]; ok {
-			result[runID] = plan
+			items := make([]messageContextPlanItem, 0, len(plan.Items))
+			for _, item := range plan.Items {
+				metadata, _ := json.Marshal(item.Block.Metadata)
+				items = append(items, messageContextPlanItem{Decision: string(item.Decision), Kind: string(item.Block.Kind), CitationKey: item.CitationKey, MetadataJSON: string(metadata)})
+			}
+			result[runID] = messageContextPlan{ID: plan.ID, RunID: plan.RunID, RetrievalOutcome: string(plan.RetrievalOutcome), State: string(plan.State), Items: items}
 		}
 	}
 	return result, nil
