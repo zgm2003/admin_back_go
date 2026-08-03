@@ -36,6 +36,7 @@ type Providers struct {
 
 	AIConnectionTester      aiprovider.ProviderTester
 	AIChatFactory           aichat.EngineFactory
+	AIEmbeddingFactory      infraai.EmbeddingFactory
 	AIImageFactory          aiimage.ImageEngineFactory
 	AIToolFactory           aitool.EngineFactory
 	AITransportCapabilities infraai.TransportCapabilityResolver
@@ -72,6 +73,7 @@ func BuildProviders(cfg config.Config, keys *secretkey.KeyRing, logger *slog.Log
 		SMSSender:          newSMSSender(),
 		AIConnectionTester: aiConnectionTester{logger: logger, recorder: recorder},
 		AIChatFactory:      aiChatEngineFactory{logger: logger, streamIdleTimeout: positiveProviderDuration(cfg.AI.ChatStreamIdleTimeout, config.DefaultAIChatStreamIdleTimeout), recorder: recorder},
+		AIEmbeddingFactory: aiEmbeddingFactory{},
 		AIImageFactory:     aiImageEngineFactory{recorder: recorder},
 		AIToolFactory:      aiToolEngineFactory{logger: logger, recorder: recorder},
 		AITransportCapabilities: infraai.TransportCapabilityResolverFunc(func(engineType infraai.EngineType) (infraai.CapabilityMetadata, bool) {
@@ -84,6 +86,21 @@ func BuildProviders(cfg config.Config, keys *secretkey.KeyRing, logger *slog.Log
 		PaymentCertResolver: paymentcore.CertPathResolver{CertBaseDir: cfg.Payment.CertBaseDir, WorkingDir: "."},
 		PaymentCertStore:    paymentcore.LocalCertStore{BaseDir: cfg.Payment.CertBaseDir},
 	}, nil
+}
+
+type aiEmbeddingFactory struct{}
+
+func (aiEmbeddingFactory) NewEmbeddingClient(_ context.Context, input infraai.EmbeddingClientConfig) (infraai.EmbeddingClient, error) {
+	if input.ModelKind != string(aiprovider.ModelKindEmbedding) {
+		return nil, fmt.Errorf("%w: provider model kind must be embedding", infraai.ErrEmbeddingFailed)
+	}
+	if err := input.Capabilities.Validate(); err != nil {
+		return nil, err
+	}
+	if input.EngineType != infraai.EngineTypeOpenAI {
+		return nil, fmt.Errorf("%w: unsupported embedding engine type", infraai.ErrEmbeddingFailed)
+	}
+	return openaicompat.New(openaicompat.Config{BaseURL: input.BaseURL, APIKey: input.APIKey}), nil
 }
 
 func newMailSender() mail.Sender {
