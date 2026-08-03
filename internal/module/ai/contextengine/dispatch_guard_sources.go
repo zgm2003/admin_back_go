@@ -28,6 +28,8 @@ func verifyDispatchSources(ctx context.Context, tx *gorm.DB, platform string, fa
 			err = verifyDispatchTool(ctx, tx, facts.Run, source)
 		case "conversation_turn":
 			err = verifyDispatchConversationTurn(ctx, tx, facts.Run, source)
+		case "conversation_memory":
+			err = verifyDispatchMemory(ctx, tx, facts, source)
 		case "document_chunk":
 			err = verifyDispatchDocumentChunks(ctx, tx, platform, facts, source)
 		default:
@@ -175,6 +177,57 @@ func verifyDispatchConversationTurn(ctx context.Context, tx *gorm.DB, run dispat
 		return err
 	}
 	if len(turns) != 1 || turns[0].UserMessage.ID != anchorID || turns[0].SourceSHA256 != source.SourceSHA256 {
+		return errDispatchPermission
+	}
+	return nil
+}
+
+func verifyDispatchMemory(ctx context.Context, tx *gorm.DB, facts dispatchGuardFacts, source AuthoritySource) error {
+	id, err := parseAuthorityID(source.SourceRef, "conversation_memory:")
+	if err != nil || facts.Plan.ContextProfileIDSnapshot == nil || facts.Run.ConversationID == nil {
+		return errDispatchPermission
+	}
+	profileHash, err := SHA256FromBytes(facts.Plan.ContextProfileSHA256)
+	if err != nil {
+		return errDispatchPlanConflict
+	}
+	var row MemoryRecord
+	if err := tx.WithContext(ctx).Where("id = ?", id).Take(&row).Error; err != nil {
+		return err
+	}
+	var parent *MemoryRecord
+	if row.ParentMemoryID != nil {
+		var parentRow MemoryRecord
+		if err := tx.WithContext(ctx).Where("id = ?", *row.ParentMemoryID).Take(&parentRow).Error; err != nil {
+			return err
+		}
+		parent = &parentRow
+	}
+	return validateDispatchMemory(row, parent, *facts.Run.ConversationID, *facts.Plan.ContextProfileIDSnapshot, profileHash, source)
+}
+
+func validateDispatchMemory(row MemoryRecord, parent *MemoryRecord, conversationID, profileID uint64, profileSHA256 [sha256.Size]byte, source AuthoritySource) error {
+	id, err := parseAuthorityID(source.SourceRef, "conversation_memory:")
+	if err != nil || source.SourceType != "conversation_memory" || row.ID != id || row.ConversationID != conversationID || row.ProfileID != profileID ||
+		!readyMemoryRowValid(row, profileSHA256) {
+		return errDispatchPermission
+	}
+	storedSource, err := SHA256FromBytes(row.SourceSHA256)
+	if err != nil || storedSource != source.SourceSHA256 {
+		return errDispatchPermission
+	}
+	if row.ParentMemoryID == nil {
+		if parent != nil {
+			return errDispatchPermission
+		}
+		return nil
+	}
+	if parent == nil || !readyMemoryRowValid(*parent, profileSHA256) {
+		return errDispatchPermission
+	}
+	candidate := MemoryCandidate{ID: row.ID, ConversationID: row.ConversationID, ProfileID: row.ProfileID,
+		ParentMemoryID: row.ParentMemoryID, FromMessageID: row.FromMessageID, ThroughMessageID: row.ThroughMessageID}
+	if ValidateMemoryParent(candidate, *parent) != nil {
 		return errDispatchPermission
 	}
 	return nil

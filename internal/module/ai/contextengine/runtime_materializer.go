@@ -37,6 +37,7 @@ type PlanMaterializer struct {
 	evidence    RuntimeEvidenceResolver
 	history     ConversationTurnPager
 	attachments HistoricalAttachmentAvailability
+	memory      MemoryContextReader
 }
 
 func NewPlanMaterializer(facts RuntimeFactsReader, evidence RuntimeEvidenceResolver, history ...ConversationTurnPager) *PlanMaterializer {
@@ -46,6 +47,13 @@ func NewPlanMaterializer(facts RuntimeFactsReader, evidence RuntimeEvidenceResol
 	materializer := &PlanMaterializer{facts: facts, evidence: evidence}
 	if len(history) > 0 {
 		materializer.history = history[0]
+	}
+	return materializer
+}
+
+func (materializer *PlanMaterializer) WithMemoryReader(reader MemoryContextReader) *PlanMaterializer {
+	if materializer != nil {
+		materializer.memory = reader
 	}
 	return materializer
 }
@@ -67,11 +75,26 @@ func (materializer *PlanMaterializer) Materialize(ctx context.Context, input Run
 		Profile: cloneProfileSnapshot(facts.Profile), RetrievalOutcome: RetrievalSkipped,
 		PackGroups: clonePackGroups(facts.CoreGroups),
 	}
-	historyGroups, err := runtimeHistoryGroups(ctx, materializer.history, materializer.attachments, input, facts)
+	memory, memoryErr := materializer.latestMemory(ctx, input, facts)
+	if memoryErr != nil {
+		memory = nil
+	}
+	memoryBoundary := uint64(0)
+	if memory != nil {
+		memoryBoundary = memory.ThroughMessageID
+	}
+	historyGroups, err := runtimeHistoryGroups(ctx, materializer.history, materializer.attachments, input, facts, memoryBoundary)
 	if err != nil {
 		return BuildPlanInput{}, err
 	}
 	output.PackGroups = append(output.PackGroups, historyGroups...)
+	if memory != nil {
+		group, err := memoryPackGroup(*memory, facts.ModelCapability.TokenCounterID)
+		if err != nil {
+			return BuildPlanInput{}, err
+		}
+		output.PackGroups = append(output.PackGroups, group)
+	}
 	if facts.Profile == nil {
 		return output, nil
 	}
@@ -94,7 +117,7 @@ func (materializer *PlanMaterializer) Materialize(ctx context.Context, input Run
 	output.RetrievalOutcome = evidence.Outcome
 	output.Failure = clonePointer(evidence.Failure)
 	if evidence.Failure == nil {
-		output.PackGroups = append(output.PackGroups, clonePackGroups(evidence.Groups)...)
+		output.PackGroups = append(output.PackGroups, composeEvidenceGroups(historyGroups, evidence.Groups, memoryBoundary)...)
 	}
 	return output, nil
 }
@@ -123,6 +146,7 @@ func clonePackGroups(groups []PackGroup) []PackGroup {
 	for index, group := range groups {
 		cloned[index] = group
 		cloned[index].Relevance = clonePointer(group.Relevance)
+		cloned[index].ExcludedReason = clonePointer(group.ExcludedReason)
 		cloned[index].Blocks = make([]PackBlock, len(group.Blocks))
 		for blockIndex, block := range group.Blocks {
 			cloned[index].Blocks[blockIndex] = block

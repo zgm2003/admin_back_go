@@ -25,6 +25,7 @@ type PackGroup struct {
 	Relevance      *FixedScore
 	SourceOrder    int64
 	StableSourceID string
+	ExcludedReason *ExclusionReason
 	Blocks         []PackBlock
 }
 
@@ -58,7 +59,7 @@ func Pack(input PackInput) (PackedContext, *apperror.Error) {
 
 	var requiredTokens int64
 	for index := range groups {
-		if !groups[index].group.Required {
+		if !groups[index].group.Required || groups[index].group.ExcludedReason != nil {
 			continue
 		}
 		if groups[index].sumOverflow || groups[index].tokens > input.KnownInputBudget-requiredTokens {
@@ -71,7 +72,7 @@ func Pack(input PackInput) (PackedContext, *apperror.Error) {
 	remainingOptionalBudget := input.KnownInputBudget - requiredTokens
 	selectedTokens := requiredTokens
 	for index := range groups {
-		if groups[index].group.Required || groups[index].sumOverflow || groups[index].tokens > remainingOptionalBudget {
+		if groups[index].group.Required || groups[index].group.ExcludedReason != nil || groups[index].sumOverflow || groups[index].tokens > remainingOptionalBudget {
 			continue
 		}
 		groups[index].selected = true
@@ -103,6 +104,9 @@ func Pack(input PackInput) (PackedContext, *apperror.Error) {
 			} else {
 				item.Decision = DecisionExcluded
 				reason := ExclusionBudgetExceeded
+				if ranked.group.ExcludedReason != nil {
+					reason = *ranked.group.ExcludedReason
+				}
 				item.ExclusionReason = &reason
 				item.Block.ContentSnapshot = nil
 			}
@@ -131,6 +135,11 @@ func validateAndRankPackInput(input PackInput) ([]rankedPackGroup, *apperror.Err
 			return nil, invalidPackInput(errors.New("duplicate stable source ID"))
 		}
 		seenIDs[group.StableSourceID] = struct{}{}
+		if group.ExcludedReason != nil {
+			if group.Required || group.ExcludedReason.Validate() != nil {
+				return nil, invalidPackInput(errors.New("invalid pre-excluded atomic group"))
+			}
+		}
 
 		ranked := rankedPackGroup{group: group}
 		if group.Relevance != nil {

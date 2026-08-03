@@ -15,6 +15,7 @@ import (
 	"admin_back_go/internal/module/ai/aigateway"
 	"admin_back_go/internal/module/ai/billing"
 	aichat "admin_back_go/internal/module/ai/chat"
+	"admin_back_go/internal/module/ai/contextengine"
 	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/pricing"
 	"admin_back_go/internal/module/ai/replycommand"
@@ -223,6 +224,43 @@ func (sink *capturingFinalizationEventSink) AppendTx(_ context.Context, _ *gorm.
 }
 
 func (*capturingFinalizationEventSink) PublishBestEffort(context.Context, *modulerealtime.Event) {}
+
+type contextEnhancementPayloads struct {
+	indexCalls  int
+	memoryCalls int
+}
+
+func (stub *contextEnhancementPayloads) BuildConversationIndexPayload(context.Context, uint64, uint64) (contextengine.ContextConversationIndexV1, error) {
+	stub.indexCalls++
+	return contextengine.ContextConversationIndexV1{ProfileID: 1, ConversationID: 3, UserMessageID: 7, SourceSHA256: sha256.Sum256([]byte("turn"))}, nil
+}
+
+func (stub *contextEnhancementPayloads) BuildMemoryBuildPayload(context.Context, uint64, uint64) (contextengine.ContextMemoryBuildV1, bool, error) {
+	stub.memoryCalls++
+	return contextengine.ContextMemoryBuildV1{}, false, nil
+}
+
+type contextEnhancementEnqueuers struct{ indexCalls int }
+
+func (stub *contextEnhancementEnqueuers) EnqueueConversationTurn(context.Context, contextengine.ContextConversationIndexV1) error {
+	stub.indexCalls++
+	return errors.New("index queue unavailable")
+}
+
+func (*contextEnhancementEnqueuers) EnqueueMemoryBuild(context.Context, contextengine.ContextMemoryBuildV1) error {
+	return nil
+}
+
+func TestHistoricalAttachmentEnhancementsRemainIndependentAfterFinalization(t *testing.T) {
+	payloads := &contextEnhancementPayloads{}
+	enqueuers := &contextEnhancementEnqueuers{}
+	store := &gormGatewayFinalizationStore{conversationPayloads: payloads, conversationEnqueuer: enqueuers,
+		memoryPayloads: payloads, memoryEnqueuer: enqueuers}
+	store.enqueueContextEnhancements(t.Context(), 3, 9, 7)
+	if payloads.indexCalls != 1 || enqueuers.indexCalls != 1 || payloads.memoryCalls != 1 {
+		t.Fatalf("index payloads=%d enqueues=%d memory payloads=%d", payloads.indexCalls, enqueuers.indexCalls, payloads.memoryCalls)
+	}
+}
 
 func TestCanceledChatFinalizationPublishesV2WithStoppedAssistantMessage(t *testing.T) {
 	sink := &capturingFinalizationEventSink{}

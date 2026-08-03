@@ -13,7 +13,7 @@ const runtimeHistoryPageSize = 16
 
 var ErrAttachmentUnavailable = errors.New(string(ErrCodeAttachmentUnavailable))
 
-func runtimeHistoryGroups(ctx context.Context, pager ConversationTurnPager, availability HistoricalAttachmentAvailability, input RuntimeInput, facts RuntimeFacts) ([]PackGroup, error) {
+func runtimeHistoryGroups(ctx context.Context, pager ConversationTurnPager, availability HistoricalAttachmentAvailability, input RuntimeInput, facts RuntimeFacts, memoryBoundaries ...uint64) ([]PackGroup, error) {
 	if pager == nil || facts.Budget.KnownInputBudget <= 0 {
 		return nil, nil
 	}
@@ -28,12 +28,21 @@ func runtimeHistoryGroups(ctx context.Context, pager ConversationTurnPager, avai
 	before := input.CurrentMessageID
 	groups := make([]PackGroup, 0, runtimeHistoryPageSize)
 	pageNumber := 0
+	memoryBoundary := uint64(0)
+	if len(memoryBoundaries) > 0 {
+		memoryBoundary = memoryBoundaries[0]
+	}
+	boundaryReached := false
 	for coverage < facts.Budget.KnownInputBudget {
 		page, err := pager.PageCompleteBefore(ctx, input.ConversationID, input.UserID, &before, runtimeHistoryPageSize)
 		if err != nil {
 			return nil, err
 		}
 		for _, turn := range page.Turns {
+			if memoryBoundary != 0 && turn.UserMessage.ID <= memoryBoundary {
+				boundaryReached = true
+				break
+			}
 			text, err := BuildConversationTurnText(turn, counter, facts.ModelCapability.ContextWindowTokens)
 			if err != nil {
 				return nil, err
@@ -43,9 +52,13 @@ func runtimeHistoryGroups(ctx context.Context, pager ConversationTurnPager, avai
 			}
 			ref := fmt.Sprintf("conversation_turn:%d", turn.UserMessage.ID)
 			content := text.Text
+			priority := int32(7)
+			if len(groups) == 0 {
+				priority = 4
+			}
 			blocks := []PackBlock{{Block: ContextBlock{
 				Kind: BlockRecentTurn, SourceType: "conversation_turn", SourceRef: ref, SourceSHA256: turn.SourceSHA256,
-				AtomicGroupKey: ref, Required: false, Priority: 4, TokenUpperBound: text.TokenUpperBound,
+				AtomicGroupKey: ref, Required: false, Priority: priority, TokenUpperBound: text.TokenUpperBound,
 				ContentSnapshot: &content, Metadata: emptyBlockMetadata(),
 			}}}
 			for _, attachment := range turn.UserMessage.Attachments {
@@ -69,7 +82,7 @@ func runtimeHistoryGroups(ctx context.Context, pager ConversationTurnPager, avai
 				blocks = append(blocks, block)
 			}
 			groups = append(groups, PackGroup{
-				Required: false, Priority: 4, SourceOrder: int64(turn.UserMessage.ID), StableSourceID: ref,
+				Required: false, Priority: priority, SourceOrder: int64(turn.UserMessage.ID), StableSourceID: ref,
 				Blocks: blocks,
 			})
 			if text.TokenUpperBound > math.MaxInt64-coverage {
@@ -80,7 +93,7 @@ func runtimeHistoryGroups(ctx context.Context, pager ConversationTurnPager, avai
 				break
 			}
 		}
-		if coverage >= facts.Budget.KnownInputBudget || page.NextBeforeUserMessageID == nil {
+		if boundaryReached || coverage >= facts.Budget.KnownInputBudget || page.NextBeforeUserMessageID == nil {
 			break
 		}
 		before = *page.NextBeforeUserMessageID

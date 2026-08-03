@@ -348,7 +348,8 @@ func registerWorkerHandlers(
 	)
 	walletRepository := walletmodule.NewGormRepository(resources.DB)
 	paidChatExecutor := newPaidChatAttemptExecutor(resources.DB, walletRepository, replyRepository, realtimeEventSink, contextRuntime,
-		withConversationIndexPostCommit(conversationIndexRepository, conversationIndexEnqueuer))
+		withConversationIndexPostCommit(conversationIndexRepository, conversationIndexEnqueuer),
+		withMemoryPostCommit(contextMemoryRepository, contextMemoryEnqueuer))
 	if paidChatExecutor == nil {
 		return nil, nil, nil, nil, nil, errors.New("worker paid AI Gateway dependencies are incomplete")
 	}

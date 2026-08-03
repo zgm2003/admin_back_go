@@ -130,17 +130,20 @@ func retrievalPackGroups(candidates []VerifiedCandidate) ([]PackGroup, error) {
 		if err := validateVerifiedCandidate(candidate); err != nil {
 			return nil, err
 		}
+		priority := int32(5)
 		block := ContextBlock{SourceType: candidate.SourceType, SourceRef: candidate.CandidateID(), SourceSHA256: candidate.SourceSHA256,
-			AtomicGroupKey: candidate.CandidateID(), Required: false, Priority: 10, TokenUpperBound: candidate.TokenUpperBound,
+			AtomicGroupKey: candidate.CandidateID(), Required: false, Priority: priority, TokenUpperBound: candidate.TokenUpperBound,
 			ContentSnapshot: &candidate.Content, Metadata: ContextBlockMetadataV1{Schema: ContextBlockMetadataSchemaV1, Retrieval: &candidate.Branches}}
 		if candidate.SourceType == "document_chunk" {
 			block.Kind = BlockDocumentEvidence
 			block.Metadata.Document = &ContextDocumentEvidenceV1{Title: candidate.Title, DocumentID: candidate.DocumentID, DocumentVersionID: candidate.DocumentVersionID,
 				ChunkIDs: append([]uint64(nil), candidate.ChunkIDs...), Locators: append([]ContextLocatorV1(nil), candidate.Locators...)}
 		} else if candidate.ConversationTurn != nil {
-			block.Kind = BlockRecentTurn
+			priority = 8
+			block.Kind = BlockRecalledTurn
+			block.Priority = priority
 		}
-		groups = append(groups, PackGroup{Required: false, Priority: 10, Relevance: clonePointer(&candidate.FusionScore), SourceOrder: int64(index),
+		groups = append(groups, PackGroup{Required: false, Priority: priority, Relevance: clonePointer(&candidate.FusionScore), SourceOrder: int64(index),
 			StableSourceID: candidate.CandidateID(), Blocks: []PackBlock{{Block: block, FusionScore: clonePointer(&candidate.FusionScore), RerankScore: clonePointer(candidate.RerankScore)}}})
 	}
 	return groups, nil

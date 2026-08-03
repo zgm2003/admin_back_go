@@ -86,6 +86,10 @@ func (repository *GormMemoryRepository) memoryBuildPayload(ctx context.Context, 
 		SourceSHA256: source, PolicyVersion: MemoryPolicyVersionV1}, true, nil
 }
 
+func (repository *GormMemoryRepository) BuildMemoryBuildPayload(ctx context.Context, conversationID, userID uint64) (ContextMemoryBuildV1, bool, error) {
+	return repository.memoryBuildPayload(ctx, conversationID, userID)
+}
+
 type memoryBuildBudget struct {
 	KnownInputBudget uint64
 	TokenCounterID   string

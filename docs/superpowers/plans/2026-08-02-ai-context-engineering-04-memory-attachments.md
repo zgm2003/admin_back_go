@@ -400,29 +400,29 @@ git commit -m "feat(ai): maintain rolling conversation memory"
 - Modify: `internal/module/ai/replycommand/finalization.go`
 - Modify: `internal/module/ai/replycommand/finalization_test.go`
 
-- [ ] **Step 1: Write failing precedence and private-recall tests**
+- [x] **Step 1: Write failing precedence and private-recall tests**
 
 Construct one Plan containing current file, newest Turn with image, Space Evidence, private attachment Evidence, valid Memory, direct older Turn and recalled old Turn. Assert exact design section 12.2 order, whole atomic groups, no duplicate Turn, and source hash/citation behavior. Profile selected with zero Space bindings must still use private Turns/Memory; Profile NULL uses automatic direct history only.
 
 Test failed Memory is an async diagnostic and does not fail the current Run; failed Qdrant when actual private/Space sources are needed does fail. Missing optional private Point is backfill pending, while a returned stale/unauthorized Point is excluded and cleaned.
 
-- [ ] **Step 2: Run Planner tests and verify RED**
+- [x] **Step 2: Run Planner tests and verify RED**
 
 Run: `go test ./internal/module/ai/contextengine ./internal/module/ai/replycommand -run 'ContextPrecedence|PrivateRecall|MemoryDiagnostic|HistoricalAttachment' -count=1`
 
 Expected: FAIL because Planner does not yet compose these sources.
 
-- [ ] **Step 3: Implement the one-source-of-turn composition**
+- [x] **Step 3: Implement the one-source-of-turn composition**
 
 Direct history, Conversation retrieval and Memory all consume the canonical `ConversationTurn` created in Plan 03 Task 1 and paged by this Plan's Task 1. Planner deduplicates direct/recalled Turns by Source Hash, chooses latest valid continuous Memory chain, and records every selected/excluded Block with closed reason. Memory covered Turns are not also selected directly unless a higher-priority recent Turn is deliberately outside the summarized prefix.
 
 After visible completed/stopped finalization, enqueue Conversation Index and evaluate Memory watermark independently. Failure to enqueue either async enhancement records diagnostics but cannot roll back the already consistent finalizer.
 
-- [ ] **Step 4: Recheck dispatch authority for private facts**
+- [x] **Step 4: Recheck dispatch authority for private facts**
 
 Dispatch Guard recomputes selected direct/recalled Turn hashes, attachment object facts and Memory parent validity. A historical edit/delete/replacement before dispatch returns snapshot/permission error; it does not compile a different history. A completed prepared request still retries from persisted bytes only after the same guard passes.
 
-- [ ] **Step 5: Run tests and commit**
+- [x] **Step 5: Run tests and commit**
 
 Run: `go test ./internal/module/ai/contextengine ./internal/module/ai/chat ./internal/module/ai/message ./internal/module/ai/replycommand ./internal/runtime -run 'ContextPrecedence|PrivateRecall|MemoryDiagnostic|HistoricalAttachment|DispatchGuard' -count=1`
 

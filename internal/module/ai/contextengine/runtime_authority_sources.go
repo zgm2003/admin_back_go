@@ -91,6 +91,33 @@ func verifySelectedSource(ctx context.Context, tx *gorm.DB, platform string, fin
 		if len(turns) != 1 || turns[0].UserMessage.ID != id || turns[0].SourceSHA256 != source.SourceSHA256 {
 			return ErrInvalidContextPlan
 		}
+	case "conversation_memory":
+		if fingerprint.Profile == nil {
+			return ErrInvalidContextPlan
+		}
+		id, err := parseAuthorityID(source.SourceRef, "conversation_memory:")
+		if err != nil {
+			return err
+		}
+		scope, err := loadFingerprintAuthorityScope(ctx, tx, fingerprint)
+		if err != nil {
+			return err
+		}
+		var row MemoryRecord
+		if err := tx.WithContext(ctx).Where("id = ?", id).Take(&row).Error; err != nil {
+			return err
+		}
+		var parent *MemoryRecord
+		if row.ParentMemoryID != nil {
+			var parentRow MemoryRecord
+			if err := tx.WithContext(ctx).Where("id = ?", *row.ParentMemoryID).Take(&parentRow).Error; err != nil {
+				return err
+			}
+			parent = &parentRow
+		}
+		if err := validateDispatchMemory(row, parent, scope.ConversationID, fingerprint.Profile.ID, fingerprint.Profile.SHA256, source); err != nil {
+			return err
+		}
 	default:
 		return fmt.Errorf("unknown authority source %q", source.SourceType)
 	}

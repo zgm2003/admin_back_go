@@ -2,11 +2,133 @@ package contextengine
 
 import (
 	"context"
+	"crypto/sha256"
+	"errors"
 	"testing"
 
 	infraai "admin_back_go/internal/infra/ai"
 	"gorm.io/gorm"
 )
+
+type runtimeFactsFixture struct{ facts RuntimeFacts }
+
+func (fixture runtimeFactsFixture) LoadRuntimeFacts(context.Context, RuntimeInput) (RuntimeFacts, error) {
+	return fixture.facts, nil
+}
+
+type runtimeEvidenceFixture struct{ evidence RuntimeEvidence }
+
+func (fixture runtimeEvidenceFixture) ResolveRuntimeEvidence(context.Context, RuntimeInput, RuntimeFacts) (RuntimeEvidence, error) {
+	return fixture.evidence, nil
+}
+
+type memoryContextFixture struct {
+	memory *MemoryRecord
+	err    error
+}
+
+func (fixture memoryContextFixture) LatestReadyMemory(context.Context, uint64, uint64, [sha256.Size]byte) (*MemoryRecord, error) {
+	return fixture.memory, fixture.err
+}
+
+func TestContextPrecedenceComposesMemoryDirectAndRecalledTurnsOnce(t *testing.T) {
+	newest := testRuntimeTurn(t, 8, true)
+	direct := testRuntimeTurn(t, 7, false)
+	covered := testRuntimeTurn(t, 3, false)
+	summary := "user claims: stable preference"
+	profileHash, memorySource, summaryHash := testSHA256("profile"), testSHA256("memory-source"), testSHA256(summary)
+	memory := &MemoryRecord{ID: 9, ConversationID: 3, ProfileID: 7, ProfileSHA256: profileHash[:],
+		FromMessageID: 1, ThroughMessageID: 4, SourceSHA256: memorySource[:], SummarySHA256: summaryHash[:],
+		Summary: &summary, State: MemoryStateReady}
+	facts := validBuildPlanInput()
+	profile := &ProfileSnapshot{ID: 7, SHA256: testSHA256("profile")}
+	materializer := NewPlanMaterializer(runtimeFactsFixture{facts: RuntimeFacts{
+		Fingerprint: facts.Fingerprint, ModelCapability: facts.ModelCapability, Budget: facts.Budget, Profile: profile,
+		CoreGroups: facts.PackGroups, Retrieval: &RuntimeRetrievalFacts{HasSources: true},
+	}}, runtimeEvidenceFixture{evidence: RuntimeEvidence{Outcome: RetrievalHit, Groups: []PackGroup{
+		testEvidenceGroup(BlockDocumentEvidence, "document_chunks:41", testSHA256("document"), 8),
+		testEvidenceGroup(BlockRecalledTurn, "conversation_turn:7", direct.SourceSHA256, 8),
+		testEvidenceGroup(BlockRecalledTurn, "conversation_turn:3", covered.SourceSHA256, 8),
+	}}}, &historyPagerFixture{turns: []ConversationTurn{newest, direct, covered}}).
+		WithMemoryReader(memoryContextFixture{memory: memory})
+
+	input := RuntimeInput{RunID: facts.RunID, ReplyCommandID: facts.ReplyCommandID, LeaseOwner: facts.LeaseOwner, LeaseToken: facts.LeaseToken,
+		CurrentMessageID: facts.CurrentMessageID, AgentID: facts.AgentID, UserID: facts.UserID, ConversationID: facts.ConversationID,
+		ProviderID: facts.ProviderID, ModelID: facts.ModelID, APIProtocol: facts.APIProtocol}
+	materialized, err := materializer.Materialize(t.Context(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packed, appErr := Pack(PackInput{KnownInputBudget: materialized.Budget.KnownInputBudget, Candidates: materialized.PackGroups})
+	if appErr != nil {
+		t.Fatal(appErr)
+	}
+	wantSelected := []BlockKind{BlockCurrentUserMessage, BlockRecentTurn, BlockHistoryAttachment, BlockDocumentEvidence, BlockConversationMemory, BlockRecentTurn}
+	selected := make([]BlockKind, 0, len(wantSelected))
+	exclusions := map[string]ExclusionReason{}
+	for _, item := range packed.Items {
+		if item.Decision == DecisionSelected {
+			selected = append(selected, item.Block.Kind)
+			continue
+		}
+		if item.ExclusionReason != nil {
+			exclusions[item.Block.SourceRef] = *item.ExclusionReason
+		}
+	}
+	if len(selected) != len(wantSelected) {
+		t.Fatalf("selected=%v items=%+v", selected, packed.Items)
+	}
+	for index := range wantSelected {
+		if selected[index] != wantSelected[index] {
+			t.Fatalf("selected=%v want=%v", selected, wantSelected)
+		}
+	}
+	if exclusions["conversation_turn:7"] != ExclusionDuplicateContent || exclusions["conversation_turn:3"] != ExclusionSupersededMemory {
+		t.Fatalf("exclusions=%v", exclusions)
+	}
+}
+
+func TestMemoryDiagnosticDoesNotFailCurrentPlanMaterialization(t *testing.T) {
+	input := validBuildPlanInput()
+	profile := &ProfileSnapshot{ID: 7, SHA256: testSHA256("profile")}
+	materializer := NewPlanMaterializer(runtimeFactsFixture{facts: RuntimeFacts{
+		Fingerprint: input.Fingerprint, ModelCapability: input.ModelCapability, Budget: input.Budget, Profile: profile,
+		CoreGroups: input.PackGroups, Retrieval: &RuntimeRetrievalFacts{HasSources: false},
+	}}, runtimeEvidenceFixture{evidence: RuntimeEvidence{Outcome: RetrievalSkipped}}, &historyPagerFixture{}).
+		WithMemoryReader(memoryContextFixture{err: errors.New("failed memory diagnostic")})
+	_, err := materializer.Materialize(t.Context(), RuntimeInput{RunID: input.RunID, ReplyCommandID: input.ReplyCommandID,
+		LeaseOwner: input.LeaseOwner, LeaseToken: input.LeaseToken, CurrentMessageID: input.CurrentMessageID, AgentID: input.AgentID,
+		UserID: input.UserID, ConversationID: input.ConversationID, ProviderID: input.ProviderID, ModelID: input.ModelID, APIProtocol: input.APIProtocol})
+	if err != nil {
+		t.Fatalf("memory diagnostic failed current plan: %v", err)
+	}
+}
+
+func testRuntimeTurn(t *testing.T, anchor uint64, image bool) ConversationTurn {
+	t.Helper()
+	turn := ConversationTurn{ConversationID: 3, UserID: 7, AgentID: 5,
+		UserMessage:      TurnMessage{ID: anchor, Role: "user", Content: "question"},
+		AssistantMessage: TurnMessage{ID: anchor + 100, Role: "assistant", Content: "answer"}, AssistantDelivery: "completed"}
+	if image {
+		turn.UserMessage.Attachments = []TurnAttachment{{Index: 0, Type: "image", URL: "https://example.test/image.png", StorageProvider: "cos", ObjectKey: "image.png", ETag: "v1", Size: 10, MIMEType: "image/png", Name: "image.png"}}
+	}
+	if err := turn.ComputeSourceSHA256(); err != nil {
+		t.Fatal(err)
+	}
+	return turn
+}
+
+func testEvidenceGroup(kind BlockKind, ref string, source [sha256.Size]byte, priority int32) PackGroup {
+	content := "evidence"
+	metadata := emptyBlockMetadata()
+	if kind == BlockDocumentEvidence {
+		paragraph := uint32(1)
+		metadata.Document = &ContextDocumentEvidenceV1{Title: "document", DocumentID: 1, DocumentVersionID: 2, ChunkIDs: []uint64{41},
+			Locators: []ContextLocatorV1{{Schema: ContextLocatorSchemaV1, Kind: "paragraph", Paragraph: &paragraph}}}
+	}
+	return PackGroup{Priority: priority, StableSourceID: ref, Blocks: []PackBlock{{Block: ContextBlock{Kind: kind, SourceType: map[bool]string{true: "document_chunk", false: "conversation_turn"}[kind == BlockDocumentEvidence],
+		SourceRef: ref, SourceSHA256: source, AtomicGroupKey: ref, Priority: priority, TokenUpperBound: 8, ContentSnapshot: &content, Metadata: metadata}}}}
+}
 
 func TestBuildPlanPersistsOneReadyPlanWithCanonicalHash(t *testing.T) {
 	repository := &fakePlannerRepository{}

@@ -30,6 +30,7 @@ func BuildRuntime(dependencies RuntimeDependencies) *RuntimeService {
 	})
 	materializer := NewPlanMaterializer(facts, evidence, turns)
 	materializer.attachments = NewConversationDocumentService(dependencies.Database, nil)
+	materializer.WithMemoryReader(NewMemoryRepository(dependencies.Database))
 	planner := NewPlanner(PlannerDependencies{Repository: NewPlanRepository(dependencies.Database),
 		GuardFactory: NewAuthorizationGuardFactory(NewAuthoritySnapshotLoader(dependencies.Platform), nil)})
 	return NewRuntimeService(materializer, planner, NewDispatchGuardFactory(dependencies.Database, dependencies.Platform, nil))

@@ -204,6 +204,12 @@ type gormGatewayFinalizationStore struct {
 	conversationEnqueuer interface {
 		EnqueueConversationTurn(context.Context, contextengine.ContextConversationIndexV1) error
 	}
+	memoryPayloads interface {
+		BuildMemoryBuildPayload(context.Context, uint64, uint64) (contextengine.ContextMemoryBuildV1, bool, error)
+	}
+	memoryEnqueuer interface {
+		EnqueueMemoryBuild(context.Context, contextengine.ContextMemoryBuildV1) error
+	}
 }
 
 type gatewayFinalizationOption func(*gormGatewayFinalizationStore)
@@ -216,6 +222,41 @@ func withConversationIndexPostCommit(payloads interface {
 	return func(store *gormGatewayFinalizationStore) {
 		store.conversationPayloads = payloads
 		store.conversationEnqueuer = enqueuer
+	}
+}
+
+func withMemoryPostCommit(payloads interface {
+	BuildMemoryBuildPayload(context.Context, uint64, uint64) (contextengine.ContextMemoryBuildV1, bool, error)
+}, enqueuer interface {
+	EnqueueMemoryBuild(context.Context, contextengine.ContextMemoryBuildV1) error
+}) gatewayFinalizationOption {
+	return func(store *gormGatewayFinalizationStore) {
+		store.memoryPayloads = payloads
+		store.memoryEnqueuer = enqueuer
+	}
+}
+
+func (store *gormGatewayFinalizationStore) enqueueContextEnhancements(ctx context.Context, conversationID, userID, userMessageID uint64) {
+	if store == nil || conversationID == 0 || userID == 0 || userMessageID == 0 {
+		return
+	}
+	if store.conversationPayloads != nil && store.conversationEnqueuer != nil {
+		payload, err := store.conversationPayloads.BuildConversationIndexPayload(ctx, conversationID, userMessageID)
+		if err == nil {
+			err = store.conversationEnqueuer.EnqueueConversationTurn(ctx, payload)
+		}
+		if err != nil {
+			slog.WarnContext(ctx, "AI conversation index enqueue deferred to reconciler", "conversation_id", conversationID, "user_message_id", userMessageID, "error", err)
+		}
+	}
+	if store.memoryPayloads != nil && store.memoryEnqueuer != nil {
+		payload, ok, err := store.memoryPayloads.BuildMemoryBuildPayload(ctx, conversationID, userID)
+		if err == nil && ok {
+			err = store.memoryEnqueuer.EnqueueMemoryBuild(ctx, payload)
+		}
+		if err != nil {
+			slog.WarnContext(ctx, "AI conversation memory enqueue deferred to reconciler", "conversation_id", conversationID, "error", err)
+		}
 	}
 }
 
@@ -246,6 +287,7 @@ func (store *gormGatewayFinalizationStore) WithLockedSettlement(ctx context.Cont
 	var applied bool
 	var replayed bool
 	var commandID uint64
+	var terminalUserID uint64
 	var terminalConversationID uint64
 	var terminalUserMessageID uint64
 	var terminalState replycommand.State
@@ -260,6 +302,7 @@ func (store *gormGatewayFinalizationStore) WithLockedSettlement(ctx context.Cont
 			return err
 		}
 		commandID = command.ID
+		terminalUserID = uint64(command.UserID)
 		if command.ConversationID > 0 && command.UserMessageID > 0 {
 			terminalConversationID = uint64(command.ConversationID)
 			terminalUserMessageID = uint64(command.UserMessageID)
@@ -332,16 +375,8 @@ func (store *gormGatewayFinalizationStore) WithLockedSettlement(ctx context.Cont
 			slog.WarnContext(cleanupCtx, "AI reply delivery cleanup deferred to reconciler", "command_id", commandID, "error", cleanupErr)
 		}
 	}
-	if applied && (terminalState == replycommand.StateSucceeded || terminalState == replycommand.StateCanceled) &&
-		store.conversationPayloads != nil && store.conversationEnqueuer != nil && terminalConversationID > 0 && terminalUserMessageID > 0 {
-		indexCtx := context.WithoutCancel(ctx)
-		payload, indexErr := store.conversationPayloads.BuildConversationIndexPayload(indexCtx, terminalConversationID, terminalUserMessageID)
-		if indexErr == nil {
-			indexErr = store.conversationEnqueuer.EnqueueConversationTurn(indexCtx, payload)
-		}
-		if indexErr != nil {
-			slog.WarnContext(indexCtx, "AI conversation index enqueue deferred to reconciler", "conversation_id", terminalConversationID, "user_message_id", terminalUserMessageID, "error", indexErr)
-		}
+	if applied && (terminalState == replycommand.StateSucceeded || terminalState == replycommand.StateCanceled) {
+		store.enqueueContextEnhancements(context.WithoutCancel(ctx), terminalConversationID, terminalUserID, terminalUserMessageID)
 	}
 	return aigateway.FinalizationApplyResult{Applied: applied, Replayed: replayed}, nil
 }
