@@ -72,7 +72,7 @@ func (registry *Registry) Resolve(filename, mimeType string) (Parser, error) {
 	if !extensionKnown {
 		return nil, parseError("", fmt.Errorf("%w: extension %q", ErrUnsupportedFormat, extension))
 	}
-	if !mimeKnown && normalizedMIME != "application/octet-stream" {
+	if !mimeKnown {
 		return nil, parseError(extensionFormat, fmt.Errorf("%w: MIME type %q", ErrUnsupportedFormat, normalizedMIME))
 	}
 	return registry.parsers[extensionFormat], nil
