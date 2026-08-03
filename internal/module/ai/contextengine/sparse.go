@@ -12,6 +12,7 @@ import (
 
 	"admin_back_go/internal/infra/contextindex"
 
+	"golang.org/x/text/cases"
 	"golang.org/x/text/unicode/norm"
 )
 
@@ -23,7 +24,7 @@ func encodeSparseWithIndexer(text string, indexer func(string) uint32) (contexti
 	if !utf8.ValidString(text) || indexer == nil {
 		return contextindex.SparseVector{}, errors.New("sparse input must be valid UTF-8")
 	}
-	terms := lexicalTerms(strings.ToLower(norm.NFKC.String(text)))
+	terms := lexicalTerms(cases.Fold().String(norm.NFKC.String(text)))
 	frequencies := make(map[string]uint64, len(terms))
 	for _, term := range terms {
 		frequencies[term]++

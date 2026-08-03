@@ -28,14 +28,15 @@ type StructuralBlock struct {
 }
 
 type Chunk struct {
-	Ordinal            uint32
-	SourceBlockOrdinal uint32
-	Text               string
-	IndexText          string
-	HeadingPath        []string
-	Locator            ContextLocatorV1
-	ContentSHA256      [sha256.Size]byte
-	ChunkFactsSHA256   [sha256.Size]byte
+	Ordinal                       uint32
+	SourceBlockOrdinal            uint32
+	Text                          string
+	IndexText                     string
+	EmbeddingInputTokenUpperBound int64
+	HeadingPath                   []string
+	Locator                       ContextLocatorV1
+	ContentSHA256                 [sha256.Size]byte
+	ChunkFactsSHA256              [sha256.Size]byte
 }
 
 type Chunker struct {
@@ -61,12 +62,13 @@ func (chunker *Chunker) Chunk(blocks []StructuralBlock) ([]Chunk, error) {
 		if err := validateStructuralBlock(block); err != nil {
 			return nil, err
 		}
-		windows, err := chunker.windows(block.Text)
+		prefix := indexTextPrefix(block.HeadingPath)
+		windows, err := chunker.windows(prefix, block.Text)
 		if err != nil {
 			return nil, fmt.Errorf("block %d: %w", block.Ordinal, err)
 		}
 		for _, text := range windows {
-			chunk, err := newChunk(uint32(len(chunks)), block, text)
+			chunk, err := newChunk(uint32(len(chunks)), block, text, chunker.counter)
 			if err != nil {
 				return nil, err
 			}
@@ -91,8 +93,15 @@ func validateStructuralBlock(block StructuralBlock) error {
 	return nil
 }
 
-func (chunker *Chunker) windows(text string) ([]string, error) {
-	bound, err := chunker.counter.UpperBoundText(text)
+func (chunker *Chunker) windows(prefix, text string) ([]string, error) {
+	prefixBound, err := chunker.counter.UpperBoundText(prefix)
+	if err != nil {
+		return nil, err
+	}
+	if prefixBound >= chunker.target {
+		return nil, ErrChunkTokenUnitTooLarge
+	}
+	bound, err := chunker.counter.UpperBoundText(prefix + text)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +111,7 @@ func (chunker *Chunker) windows(text string) ([]string, error) {
 	runes := []rune(text)
 	windows := make([]string, 0, 2)
 	for start := 0; start < len(runes); {
-		end, err := chunker.maxWindow(runes, start)
+		end, err := chunker.maxWindow(prefix, runes, start)
 		if err != nil {
 			return nil, err
 		}
@@ -130,8 +139,8 @@ func (chunker *Chunker) windows(text string) ([]string, error) {
 	return windows, nil
 }
 
-func (chunker *Chunker) maxWindow(runes []rune, start int) (int, error) {
-	firstBound, err := chunker.counter.UpperBoundText(string(runes[start : start+1]))
+func (chunker *Chunker) maxWindow(prefix string, runes []rune, start int) (int, error) {
+	firstBound, err := chunker.counter.UpperBoundText(prefix + string(runes[start:start+1]))
 	if err != nil {
 		return 0, err
 	}
@@ -141,7 +150,7 @@ func (chunker *Chunker) maxWindow(runes []rune, start int) (int, error) {
 	low, high := start+1, len(runes)+1
 	for low+1 < high {
 		middle := low + (high-low)/2
-		bound, countErr := chunker.counter.UpperBoundText(string(runes[start:middle]))
+		bound, countErr := chunker.counter.UpperBoundText(prefix + string(runes[start:middle]))
 		if countErr != nil {
 			return 0, countErr
 		}
@@ -154,7 +163,7 @@ func (chunker *Chunker) maxWindow(runes []rune, start int) (int, error) {
 	return low, nil
 }
 
-func newChunk(ordinal uint32, block StructuralBlock, text string) (Chunk, error) {
+func newChunk(ordinal uint32, block StructuralBlock, text string, counter infraai.TokenCounter) (Chunk, error) {
 	contentSHA := sha256.Sum256([]byte(text))
 	locatorJSON, err := json.Marshal(block.Locator)
 	if err != nil {
@@ -169,15 +178,24 @@ func newChunk(ordinal uint32, block StructuralBlock, text string) (Chunk, error)
 	facts.Write(contentSHA[:])
 	facts.WriteByte(0)
 	facts.Write(locatorJSON)
-	indexText := text
-	if len(block.HeadingPath) > 0 {
-		indexText = strings.Join(block.HeadingPath, " > ") + "\n" + text
+	indexText := indexTextPrefix(block.HeadingPath) + text
+	bound, err := counter.UpperBoundText(indexText)
+	if err != nil {
+		return Chunk{}, err
 	}
 	return Chunk{
 		Ordinal: ordinal, SourceBlockOrdinal: block.Ordinal, Text: text, IndexText: indexText,
-		HeadingPath: append([]string(nil), block.HeadingPath...), Locator: block.Locator,
+		EmbeddingInputTokenUpperBound: bound,
+		HeadingPath:                   append([]string(nil), block.HeadingPath...), Locator: block.Locator,
 		ContentSHA256: contentSHA, ChunkFactsSHA256: sha256.Sum256(facts.Bytes()),
 	}, nil
+}
+
+func indexTextPrefix(headingPath []string) string {
+	if len(headingPath) == 0 {
+		return ""
+	}
+	return strings.Join(headingPath, " > ") + "\n"
 }
 
 func ValidateChunkRetry(existing, retry []Chunk) error {

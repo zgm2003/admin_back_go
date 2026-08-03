@@ -46,3 +46,19 @@ func TestUnicodeLexicalV1NormalizesCompatibilityAndCase(t *testing.T) {
 		t.Fatalf("NFKC/case folding mismatch: %#v != %#v", left, right)
 	}
 }
+
+func TestUnicodeLexicalV1UsesUnicodeCaseFolding(t *testing.T) {
+	for _, pair := range [][2]string{{"Straße", "STRASSE"}, {"ΟΣ", "ος"}, {"οσ", "ος"}} {
+		left, err := EncodeSparse(pair[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		right, err := EncodeSparse(pair[1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(left, right) {
+			t.Fatalf("case fold %q != %q: %#v != %#v", pair[0], pair[1], left, right)
+		}
+	}
+}

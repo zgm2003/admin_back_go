@@ -40,6 +40,32 @@ func TestChunkerKeepsStructuralBlocksWholeAndDeterministic(t *testing.T) {
 	if first[0].IndexText != "Guide\nfirst" || first[0].ContentSHA256 == ([32]byte{}) || first[0].ChunkFactsSHA256 == ([32]byte{}) {
 		t.Fatalf("chunk facts are incomplete: %#v", first[0])
 	}
+	if first[0].EmbeddingInputTokenUpperBound != int64(len("Guide\nfirst")) {
+		t.Fatalf("index text bound=%d", first[0].EmbeddingInputTokenUpperBound)
+	}
+}
+
+func TestChunkerCountsHeadingPrefixInsideEmbeddingLimit(t *testing.T) {
+	counter, _ := infraai.ResolveTokenCounter(infraai.TokenCounterUTF8BytesV1)
+	chunker, err := NewChunker(counter, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chunks, err := chunker.Chunk([]StructuralBlock{{
+		Text: "abcdef", HeadingPath: []string{"Head"}, Locator: ContextLocatorV1{Schema: ContextLocatorSchemaV1, Kind: "paragraph"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chunks) != 2 || chunks[0].IndexText != "Head\nabcde" || chunks[0].EmbeddingInputTokenUpperBound != 10 {
+		t.Fatalf("heading-aware chunks=%#v", chunks)
+	}
+	tooLarge, _ := NewChunker(counter, 4)
+	if _, err := tooLarge.Chunk([]StructuralBlock{{
+		Text: "x", HeadingPath: []string{"Head"}, Locator: ContextLocatorV1{Schema: ContextLocatorSchemaV1, Kind: "paragraph"},
+	}}); !errors.Is(err, ErrChunkTokenUnitTooLarge) {
+		t.Fatalf("heading overflow error=%v", err)
+	}
 }
 
 func TestChunkerSplitsOnlyOversizedBlocksWithFixedOverlap(t *testing.T) {

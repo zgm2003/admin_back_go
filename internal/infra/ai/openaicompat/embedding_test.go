@@ -32,11 +32,12 @@ func TestEmbeddingValidatesRequestAndResponseContract(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := New(Config{BaseURL: server.URL + "/v1", APIKey: "secret", HTTPClient: server.Client()})
-	result, err := client.Embed(context.Background(), infraai.EmbeddingInput{
-		ModelID: "embed-v1", Texts: []string{"one", "two"},
-		Capabilities: infraai.EmbeddingCapabilities{Dimensions: 3, MaxInputs: 2, MaxInputTokens: 20, TokenCounterID: infraai.TokenCounterUTF8BytesV1},
-	})
+	client, err := NewEmbeddingClient(Config{BaseURL: server.URL + "/v1", APIKey: "secret", HTTPClient: server.Client()}, "embed-v1",
+		infraai.EmbeddingCapabilities{Dimensions: 3, MaxInputs: 2, MaxInputTokens: 20, TokenCounterID: infraai.TokenCounterUTF8BytesV1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.Embed(context.Background(), []string{"one", "two"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,15 +53,31 @@ func TestEmbeddingRejectsInvalidProviderFacts(t *testing.T) {
 		`{"model":"embed-v1","data":[{"index":0,"embedding":[1e999]}],"usage":{"prompt_tokens":1,"total_tokens":1}}`,
 	} {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(response)) }))
-		client := New(Config{BaseURL: server.URL, APIKey: "secret", HTTPClient: server.Client()})
-		_, err := client.Embed(context.Background(), infraai.EmbeddingInput{
-			ModelID: "embed-v1", Texts: []string{"x"},
-			Capabilities: infraai.EmbeddingCapabilities{Dimensions: 1, MaxInputs: 1, MaxInputTokens: 1, TokenCounterID: infraai.TokenCounterUTF8BytesV1},
-		})
+		client, newErr := NewEmbeddingClient(Config{BaseURL: server.URL, APIKey: "secret", HTTPClient: server.Client()}, "embed-v1",
+			infraai.EmbeddingCapabilities{Dimensions: 1, MaxInputs: 1, MaxInputTokens: 1, TokenCounterID: infraai.TokenCounterUTF8BytesV1})
+		if newErr != nil {
+			t.Fatal(newErr)
+		}
+		_, err := client.Embed(context.Background(), []string{"x"})
 		server.Close()
 		if err == nil {
 			t.Fatalf("response %s was accepted", response)
 		}
 	}
 	_ = math.MaxFloat32
+}
+
+func TestEmbeddingRejectsResponseLargerThanDeclaredShape(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(make([]byte, 2<<20))
+	}))
+	defer server.Close()
+	client, err := NewEmbeddingClient(Config{BaseURL: server.URL, APIKey: "secret", HTTPClient: server.Client()}, "embed-v1",
+		infraai.EmbeddingCapabilities{Dimensions: 1, MaxInputs: 1, MaxInputTokens: 1, TokenCounterID: infraai.TokenCounterUTF8BytesV1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Embed(context.Background(), []string{"x"}); err == nil {
+		t.Fatal("oversized embedding response was accepted")
+	}
 }

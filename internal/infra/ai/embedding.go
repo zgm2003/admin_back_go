@@ -85,12 +85,13 @@ func (result EmbeddingResult) Validate(input EmbeddingInput) error {
 }
 
 type EmbeddingClient interface {
-	Embed(context.Context, EmbeddingInput) (EmbeddingResult, error)
+	Embed(context.Context, []string) (EmbeddingResult, error)
 }
 
 type EmbeddingClientConfig struct {
 	EngineType   EngineType
 	ModelKind    string
+	ModelID      string
 	BaseURL      string
 	APIKey       string
 	Capabilities EmbeddingCapabilities

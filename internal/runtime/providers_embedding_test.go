@@ -13,7 +13,7 @@ func TestEmbeddingFactoryRequiresEmbeddingKindAndSupportedEngine(t *testing.T) {
 	factory := aiEmbeddingFactory{}
 	valid := infraai.EmbeddingClientConfig{
 		EngineType: infraai.EngineTypeOpenAI, ModelKind: string(aiprovider.ModelKindEmbedding),
-		BaseURL: "https://api.example.com/v1", APIKey: "secret",
+		BaseURL: "https://api.example.com/v1", APIKey: "secret", ModelID: "embed-v1",
 		Capabilities: infraai.EmbeddingCapabilities{Dimensions: 3, MaxInputs: 2, MaxInputTokens: 20, TokenCounterID: infraai.TokenCounterUTF8BytesV1},
 	}
 	if _, err := factory.NewEmbeddingClient(context.Background(), valid); err != nil {

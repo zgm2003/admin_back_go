@@ -100,7 +100,7 @@ func (aiEmbeddingFactory) NewEmbeddingClient(_ context.Context, input infraai.Em
 	if input.EngineType != infraai.EngineTypeOpenAI {
 		return nil, fmt.Errorf("%w: unsupported embedding engine type", infraai.ErrEmbeddingFailed)
 	}
-	return openaicompat.New(openaicompat.Config{BaseURL: input.BaseURL, APIKey: input.APIKey}), nil
+	return openaicompat.NewEmbeddingClient(openaicompat.Config{BaseURL: input.BaseURL, APIKey: input.APIKey}, input.ModelID, input.Capabilities)
 }
 
 func newMailSender() mail.Sender {
