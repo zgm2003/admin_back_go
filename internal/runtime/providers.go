@@ -37,6 +37,7 @@ type Providers struct {
 	AIConnectionTester      aiprovider.ProviderTester
 	AIChatFactory           aichat.EngineFactory
 	AIEmbeddingFactory      infraai.EmbeddingFactory
+	AIRerankFactory         infraai.RerankFactory
 	AIImageFactory          aiimage.ImageEngineFactory
 	AIToolFactory           aitool.EngineFactory
 	AITransportCapabilities infraai.TransportCapabilityResolver
@@ -74,6 +75,7 @@ func BuildProviders(cfg config.Config, keys *secretkey.KeyRing, logger *slog.Log
 		AIConnectionTester: aiConnectionTester{logger: logger, recorder: recorder},
 		AIChatFactory:      aiChatEngineFactory{logger: logger, streamIdleTimeout: positiveProviderDuration(cfg.AI.ChatStreamIdleTimeout, config.DefaultAIChatStreamIdleTimeout), recorder: recorder},
 		AIEmbeddingFactory: aiEmbeddingFactory{},
+		AIRerankFactory:    aiRerankFactory{},
 		AIImageFactory:     aiImageEngineFactory{recorder: recorder},
 		AIToolFactory:      aiToolEngineFactory{logger: logger, recorder: recorder},
 		AITransportCapabilities: infraai.TransportCapabilityResolverFunc(func(engineType infraai.EngineType) (infraai.CapabilityMetadata, bool) {
@@ -101,6 +103,21 @@ func (aiEmbeddingFactory) NewEmbeddingClient(_ context.Context, input infraai.Em
 		return nil, fmt.Errorf("%w: unsupported embedding engine type", infraai.ErrEmbeddingFailed)
 	}
 	return openaicompat.NewEmbeddingClient(openaicompat.Config{BaseURL: input.BaseURL, APIKey: input.APIKey}, input.ModelID, input.Capabilities)
+}
+
+type aiRerankFactory struct{}
+
+func (aiRerankFactory) NewRerankClient(_ context.Context, input infraai.RerankClientConfig) (infraai.RerankClient, error) {
+	if input.ModelKind != string(aiprovider.ModelKindRerank) {
+		return nil, fmt.Errorf("%w: provider model kind must be rerank", infraai.ErrRerankFailed)
+	}
+	if err := input.Capabilities.Validate(); err != nil {
+		return nil, err
+	}
+	if input.EngineType != infraai.EngineTypeOpenAI {
+		return nil, fmt.Errorf("%w: unsupported rerank engine type", infraai.ErrRerankFailed)
+	}
+	return openaicompat.NewRerankClient(openaicompat.Config{BaseURL: input.BaseURL, APIKey: input.APIKey}, input.ModelID, input.Capabilities)
 }
 
 func newMailSender() mail.Sender {
