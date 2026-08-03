@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"admin_back_go/internal/infra/database"
+	aiprovider "admin_back_go/internal/module/ai/provider"
+	"admin_back_go/internal/shared/enum"
 
 	mysqldriver "github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
@@ -62,6 +64,234 @@ func (disposition PersistDisposition) Validate() error {
 }
 
 type GormPlanRepository struct{ db *gorm.DB }
+
+type GormAdminRepository struct{ db *gorm.DB }
+
+func NewAdminRepository(client *database.Client) *GormAdminRepository {
+	if client == nil || client.Gorm == nil {
+		return nil
+	}
+	return &GormAdminRepository{db: client.Gorm}
+}
+
+func (repository *GormAdminRepository) FindProviderModelCapability(ctx context.Context, id uint64) (*ProviderModelCapability, error) {
+	if repository == nil || repository.db == nil {
+		return nil, ErrPlanRepositoryNotConfigured
+	}
+	var row struct {
+		ID              uint64  `gorm:"column:id"`
+		Kind            string  `gorm:"column:model_kind"`
+		ModelStatus     int     `gorm:"column:model_status"`
+		ProviderStatus  int     `gorm:"column:provider_status"`
+		ProviderDeleted int     `gorm:"column:provider_deleted"`
+		OfficialModelID *string `gorm:"column:official_model_id"`
+	}
+	err := repository.db.WithContext(ctx).Table("ai_provider_models AS pm").
+		Select("pm.id, pm.model_kind, pm.status AS model_status, pm.official_model_id, p.status AS provider_status, p.is_del AS provider_deleted").
+		Joins("JOIN ai_providers AS p ON p.id = pm.provider_id").Where("pm.id = ?", id).Take(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	officialID := ""
+	if row.OfficialModelID != nil {
+		officialID = strings.TrimSpace(*row.OfficialModelID)
+	}
+	return &ProviderModelCapability{ID: row.ID, Kind: aiprovider.ModelKind(row.Kind), Enabled: row.ModelStatus == enum.CommonYes, ProviderEnabled: row.ProviderStatus == enum.CommonYes && row.ProviderDeleted == enum.CommonNo, OfficialModelID: officialID}, nil
+}
+
+func (repository *GormAdminRepository) CreateProfile(ctx context.Context, profile ContextProfile) (ContextProfile, error) {
+	if repository == nil || repository.db == nil {
+		return ContextProfile{}, ErrPlanRepositoryNotConfigured
+	}
+	if err := repository.db.WithContext(ctx).Create(&profile).Error; err != nil {
+		return ContextProfile{}, err
+	}
+	return profile, nil
+}
+
+func (repository *GormAdminRepository) FindProfile(ctx context.Context, id uint64) (*ContextProfile, error) {
+	if repository == nil || repository.db == nil {
+		return nil, ErrPlanRepositoryNotConfigured
+	}
+	var profile ContextProfile
+	err := repository.db.WithContext(ctx).Where("id = ?", id).Take(&profile).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &profile, nil
+}
+
+func (repository *GormAdminRepository) UpdateProfileMetadata(ctx context.Context, id uint64, name string, status ProfileStatus) (ContextProfile, error) {
+	if repository == nil || repository.db == nil {
+		return ContextProfile{}, ErrPlanRepositoryNotConfigured
+	}
+	result := repository.db.WithContext(ctx).Model(&ContextProfile{}).Where("id = ?", id).Updates(map[string]any{"name": name, "status": status})
+	if result.Error != nil {
+		return ContextProfile{}, result.Error
+	}
+	if result.RowsAffected != 1 {
+		return ContextProfile{}, gorm.ErrRecordNotFound
+	}
+	profile, err := repository.FindProfile(ctx, id)
+	if err != nil {
+		return ContextProfile{}, err
+	}
+	return *profile, nil
+}
+
+func (repository *GormAdminRepository) CompareAndSwapProfileIndex(ctx context.Context, input ProfileIndexCAS) (bool, error) {
+	if repository == nil || repository.db == nil {
+		return false, ErrPlanRepositoryNotConfigured
+	}
+	query := repository.db.WithContext(ctx).Model(&ContextProfile{}).Where("id = ? AND index_state = ?", input.ID, input.Expected.State)
+	query = whereOptionalUint64(query, "active_index_generation", input.Expected.ActiveGeneration)
+	query = whereOptionalUint64(query, "target_index_generation", input.Expected.TargetGeneration)
+	fields := map[string]any{"index_state": input.Next.State, "active_index_generation": input.Next.ActiveGeneration, "target_index_generation": input.Next.TargetGeneration}
+	if input.Next.ErrorCode == nil {
+		fields["index_error_code"] = nil
+	} else {
+		fields["index_error_code"] = string(*input.Next.ErrorCode)
+	}
+	result := query.Updates(fields)
+	return result.RowsAffected == 1, result.Error
+}
+
+func whereOptionalUint64(query *gorm.DB, column string, value *uint64) *gorm.DB {
+	if value == nil {
+		return query.Where(column + " IS NULL")
+	}
+	return query.Where(column+" = ?", *value)
+}
+
+func (repository *GormAdminRepository) CreateSpace(ctx context.Context, space ContextSpace) (ContextSpace, error) {
+	if repository == nil || repository.db == nil {
+		return ContextSpace{}, ErrPlanRepositoryNotConfigured
+	}
+	if err := repository.db.WithContext(ctx).Create(&space).Error; err != nil {
+		return ContextSpace{}, err
+	}
+	return space, nil
+}
+
+func (repository *GormAdminRepository) FindSpace(ctx context.Context, platform string, id uint64) (*ContextSpace, error) {
+	if repository == nil || repository.db == nil {
+		return nil, ErrPlanRepositoryNotConfigured
+	}
+	var space ContextSpace
+	err := repository.db.WithContext(ctx).Where("id = ? AND platform = ? AND deleted_at IS NULL", id, platform).Take(&space).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &space, nil
+}
+
+func (repository *GormAdminRepository) SpaceHasReferences(ctx context.Context, id uint64) (bool, error) {
+	if repository == nil || repository.db == nil {
+		return false, ErrPlanRepositoryNotConfigured
+	}
+	var count int64
+	err := repository.db.WithContext(ctx).Raw(`SELECT
+EXISTS(SELECT 1 FROM ai_context_documents WHERE space_id = ?) +
+EXISTS(SELECT 1 FROM ai_context_bindings WHERE space_id = ?) AS ref_count`, id, id).Scan(&count).Error
+	return count > 0, err
+}
+
+func (repository *GormAdminRepository) UpdateSpace(ctx context.Context, space ContextSpace) (ContextSpace, error) {
+	if repository == nil || repository.db == nil {
+		return ContextSpace{}, ErrPlanRepositoryNotConfigured
+	}
+	result := repository.db.WithContext(ctx).Model(&ContextSpace{}).Where("id = ? AND platform = ? AND deleted_at IS NULL", space.ID, space.Platform).
+		Updates(map[string]any{"profile_id": space.ProfileID, "name": space.Name, "description": space.Description, "status": space.Status})
+	if result.Error != nil {
+		return ContextSpace{}, result.Error
+	}
+	if result.RowsAffected != 1 {
+		return ContextSpace{}, gorm.ErrRecordNotFound
+	}
+	return space, nil
+}
+
+func (repository *GormAdminRepository) SoftDeleteSpace(ctx context.Context, platform string, id uint64) error {
+	if repository == nil || repository.db == nil {
+		return ErrPlanRepositoryNotConfigured
+	}
+	return repository.db.WithContext(ctx).Model(&ContextSpace{}).Where("id = ? AND platform = ? AND deleted_at IS NULL", id, platform).Update("deleted_at", gorm.Expr("CURRENT_TIMESTAMP(6)")).Error
+}
+
+func (repository *GormAdminRepository) CreateDocumentWithVersion(ctx context.Context, document ContextDocument, version ContextDocumentVersion) (DocumentAdminDTO, error) {
+	if repository == nil || repository.db == nil {
+		return DocumentAdminDTO{}, ErrPlanRepositoryNotConfigured
+	}
+	err := repository.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&document).Error; err != nil {
+			return err
+		}
+		version.DocumentID = document.ID
+		return tx.Create(&version).Error
+	})
+	if err != nil {
+		return DocumentAdminDTO{}, err
+	}
+	return documentAdminDTO(document, version), nil
+}
+
+func (repository *GormAdminRepository) FindDocument(ctx context.Context, platform string, id uint64) (*DocumentAdminDTO, error) {
+	if repository == nil || repository.db == nil {
+		return nil, ErrPlanRepositoryNotConfigured
+	}
+	var document ContextDocument
+	err := repository.db.WithContext(ctx).Table("ai_context_documents AS d").Select("d.*").
+		Joins("JOIN ai_context_spaces AS s ON s.id = d.space_id AND s.deleted_at IS NULL").
+		Where("d.id = ? AND d.deleted_at IS NULL AND s.platform = ?", id, platform).Take(&document).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var version ContextDocumentVersion
+	err = repository.db.WithContext(ctx).Where("document_id = ?", id).Order("id DESC").Take(&version).Error
+	if err != nil {
+		return nil, err
+	}
+	result := documentAdminDTO(document, version)
+	return &result, nil
+}
+
+func (repository *GormAdminRepository) CreateDocumentVersion(ctx context.Context, version ContextDocumentVersion) (DocumentAdminDTO, error) {
+	if repository == nil || repository.db == nil {
+		return DocumentAdminDTO{}, ErrPlanRepositoryNotConfigured
+	}
+	if err := repository.db.WithContext(ctx).Create(&version).Error; err != nil {
+		return DocumentAdminDTO{}, err
+	}
+	var document ContextDocument
+	if err := repository.db.WithContext(ctx).Where("id = ? AND deleted_at IS NULL", version.DocumentID).Take(&document).Error; err != nil {
+		return DocumentAdminDTO{}, err
+	}
+	return documentAdminDTO(document, version), nil
+}
+
+func (repository *GormAdminRepository) AgentProfileChangeConflict(ctx context.Context, agentID uint64) (bool, error) {
+	if repository == nil || repository.db == nil {
+		return false, ErrPlanRepositoryNotConfigured
+	}
+	var count int64
+	err := repository.db.WithContext(ctx).Raw(`SELECT
+EXISTS(SELECT 1 FROM ai_context_bindings WHERE agent_id = ? AND status = 'enabled') +
+EXISTS(SELECT 1 FROM ai_context_documents d JOIN ai_conversations c ON c.id=d.conversation_id WHERE c.agent_id=? AND d.active_version_id IS NOT NULL) +
+EXISTS(SELECT 1 FROM ai_conversation_memories WHERE agent_id = ?) AS ref_count`, agentID, agentID, agentID).Scan(&count).Error
+	return count > 0, err
+}
 
 func NewPlanRepository(client *database.Client) *GormPlanRepository {
 	if client == nil || client.Gorm == nil {

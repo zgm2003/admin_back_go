@@ -36,6 +36,26 @@ func TestPersistTerminalRejectsInvalidInputBeforeTransaction(t *testing.T) {
 	}
 }
 
+func TestProfileIndexCASIncludesGenerationFence(t *testing.T) {
+	planRepository, mock, closeDB := newPlanRepositoryFixture(t)
+	defer closeDB()
+	repository := &GormAdminRepository{db: planRepository.db}
+	one, two := uint64(1), uint64(2)
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `ai_context_profiles` SET .* WHERE .*id = .*index_state = .*active_index_generation = .*target_index_generation IS NULL").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	ok, err := repository.CompareAndSwapProfileIndex(context.Background(), ProfileIndexCAS{
+		ID:       7,
+		Expected: ProfileIndex{State: ProfileIndexReady, ActiveGeneration: &one},
+		Next:     ProfileIndex{State: ProfileIndexRebuilding, ActiveGeneration: &one, TargetGeneration: &two},
+	})
+	if err != nil || !ok {
+		t.Fatalf("ok=%v err=%v", ok, err)
+	}
+	assertPlanMockExpectations(t, mock)
+}
+
 func TestPersistTerminalUsesSameTransactionAndPersistsSnapshotConflict(t *testing.T) {
 	repository, mock, closeDB := newPlanRepositoryFixture(t)
 	defer closeDB()

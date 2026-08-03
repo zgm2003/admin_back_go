@@ -23,6 +23,7 @@ import (
 	"admin_back_go/internal/middleware"
 	aiagent "admin_back_go/internal/module/ai/agent"
 	aichat "admin_back_go/internal/module/ai/chat"
+	contextengine "admin_back_go/internal/module/ai/contextengine"
 	aiconversation "admin_back_go/internal/module/ai/conversation"
 	aiimage "admin_back_go/internal/module/ai/image"
 	aiknowledge "admin_back_go/internal/module/ai/knowledge"
@@ -192,6 +193,13 @@ func Build(input BuildInput) (*BuildResult, error) {
 	}
 	uploadTokenRepository := uploadtoken.NewGormRepository(resources.DB)
 	uploadRuleResolver := uploadtoken.NewActiveRuleResolver(uploadTokenRepository)
+	aiObjectConfig := uploadtoken.NewObjectConfigProvider(uploadTokenRepository, providers.Secretbox)
+	contextService := contextengine.NewAdminService(
+		contextengine.NewAdminRepository(resources.DB),
+		storagecos.NewConditionalObjectReader(aiObjectConfig, storagecos.ObjectStreamerConfig{Enabled: true}),
+		nil,
+		contextengine.WithOfficialModelResolver(aiOfficialModelResolver),
+	)
 	aiAgentService := aiagent.NewService(
 		aiagent.NewGormRepository(resources.DB),
 		providers.Secretbox,
@@ -199,6 +207,7 @@ func Build(input BuildInput) (*BuildResult, error) {
 		aiagent.WithPricingResolver(aiOfficialModelResolver),
 		aiagent.WithTransportCapabilityResolver(providers.AITransportCapabilities),
 		aiagent.WithUploadRuleResolver(uploadRuleResolver),
+		aiagent.WithContextProfileResolver(contextService),
 	)
 	aiRunRepository := airun.NewGormRepository(resources.DB)
 	aiRunRecorder := airun.NewRecorder(aiRunRepository, nil)
@@ -230,13 +239,12 @@ func Build(input BuildInput) (*BuildResult, error) {
 		providers.CredentialSigner,
 		uploadtoken.Options{TTLPolicy: uploadtoken.NewSystemSettingTTLPolicyProvider(systemSettingRepository)},
 	)
-	aiChatObjectConfig := uploadtoken.NewObjectConfigProvider(uploadTokenRepository, providers.Secretbox)
 	aiChatObjectInspector := storagecos.NewObjectInspector(
-		aiChatObjectConfig,
+		aiObjectConfig,
 		storagecos.ObjectInspectorConfig{Enabled: true},
 	)
 	aiChatObjectStreamer := storagecos.NewObjectStreamer(
-		aiChatObjectConfig,
+		aiObjectConfig,
 		storagecos.ObjectStreamerConfig{Enabled: true},
 	)
 	queueMonitorService := queuemonitor.NewService(
@@ -386,6 +394,7 @@ func Build(input BuildInput) (*BuildResult, error) {
 		},
 		Commerce: CommerceGraph{Payment: paymentService, Wallet: walletService, RedeemCodes: redeemCodeService},
 		AI: AIGraph{
+			Context:        contextService,
 			Agents:         aiAgentService,
 			Chat:           aiChatService,
 			Conversations:  aiConversationService,

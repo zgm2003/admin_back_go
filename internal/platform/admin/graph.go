@@ -6,6 +6,7 @@ import (
 
 	aiagent "admin_back_go/internal/module/ai/agent"
 	aichat "admin_back_go/internal/module/ai/chat"
+	contextengine "admin_back_go/internal/module/ai/contextengine"
 	aiconversation "admin_back_go/internal/module/ai/conversation"
 	aiknowledge "admin_back_go/internal/module/ai/knowledge"
 	aimessage "admin_back_go/internal/module/ai/message"
@@ -80,6 +81,7 @@ type CommerceGraph struct {
 }
 
 type AIGraph struct {
+	Context        *contextengine.AdminService
 	Agents         aiagent.HTTPService
 	Chat           aichat.HTTPService
 	Conversations  aiconversation.HTTPService

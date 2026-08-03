@@ -52,6 +52,10 @@ type ContextProfileResolver interface {
 	RequireAgentProfileChangeAllowed(context.Context, uint64, *uint64) error
 }
 
+type contextProfileAssignmentCommitter interface {
+	ContextProfileAssignmentCommitted(context.Context, uint64, uint64) error
+}
+
 type Option func(*Service)
 
 func WithPricingResolver(resolver officialmodel.Resolver) Option {
@@ -223,7 +227,21 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (uint64, *apper
 	if err != nil {
 		return 0, apperror.LegacyWrap(apperror.CodeInternal, 500, "新增AI智能体失败", err)
 	}
+	if row.ContextProfileID != nil {
+		s.notifyContextProfileAssignmentCommitted(ctx, id, *row.ContextProfileID)
+	}
 	return id, nil
+}
+
+func (s *Service) notifyContextProfileAssignmentCommitted(ctx context.Context, agentID uint64, profileID uint64) {
+	if s == nil || s.contextProfiles == nil {
+		return
+	}
+	committer, ok := s.contextProfiles.(contextProfileAssignmentCommitter)
+	if !ok {
+		return
+	}
+	_ = committer.ContextProfileAssignmentCommitted(ctx, agentID, profileID)
 }
 
 func (s *Service) Update(ctx context.Context, id uint64, input UpdateInput) *apperror.Error {

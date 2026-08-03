@@ -55,6 +55,10 @@ func (streamer *COSObjectStreamer) Head(ctx context.Context, input infraai.Prepa
 	if err != nil {
 		return infraai.PreparedFileObjectMetadata{}, err
 	}
+	return streamer.headObject(ctx, input.ObjectKey, input.ETag, input.Size)
+}
+
+func (streamer *COSObjectStreamer) headObject(ctx context.Context, objectKey, etag string, size int64) (infraai.PreparedFileObjectMetadata, error) {
 	client, err := streamer.objectClient(ctx)
 	if err != nil {
 		return infraai.PreparedFileObjectMetadata{}, err
@@ -62,8 +66,8 @@ func (streamer *COSObjectStreamer) Head(ctx context.Context, input infraai.Prepa
 	reqCtx, cancel := context.WithTimeout(ctx, streamer.timeout)
 	defer cancel()
 	headers := make(http.Header)
-	headers.Set("If-Match", input.ETag)
-	response, err := client.Object.Head(reqCtx, input.ObjectKey, &tencentcos.ObjectHeadOptions{XOptionHeader: &headers})
+	headers.Set("If-Match", etag)
+	response, err := client.Object.Head(reqCtx, objectKey, &tencentcos.ObjectHeadOptions{XOptionHeader: &headers})
 	if err != nil {
 		return infraai.PreparedFileObjectMetadata{}, mapObjectStreamError("head", err)
 	}
@@ -71,7 +75,7 @@ func (streamer *COSObjectStreamer) Head(ctx context.Context, input infraai.Prepa
 	if err != nil {
 		return infraai.PreparedFileObjectMetadata{}, err
 	}
-	if metadata.ETag != input.ETag || metadata.Size != input.Size {
+	if metadata.ETag != etag || metadata.Size != size {
 		return infraai.PreparedFileObjectMetadata{}, ErrObjectVersionChanged
 	}
 	return metadata, nil
@@ -82,20 +86,24 @@ func (streamer *COSObjectStreamer) Open(ctx context.Context, input infraai.Prepa
 	if err != nil {
 		return nil, infraai.PreparedFileObjectMetadata{}, err
 	}
+	return streamer.openObject(ctx, input.ObjectKey, input.ETag, input.Size)
+}
+
+func (streamer *COSObjectStreamer) openObject(ctx context.Context, objectKey, etag string, size int64) (io.ReadCloser, infraai.PreparedFileObjectMetadata, error) {
 	client, err := streamer.objectClient(ctx)
 	if err != nil {
 		return nil, infraai.PreparedFileObjectMetadata{}, err
 	}
 	reqCtx, cancel := context.WithTimeout(ctx, streamer.timeout)
 	headers := make(http.Header)
-	headers.Set("If-Match", input.ETag)
-	response, err := client.Object.Get(reqCtx, input.ObjectKey, &tencentcos.ObjectGetOptions{XOptionHeader: &headers})
+	headers.Set("If-Match", etag)
+	response, err := client.Object.Get(reqCtx, objectKey, &tencentcos.ObjectGetOptions{XOptionHeader: &headers})
 	if err != nil {
 		cancel()
 		return nil, infraai.PreparedFileObjectMetadata{}, mapObjectStreamError("get", err)
 	}
 	metadata, err := preparedFileMetadata(response)
-	if err != nil || metadata.ETag != input.ETag || metadata.Size != input.Size {
+	if err != nil || metadata.ETag != etag || metadata.Size != size {
 		_ = response.Body.Close()
 		cancel()
 		if err != nil {

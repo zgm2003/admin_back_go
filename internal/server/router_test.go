@@ -64,6 +64,16 @@ type routerBrowserGrantStore struct {
 	values map[string]string
 }
 
+func TestRouterDoesNotInstallContextMutationRoutesBeforePermissionMigration(t *testing.T) {
+	body, err := os.ReadFile("routes_admin_ai.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "contextengineadmin.RegisterRoutes") {
+		t.Fatal("context mutation routes must remain isolated until Plan 05 permission migration")
+	}
+}
+
 func (s *routerBrowserGrantStore) Put(_ context.Context, key string, value string, _ time.Duration) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

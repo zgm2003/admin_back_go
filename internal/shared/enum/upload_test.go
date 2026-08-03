@@ -5,6 +5,15 @@ import (
 	"testing"
 )
 
+func TestContextDocumentUploadFolderIsClosedAndAllowed(t *testing.T) {
+	if !IsUploadFolder("ai_context_documents") {
+		t.Fatal("ai_context_documents must be an allowed upload folder")
+	}
+	if IsUploadFolder("ai_context_documents/tenant") {
+		t.Fatal("upload folder validator must remain an exact closed set")
+	}
+}
+
 func TestUploadDriverMembership(t *testing.T) {
 	if !IsUploadDriver(UploadDriverCOS) {
 		t.Fatalf("cos must be the only supported upload driver")

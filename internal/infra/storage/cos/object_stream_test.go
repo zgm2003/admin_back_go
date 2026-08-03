@@ -55,6 +55,16 @@ func TestConditionalStreamRequiresMatchingETag(t *testing.T) {
 	}
 }
 
+func TestConditionalObjectChatAdapterStillRejectsContextDocumentKey(t *testing.T) {
+	streamer := newTestObjectStreamer("http://127.0.0.1")
+	_, err := streamer.Head(context.Background(), infraai.PreparedFileOpenInput{
+		ObjectKey: "ai_context_documents/report.pdf", ETag: `"etag-v1"`, Size: 4,
+	})
+	if err == nil || !errors.Is(err, ErrUntrustedObjectKey) {
+		t.Fatalf("chat adapter accepted context object key: %v", err)
+	}
+}
+
 func TestConditionalStreamRejectsGETMetadataDrift(t *testing.T) {
 	var getCalls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {

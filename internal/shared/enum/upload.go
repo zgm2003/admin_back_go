@@ -41,6 +41,7 @@ var UploadFolders = []string{
 	"ai-agents",
 	"ai_chat_images",
 	"ai_chat_attachments",
+	"ai_context_documents",
 	"exports",
 	"reconcile_reports",
 }

@@ -109,6 +109,15 @@ func TestBuildAIMessageRepositoryUsesDurableRealtimeSink(t *testing.T) {
 	}
 }
 
+func TestBuildWiresContextProfileResolverWithoutInstallingRoutes(t *testing.T) {
+	compact := compactAdminBuild(t)
+	for _, want := range []string{"contextengine.NewAdminRepository(resources.DB)", "storagecos.NewConditionalObjectReader", "aiagent.WithContextProfileResolver(contextService)", "Context: contextService"} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("admin context composition missing %q", want)
+		}
+	}
+}
+
 func TestBuildWiresOneAuthoritativeOfficialModelResolver(t *testing.T) {
 	compact := compactAdminBuild(t)
 	for _, want := range []string{

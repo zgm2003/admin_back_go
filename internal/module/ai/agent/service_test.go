@@ -31,8 +31,14 @@ type countingUploadRuleResolver struct {
 type fakeContextProfileResolver struct {
 	assignableIDs []uint64
 	changes       []contextProfileChange
+	committed     []contextProfileChange
 	assignErr     error
 	changeErr     error
+}
+
+func (resolver *fakeContextProfileResolver) ContextProfileAssignmentCommitted(_ context.Context, agentID uint64, profileID uint64) error {
+	resolver.committed = append(resolver.committed, contextProfileChange{agentID: agentID, profileID: &profileID})
+	return nil
 }
 
 type contextProfileChange struct {
@@ -314,6 +320,9 @@ func TestCreateAgentContextProfileIsExplicitAndNullable(t *testing.T) {
 	}
 	if len(resolver.assignableIDs) != 1 || resolver.assignableIDs[0] != profileID || repo.created == nil || repo.created.ContextProfileID == nil || *repo.created.ContextProfileID != profileID {
 		t.Fatalf("resolver=%#v agent=%#v", resolver, repo.created)
+	}
+	if len(resolver.committed) != 1 || resolver.committed[0].agentID != 11 || *resolver.committed[0].profileID != profileID {
+		t.Fatalf("post-commit notifications=%#v", resolver.committed)
 	}
 }
 
