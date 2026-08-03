@@ -457,10 +457,11 @@ func (metrics ContextPlanMetricsV1) Validate() error {
 }
 
 type ContextBlockMetadataV1 struct {
-	Schema     string               `json:"schema"`
-	Locator    *ContextLocatorV1    `json:"locator,omitempty"`
-	Retrieval  *RetrievalBranchesV1 `json:"retrieval,omitempty"`
-	Attachment *ContextAttachmentV1 `json:"attachment,omitempty"`
+	Schema     string                     `json:"schema"`
+	Locator    *ContextLocatorV1          `json:"locator,omitempty"`
+	Retrieval  *RetrievalBranchesV1       `json:"retrieval,omitempty"`
+	Attachment *ContextAttachmentV1       `json:"attachment,omitempty"`
+	Document   *ContextDocumentEvidenceV1 `json:"document,omitempty"`
 }
 
 func (metadata ContextBlockMetadataV1) Validate() error {
@@ -482,7 +483,55 @@ func (metadata ContextBlockMetadataV1) Validate() error {
 			return err
 		}
 	}
+	if metadata.Document != nil {
+		if err := metadata.Document.Validate(); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// ContextDocumentEvidenceV1 is the closed, safe projection used when a
+// selected document block is compiled into a provider request.
+type ContextDocumentEvidenceV1 struct {
+	Title             string             `json:"title"`
+	DocumentID        uint64             `json:"document_id"`
+	DocumentVersionID uint64             `json:"document_version_id"`
+	ChunkIDs          []uint64           `json:"chunk_ids"`
+	Locators          []ContextLocatorV1 `json:"locators"`
+}
+
+func (evidence ContextDocumentEvidenceV1) Validate() error {
+	if evidence.DocumentID == 0 || evidence.DocumentVersionID == 0 || len(evidence.ChunkIDs) == 0 || len(evidence.ChunkIDs) != len(evidence.Locators) ||
+		!safeEvidenceTitle(evidence.Title) {
+		return ErrInvalidContextPlan
+	}
+	seen := make(map[uint64]struct{}, len(evidence.ChunkIDs))
+	for i, chunkID := range evidence.ChunkIDs {
+		if chunkID == 0 {
+			return ErrInvalidContextPlan
+		}
+		if _, exists := seen[chunkID]; exists {
+			return ErrInvalidContextPlan
+		}
+		seen[chunkID] = struct{}{}
+		if err := evidence.Locators[i].Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func safeEvidenceTitle(title string) bool {
+	if strings.TrimSpace(title) == "" || strings.TrimSpace(title) != title || !utf8.ValidString(title) {
+		return false
+	}
+	for _, r := range title {
+		if r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	return true
 }
 
 type AttachmentKind = infraai.AttachmentKind

@@ -259,6 +259,26 @@ func cloneContextBlockMetadata(metadata ContextBlockMetadataV1) ContextBlockMeta
 		retrieval.Branches = append([]RetrievalBranchV1(nil), metadata.Retrieval.Branches...)
 		cloned.Retrieval = &retrieval
 	}
+	if metadata.Document != nil {
+		document := *metadata.Document
+		document.ChunkIDs = append([]uint64(nil), metadata.Document.ChunkIDs...)
+		document.Locators = make([]ContextLocatorV1, len(metadata.Document.Locators))
+		for index, source := range metadata.Document.Locators {
+			locator := source
+			locator.Page = clonePointer(source.Page)
+			locator.Paragraph = clonePointer(source.Paragraph)
+			locator.LineStart = clonePointer(source.LineStart)
+			locator.LineEnd = clonePointer(source.LineEnd)
+			locator.RowStart = clonePointer(source.RowStart)
+			locator.RowEnd = clonePointer(source.RowEnd)
+			locator.Sheet = clonePointer(source.Sheet)
+			locator.CellStart = clonePointer(source.CellStart)
+			locator.CellEnd = clonePointer(source.CellEnd)
+			locator.HeadingPath = append([]string(nil), source.HeadingPath...)
+			document.Locators[index] = locator
+		}
+		cloned.Document = &document
+	}
 	return cloned
 }
 
