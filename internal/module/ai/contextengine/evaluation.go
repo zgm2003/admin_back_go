@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"unicode/utf8"
 )
 
 const evaluationTopK = 10
@@ -38,7 +39,7 @@ func NewEvaluationService(pipeline EvaluationPipeline) *EvaluationService {
 }
 
 func (service *EvaluationService) RunEvaluation(ctx context.Context, request EvaluationRequest, options EvaluationOptions) (ContextEvaluationResponse, error) {
-	if service == nil || service.pipeline == nil || options.Persist || request.AgentID == 0 || strings.TrimSpace(request.Query) == "" || len(request.Query) > 20000 {
+	if service == nil || service.pipeline == nil || options.Persist || request.AgentID == 0 || !validEvaluationQuery(request.Query) {
 		return ContextEvaluationResponse{}, ErrInvalidContextPlan
 	}
 	result, err := service.pipeline.Evaluate(ctx, request.AgentID, strings.TrimSpace(request.Query))
@@ -69,6 +70,12 @@ func (service *EvaluationService) RunEvaluation(ctx context.Context, request Eva
 		}
 	}
 	return response, nil
+}
+
+func validEvaluationQuery(value string) bool {
+	value = strings.TrimSpace(value)
+	count := utf8.RuneCountInString(value)
+	return utf8.ValidString(value) && count >= 1 && count <= 20000
 }
 
 var evaluationCategoryCounts = map[string]int{

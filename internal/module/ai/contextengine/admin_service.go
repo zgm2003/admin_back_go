@@ -378,6 +378,9 @@ func (service *AdminService) ListDocumentVersions(ctx context.Context, platform 
 	if id == 0 || !enum.IsRegisteredPlatform(platform) {
 		return nil, apperror.BadRequest("上下文文档参数错误")
 	}
+	if _, appErr := service.GetDocument(ctx, platform, id); appErr != nil {
+		return nil, appErr
+	}
 	items, err := service.repository.ListDocumentVersions(ctx, platform, id)
 	if err != nil {
 		return nil, internalAdminError("查询上下文文档版本失败", err)
@@ -498,7 +501,7 @@ func (service *AdminService) ContextProfileAssignmentCommitted(ctx context.Conte
 
 func (service *AdminService) Evaluate(ctx context.Context, input EvaluationRequest) (*ContextEvaluationResponse, *apperror.Error) {
 	input.Query = strings.TrimSpace(input.Query)
-	if input.AgentID == 0 || input.Query == "" || len(input.Query) > 20000 {
+	if input.AgentID == 0 || !validEvaluationQuery(input.Query) {
 		return nil, apperror.BadRequest("上下文评测参数错误")
 	}
 	if service.evaluator == nil {

@@ -105,6 +105,7 @@ func (repository *GormCutoverPreflightRepository) ListEnabledChatAgents(ctx cont
 	}
 	query := repository.db.WithContext(ctx).Table("ai_agents AS a").Select(`a.id AS agent_id, p.id AS provider_id, pm.id AS provider_model_id,
 		pm.model_kind, p.api_protocol, pm.official_model_id`).Joins("LEFT JOIN ai_providers AS p ON p.id = a.provider_id AND p.status = 1 AND p.is_del = 2").Joins("LEFT JOIN ai_provider_models AS pm ON pm.provider_id = a.provider_id AND pm.model_id = a.model_id AND pm.status = 1").Where("a.status = 1 AND a.is_del = 2").Order("a.id ASC")
+	query = query.Where("JSON_CONTAINS(a.scenes_json, JSON_QUOTE(?))", "chat")
 	if err := query.Scan(&rows).Error; err != nil {
 		return nil, err
 	}

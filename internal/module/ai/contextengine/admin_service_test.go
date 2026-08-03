@@ -116,6 +116,14 @@ func TestDocumentReindexCreatesNewImmutableVersion(t *testing.T) {
 	}
 }
 
+func TestAdminContractMissingDocumentIsNotAnEmptyVersionList(t *testing.T) {
+	service := NewAdminService(&fakeAdminRepository{}, nil, nil)
+	result, appErr := service.ListDocumentVersions(context.Background(), "admin", 99)
+	if appErr == nil || result != nil {
+		t.Fatalf("result=%+v error=%+v", result, appErr)
+	}
+}
+
 type fakeAdminRepository struct {
 	models          map[uint64]ProviderModelCapability
 	profiles        map[uint64]ContextProfile

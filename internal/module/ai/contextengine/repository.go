@@ -364,6 +364,24 @@ func (repository *GormAdminRepository) ListAgentContextSpaces(ctx context.Contex
 
 func (repository *GormAdminRepository) ReplaceAgentContextSpaces(ctx context.Context, agentID uint64, ids []uint64) error {
 	return repository.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var agent struct {
+			ProfileID *uint64 `gorm:"column:context_profile_id"`
+		}
+		if err := tx.Table("ai_agents").Select("context_profile_id").Where("id = ? AND status = ? AND is_del = ?", agentID, enum.CommonYes, enum.CommonNo).Take(&agent).Error; err != nil {
+			return err
+		}
+		if len(ids) != 0 {
+			if agent.ProfileID == nil {
+				return errors.New("agent context profile is required before assigning spaces")
+			}
+			var compatible int64
+			if err := tx.Table("ai_context_spaces").Where("id IN ? AND platform = ? AND profile_id = ? AND status = ? AND deleted_at IS NULL", ids, enum.PlatformAdmin, *agent.ProfileID, SpaceEnabled).Count(&compatible).Error; err != nil {
+				return err
+			}
+			if compatible != int64(len(ids)) {
+				return errors.New("context spaces are missing, disabled, or use a different profile")
+			}
+		}
 		if err := tx.Exec("DELETE FROM ai_context_bindings WHERE agent_id = ?", agentID).Error; err != nil {
 			return err
 		}

@@ -27,6 +27,12 @@ func TestEvaluationServicePacksWithoutPersistence(t *testing.T) {
 	}
 }
 
+func TestEvaluationQueryLimitCountsCharacters(t *testing.T) {
+	if !validEvaluationQuery(strings.Repeat("中", 20000)) || validEvaluationQuery(strings.Repeat("中", 20001)) {
+		t.Fatal("evaluation query character limit is not 1..20000")
+	}
+}
+
 type evaluationPipelineStub struct{ result EvaluationPipelineResult }
 
 func (stub evaluationPipelineStub) Evaluate(context.Context, uint64, string) (EvaluationPipelineResult, error) {
