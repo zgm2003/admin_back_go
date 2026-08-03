@@ -96,15 +96,17 @@ func (repository *GormCutoverPreflightRepository) ListEnabledChatAgents(ctx cont
 		return nil, ErrPlanRepositoryNotConfigured
 	}
 	var rows []struct {
-		AgentID         uint64  `gorm:"column:agent_id"`
-		ProviderID      uint64  `gorm:"column:provider_id"`
-		ProviderModelID uint64  `gorm:"column:provider_model_id"`
-		ModelKind       string  `gorm:"column:model_kind"`
-		APIProtocol     string  `gorm:"column:api_protocol"`
-		OfficialModelID *string `gorm:"column:official_model_id"`
+		AgentID         uint64                      `gorm:"column:agent_id"`
+		ProviderID      uint64                      `gorm:"column:provider_id"`
+		ProviderModelID uint64                      `gorm:"column:provider_model_id"`
+		ModelKind       string                      `gorm:"column:model_kind"`
+		APIProtocol     string                      `gorm:"column:api_protocol"`
+		OfficialModelID *string                     `gorm:"column:official_model_id"`
+		OfficialCatalog *string                     `gorm:"column:official_catalog_version"`
+		MappingStatus   officialmodel.MappingStatus `gorm:"column:mapping_status"`
 	}
 	query := repository.db.WithContext(ctx).Table("ai_agents AS a").Select(`a.id AS agent_id, p.id AS provider_id, pm.id AS provider_model_id,
-		pm.model_kind, p.api_protocol, pm.official_model_id`).Joins("LEFT JOIN ai_providers AS p ON p.id = a.provider_id AND p.status = 1 AND p.is_del = 2").Joins("LEFT JOIN ai_provider_models AS pm ON pm.provider_id = a.provider_id AND pm.model_id = a.model_id AND pm.status = 1").Where("a.status = 1 AND a.is_del = 2").Order("a.id ASC")
+		pm.model_kind, p.api_protocol, pm.official_model_id, pm.official_catalog_version, pm.mapping_status`).Joins("LEFT JOIN ai_providers AS p ON p.id = a.provider_id AND p.status = 1 AND p.is_del = 2").Joins("LEFT JOIN ai_provider_models AS pm ON pm.provider_id = a.provider_id AND pm.model_id = a.model_id AND pm.status = 1").Where("a.status = 1 AND a.is_del = 2").Order("a.id ASC")
 	query = query.Where("JSON_CONTAINS(a.scenes_json, JSON_QUOTE(?))", "chat")
 	if err := query.Scan(&rows).Error; err != nil {
 		return nil, err
@@ -112,11 +114,13 @@ func (repository *GormCutoverPreflightRepository) ListEnabledChatAgents(ctx cont
 	capabilities := make([]CutoverAgentCapability, len(rows))
 	for index, row := range rows {
 		capabilities[index] = CutoverAgentCapability{AgentID: row.AgentID, ProviderID: row.ProviderID, ProviderModelID: row.ProviderModelID, ModelKind: row.ModelKind, APIProtocol: row.APIProtocol}
-		if row.OfficialModelID != nil {
+		if row.OfficialModelID != nil && row.OfficialCatalog != nil && row.MappingStatus == officialmodel.MappingStatusMapped {
 			if model, resolveErr := officialmodel.Default.ResolveIdentity(strings.TrimSpace(*row.OfficialModelID)); resolveErr == nil {
-				capabilities[index].ContextWindowTokens = model.ContextWindowTokens
-				capabilities[index].MaxOutputTokens = model.MaxOutputTokens
-				capabilities[index].TokenCounterID = model.TokenCounterID
+				if model.CatalogVersion == strings.TrimSpace(*row.OfficialCatalog) {
+					capabilities[index].ContextWindowTokens = model.ContextWindowTokens
+					capabilities[index].MaxOutputTokens = model.MaxOutputTokens
+					capabilities[index].TokenCounterID = model.TokenCounterID
+				}
 			}
 		}
 	}
