@@ -360,7 +360,7 @@ function ConvertTo-AdminDevHostEnvironment {
   foreach ($entry in $Environment.GetEnumerator()) {
     $result.Add([string]$entry.Key, [string]$entry.Value)
   }
-  foreach ($required in @('MYSQL_DSN', 'REDIS_ADDR', 'HTTP_ADDR', 'LOG_DIR', 'PAYMENT_CERT_BASE_DIR')) {
+  foreach ($required in @('MYSQL_DSN', 'REDIS_ADDR', 'QDRANT_ADDR', 'HTTP_ADDR', 'LOG_DIR', 'PAYMENT_CERT_BASE_DIR')) {
     if (-not $result.ContainsKey($required)) {
       throw "ADMIN_DEV_ENV_REQUIRED: $required"
     }
@@ -378,6 +378,9 @@ function ConvertTo-AdminDevHostEnvironment {
   if ($result['REDIS_ADDR'] -cne 'redis:6379') {
     throw 'ADMIN_DEV_REDIS_CONTAINER_ADDRESS_INVALID'
   }
+  if ($result['QDRANT_ADDR'] -cne 'qdrant:6334') {
+    throw 'ADMIN_DEV_QDRANT_CONTAINER_ADDRESS_INVALID'
+  }
   if ($result['HTTP_ADDR'] -cne ':8080') {
     throw 'ADMIN_DEV_HTTP_CONTAINER_ADDRESS_INVALID'
   }
@@ -390,6 +393,7 @@ function ConvertTo-AdminDevHostEnvironment {
 
   $runtimeRoot = [IO.Path]::GetFullPath((Join-Path $RepositoryRoot 'deploy\docker-first'))
   $result['REDIS_ADDR'] = '127.0.0.1:36379'
+  $result['QDRANT_ADDR'] = '127.0.0.1:36334'
   $result['HTTP_ADDR'] = '[::]:8080'
   $result['LOG_DIR'] = Join-Path $runtimeRoot 'runtime\logs'
   $result['PAYMENT_CERT_BASE_DIR'] = $runtimeRoot

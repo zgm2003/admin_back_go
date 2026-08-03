@@ -1,6 +1,6 @@
 # Admin Application Compose Assets
 
-This directory contains the `admin-app` Compose project. It runs the Nginx frontend, Go API, and Go worker. Stateful services live in the separate `../docker-state/docker-compose.yml` project so application releases cannot accidentally recreate MySQL or Redis.
+This directory contains the `admin-app` Compose project. It runs the Nginx frontend, Go API, and Go worker. Stateful services live in the separate `../docker-state/docker-compose.yml` project so application releases cannot accidentally recreate MySQL, Redis, or Qdrant.
 
 This Compose stack is the sole application runtime entry. Both repositories intentionally use their existing `master` checkout only and contain no `.worktrees` or `.github` directory. Do not restore host Vite/Go startup, GitHub workflow deployment, or SCP extraction of frontend `dist` files.
 
@@ -8,7 +8,7 @@ This Compose stack is the sole application runtime entry. Both repositories inte
 
 ```text
 admin-app:   frontend, admin-api, admin-worker
-admin-state: mysql, redis
+admin-state: mysql, redis, qdrant
 network:     admin-platform
 ```
 
@@ -19,9 +19,10 @@ frontend: 127.0.0.1:5173 -> frontend 8080
 API:      127.0.0.1:8080 -> admin-api 8080
 MySQL:    127.0.0.1:33306 -> mysql 3306
 Redis:    127.0.0.1:36379 -> redis 6379
+Qdrant:   127.0.0.1:36333 -> qdrant 6333; 127.0.0.1:36334 -> qdrant 6334
 ```
 
-Backend containers use Docker DNS addresses `mysql:3306` and `redis:6379`. They do not use `host.docker.internal` after the state cutover.
+Backend containers use Docker DNS addresses `mysql:3306`, `redis:6379`, and `qdrant:6334`. They do not use `host.docker.internal` after the state cutover. Host-run `admin-dev` converts these addresses to their loopback ports.
 
 ## Runtime env
 
@@ -52,11 +53,11 @@ pwsh -NoProfile -File scripts/docker-platform.ps1 status
 ## Validate
 
 ```powershell
-docker compose -f deploy/docker-state/docker-compose.yml ps
+docker compose --env-file deploy/docker-state/qdrant-image.env -f deploy/docker-state/docker-compose.yml ps
 docker compose -f deploy/docker-first/docker-compose.yml ps
 curl.exe -fsS http://127.0.0.1:5173/healthz
 curl.exe -fsS http://127.0.0.1:8080/health
 curl.exe -fsS http://127.0.0.1:8080/ready
 ```
 
-`/health` proves the API process is alive. `/ready` proves MySQL, Redis, token Redis, and queue Redis are reachable.
+`/health` proves the API process is alive. `/ready` proves the required MySQL, Redis, queue, and source-aware Qdrant dependencies are ready.

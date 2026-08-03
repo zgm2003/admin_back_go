@@ -44,6 +44,10 @@ try {
     'REDIS_ADDR',
     'REDIS_PASSWORD',
     'REDIS_DB',
+    'QDRANT_ADDR',
+    'QDRANT_COLLECTION_PREFIX',
+    'QDRANT_TLS',
+    'QDRANT_API_KEY',
     'APP_SECRET',
     'TOKEN_REDIS_DB',
     'PAYMENT_CERT_BASE_DIR',
@@ -58,7 +62,7 @@ try {
   $containerEnvironment = Read-AdminDevEnvironmentFile `
     -Path $environmentPath `
     -RequiredKeys $requiredEnvironmentKeys `
-    -AllowEmptyKeys @('REDIS_PASSWORD')
+    -AllowEmptyKeys @('REDIS_PASSWORD', 'QDRANT_API_KEY')
   $sensitiveValues = Get-AdminDevSensitiveValues -Environment $containerEnvironment
   $runtimeEnvironment = ConvertTo-AdminDevHostEnvironment `
     -Environment $containerEnvironment `
@@ -133,7 +137,7 @@ try {
     $browserStartInfo.UseShellExecute = $true
     [Diagnostics.Process]::Start($browserStartInfo) | Out-Null
   }
-  Write-Host 'admin-dev is running; press Ctrl+C to stop host processes and keep MySQL/Redis running'
+  Write-Host 'admin-dev is running; press Ctrl+C to stop host processes and keep MySQL/Redis/Qdrant running'
   Watch-AdminDevManagedProcesses -States $states.ToArray()
 }
 finally {

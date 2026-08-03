@@ -22,6 +22,7 @@ if (Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction Sile
 $backendRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $frontendRoot = [IO.Path]::GetFullPath((Join-Path $backendRoot '..\admin_front_ts'))
 $stateCompose = Join-Path $backendRoot 'deploy\docker-state\docker-compose.yml'
+$stateImageEnv = Join-Path $backendRoot 'deploy\docker-state\qdrant-image.env'
 $runtimeEnv = Join-Path $backendRoot 'deploy\docker-first\admin-go.env'
 $docker = (Get-Command -Name $DockerCommand -ErrorAction Stop | Select-Object -First 1).Source
 
@@ -72,7 +73,7 @@ function Get-RequiredRedisDB([hashtable]$Values, [string]$Name) {
 }
 
 function Get-StateContainer([string]$Service) {
-  $ids = @(Invoke-NativeLines $docker @('compose', '-f', $stateCompose, 'ps', '-q', $Service) "resolve $Service container")
+  $ids = @(Invoke-NativeLines $docker @('compose', '--env-file', $stateImageEnv, '-f', $stateCompose, 'ps', '-q', $Service) "resolve $Service container")
   if ($ids.Count -ne 1 -or $ids[0] -notmatch '^[0-9a-f]{64}$') { throw "$Service state container is not uniquely running" }
   $id = $ids[0]
   $project = @(Invoke-NativeLines $docker @('inspect', '--format', '{{index .Config.Labels "com.docker.compose.project"}}', $id) "inspect $Service project")

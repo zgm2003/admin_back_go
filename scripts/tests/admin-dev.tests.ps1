@@ -58,6 +58,10 @@ try {
 MYSQL_DSN=fixture_user:fixture=pass@tcp(mysql:3306)/admin?charset=utf8mb4&parseTime=True&loc=Local
 REDIS_ADDR=redis:6379
 REDIS_PASSWORD=fixture-redis-password
+QDRANT_ADDR=qdrant:6334
+QDRANT_COLLECTION_PREFIX=admin_context
+QDRANT_TLS=false
+QDRANT_API_KEY=
 HTTP_ADDR=:8080
 LOG_DIR=/app/runtime/logs
 PAYMENT_CERT_BASE_DIR=/app
@@ -69,12 +73,19 @@ OPAQUE_VALUE=left=middle=right
     'MYSQL_DSN',
     'REDIS_ADDR',
     'REDIS_PASSWORD',
+    'QDRANT_ADDR',
+    'QDRANT_COLLECTION_PREFIX',
+    'QDRANT_TLS',
+    'QDRANT_API_KEY',
     'HTTP_ADDR',
     'LOG_DIR',
     'PAYMENT_CERT_BASE_DIR',
     'APP_SECRET'
   )
-  $environment = Read-AdminDevEnvironmentFile -Path $envPath -RequiredKeys $requiredKeys
+  $environment = Read-AdminDevEnvironmentFile `
+    -Path $envPath `
+    -RequiredKeys $requiredKeys `
+    -AllowEmptyKeys @('QDRANT_API_KEY')
   if ([string]$environment.OPAQUE_VALUE -cne 'left=middle=right') {
     throw 'environment values must split only on the first equals sign'
   }
@@ -83,6 +94,7 @@ OPAQUE_VALUE=left=middle=right
   $dockerRuntimeRoot = [IO.Path]::GetFullPath((Join-Path $repoRoot 'deploy\docker-first'))
   if ([string]$hostEnvironment.MYSQL_DSN -cne 'fixture_user:fixture=pass@tcp(127.0.0.1:33306)/admin?charset=utf8mb4&parseTime=True&loc=Local' -or
       [string]$hostEnvironment.REDIS_ADDR -cne '127.0.0.1:36379' -or
+      [string]$hostEnvironment.QDRANT_ADDR -cne '127.0.0.1:36334' -or
       [string]$hostEnvironment.HTTP_ADDR -cne '[::]:8080' -or
       [string]$hostEnvironment.LOG_DIR -cne (Join-Path $dockerRuntimeRoot 'runtime\logs') -or
       [string]$hostEnvironment.PAYMENT_CERT_BASE_DIR -cne $dockerRuntimeRoot) {
