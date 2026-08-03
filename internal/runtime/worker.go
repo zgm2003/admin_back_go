@@ -315,6 +315,12 @@ func registerWorkerHandlers(
 		Repository: contextRepository, Embeddings: contextEmbeddings, Index: resources.Qdrant, CollectionPrefix: cfg.Qdrant.CollectionPrefix,
 	})
 	contextIndexCleanup := contextengine.NewIndexCleanupService(contextRepository, resources.Qdrant, cfg.Qdrant.CollectionPrefix, nil)
+	contextMemoryRepository := contextengine.NewMemoryRepository(resources.DB)
+	contextMemory := contextengine.NewMemoryService(contextengine.MemoryServiceDependencies{
+		Repository: contextMemoryRepository,
+		Summarizer: newMemoryProviderSummarizer(resources.DB, providers.AIChatFactory, providers.Secretbox),
+	})
+	contextMemoryEnqueuer := contextengine.NewMemoryBuildEnqueuer(queueClient)
 	contextEnqueuer := contextengine.NewDocumentVersionEnqueuer(queueClient, contextRepository)
 	conversationDocuments := contextengine.NewConversationDocumentService(resources.DB, contextEnqueuer)
 	if conversationDocuments == nil {
@@ -415,6 +421,7 @@ func registerWorkerHandlers(
 		PaymentService:           paymentService,
 		RealtimeRetentionService: realtimeRetentionService,
 		ContextDocumentIndex:     contextDocumentIndex,
+		ContextMemoryBuild:       contextMemory,
 		ContextConversationIndex: conversationIndex,
 		ContextProfileRebuild:    contextProfileRebuild,
 		ContextIndexCleanup:      contextIndexCleanup,
@@ -435,7 +442,8 @@ func registerWorkerHandlers(
 		contextengine.NewDocumentIndexReconciler(contextRepository, contextEnqueuer, max(25, cfg.Queue.Concurrency), uint32(jobs.ContextDocumentIndexMaxRetry+1),
 			contextengine.WithProfileIndexConsistency(contextRepository, resources.Qdrant, cfg.Qdrant.CollectionPrefix),
 			contextengine.WithConversationIndexRepair(conversationIndexRepository, conversationIndexEnqueuer),
-			contextengine.WithConversationDocumentRepair(conversationDocuments, conversationDocuments)),
+			contextengine.WithConversationDocumentRepair(conversationDocuments, conversationDocuments),
+			contextengine.WithMemoryRepair(contextMemoryRepository, contextMemoryEnqueuer)),
 		nil
 }
 
@@ -447,6 +455,7 @@ func requireContextTaskRegistrations(registry *taskqueue.Registry) error {
 		contextengine.TaskContextConversationIndexV1: false,
 		contextengine.TaskContextDocumentIndexV1:     false,
 		contextengine.TaskContextIndexCleanupV1:      false,
+		contextengine.TaskContextMemoryBuildV1:       false,
 		contextengine.TaskContextProfileRebuildV1:    false,
 	}
 	for _, taskType := range registry.Types() {

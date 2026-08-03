@@ -15,11 +15,56 @@ import (
 const (
 	TaskContextConversationIndexV1 = contextengine.TaskContextConversationIndexV1
 	TaskContextDocumentIndexV1     = contextengine.TaskContextDocumentIndexV1
+	TaskContextMemoryBuildV1       = contextengine.TaskContextMemoryBuildV1
 	TaskContextProfileRebuildV1    = contextengine.TaskContextProfileRebuildV1
 	TaskContextIndexCleanupV1      = contextengine.TaskContextIndexCleanupV1
 	ContextDocumentIndexMaxRetry   = contextengine.DocumentIndexMaxRetry
 	ContextDocumentIndexTimeout    = 3 * time.Minute
 )
+
+const (
+	ContextMemoryBuildMaxRetry = 3
+	ContextMemoryBuildTimeout  = 10 * time.Minute
+)
+
+func registerContextMemoryBuild(registry *taskqueue.Registry, service contextengine.MemoryBuildJobService) error {
+	return registry.Register(taskqueue.Definition{
+		Type: TaskContextMemoryBuildV1, Queue: taskqueue.QueueLow, Timeout: ContextMemoryBuildTimeout, MaxRetry: ContextMemoryBuildMaxRetry,
+		Decode: func(data []byte) (any, *apperror.Error) {
+			var payload contextengine.ContextMemoryBuildV1
+			if err := json.Unmarshal(data, &payload); err != nil || payload.Validate() != nil {
+				return nil, taskqueue.PayloadError(TaskContextMemoryBuildV1, errors.New("memory build payload is invalid"))
+			}
+			return payload, nil
+		},
+		Handle: func(ctx context.Context, decoded any) *apperror.Error {
+			if service == nil {
+				return taskqueue.InvariantError(TaskContextMemoryBuildV1, errors.New("memory build service is required"))
+			}
+			payload, ok := decoded.(contextengine.ContextMemoryBuildV1)
+			if !ok {
+				return taskqueue.InvariantError(TaskContextMemoryBuildV1, errors.New("unexpected payload type"))
+			}
+			err := service.BuildMemory(ctx, payload)
+			var permanent *contextengine.MemoryPermanentError
+			if errors.As(err, &permanent) {
+				return apperror.Wrap(permanent.Code, apperror.CategoryDependency, http.StatusServiceUnavailable,
+					apperror.Permanent, "", nil, "conversation memory provider rejected the task", err)
+			}
+			return taskqueue.HandlerError(TaskContextMemoryBuildV1, err)
+		},
+		FinalizeExhausted: func(ctx context.Context, decoded any, _ *apperror.Error, delivery taskqueue.Attempt) *apperror.Error {
+			if service == nil {
+				return taskqueue.InvariantError(TaskContextMemoryBuildV1+".finalize", errors.New("memory build service is required"))
+			}
+			payload, ok := decoded.(contextengine.ContextMemoryBuildV1)
+			if !ok {
+				return taskqueue.InvariantError(TaskContextMemoryBuildV1+".finalize", errors.New("unexpected payload type"))
+			}
+			return taskqueue.HandlerError(TaskContextMemoryBuildV1+".finalize", service.FinalizeMemory(ctx, payload, delivery.Limit))
+		},
+	})
+}
 
 func registerContextConversationIndex(registry *taskqueue.Registry, service contextengine.ConversationIndexJobService) error {
 	return registry.Register(taskqueue.Definition{

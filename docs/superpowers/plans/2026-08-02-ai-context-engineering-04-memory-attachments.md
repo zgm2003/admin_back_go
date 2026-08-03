@@ -324,7 +324,7 @@ git commit -m "feat(ai): ingest private conversation attachments"
 - Modify: `internal/runtime/worker.go`
 - Modify: `internal/runtime/worker_test.go`
 
-- [ ] **Step 1: Write failing chain, watermark and invalidation tests**
+- [x] **Step 1: Write failing chain, watermark and invalidation tests**
 
 Cover no Memory model, below 25%, above 25% summarized to at most 12.5%, multiple bounded prefix tasks, parent Summary plus new Turns, parent changed during external call, Profile changed, edit/delete at message boundary, transient error, exhausted permanent error and an older ready Memory surviving a newer failure.
 
@@ -339,13 +339,13 @@ the executable owner of this invariant.
 
 Add two exhausted-window tests. If `FinalizeExhausted` commits the terminal failed row and the process dies afterward, replay observes that exact unique identity and makes no Provider call. If the process dies before that row commits, no durable fact says the retry was exhausted: Reconciler re-enqueues the same Source Hash and the Provider may be called again. In both cases the unique key permits only one terminal row and no forked parent chain.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `go test ./internal/jobs ./internal/module/ai/contextengine ./internal/module/ai/message ./internal/runtime -run 'Memory|Watermark|ParentChain|Invalidat|ContextTaskRegistration|WorkerReadiness' -count=1`
 
 Expected: FAIL because Memory services/tasks do not exist.
 
-- [ ] **Step 3: Define the task and source identity**
+- [x] **Step 3: Define the task and source identity**
 
 ```go
 const TaskContextMemoryBuildV1 = "ai:context-memory-build:v1"
@@ -364,7 +364,7 @@ type ContextMemoryBuildV1 struct {
 
 Unique key includes every field. Source Hash covers Profile ID/Hash, parent ID/Summary Hash and ordered canonical Turn hashes. Summary prompt is fixed and distinguishes user claims, assistant answers, confirmed facts, unresolved matters and attachment references.
 
-- [ ] **Step 4: Implement no-long-transaction model calls and CAS commit**
+- [x] **Step 4: Implement no-long-transaction model calls and CAS commit**
 
 Use the Profile's explicit Chat-kind Memory Provider Model and its own trusted window/output/counter for each bounded prefix. Do not use the current Agent Chat model implicitly and do not charge the user wallet. Before calling, snapshot parent/profile/turn hashes without a long transaction. After response, lock Conversation and revalidate latest parent, bounds and hashes; stale result is discarded and current task re-enqueued, never inserted as a fork.
 
@@ -377,7 +377,7 @@ Temporary network errors remain Asynq retries and do not insert failed rows. Per
 
 Register `memory-build` and extend Worker readiness from four to exactly all five delivered Context handlers. Do not add a Memory processing table, attempt column or Redis-derived business status merely to hide the honest at-least-once Provider-call window.
 
-- [ ] **Step 5: Run tests and commit**
+- [x] **Step 5: Run tests and commit**
 
 Run: `go test ./internal/jobs ./internal/module/ai/contextengine ./internal/module/ai/message ./internal/runtime -run 'Memory|Watermark|ParentChain|Invalidat|ContextTaskRegistration|WorkerReadiness' -count=1`
 

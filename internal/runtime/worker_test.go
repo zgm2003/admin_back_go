@@ -33,7 +33,7 @@ func TestWorkerReadinessRequiresExactlyPlan04TurnTaskRegistrations(t *testing.T)
 			contextTypes = append(contextTypes, taskType)
 		}
 	}
-	want := []string{contextengine.TaskContextConversationIndexV1, contextengine.TaskContextDocumentIndexV1, contextengine.TaskContextIndexCleanupV1, contextengine.TaskContextProfileRebuildV1}
+	want := []string{contextengine.TaskContextConversationIndexV1, contextengine.TaskContextDocumentIndexV1, contextengine.TaskContextIndexCleanupV1, contextengine.TaskContextMemoryBuildV1, contextengine.TaskContextProfileRebuildV1}
 	slices.Sort(want)
 	if !slices.Equal(contextTypes, want) {
 		t.Fatalf("context task types=%v want=%v", contextTypes, want)

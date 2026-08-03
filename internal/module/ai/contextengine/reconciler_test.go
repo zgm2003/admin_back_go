@@ -10,6 +10,29 @@ import (
 	"admin_back_go/internal/infra/contextindex"
 )
 
+type memoryRepairRepositoryStub struct {
+	payloads []ContextMemoryBuildV1
+	next     uint64
+}
+
+func (stub memoryRepairRepositoryStub) ListMemoryBuildPayloads(context.Context, uint64, int) ([]ContextMemoryBuildV1, uint64, error) {
+	return stub.payloads, stub.next, nil
+}
+
+func TestMemoryReconcilerRequeuesAuthoritativeSourceIdentity(t *testing.T) {
+	payload := ContextMemoryBuildV1{ProfileID: 2, ProfileSHA256: sha256.Sum256([]byte("profile")), ConversationID: 3,
+		FromMessageID: 4, ThroughMessageID: 5, SourceSHA256: sha256.Sum256([]byte("source")), PolicyVersion: MemoryPolicyVersionV1}
+	queue := &recordingTaskEnqueuer{}
+	reconciler := &DocumentIndexReconciler{batchSize: 10, memoryRepository: memoryRepairRepositoryStub{payloads: []ContextMemoryBuildV1{payload}, next: 7}, memoryEnqueuer: NewMemoryBuildEnqueuer(queue)}
+	worked, err := reconciler.reconcileMemories(context.Background())
+	if err != nil || !worked || reconciler.memoryAfterConversationID != 7 {
+		t.Fatalf("worked=%v cursor=%d err=%v", worked, reconciler.memoryAfterConversationID, err)
+	}
+	if len(queue.tasks) != 1 || queue.tasks[0].Type != TaskContextMemoryBuildV1 {
+		t.Fatalf("tasks=%#v", queue.tasks)
+	}
+}
+
 type conversationRepairRepositoryStub struct {
 	afterRunIDs []uint64
 	payload     ContextConversationIndexV1

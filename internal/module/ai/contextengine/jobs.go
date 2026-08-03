@@ -12,6 +12,73 @@ import (
 	"admin_back_go/internal/infra/taskqueue"
 )
 
+const TaskContextMemoryBuildV1 = "ai:context-memory-build:v1"
+
+type ContextMemoryBuildV1 struct {
+	ProfileID        uint64   `json:"profile_id"`
+	ProfileSHA256    [32]byte `json:"profile_sha256"`
+	ConversationID   uint64   `json:"conversation_id"`
+	PreviousMemoryID *uint64  `json:"previous_memory_id,omitempty"`
+	FromMessageID    uint64   `json:"from_message_id"`
+	ThroughMessageID uint64   `json:"through_message_id"`
+	SourceSHA256     [32]byte `json:"source_sha256"`
+	PolicyVersion    string   `json:"policy_version"`
+}
+
+func (payload ContextMemoryBuildV1) Validate() error {
+	if payload.ProfileID == 0 || payload.ConversationID == 0 || payload.FromMessageID == 0 ||
+		payload.ThroughMessageID < payload.FromMessageID || payload.ProfileSHA256 == ([32]byte{}) ||
+		payload.SourceSHA256 == ([32]byte{}) || payload.PolicyVersion != MemoryPolicyVersionV1 {
+		return ErrMemoryInvalid
+	}
+	if payload.PreviousMemoryID != nil && *payload.PreviousMemoryID == 0 {
+		return ErrMemoryInvalid
+	}
+	return nil
+}
+
+type MemoryBuildJobService interface {
+	BuildMemory(context.Context, ContextMemoryBuildV1) error
+	FinalizeMemory(context.Context, ContextMemoryBuildV1, int) error
+}
+
+func MemoryTaskIdentity(payload ContextMemoryBuildV1) (string, error) {
+	if err := payload.Validate(); err != nil {
+		return "", err
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(append([]byte(TaskContextMemoryBuildV1+"\x00"), raw...))
+	return hex.EncodeToString(digest[:]), nil
+}
+
+type QueueMemoryBuildEnqueuer struct{ queue taskqueue.Enqueuer }
+
+func NewMemoryBuildEnqueuer(queue taskqueue.Enqueuer) *QueueMemoryBuildEnqueuer {
+	return &QueueMemoryBuildEnqueuer{queue: queue}
+}
+
+func (enqueuer *QueueMemoryBuildEnqueuer) EnqueueMemoryBuild(ctx context.Context, payload ContextMemoryBuildV1) error {
+	if enqueuer == nil || enqueuer.queue == nil {
+		return errors.New("memory build enqueuer is not configured")
+	}
+	id, err := MemoryTaskIdentity(payload)
+	if err != nil {
+		return err
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	_, err = enqueuer.queue.Enqueue(ctx, taskqueue.Task{Type: TaskContextMemoryBuildV1, ID: id, Payload: raw})
+	if taskqueue.IsDuplicateTask(err) {
+		return nil
+	}
+	return err
+}
+
 const TaskContextDocumentIndexV1 = "ai:context-document-index:v1"
 
 type ContextDocumentIndexV1 struct {

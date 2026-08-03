@@ -2,6 +2,7 @@ package contextengine
 
 import (
 	"context"
+	"crypto/sha256"
 	"testing"
 
 	"admin_back_go/internal/infra/taskqueue"
@@ -12,6 +13,21 @@ type recordingTaskEnqueuer struct{ tasks []taskqueue.Task }
 func (queue *recordingTaskEnqueuer) Enqueue(_ context.Context, task taskqueue.Task) (taskqueue.EnqueueResult, error) {
 	queue.tasks = append(queue.tasks, task)
 	return taskqueue.EnqueueResult{Type: task.Type}, nil
+}
+
+func TestMemoryBuildTaskIdentityIncludesCompleteSourceIdentity(t *testing.T) {
+	payload := ContextMemoryBuildV1{ProfileID: 2, ProfileSHA256: sha256.Sum256([]byte("profile")), ConversationID: 3,
+		FromMessageID: 4, ThroughMessageID: 5, SourceSHA256: sha256.Sum256([]byte("source")), PolicyVersion: MemoryPolicyVersionV1}
+	first, err := MemoryTaskIdentity(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent := uint64(9)
+	payload.PreviousMemoryID = &parent
+	second, err := MemoryTaskIdentity(payload)
+	if err != nil || first == second {
+		t.Fatalf("parent must change task identity: %q %q %v", first, second, err)
+	}
 }
 
 type fixedDocumentIndexFactsLoader struct{ facts DocumentIndexFacts }

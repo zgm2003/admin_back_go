@@ -43,7 +43,7 @@ func TestContextTaskRegistrationContainsExactlyPlan04TurnHandlers(t *testing.T) 
 			contextTypes = append(contextTypes, taskType)
 		}
 	}
-	want := []string{TaskContextConversationIndexV1, TaskContextDocumentIndexV1, TaskContextIndexCleanupV1, TaskContextProfileRebuildV1}
+	want := []string{TaskContextConversationIndexV1, TaskContextDocumentIndexV1, TaskContextIndexCleanupV1, TaskContextMemoryBuildV1, TaskContextProfileRebuildV1}
 	slices.Sort(want)
 	if !slices.Equal(contextTypes, want) {
 		t.Fatalf("context task types=%v want=%v", contextTypes, want)

@@ -23,6 +23,20 @@ type DocumentIndexReconciler struct {
 	conversationDocuments      ConversationDocumentRepairRepository
 	conversationEnsurer        ConversationDocumentEnsurer
 	conversationAfterMessageID uint64
+	memoryRepository           MemoryRepairRepository
+	memoryEnqueuer             *QueueMemoryBuildEnqueuer
+	memoryAfterConversationID  uint64
+}
+
+type MemoryRepairRepository interface {
+	ListMemoryBuildPayloads(context.Context, uint64, int) ([]ContextMemoryBuildV1, uint64, error)
+}
+
+func WithMemoryRepair(repository MemoryRepairRepository, enqueuer *QueueMemoryBuildEnqueuer) DocumentIndexReconcilerOption {
+	return func(reconciler *DocumentIndexReconciler) {
+		reconciler.memoryRepository = repository
+		reconciler.memoryEnqueuer = enqueuer
+	}
 }
 
 func WithConversationIndexRepair(repository ConversationIndexRepairRepository, enqueuer *QueueConversationTurnEnqueuer) DocumentIndexReconcilerOption {
@@ -103,7 +117,31 @@ func (reconciler *DocumentIndexReconciler) reconcile(ctx context.Context, now ti
 		return len(candidates) > 0 || consistent || conversationWorked, err
 	}
 	attachmentWorked, err := reconciler.reconcileConversationDocuments(ctx)
-	return len(candidates) > 0 || consistent || conversationWorked || attachmentWorked, err
+	if err != nil {
+		return len(candidates) > 0 || consistent || conversationWorked || attachmentWorked, err
+	}
+	memoryWorked, err := reconciler.reconcileMemories(ctx)
+	return len(candidates) > 0 || consistent || conversationWorked || attachmentWorked || memoryWorked, err
+}
+
+func (reconciler *DocumentIndexReconciler) reconcileMemories(ctx context.Context) (bool, error) {
+	if reconciler.memoryRepository == nil && reconciler.memoryEnqueuer == nil {
+		return false, nil
+	}
+	if reconciler.memoryRepository == nil || reconciler.memoryEnqueuer == nil {
+		return false, errors.New("conversation memory reconciler is not configured")
+	}
+	payloads, next, err := reconciler.memoryRepository.ListMemoryBuildPayloads(ctx, reconciler.memoryAfterConversationID, reconciler.batchSize)
+	if err != nil {
+		return false, err
+	}
+	for _, payload := range payloads {
+		if err := reconciler.memoryEnqueuer.EnqueueMemoryBuild(ctx, payload); err != nil {
+			return false, err
+		}
+	}
+	reconciler.memoryAfterConversationID = next
+	return len(payloads) > 0, nil
 }
 
 func (reconciler *DocumentIndexReconciler) reconcileConversationDocuments(ctx context.Context) (bool, error) {
