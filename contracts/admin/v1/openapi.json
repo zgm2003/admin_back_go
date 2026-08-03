@@ -1206,6 +1206,7 @@
           "liked",
           "delivery_state",
           "settlement_pending",
+          "context",
           "created_at",
           "updated_at"
         ],
