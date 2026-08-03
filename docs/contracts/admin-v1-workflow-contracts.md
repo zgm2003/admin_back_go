@@ -216,9 +216,7 @@ AIAttachmentRequest = {
   type: "image", url: non-empty string, name?: string, size?: integer >= 0
 }
 AIRuntimeParams = {
-  temperature?: number 0..2,
-  max_tokens?: integer 1..200000,
-  max_history?: integer 1..50
+  temperature?: number 0..2
 }
 AIMessageSendRequest = {
   request_id: non-empty string <= 128,
@@ -228,6 +226,8 @@ AIMessageSendRequest = {
 }
 Exactly one usable input is required: trimmed `content` must be non-empty or
 `attachments` must contain at least one item.
+Legacy integer `runtime_params.max_history` input remains parseable but is
+ignored and is not published in OpenAPI or response metadata.
 
 AIMessageItem = {
   id: positive integer, role: 1 | 2 | 3, content_type: string,
@@ -361,7 +361,7 @@ AIRunDetail contains every AIRunListItem field except it additionally has:
   assistant_message: AIRunMessageSummary | null,
   liked: boolean, liked_at: string | null,
   events: AIRunEvent[],
-  knowledge_retrievals: AIRunKnowledgeRetrieval[],
+  context_plan: AIContextPlan | null,
   tool_calls: AIRunToolCall[],
   started_at: string, finished_at: string, updated_at: string
 
@@ -413,23 +413,6 @@ AIRunToolCall = {
   arguments_json: JSONValue, result_json: JSONValue,
   error_message: string, duration_ms: integer >= 0 | null,
   started_at: string, finished_at: string
-}
-AIRunKnowledgeRetrieval = {
-  id: positive integer, run_id: positive integer, query: string,
-  status: "success" | "failed" | "skipped", status_name: string,
-  total_hits: integer >= 0, selected_hits: integer >= 0,
-  duration_ms: integer >= 0 | null, duration_text: string,
-  error_message: string, created_at: string,
-  hits: AIRunKnowledgeHit[]
-}
-AIRunKnowledgeHit = {
-  id: positive integer,
-  knowledge_base_id: positive integer, knowledge_base_name: string,
-  document_id: positive integer, document_title: string,
-  chunk_id: positive integer, chunk_index: integer >= 0,
-  score: number, rank_no: integer >= 0, content_snapshot: string,
-  status: 1 | 2, status_name: string, skip_reason: string,
-  created_at: string
 }
 ```
 

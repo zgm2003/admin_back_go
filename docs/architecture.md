@@ -92,10 +92,8 @@ locators, and bounded snapshots; it never exposes retrieval Query text,
 object keys, signed URLs, credentials, unrestricted metadata, or raw Provider
 responses.
 
-`aichat.KnowledgeRuntime` and the old knowledge admin surface remain only as
-disconnected compatibility code until Plan 05 performs the same-batch route,
-contract, and schema cutover. They are not an alternate runtime path and must
-not be reintroduced into chat while the cutover is pending. The Qdrant server
+The old Knowledge runtime and admin surface are retired. They are not an
+alternate runtime path and must not be reintroduced. The Qdrant server
 candidate is also not promoted into Compose until the explicit real-server
 capability gate records an immutable image digest.
 
@@ -1801,7 +1799,6 @@ internal/module/ai/tool          # ai_tools / ai_agent_tools / ai_tool_calls run
 internal/module/ai/image         # ai_image_tasks / ai_image_files Canvas image generation runtime; Admin interactive transport retired
 internal/module/ai/text          # ai_text_tasks Canvas text generation source rows
 internal/module/ai/asset         # ai_assets Canvas current-user assets; image/video media metadata validated in service
-internal/module/ai/knowledge     # local RAG: bases/documents/chunks/agent bindings/retrieval audit
 internal/module/ai/conversation   # current-user conversations; canonical agent_id -> ai_agents
 internal/module/ai/message        # conversation messages, feedback, branch cleanup
 internal/module/ai/run            # ai_runs / ai_run_events unified provider-attempt monitor
@@ -1873,17 +1870,16 @@ list search supports name/provider/status plus scene=chat, scene=agent_generate,
 active scenes currently allow chat, agent_generate, text_generate, and image_generate; stored as scenes_json and exposed as scenes/scene_names
 system_prompt and avatar are optional local agent metadata
 ai_agents intentionally has no agent code, agent type, per-agent external app id/key, response mode, runtime config JSON, model snapshot JSON, created_by, or updated_by in the MVP slice
-tool usage is stored in ai_agent_tools; knowledge usage is stored in ai_agent_knowledge_bases; do not add duplicate JSON binding fields to ai_agents
+tool usage is stored in ai_agent_tools; Context Profile is referenced by context_profile_id and Space access is stored in ai_context_bindings
 ```
 
-Knowledge RAG truth:
+Context Engineering truth:
 
 ```text
-active tables are ai_knowledge_bases, ai_knowledge_documents, ai_knowledge_chunks, ai_agent_knowledge_bases, ai_knowledge_retrievals, ai_knowledge_retrieval_hits
-/ai/knowledge manages bases/documents/chunks/retrieval tests; /ai/agents owns which knowledge bases an agent can read
-retrieval is deterministic local text scoring in Go; no vector DB, no hosted file_search, no Dify/RAGFlow dataset sync in this slice
-runtime writes retrieval and hit audit rows before provider call; hit rows snapshot chunk content for historical run monitor display
-selected context is injected into the current provider input only; it does not mutate ai_agents.system_prompt or persisted user message content
+MySQL owns nine Context tables; Qdrant is a rebuildable index derivation and never the source of authorization or replay truth.
+/ai/context manages Profiles, Spaces, immutable Document Versions and synchronous evaluation; /ai/agents owns Profile and Space assignment.
+Every Run owns at most one terminal Context Plan. Provider retries replay the same persisted Plan evidence.
+Selected context is represented by ordered Plan Items; it does not mutate ai_agents.system_prompt or persisted user message content.
 ```
 
 Runtime boundary:
@@ -1902,12 +1898,12 @@ Recovery source: persisted manifest only.
 Financial proof: native_file_context_window_v1.
 Settlement source: complete upstream usage only.
 Forbidden persistence: file bytes, Base64, materialized request, temporary credentials.
-Historical chat context preserves text, images, and files selected by max_history. Stateless provider requests rematerialize those selected attachments on each turn; aggregate native file context above 50 MB is rejected explicitly instead of dropping attachment context.
+Historical chat context preserves text, images, and files selected by the Context Planner. Stateless provider requests rematerialize those selected attachments on each turn; aggregate native file context above 50 MB is rejected explicitly instead of dropping attachment context.
 Usage evidence keeps the historical raw_provider_json projection plus exact raw_provider_bytes. Legacy rows may reverse encoding/json HTML escaping only when the restored terminal bytes match their embedded SHA-256; unmatched evidence remains invalid.
 Zero quantities remain in the immutable provider usage evidence but are omitted from ai_usage_charge_items because settlement rows represent consumed units and require quantity greater than zero.
 ai_run_events exposes lifecycle events only. The internal durable file_materialized_v1 event stores exactly three non-negative integer metrics (COS HEAD ms, COS stream ms, and materialized request bytes), is validated against the Run duration before aggregation, and is always filtered from public Run events.
 ai_tool_calls records tool execution audit and is shown on run detail; tool calls are not stuffed into ai_run_events.
-ai_knowledge_retrievals and ai_knowledge_retrieval_hits record knowledge retrieval audit and are shown on run detail; knowledge retrievals are not stuffed into ai_run_events.
+Run Detail reads the persisted Context Plan and its ordered Items; Context decisions are not duplicated into ai_run_events.
 Each ai.response.delta.v2 is published only after its contiguous command-scoped delivery chunk is committed in MySQL. Delivery chunks are temporary recovery facts and are cleaned in bounded batches after a terminal commit, with reconciler compensation.
 WebSocket delta is not persisted to ai_run_events. A user stop immediately creates one ai_messages row from the server-committed prefix through delivered_seq and marks delivery_state=stopped; successful replies use delivery_state=completed.
 Message delivery and Run settlement are separate state machines: a stopped message may already be visible while its Run remains running and drains the provider. The finalizer keeps that same assistant message ID, clears the full result candidate, and bills only complete authoritative upstream usage rather than the stopped prefix length.

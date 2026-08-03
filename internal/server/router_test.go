@@ -25,7 +25,6 @@ import (
 	aiagent "admin_back_go/internal/module/ai/agent"
 	aichat "admin_back_go/internal/module/ai/chat"
 	aiconversation "admin_back_go/internal/module/ai/conversation"
-	aiknowledge "admin_back_go/internal/module/ai/knowledge"
 	aimessage "admin_back_go/internal/module/ai/message"
 	aiprovider "admin_back_go/internal/module/ai/provider"
 	airun "admin_back_go/internal/module/ai/run"
@@ -108,92 +107,6 @@ type fakeReadinessChecker struct {
 
 func (f fakeReadinessChecker) Readiness(ctx context.Context) readiness.Report {
 	return f.report
-}
-
-type fakeRouterAIKnowledgeService struct {
-	initCalled             bool
-	listQuery              aiknowledge.BaseListQuery
-	detailID               uint64
-	documentsBaseID        uint64
-	createdDocumentBaseID  uint64
-	documentDetailID       uint64
-	documentUpdateID       uint64
-	documentStatusID       uint64
-	reindexDocumentID      uint64
-	chunksDocumentID       uint64
-	deletedDocumentID      uint64
-	retrievalTestBaseID    uint64
-	agentBindingsID        uint64
-	updatedAgentBindingsID uint64
-}
-
-func (f *fakeRouterAIKnowledgeService) PageInit(ctx context.Context) (*aiknowledge.InitResponse, *apperror.Error) {
-	f.initCalled = true
-	return &aiknowledge.InitResponse{}, nil
-}
-func (f *fakeRouterAIKnowledgeService) ListBases(ctx context.Context, query aiknowledge.BaseListQuery) (*aiknowledge.BaseListResponse, *apperror.Error) {
-	f.listQuery = query
-	return &aiknowledge.BaseListResponse{List: []aiknowledge.BaseDTO{{ID: 1, Name: "架构库", Code: "arch", Status: enum.CommonYes}}, Page: aiknowledge.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1}}, nil
-}
-func (f *fakeRouterAIKnowledgeService) GetBase(ctx context.Context, id uint64) (*aiknowledge.BaseDetailResponse, *apperror.Error) {
-	f.detailID = id
-	return &aiknowledge.BaseDetailResponse{BaseDTO: aiknowledge.BaseDTO{ID: id, Name: "架构库", Code: "arch", Status: enum.CommonYes}}, nil
-}
-func (f *fakeRouterAIKnowledgeService) CreateBase(ctx context.Context, input aiknowledge.BaseMutationInput) (uint64, *apperror.Error) {
-	return 1, nil
-}
-func (f *fakeRouterAIKnowledgeService) UpdateBase(ctx context.Context, id uint64, input aiknowledge.BaseMutationInput) *apperror.Error {
-	return nil
-}
-func (f *fakeRouterAIKnowledgeService) ChangeBaseStatus(ctx context.Context, id uint64, status int) *apperror.Error {
-	return nil
-}
-func (f *fakeRouterAIKnowledgeService) DeleteBase(ctx context.Context, id uint64) *apperror.Error {
-	return nil
-}
-func (f *fakeRouterAIKnowledgeService) ListDocuments(ctx context.Context, baseID uint64, query aiknowledge.DocumentListQuery) (*aiknowledge.DocumentListResponse, *apperror.Error) {
-	f.documentsBaseID = baseID
-	return &aiknowledge.DocumentListResponse{List: []aiknowledge.DocumentDTO{{ID: 2, KnowledgeBaseID: baseID, Title: "FAQ", SourceType: "text", Status: enum.CommonYes}}}, nil
-}
-func (f *fakeRouterAIKnowledgeService) GetDocument(ctx context.Context, id uint64) (*aiknowledge.DocumentDetailResponse, *apperror.Error) {
-	f.documentDetailID = id
-	return &aiknowledge.DocumentDetailResponse{DocumentDTO: aiknowledge.DocumentDTO{ID: id, Title: "FAQ", Status: enum.CommonYes}, Content: "hello"}, nil
-}
-func (f *fakeRouterAIKnowledgeService) CreateDocument(ctx context.Context, baseID uint64, input aiknowledge.DocumentMutationInput) (uint64, *apperror.Error) {
-	f.createdDocumentBaseID = baseID
-	return 2, nil
-}
-func (f *fakeRouterAIKnowledgeService) UpdateDocument(ctx context.Context, id uint64, input aiknowledge.DocumentMutationInput) *apperror.Error {
-	f.documentUpdateID = id
-	return nil
-}
-func (f *fakeRouterAIKnowledgeService) ChangeDocumentStatus(ctx context.Context, id uint64, status int) *apperror.Error {
-	f.documentStatusID = id
-	return nil
-}
-func (f *fakeRouterAIKnowledgeService) DeleteDocument(ctx context.Context, id uint64) *apperror.Error {
-	f.deletedDocumentID = id
-	return nil
-}
-func (f *fakeRouterAIKnowledgeService) ReindexDocument(ctx context.Context, id uint64) *apperror.Error {
-	f.reindexDocumentID = id
-	return nil
-}
-func (f *fakeRouterAIKnowledgeService) ListChunks(ctx context.Context, documentID uint64) (*aiknowledge.ChunkListResponse, *apperror.Error) {
-	f.chunksDocumentID = documentID
-	return &aiknowledge.ChunkListResponse{List: []aiknowledge.ChunkDTO{{ID: 3, DocumentID: documentID, ChunkIndex: 1}}}, nil
-}
-func (f *fakeRouterAIKnowledgeService) RetrievalTest(ctx context.Context, baseID uint64, input aiknowledge.RetrievalTestInput) (*aiknowledge.RetrievalResult, *apperror.Error) {
-	f.retrievalTestBaseID = baseID
-	return &aiknowledge.RetrievalResult{Query: input.Query, Status: aiknowledge.RetrievalStatusSuccess}, nil
-}
-func (f *fakeRouterAIKnowledgeService) AgentKnowledgeBases(ctx context.Context, agentID uint64) (*aiknowledge.AgentKnowledgeBindingsResponse, *apperror.Error) {
-	f.agentBindingsID = agentID
-	return &aiknowledge.AgentKnowledgeBindingsResponse{AgentID: agentID}, nil
-}
-func (f *fakeRouterAIKnowledgeService) UpdateAgentKnowledgeBases(ctx context.Context, agentID uint64, input aiknowledge.UpdateAgentKnowledgeBindingsInput) *apperror.Error {
-	f.updatedAgentBindingsID = agentID
-	return nil
 }
 
 type fakeRouterAIConversationService struct{}

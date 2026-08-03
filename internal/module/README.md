@@ -59,10 +59,8 @@ and Provider Attempt Plan evidence. Provider-specific JSON stays in
 Qdrant; runtime composition stays in `internal/platform/admin` and
 `internal/runtime`.
 
-The current checkpoint does not activate Context retrieval or replace
-`aichat.KnowledgeRuntime`. Until Plan 03 switches the chat path, `ai/knowledge`
-remains the active retrieval module and no deployment may advertise the new
-Context retrieval runtime.
+Context retrieval is the only active chat context path. The legacy Knowledge
+module and routes are retired; do not add a compatibility adapter around them.
 
 ## 禁止
 
