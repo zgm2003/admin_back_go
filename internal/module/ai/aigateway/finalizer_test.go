@@ -166,6 +166,18 @@ func TestRunFinalizerDecisionMatrix(t *testing.T) {
 	}
 }
 
+func TestContextTerminalMatrixPaidLocalFailureReleasesHold(t *testing.T) {
+	store := &finalizerStore{facts: finalizationFacts(TriggerLocalFailure)}
+	pricer := &finalizerPricer{}
+	if err := NewFinalizer(store, pricer).Finalize(context.Background(), FinalizeRequest{RunID: 44}); err != nil {
+		t.Fatal(err)
+	}
+	if !store.terminal || store.last.RunStatus != "failed" || store.last.BillingStatus != billing.BillingStatusReleased ||
+		store.last.MoneyAction != SettlementMoneyRelease || store.last.CandidateAction != SettlementCandidateDiscard || pricer.calls != 0 {
+		t.Fatalf("paid Context failure decision=%+v terminal=%v pricer_calls=%d", store.last, store.terminal, pricer.calls)
+	}
+}
+
 func TestRunFinalizerOverHoldDiscardsCandidateAndRecordsAnomaly(t *testing.T) {
 	store := &finalizerStore{facts: finalizationFacts(TriggerSuccess, succeededAttempt(1, 1))}
 	pricer := &finalizerPricer{quote: SettlementQuote{ActualUnits: 6, Items: []billing.UsageChargeItem{pricedItem(1, 6)}}}
