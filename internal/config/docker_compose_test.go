@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -22,6 +23,47 @@ type composeService struct {
 	Healthcheck struct {
 		Test []string `yaml:"test"`
 	} `yaml:"healthcheck"`
+}
+
+func TestQdrantCandidateVerifierContract(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join("..", "..", "scripts", "context", "verify-qdrant-candidate.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(string(content), "\n")
+	activeLines := make([]string, 0, len(lines))
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		activeLines = append(activeLines, line)
+	}
+	script := strings.Join(activeLines, "\n")
+	required := []string{
+		"[ValidateSet('qdrant/qdrant:v1.18.3')]",
+		"[string] $PinEnv",
+		"admin-context-qdrant-contract",
+		"127.0.0.1:36335:6333",
+		"127.0.0.1:36336:6334",
+		"QDRANT_INTEGRATION_ADDR",
+		"'test', '-tags=integration', './internal/infra/contextindex/qdrant'",
+		"'-run', 'ServerSupportsContextQueryContract', '-count=1'",
+		"try {",
+		"finally {",
+		"Write-PinAtomically -Path $resolvedPin -TestedImage $testedImage",
+		"if (Test-ContainerExists -Name $containerName)",
+		"Invoke-Docker -Arguments @('rm', '--force', $containerName)",
+		"qdrant/qdrant@sha256:",
+	}
+	for _, fragment := range required {
+		if !strings.Contains(script, fragment) {
+			t.Fatalf("verifier missing %q", fragment)
+		}
+	}
+	if strings.Count(script, "Invoke-ContractTest") != 2 {
+		t.Fatal("verifier must define and invoke the capability test exactly once")
+	}
 }
 
 type composeContract struct {
