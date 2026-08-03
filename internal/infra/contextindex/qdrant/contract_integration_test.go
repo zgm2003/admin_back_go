@@ -12,10 +12,13 @@ import (
 	"time"
 
 	"admin_back_go/internal/infra/contextindex"
+	qdrantadapter "admin_back_go/internal/infra/contextindex/qdrant"
 
 	"github.com/google/uuid"
 	qdrantapi "github.com/qdrant/go-client/qdrant"
 )
+
+var _ contextindex.Querier = (*qdrantadapter.Client)(nil)
 
 const (
 	denseVectorName  = "dense"
