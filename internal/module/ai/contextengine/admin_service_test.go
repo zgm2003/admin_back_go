@@ -202,6 +202,51 @@ func (repository *fakeAdminRepository) CreateDocumentVersion(_ context.Context, 
 func (repository *fakeAdminRepository) AgentProfileChangeConflict(context.Context, uint64) (bool, error) {
 	return repository.agentConflict, nil
 }
+func (repository *fakeAdminRepository) ListProfiles(_ context.Context, status ProfileStatus) ([]ContextProfile, error) {
+	var result []ContextProfile
+	for _, item := range repository.profiles {
+		if status == "" || item.Status == status {
+			result = append(result, item)
+		}
+	}
+	return result, nil
+}
+func (repository *fakeAdminRepository) ListSpaces(_ context.Context, platform string, profileID uint64, status string) ([]ContextSpace, error) {
+	var result []ContextSpace
+	for _, item := range repository.spaces {
+		if item.Platform == platform && (profileID == 0 || item.ProfileID == profileID) && (status == "" || item.Status == status) {
+			result = append(result, item)
+		}
+	}
+	return result, nil
+}
+func (repository *fakeAdminRepository) ListDocuments(context.Context, string, uint64, string) ([]DocumentAdminDTO, error) {
+	return nil, nil
+}
+func (repository *fakeAdminRepository) ListDocumentVersions(context.Context, string, uint64) ([]DocumentVersionDTO, error) {
+	return nil, nil
+}
+func (repository *fakeAdminRepository) UpdateDocumentStatus(_ context.Context, _ string, id uint64, status string) (DocumentAdminDTO, error) {
+	item := repository.documents[id]
+	item.Status = status
+	repository.documents[id] = item
+	return item, nil
+}
+func (repository *fakeAdminRepository) SoftDeleteDocument(context.Context, string, uint64) error {
+	return nil
+}
+func (repository *fakeAdminRepository) GetAgentContextProfile(context.Context, uint64) (*uint64, error) {
+	return nil, nil
+}
+func (repository *fakeAdminRepository) SetAgentContextProfile(context.Context, uint64, *uint64) error {
+	return nil
+}
+func (repository *fakeAdminRepository) ListAgentContextSpaces(context.Context, uint64) ([]uint64, error) {
+	return nil, nil
+}
+func (repository *fakeAdminRepository) ReplaceAgentContextSpaces(context.Context, uint64, []uint64) error {
+	return nil
+}
 
 type fakeConditionalReader struct {
 	metadata storage.ConditionalObjectMetadata

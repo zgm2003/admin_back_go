@@ -1,6 +1,7 @@
 package contextengine
 
 import (
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"os"
@@ -8,6 +9,29 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestEvaluationServicePacksWithoutPersistence(t *testing.T) {
+	score, _ := ParseFixedScore("0.900000")
+	runner := NewEvaluationService(evaluationPipelineStub{result: EvaluationPipelineResult{
+		Outcome: RetrievalHit,
+		Budget:  Budget{KnownInputBudget: 10, ToolContinuationInputReserve: 0},
+		Metrics: ContextPlanMetricsV1{Schema: ContextPlanMetricsSchemaV1},
+		Groups:  []PackGroup{{Priority: 1, Relevance: &score, StableSourceID: "document:1", Blocks: []PackBlock{{Block: ContextBlock{Kind: BlockDocumentEvidence, SourceType: "document_chunk", SourceRef: "document_chunks:1", SourceSHA256: [32]byte{1}, TokenUpperBound: 4, ContentSnapshot: stringPointer("safe content"), Metadata: ContextBlockMetadataV1{Schema: ContextBlockMetadataSchemaV1, Document: &ContextDocumentEvidenceV1{Title: "doc", DocumentID: 1, DocumentVersionID: 1, ChunkIDs: []uint64{1}, Locators: []ContextLocatorV1{{Schema: ContextLocatorSchemaV1, Kind: "paragraph"}}}}}, FusionScore: &score}}}},
+	}})
+	result, err := runner.RunEvaluation(context.Background(), EvaluationRequest{AgentID: 7, Query: "find"}, EvaluationOptions{Persist: false})
+	if err != nil || result.RetrievalOutcome != RetrievalHit || len(result.Selected) != 1 || len(result.Excluded) != 0 {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if result.Selected[0].Decision != DecisionSelected || result.Selected[0].CitationKey == nil || *result.Selected[0].CitationKey != "C1" {
+		t.Fatalf("selected=%+v", result.Selected)
+	}
+}
+
+type evaluationPipelineStub struct{ result EvaluationPipelineResult }
+
+func (stub evaluationPipelineStub) Evaluate(context.Context, uint64, string) (EvaluationPipelineResult, error) {
+	return stub.result, nil
+}
 
 func TestEvaluationCorpusIsClosedAndHasDeterministicCategoryCounts(t *testing.T) {
 	file, err := os.Open("testdata/evaluation_corpus_v1.jsonl")

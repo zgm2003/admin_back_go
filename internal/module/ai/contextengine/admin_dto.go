@@ -1,6 +1,7 @@
 package contextengine
 
 import (
+	"fmt"
 	"time"
 
 	aiprovider "admin_back_go/internal/module/ai/provider"
@@ -18,6 +19,28 @@ const (
 	DocumentVersionQueued string        = "queued"
 	DocumentVersionReady  string        = "ready"
 )
+
+func ValidateContextAdminState(resource string, state string) error {
+	switch resource {
+	case "profile":
+		if state == string(ProfileEnabled) || state == string(ProfileRetired) {
+			return nil
+		}
+	case "space":
+		if state == SpaceEnabled || state == SpaceDisabled {
+			return nil
+		}
+	case "document":
+		if state == DocumentEnabled || state == DocumentDisabled {
+			return nil
+		}
+	case "document_version":
+		if state == DocumentVersionQueued || state == DocumentVersionReady || state == DocumentVersionFailed {
+			return nil
+		}
+	}
+	return fmt.Errorf("invalid %s state %q", resource, state)
+}
 
 type ContextProfile struct {
 	ID                       uint64            `json:"id" gorm:"column:id;primaryKey"`
@@ -129,6 +152,66 @@ type DocumentAdminDTO struct {
 	Status                string             `json:"status"`
 	ActiveVersionID       *uint64            `json:"active_version_id,omitempty"`
 	Version               DocumentVersionDTO `json:"version"`
+}
+
+type ProfileListResponse struct {
+	Items []ProfileDTO `json:"items"`
+}
+type SpaceListResponse struct {
+	Items []SpaceDTO `json:"items"`
+}
+type DocumentListResponse struct {
+	Items []DocumentAdminDTO `json:"items"`
+}
+type DocumentVersionListResponse struct {
+	Items []DocumentVersionDTO `json:"items"`
+}
+
+type ContextProfileStatusInput struct {
+	Status ProfileStatus `json:"status" binding:"required"`
+}
+type ContextSpaceStatusInput struct {
+	Status string `json:"status" binding:"required"`
+}
+type ContextDocumentStatusInput struct {
+	Status string `json:"status" binding:"required"`
+}
+
+type CreateDocumentVersionInput struct {
+	SourceStorageProvider string `json:"source_storage_provider" binding:"required"`
+	SourceObjectKey       string `json:"source_object_key" binding:"required"`
+	SourceETag            string `json:"source_etag" binding:"required"`
+	SourceSize            int64  `json:"source_size_bytes" binding:"required,gt=0"`
+	SourceFilename        string `json:"source_filename" binding:"required"`
+}
+
+type AgentContextProfileInput struct {
+	ProfileID *uint64 `json:"profile_id"`
+}
+type AgentContextSpacesInput struct {
+	SpaceIDs []uint64 `json:"space_ids"`
+}
+type EvaluationOptions struct{ Persist bool }
+
+type EvaluationItemDTO struct {
+	Ordinal         uint32                 `json:"ordinal"`
+	Decision        Decision               `json:"decision"`
+	SourceType      string                 `json:"source_type"`
+	SourceRef       string                 `json:"source_ref"`
+	CitationKey     *string                `json:"citation_key,omitempty"`
+	ExclusionReason *ExclusionReason       `json:"exclusion_reason,omitempty"`
+	FusionScore     *FixedScore            `json:"fusion_score,omitempty"`
+	RerankScore     *FixedScore            `json:"rerank_score,omitempty"`
+	TokenUpperBound int64                  `json:"token_upper_bound"`
+	Metadata        ContextBlockMetadataV1 `json:"metadata"`
+}
+
+type ContextEvaluationResponse struct {
+	RetrievalOutcome RetrievalOutcome     `json:"retrieval_outcome"`
+	Budget           Budget               `json:"budget"`
+	Metrics          ContextPlanMetricsV1 `json:"metrics"`
+	Selected         []EvaluationItemDTO  `json:"selected"`
+	Excluded         []EvaluationItemDTO  `json:"excluded"`
 }
 
 type CreateProfileInput struct {

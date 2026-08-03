@@ -37,6 +37,34 @@ type documentRequest struct {
 	SourceFilename        string  `json:"source_filename" binding:"required"`
 }
 
+type profileListRequest struct {
+	Status contextengine.ProfileStatus `form:"status"`
+}
+type spaceListRequest struct {
+	ProfileID uint64 `form:"profile_id"`
+	Status    string `form:"status"`
+}
+type documentListRequest struct {
+	Status string `form:"status"`
+}
+type contextStatusRequest struct {
+	Status string `json:"status" binding:"required"`
+}
+type evaluationRequest = contextengine.EvaluationRequest
+type documentVersionRequest struct {
+	SourceStorageProvider string `json:"source_storage_provider" binding:"required"`
+	SourceObjectKey       string `json:"source_object_key" binding:"required"`
+	SourceETag            string `json:"source_etag" binding:"required"`
+	SourceSize            int64  `json:"source_size_bytes" binding:"required,gt=0"`
+	SourceFilename        string `json:"source_filename" binding:"required"`
+}
+type agentContextProfileRequest struct {
+	ProfileID *uint64 `json:"profile_id"`
+}
+type agentContextSpacesRequest struct {
+	SpaceIDs []uint64 `json:"space_ids"`
+}
+
 func profileCreateInput(request profileCreateRequest) contextengine.CreateProfileInput {
 	return contextengine.CreateProfileInput{Name: request.Name, EmbeddingProviderModelID: request.EmbeddingProviderModelID, EmbeddingDimensions: request.EmbeddingDimensions, EmbeddingMaxInputTokens: request.EmbeddingMaxInputTokens, EmbeddingTokenCounterID: request.EmbeddingTokenCounterID, DenseDistance: request.DenseDistance, DenseMinScore: request.DenseMinScore, RerankerProviderModelID: request.RerankerProviderModelID, RerankerMinScore: request.RerankerMinScore, MemoryProviderModelID: request.MemoryProviderModelID}
 }

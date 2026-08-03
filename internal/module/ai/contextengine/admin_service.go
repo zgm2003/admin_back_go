@@ -31,6 +31,20 @@ type AdminRepository interface {
 	FindDocument(context.Context, string, uint64) (*DocumentAdminDTO, error)
 	CreateDocumentVersion(context.Context, ContextDocumentVersion) (DocumentAdminDTO, error)
 	AgentProfileChangeConflict(context.Context, uint64) (bool, error)
+	ListProfiles(context.Context, ProfileStatus) ([]ContextProfile, error)
+	ListSpaces(context.Context, string, uint64, string) ([]ContextSpace, error)
+	ListDocuments(context.Context, string, uint64, string) ([]DocumentAdminDTO, error)
+	ListDocumentVersions(context.Context, string, uint64) ([]DocumentVersionDTO, error)
+	UpdateDocumentStatus(context.Context, string, uint64, string) (DocumentAdminDTO, error)
+	SoftDeleteDocument(context.Context, string, uint64) error
+	GetAgentContextProfile(context.Context, uint64) (*uint64, error)
+	SetAgentContextProfile(context.Context, uint64, *uint64) error
+	ListAgentContextSpaces(context.Context, uint64) ([]uint64, error)
+	ReplaceAgentContextSpaces(context.Context, uint64, []uint64) error
+}
+
+type EvaluationRunner interface {
+	RunEvaluation(context.Context, EvaluationRequest, EvaluationOptions) (ContextEvaluationResponse, error)
 }
 
 type DocumentVersionEnqueuer interface {
@@ -47,6 +61,7 @@ type AdminService struct {
 	enqueuer   DocumentVersionEnqueuer
 	models     officialmodel.Resolver
 	backfill   AgentBackfillEnqueuer
+	evaluator  EvaluationRunner
 }
 
 type AdminOption func(*AdminService)
@@ -57,6 +72,10 @@ func WithOfficialModelResolver(resolver officialmodel.Resolver) AdminOption {
 
 func WithAgentBackfillEnqueuer(enqueuer AgentBackfillEnqueuer) AdminOption {
 	return func(service *AdminService) { service.backfill = enqueuer }
+}
+
+func WithEvaluationRunner(runner EvaluationRunner) AdminOption {
+	return func(service *AdminService) { service.evaluator = runner }
 }
 
 func NewAdminService(repository AdminRepository, objects storage.ConditionalObjectReader, enqueuer DocumentVersionEnqueuer, options ...AdminOption) *AdminService {
@@ -131,6 +150,39 @@ func (service *AdminService) CreateProfile(ctx context.Context, actorID uint32, 
 	return &created, nil
 }
 
+func (service *AdminService) ListProfiles(ctx context.Context, status ProfileStatus) (*ProfileListResponse, *apperror.Error) {
+	if status != "" && ValidateContextAdminState("profile", string(status)) != nil {
+		return nil, apperror.BadRequest("上下文配置状态无效")
+	}
+	items, err := service.repository.ListProfiles(ctx, status)
+	if err != nil {
+		return nil, internalAdminError("查询上下文配置失败", err)
+	}
+	return &ProfileListResponse{Items: items}, nil
+}
+
+func (service *AdminService) GetProfile(ctx context.Context, id uint64) (*ProfileDTO, *apperror.Error) {
+	if id == 0 {
+		return nil, apperror.BadRequest("无效的上下文配置ID")
+	}
+	profile, err := service.repository.FindProfile(ctx, id)
+	if err != nil {
+		return nil, internalAdminError("查询上下文配置失败", err)
+	}
+	if profile == nil {
+		return nil, apperror.NotFound("上下文配置不存在")
+	}
+	return profile, nil
+}
+
+func (service *AdminService) ChangeProfileStatus(ctx context.Context, id uint64, status ProfileStatus) (*ProfileDTO, *apperror.Error) {
+	profile, appErr := service.GetProfile(ctx, id)
+	if appErr != nil {
+		return nil, appErr
+	}
+	return service.UpdateProfile(ctx, id, UpdateProfileInput{Name: profile.Name, Status: status})
+}
+
 func (service *AdminService) UpdateProfile(ctx context.Context, id uint64, input UpdateProfileInput) (*ProfileDTO, *apperror.Error) {
 	if id == 0 || strings.TrimSpace(input.Name) == "" || (input.Status != ProfileEnabled && input.Status != ProfileRetired) {
 		return nil, apperror.BadRequest("上下文配置参数错误")
@@ -168,6 +220,39 @@ func (service *AdminService) CreateSpace(ctx context.Context, platform string, a
 		return nil, internalAdminError("新增上下文空间失败", err)
 	}
 	return &created, nil
+}
+
+func (service *AdminService) ListSpaces(ctx context.Context, platform string, profileID uint64, status string) (*SpaceListResponse, *apperror.Error) {
+	if !enum.IsRegisteredPlatform(platform) || (status != "" && ValidateContextAdminState("space", status) != nil) {
+		return nil, apperror.BadRequest("上下文空间参数错误")
+	}
+	items, err := service.repository.ListSpaces(ctx, platform, profileID, status)
+	if err != nil {
+		return nil, internalAdminError("查询上下文空间失败", err)
+	}
+	return &SpaceListResponse{Items: items}, nil
+}
+
+func (service *AdminService) GetSpace(ctx context.Context, platform string, id uint64) (*SpaceDTO, *apperror.Error) {
+	if id == 0 || !enum.IsRegisteredPlatform(platform) {
+		return nil, apperror.BadRequest("上下文空间参数错误")
+	}
+	space, err := service.repository.FindSpace(ctx, platform, id)
+	if err != nil {
+		return nil, internalAdminError("查询上下文空间失败", err)
+	}
+	if space == nil {
+		return nil, apperror.NotFound("上下文空间不存在")
+	}
+	return space, nil
+}
+
+func (service *AdminService) ChangeSpaceStatus(ctx context.Context, platform string, id uint64, status string) (*SpaceDTO, *apperror.Error) {
+	space, appErr := service.GetSpace(ctx, platform, id)
+	if appErr != nil {
+		return nil, appErr
+	}
+	return service.UpdateSpace(ctx, platform, id, UpdateSpaceInput{ProfileID: space.ProfileID, Name: space.Name, Description: space.Description, Status: status})
 }
 
 func (service *AdminService) UpdateSpace(ctx context.Context, platform string, id uint64, input UpdateSpaceInput) (*SpaceDTO, *apperror.Error) {
@@ -256,6 +341,92 @@ func (service *AdminService) CreateDocument(ctx context.Context, platform string
 	return &created, nil
 }
 
+func (service *AdminService) ListDocuments(ctx context.Context, platform string, spaceID uint64, status string) (*DocumentListResponse, *apperror.Error) {
+	if spaceID == 0 || !enum.IsRegisteredPlatform(platform) || (status != "" && ValidateContextAdminState("document", status) != nil) {
+		return nil, apperror.BadRequest("上下文文档参数错误")
+	}
+	items, err := service.repository.ListDocuments(ctx, platform, spaceID, status)
+	if err != nil {
+		return nil, internalAdminError("查询上下文文档失败", err)
+	}
+	return &DocumentListResponse{Items: items}, nil
+}
+
+func (service *AdminService) GetDocument(ctx context.Context, platform string, id uint64) (*DocumentAdminDTO, *apperror.Error) {
+	if id == 0 || !enum.IsRegisteredPlatform(platform) {
+		return nil, apperror.BadRequest("上下文文档参数错误")
+	}
+	item, err := service.repository.FindDocument(ctx, platform, id)
+	if err != nil {
+		return nil, internalAdminError("查询上下文文档失败", err)
+	}
+	if item == nil {
+		return nil, apperror.NotFound("上下文文档不存在")
+	}
+	return item, nil
+}
+
+func (service *AdminService) ListDocumentVersions(ctx context.Context, platform string, id uint64) (*DocumentVersionListResponse, *apperror.Error) {
+	if id == 0 || !enum.IsRegisteredPlatform(platform) {
+		return nil, apperror.BadRequest("上下文文档参数错误")
+	}
+	items, err := service.repository.ListDocumentVersions(ctx, platform, id)
+	if err != nil {
+		return nil, internalAdminError("查询上下文文档版本失败", err)
+	}
+	return &DocumentVersionListResponse{Items: items}, nil
+}
+
+func (service *AdminService) CreateDocumentVersion(ctx context.Context, platform string, id uint64, input CreateDocumentVersionInput) (*DocumentAdminDTO, *apperror.Error) {
+	document, appErr := service.GetDocument(ctx, platform, id)
+	if appErr != nil {
+		return nil, appErr
+	}
+	if service.objects == nil || strings.TrimSpace(input.SourceObjectKey) == "" || input.SourceSize <= 0 || strings.TrimSpace(input.SourceFilename) == "" {
+		return nil, apperror.BadRequest("上下文文档版本参数错误")
+	}
+	objectInput := storage.ConditionalObjectInput{StorageProvider: strings.TrimSpace(input.SourceStorageProvider), ObjectKey: strings.TrimSpace(input.SourceObjectKey), ETag: strings.TrimSpace(input.SourceETag), Size: input.SourceSize}
+	metadata, err := service.objects.Head(ctx, objectInput)
+	if err != nil {
+		return nil, conditionalObjectAppError(err)
+	}
+	parser, err := documentparser.NewRegistry().Resolve(input.SourceFilename, metadata.MIMEType)
+	if err != nil {
+		return nil, apperror.BadRequest("文档格式不支持")
+	}
+	version := newQueuedVersion(document.ProfileID, objectInput, metadata, strings.TrimSpace(input.SourceFilename), parser.Name(), parser.Version())
+	version.DocumentID = id
+	created, err := service.repository.CreateDocumentVersion(ctx, version)
+	if err != nil {
+		return nil, internalAdminError("创建上下文文档版本失败", err)
+	}
+	if service.enqueuer != nil {
+		_ = service.enqueuer.EnqueueDocumentVersion(ctx, created.Version.ID)
+	}
+	return &created, nil
+}
+
+func (service *AdminService) ChangeDocumentStatus(ctx context.Context, platform string, id uint64, status string) (*DocumentAdminDTO, *apperror.Error) {
+	if id == 0 || !enum.IsRegisteredPlatform(platform) || ValidateContextAdminState("document", status) != nil {
+		return nil, apperror.BadRequest("上下文文档状态无效")
+	}
+	item, err := service.repository.UpdateDocumentStatus(ctx, platform, id, status)
+	if err != nil {
+		return nil, internalAdminError("修改上下文文档状态失败", err)
+	}
+	return &item, nil
+}
+
+func (service *AdminService) DeleteDocument(ctx context.Context, platform string, id uint64) *apperror.Error {
+	if id == 0 || !enum.IsRegisteredPlatform(platform) {
+		return apperror.BadRequest("上下文文档参数错误")
+	}
+	if err := service.repository.SoftDeleteDocument(ctx, platform, id); err != nil {
+		return internalAdminError("删除上下文文档失败", err)
+	}
+	return nil
+}
+
 func (service *AdminService) ReindexDocument(ctx context.Context, platform string, id uint64) (*DocumentAdminDTO, *apperror.Error) {
 	if id == 0 || !enum.IsRegisteredPlatform(platform) {
 		return nil, apperror.BadRequest("上下文文档参数错误")
@@ -315,6 +486,79 @@ func (service *AdminService) ContextProfileAssignmentCommitted(ctx context.Conte
 		return nil
 	}
 	return service.backfill.EnqueueAgentBackfill(ctx, agentID, profileID)
+}
+
+func (service *AdminService) Evaluate(ctx context.Context, input EvaluationRequest) (*ContextEvaluationResponse, *apperror.Error) {
+	input.Query = strings.TrimSpace(input.Query)
+	if input.AgentID == 0 || input.Query == "" || len(input.Query) > 20000 {
+		return nil, apperror.BadRequest("上下文评测参数错误")
+	}
+	if service.evaluator == nil {
+		return nil, apperror.Internal("上下文评测未配置")
+	}
+	result, err := service.evaluator.RunEvaluation(ctx, input, EvaluationOptions{Persist: false})
+	if err != nil {
+		return nil, internalAdminError("上下文评测失败", err)
+	}
+	return &result, nil
+}
+
+func (service *AdminService) GetAgentContextProfile(ctx context.Context, agentID uint64) (*AgentContextProfileInput, *apperror.Error) {
+	if agentID == 0 {
+		return nil, apperror.BadRequest("无效的AI智能体ID")
+	}
+	profileID, err := service.repository.GetAgentContextProfile(ctx, agentID)
+	if err != nil {
+		return nil, internalAdminError("查询AI智能体上下文配置失败", err)
+	}
+	return &AgentContextProfileInput{ProfileID: profileID}, nil
+}
+
+func (service *AdminService) UpdateAgentContextProfile(ctx context.Context, agentID uint64, profileID *uint64) (*AgentContextProfileInput, *apperror.Error) {
+	if err := service.RequireAgentProfileChangeAllowed(ctx, agentID, profileID); err != nil {
+		if appErr, ok := err.(*apperror.Error); ok {
+			return nil, appErr
+		}
+		return nil, internalAdminError("校验AI智能体上下文配置失败", err)
+	}
+	if err := service.repository.SetAgentContextProfile(ctx, agentID, profileID); err != nil {
+		return nil, internalAdminError("修改AI智能体上下文配置失败", err)
+	}
+	if profileID != nil {
+		_ = service.ContextProfileAssignmentCommitted(ctx, agentID, *profileID)
+	}
+	return &AgentContextProfileInput{ProfileID: cloneUint64(profileID)}, nil
+}
+
+func (service *AdminService) GetAgentContextSpaces(ctx context.Context, agentID uint64) (*AgentContextSpacesInput, *apperror.Error) {
+	if agentID == 0 {
+		return nil, apperror.BadRequest("无效的AI智能体ID")
+	}
+	ids, err := service.repository.ListAgentContextSpaces(ctx, agentID)
+	if err != nil {
+		return nil, internalAdminError("查询AI智能体上下文空间失败", err)
+	}
+	return &AgentContextSpacesInput{SpaceIDs: ids}, nil
+}
+
+func (service *AdminService) UpdateAgentContextSpaces(ctx context.Context, agentID uint64, ids []uint64) (*AgentContextSpacesInput, *apperror.Error) {
+	if agentID == 0 {
+		return nil, apperror.BadRequest("无效的AI智能体ID")
+	}
+	seen := make(map[uint64]struct{}, len(ids))
+	for _, id := range ids {
+		if id == 0 {
+			return nil, apperror.BadRequest("上下文空间ID无效")
+		}
+		if _, exists := seen[id]; exists {
+			return nil, apperror.BadRequest("上下文空间ID重复")
+		}
+		seen[id] = struct{}{}
+	}
+	if err := service.repository.ReplaceAgentContextSpaces(ctx, agentID, ids); err != nil {
+		return nil, internalAdminError("修改AI智能体上下文空间失败", err)
+	}
+	return &AgentContextSpacesInput{SpaceIDs: append([]uint64(nil), ids...)}, nil
 }
 
 func (service *AdminService) requireAssignable(ctx context.Context, id uint64) *apperror.Error {

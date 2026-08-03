@@ -2,6 +2,7 @@ package contextengine
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,65 @@ import (
 )
 
 const evaluationTopK = 10
+
+type EvaluationRequest struct {
+	AgentID uint64 `json:"agent_id" binding:"required,gt=0"`
+	Query   string `json:"query" binding:"required,min=1,max=20000"`
+}
+
+type EvaluationPipelineResult struct {
+	Outcome RetrievalOutcome
+	Budget  Budget
+	Metrics ContextPlanMetricsV1
+	Groups  []PackGroup
+}
+
+type EvaluationPipeline interface {
+	Evaluate(context.Context, uint64, string) (EvaluationPipelineResult, error)
+}
+
+type EvaluationService struct{ pipeline EvaluationPipeline }
+
+func NewEvaluationService(pipeline EvaluationPipeline) *EvaluationService {
+	if pipeline == nil {
+		return nil
+	}
+	return &EvaluationService{pipeline: pipeline}
+}
+
+func (service *EvaluationService) RunEvaluation(ctx context.Context, request EvaluationRequest, options EvaluationOptions) (ContextEvaluationResponse, error) {
+	if service == nil || service.pipeline == nil || options.Persist || request.AgentID == 0 || strings.TrimSpace(request.Query) == "" || len(request.Query) > 20000 {
+		return ContextEvaluationResponse{}, ErrInvalidContextPlan
+	}
+	result, err := service.pipeline.Evaluate(ctx, request.AgentID, strings.TrimSpace(request.Query))
+	if err != nil {
+		return ContextEvaluationResponse{}, err
+	}
+	if result.Outcome.Validate() != nil || result.Outcome == RetrievalFailed {
+		return ContextEvaluationResponse{}, ErrInvalidContextPlan
+	}
+	if result.Outcome != RetrievalHit {
+		if len(result.Groups) != 0 {
+			return ContextEvaluationResponse{}, ErrInvalidContextPlan
+		}
+		return ContextEvaluationResponse{RetrievalOutcome: result.Outcome, Budget: result.Budget, Metrics: result.Metrics, Selected: []EvaluationItemDTO{}, Excluded: []EvaluationItemDTO{}}, nil
+	}
+	packed, appErr := Pack(PackInput{KnownInputBudget: result.Budget.KnownInputBudget, ToolContinuationInputReserve: result.Budget.ToolContinuationInputReserve, Candidates: result.Groups})
+	if appErr != nil {
+		return ContextEvaluationResponse{}, appErr
+	}
+	response := ContextEvaluationResponse{RetrievalOutcome: result.Outcome, Budget: result.Budget, Metrics: result.Metrics, Selected: []EvaluationItemDTO{}, Excluded: []EvaluationItemDTO{}}
+	response.Budget.KnownInputUpperBound = packed.KnownInputUpperBound
+	for _, item := range packed.Items {
+		dto := EvaluationItemDTO{Ordinal: item.Ordinal, Decision: item.Decision, SourceType: item.Block.SourceType, SourceRef: item.Block.SourceRef, CitationKey: cloneString(item.CitationKey), ExclusionReason: clonePointer(item.ExclusionReason), FusionScore: clonePointer(item.FusionScore), RerankScore: clonePointer(item.RerankScore), TokenUpperBound: item.Block.TokenUpperBound, Metadata: cloneContextBlockMetadata(item.Block.Metadata)}
+		if item.Decision == DecisionSelected {
+			response.Selected = append(response.Selected, dto)
+		} else {
+			response.Excluded = append(response.Excluded, dto)
+		}
+	}
+	return response, nil
+}
 
 var evaluationCategoryCounts = map[string]int{
 	"lexical": 20, "semantic": 20, "multi_turn": 10, "no_hit": 5, "cross_scope": 5,

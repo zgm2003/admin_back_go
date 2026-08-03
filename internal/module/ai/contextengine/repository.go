@@ -127,6 +127,16 @@ func (repository *GormAdminRepository) FindProfile(ctx context.Context, id uint6
 	return &profile, nil
 }
 
+func (repository *GormAdminRepository) ListProfiles(ctx context.Context, status ProfileStatus) ([]ContextProfile, error) {
+	var items []ContextProfile
+	query := repository.db.WithContext(ctx).Model(&ContextProfile{})
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+	err := query.Order("id DESC").Find(&items).Error
+	return items, err
+}
+
 func (repository *GormAdminRepository) UpdateProfileMetadata(ctx context.Context, id uint64, name string, status ProfileStatus) (ContextProfile, error) {
 	if repository == nil || repository.db == nil {
 		return ContextProfile{}, ErrPlanRepositoryNotConfigured
@@ -192,6 +202,19 @@ func (repository *GormAdminRepository) FindSpace(ctx context.Context, platform s
 		return nil, err
 	}
 	return &space, nil
+}
+
+func (repository *GormAdminRepository) ListSpaces(ctx context.Context, platform string, profileID uint64, status string) ([]ContextSpace, error) {
+	var items []ContextSpace
+	query := repository.db.WithContext(ctx).Where("platform = ? AND deleted_at IS NULL", platform)
+	if profileID != 0 {
+		query = query.Where("profile_id = ?", profileID)
+	}
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+	err := query.Order("id DESC").Find(&items).Error
+	return items, err
 }
 
 func (repository *GormAdminRepository) SpaceHasReferences(ctx context.Context, id uint64) (bool, error) {
@@ -265,6 +288,94 @@ func (repository *GormAdminRepository) FindDocument(ctx context.Context, platfor
 	}
 	result := documentAdminDTO(document, version)
 	return &result, nil
+}
+
+func (repository *GormAdminRepository) ListDocuments(ctx context.Context, platform string, spaceID uint64, status string) ([]DocumentAdminDTO, error) {
+	var documents []ContextDocument
+	query := repository.db.WithContext(ctx).Table("ai_context_documents AS d").Select("d.*").Joins("JOIN ai_context_spaces AS s ON s.id = d.space_id AND s.deleted_at IS NULL").Where("d.space_id = ? AND d.deleted_at IS NULL AND s.platform = ?", spaceID, platform)
+	if status != "" {
+		query = query.Where("d.status = ?", status)
+	}
+	if err := query.Order("d.id DESC").Find(&documents).Error; err != nil {
+		return nil, err
+	}
+	items := make([]DocumentAdminDTO, 0, len(documents))
+	for _, document := range documents {
+		var version ContextDocumentVersion
+		if err := repository.db.WithContext(ctx).Where("document_id = ?", document.ID).Order("id DESC").Take(&version).Error; err != nil {
+			return nil, err
+		}
+		items = append(items, documentAdminDTO(document, version))
+	}
+	return items, nil
+}
+
+func (repository *GormAdminRepository) ListDocumentVersions(ctx context.Context, platform string, id uint64) ([]DocumentVersionDTO, error) {
+	if document, err := repository.FindDocument(ctx, platform, id); err != nil || document == nil {
+		return nil, err
+	}
+	var rows []ContextDocumentVersion
+	if err := repository.db.WithContext(ctx).Where("document_id = ?", id).Order("id DESC").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	items := make([]DocumentVersionDTO, len(rows))
+	for index, row := range rows {
+		items[index] = documentVersionDTO(row)
+	}
+	return items, nil
+}
+
+func (repository *GormAdminRepository) UpdateDocumentStatus(ctx context.Context, platform string, id uint64, status string) (DocumentAdminDTO, error) {
+	result := repository.db.WithContext(ctx).Model(&ContextDocument{}).Where("id = ? AND deleted_at IS NULL AND EXISTS (SELECT 1 FROM ai_context_spaces s WHERE s.id = ai_context_documents.space_id AND s.platform = ? AND s.deleted_at IS NULL)", id, platform).Update("status", status)
+	if result.Error != nil {
+		return DocumentAdminDTO{}, result.Error
+	}
+	if result.RowsAffected != 1 {
+		return DocumentAdminDTO{}, gorm.ErrRecordNotFound
+	}
+	item, err := repository.FindDocument(ctx, platform, id)
+	if err != nil {
+		return DocumentAdminDTO{}, err
+	}
+	return *item, nil
+}
+
+func (repository *GormAdminRepository) SoftDeleteDocument(ctx context.Context, platform string, id uint64) error {
+	return repository.db.WithContext(ctx).Model(&ContextDocument{}).Where("id = ? AND deleted_at IS NULL AND EXISTS (SELECT 1 FROM ai_context_spaces s WHERE s.id = ai_context_documents.space_id AND s.platform = ? AND s.deleted_at IS NULL)", id, platform).Update("deleted_at", gorm.Expr("CURRENT_TIMESTAMP(6)")).Error
+}
+
+func (repository *GormAdminRepository) GetAgentContextProfile(ctx context.Context, agentID uint64) (*uint64, error) {
+	var row struct {
+		ProfileID *uint64 `gorm:"column:context_profile_id"`
+	}
+	err := repository.db.WithContext(ctx).Table("ai_agents").Select("context_profile_id").Where("id = ? AND is_del = ?", agentID, enum.CommonNo).Take(&row).Error
+	return cloneUint64(row.ProfileID), err
+}
+
+func (repository *GormAdminRepository) SetAgentContextProfile(ctx context.Context, agentID uint64, profileID *uint64) error {
+	return repository.db.WithContext(ctx).Table("ai_agents").Where("id = ? AND is_del = ?", agentID, enum.CommonNo).Update("context_profile_id", profileID).Error
+}
+
+func (repository *GormAdminRepository) ListAgentContextSpaces(ctx context.Context, agentID uint64) ([]uint64, error) {
+	var ids []uint64
+	err := repository.db.WithContext(ctx).Table("ai_context_bindings").Where("agent_id = ? AND status = ?", agentID, SpaceEnabled).Order("id ASC").Pluck("space_id", &ids).Error
+	return ids, err
+}
+
+func (repository *GormAdminRepository) ReplaceAgentContextSpaces(ctx context.Context, agentID uint64, ids []uint64) error {
+	return repository.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Table("ai_context_bindings").Where("agent_id = ?", agentID).Delete(nil).Error; err != nil {
+			return err
+		}
+		if len(ids) == 0 {
+			return nil
+		}
+		rows := make([]map[string]any, len(ids))
+		for index, id := range ids {
+			rows[index] = map[string]any{"agent_id": agentID, "space_id": id, "status": SpaceEnabled}
+		}
+		return tx.Table("ai_context_bindings").Create(&rows).Error
+	})
 }
 
 func (repository *GormAdminRepository) CreateDocumentVersion(ctx context.Context, version ContextDocumentVersion) (DocumentAdminDTO, error) {

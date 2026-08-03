@@ -22,6 +22,29 @@ type HTTPService interface {
 	ReindexDocument(context.Context, string, uint64) (*contextengine.DocumentAdminDTO, *apperror.Error)
 }
 
+type adminReadService interface {
+	ListProfiles(context.Context, contextengine.ProfileStatus) (*contextengine.ProfileListResponse, *apperror.Error)
+	GetProfile(context.Context, uint64) (*contextengine.ProfileDTO, *apperror.Error)
+	ChangeProfileStatus(context.Context, uint64, contextengine.ProfileStatus) (*contextengine.ProfileDTO, *apperror.Error)
+	ListSpaces(context.Context, string, uint64, string) (*contextengine.SpaceListResponse, *apperror.Error)
+	GetSpace(context.Context, string, uint64) (*contextengine.SpaceDTO, *apperror.Error)
+	ChangeSpaceStatus(context.Context, string, uint64, string) (*contextengine.SpaceDTO, *apperror.Error)
+	ListDocuments(context.Context, string, uint64, string) (*contextengine.DocumentListResponse, *apperror.Error)
+	GetDocument(context.Context, string, uint64) (*contextengine.DocumentAdminDTO, *apperror.Error)
+	ListDocumentVersions(context.Context, string, uint64) (*contextengine.DocumentVersionListResponse, *apperror.Error)
+	CreateDocumentVersion(context.Context, string, uint64, contextengine.CreateDocumentVersionInput) (*contextengine.DocumentAdminDTO, *apperror.Error)
+	ChangeDocumentStatus(context.Context, string, uint64, string) (*contextengine.DocumentAdminDTO, *apperror.Error)
+	DeleteDocument(context.Context, string, uint64) *apperror.Error
+	GetAgentContextProfile(context.Context, uint64) (*contextengine.AgentContextProfileInput, *apperror.Error)
+	UpdateAgentContextProfile(context.Context, uint64, *uint64) (*contextengine.AgentContextProfileInput, *apperror.Error)
+	GetAgentContextSpaces(context.Context, uint64) (*contextengine.AgentContextSpacesInput, *apperror.Error)
+	UpdateAgentContextSpaces(context.Context, uint64, []uint64) (*contextengine.AgentContextSpacesInput, *apperror.Error)
+}
+
+type evaluationService interface {
+	Evaluate(context.Context, contextengine.EvaluationRequest) (*contextengine.ContextEvaluationResponse, *apperror.Error)
+}
+
 type Handler struct {
 	platform string
 	service  HTTPService
@@ -55,6 +78,50 @@ func (handler *Handler) UpdateProfile(c *gin.Context) {
 	result, appErr := handler.service.UpdateProfile(c.Request.Context(), id, contextengine.UpdateProfileInput{Name: request.Name, Status: request.Status})
 	write(c, result, appErr)
 }
+func (handler *Handler) ListProfiles(c *gin.Context) {
+	service, ok := handler.service.(adminReadService)
+	if !ok {
+		unsupported(c)
+		return
+	}
+	var request profileListRequest
+	if err := c.ShouldBindQuery(&request); err != nil {
+		response.Error(c, apperror.BadRequest("上下文配置查询参数错误"))
+		return
+	}
+	result, appErr := service.ListProfiles(c.Request.Context(), request.Status)
+	write(c, result, appErr)
+}
+func (handler *Handler) GetProfile(c *gin.Context) {
+	service, ok := handler.service.(adminReadService)
+	if !ok {
+		unsupported(c)
+		return
+	}
+	id, ok := routeID(c)
+	if !ok {
+		return
+	}
+	result, appErr := service.GetProfile(c.Request.Context(), id)
+	write(c, result, appErr)
+}
+func (handler *Handler) ChangeProfileStatus(c *gin.Context) {
+	service, ok := handler.service.(adminReadService)
+	if !ok {
+		unsupported(c)
+		return
+	}
+	id, valid := routeID(c)
+	if !valid {
+		return
+	}
+	var request contextStatusRequest
+	if !bind(c, &request) {
+		return
+	}
+	result, appErr := service.ChangeProfileStatus(c.Request.Context(), id, contextengine.ProfileStatus(request.Status))
+	write(c, result, appErr)
+}
 func (handler *Handler) CreateSpace(c *gin.Context) {
 	var request spaceRequest
 	if !bind(c, &request) {
@@ -80,6 +147,50 @@ func (handler *Handler) UpdateSpace(c *gin.Context) {
 	result, appErr := handler.service.UpdateSpace(c.Request.Context(), handler.platform, id, contextengine.UpdateSpaceInput(input))
 	write(c, result, appErr)
 }
+func (handler *Handler) ListSpaces(c *gin.Context) {
+	service, ok := handler.service.(adminReadService)
+	if !ok {
+		unsupported(c)
+		return
+	}
+	var request spaceListRequest
+	if err := c.ShouldBindQuery(&request); err != nil {
+		response.Error(c, apperror.BadRequest("上下文空间查询参数错误"))
+		return
+	}
+	result, appErr := service.ListSpaces(c.Request.Context(), handler.platform, request.ProfileID, request.Status)
+	write(c, result, appErr)
+}
+func (handler *Handler) GetSpace(c *gin.Context) {
+	service, ok := handler.service.(adminReadService)
+	if !ok {
+		unsupported(c)
+		return
+	}
+	id, valid := routeID(c)
+	if !valid {
+		return
+	}
+	result, appErr := service.GetSpace(c.Request.Context(), handler.platform, id)
+	write(c, result, appErr)
+}
+func (handler *Handler) ChangeSpaceStatus(c *gin.Context) {
+	service, ok := handler.service.(adminReadService)
+	if !ok {
+		unsupported(c)
+		return
+	}
+	id, valid := routeID(c)
+	if !valid {
+		return
+	}
+	var request contextStatusRequest
+	if !bind(c, &request) {
+		return
+	}
+	result, appErr := service.ChangeSpaceStatus(c.Request.Context(), handler.platform, id, request.Status)
+	write(c, result, appErr)
+}
 func (handler *Handler) DeleteSpace(c *gin.Context) {
 	id, ok := routeID(c)
 	if !ok {
@@ -99,12 +210,193 @@ func (handler *Handler) CreateDocument(c *gin.Context) {
 	result, appErr := handler.service.CreateDocument(c.Request.Context(), handler.platform, actor, documentInput(request))
 	write(c, result, appErr)
 }
+func (handler *Handler) ListSpaceDocuments(c *gin.Context) {
+	service, ok := handler.service.(adminReadService)
+	if !ok {
+		unsupported(c)
+		return
+	}
+	spaceID, valid := routeID(c)
+	if !valid {
+		return
+	}
+	var request documentListRequest
+	if err := c.ShouldBindQuery(&request); err != nil {
+		response.Error(c, apperror.BadRequest("上下文文档查询参数错误"))
+		return
+	}
+	result, appErr := service.ListDocuments(c.Request.Context(), handler.platform, spaceID, request.Status)
+	write(c, result, appErr)
+}
+func (handler *Handler) CreateSpaceDocument(c *gin.Context) {
+	var request documentRequest
+	if !bind(c, &request) {
+		return
+	}
+	spaceID, valid := routeID(c)
+	if !valid {
+		return
+	}
+	request.SpaceID = &spaceID
+	request.ConversationID, request.SourceMessageID, request.SourceAttachmentIndex = nil, nil, nil
+	actor, valid := actorID(c)
+	if !valid {
+		return
+	}
+	result, appErr := handler.service.CreateDocument(c.Request.Context(), handler.platform, actor, documentInput(request))
+	write(c, result, appErr)
+}
+func (handler *Handler) GetDocument(c *gin.Context) {
+	service, ok := handler.service.(adminReadService)
+	if !ok {
+		unsupported(c)
+		return
+	}
+	id, valid := routeID(c)
+	if !valid {
+		return
+	}
+	result, appErr := service.GetDocument(c.Request.Context(), handler.platform, id)
+	write(c, result, appErr)
+}
+func (handler *Handler) ListDocumentVersions(c *gin.Context) {
+	service, ok := handler.service.(adminReadService)
+	if !ok {
+		unsupported(c)
+		return
+	}
+	id, valid := routeID(c)
+	if !valid {
+		return
+	}
+	result, appErr := service.ListDocumentVersions(c.Request.Context(), handler.platform, id)
+	write(c, result, appErr)
+}
+func (handler *Handler) CreateDocumentVersion(c *gin.Context) {
+	service, ok := handler.service.(adminReadService)
+	if !ok {
+		unsupported(c)
+		return
+	}
+	id, valid := routeID(c)
+	if !valid {
+		return
+	}
+	var request documentVersionRequest
+	if !bind(c, &request) {
+		return
+	}
+	result, appErr := service.CreateDocumentVersion(c.Request.Context(), handler.platform, id, contextengine.CreateDocumentVersionInput{SourceStorageProvider: request.SourceStorageProvider, SourceObjectKey: request.SourceObjectKey, SourceETag: request.SourceETag, SourceSize: request.SourceSize, SourceFilename: request.SourceFilename})
+	write(c, result, appErr)
+}
+func (handler *Handler) ChangeDocumentStatus(c *gin.Context) {
+	service, ok := handler.service.(adminReadService)
+	if !ok {
+		unsupported(c)
+		return
+	}
+	id, valid := routeID(c)
+	if !valid {
+		return
+	}
+	var request contextStatusRequest
+	if !bind(c, &request) {
+		return
+	}
+	result, appErr := service.ChangeDocumentStatus(c.Request.Context(), handler.platform, id, request.Status)
+	write(c, result, appErr)
+}
+func (handler *Handler) DeleteDocument(c *gin.Context) {
+	service, ok := handler.service.(adminReadService)
+	if !ok {
+		unsupported(c)
+		return
+	}
+	id, valid := routeID(c)
+	if !valid {
+		return
+	}
+	write(c, gin.H{}, service.DeleteDocument(c.Request.Context(), handler.platform, id))
+}
 func (handler *Handler) ReindexDocument(c *gin.Context) {
 	id, ok := routeID(c)
 	if !ok {
 		return
 	}
 	result, appErr := handler.service.ReindexDocument(c.Request.Context(), handler.platform, id)
+	write(c, result, appErr)
+}
+func (handler *Handler) Evaluate(c *gin.Context) {
+	service, ok := handler.service.(evaluationService)
+	if !ok {
+		unsupported(c)
+		return
+	}
+	var request evaluationRequest
+	if !bind(c, &request) {
+		return
+	}
+	result, appErr := service.Evaluate(c.Request.Context(), request)
+	write(c, result, appErr)
+}
+func (handler *Handler) GetAgentContextProfile(c *gin.Context) {
+	service, ok := handler.service.(adminReadService)
+	if !ok {
+		unsupported(c)
+		return
+	}
+	id, valid := routeID(c)
+	if !valid {
+		return
+	}
+	result, appErr := service.GetAgentContextProfile(c.Request.Context(), id)
+	write(c, result, appErr)
+}
+func (handler *Handler) UpdateAgentContextProfile(c *gin.Context) {
+	service, ok := handler.service.(adminReadService)
+	if !ok {
+		unsupported(c)
+		return
+	}
+	id, valid := routeID(c)
+	if !valid {
+		return
+	}
+	var request agentContextProfileRequest
+	if !bind(c, &request) {
+		return
+	}
+	result, appErr := service.UpdateAgentContextProfile(c.Request.Context(), id, request.ProfileID)
+	write(c, result, appErr)
+}
+func (handler *Handler) GetAgentContextSpaces(c *gin.Context) {
+	service, ok := handler.service.(adminReadService)
+	if !ok {
+		unsupported(c)
+		return
+	}
+	id, valid := routeID(c)
+	if !valid {
+		return
+	}
+	result, appErr := service.GetAgentContextSpaces(c.Request.Context(), id)
+	write(c, result, appErr)
+}
+func (handler *Handler) UpdateAgentContextSpaces(c *gin.Context) {
+	service, ok := handler.service.(adminReadService)
+	if !ok {
+		unsupported(c)
+		return
+	}
+	id, valid := routeID(c)
+	if !valid {
+		return
+	}
+	var request agentContextSpacesRequest
+	if !bind(c, &request) {
+		return
+	}
+	result, appErr := service.UpdateAgentContextSpaces(c.Request.Context(), id, request.SpaceIDs)
 	write(c, result, appErr)
 }
 
@@ -141,4 +433,8 @@ func write(c *gin.Context, result any, appErr *apperror.Error) {
 		return
 	}
 	response.OK(c, result)
+}
+
+func unsupported(c *gin.Context) {
+	response.Error(c, apperror.Internal("上下文管理服务未配置"))
 }
