@@ -24,7 +24,7 @@ Migration SHA-256 values:
 ```text
 202608020101_ai_context_expand.sql      2c98b934d469c9e1d512b6fa249cdf1eae24dc0ea2f7981a4b0e77754b58fb37
 202608020102_ai_context_permissions.sql 8b719142fc3f8624a193068ac03cf1e5cedf13678578ab81234fac5270a9a844
-202608020103_ai_context_contract.sql    6f0cdb3074358225babc39a62be772f3ad0fabd5eb90a6ce231d50e659165133
+202608020103_ai_context_contract.sql    1ee01a766b120d0ff2a3ed682a3dc0c002a5f0b0c2a87d8e447411b723aa40e7
 ```
 
 Verify them from the release checkout:

@@ -1,4 +1,7 @@
 -- atlas:delimiter $$
+DROP PROCEDURE IF EXISTS `_ai_context_assert_legacy_empty`
+$$
+
 CREATE PROCEDURE `_ai_context_assert_legacy_empty`()
 BEGIN
   DECLARE legacy_rows BIGINT UNSIGNED DEFAULT 0;
@@ -41,17 +44,25 @@ BEGIN
   END IF;
 END
 $$
--- atlas:delimiter ;
 
-CALL `_ai_context_assert_legacy_empty`();
-DROP PROCEDURE `_ai_context_assert_legacy_empty`;
+CALL `_ai_context_assert_legacy_empty`()
+$$
+DROP PROCEDURE `_ai_context_assert_legacy_empty`
+$$
 
-DROP TABLE `ai_knowledge_retrieval_hits`;
-DROP TABLE `ai_knowledge_retrievals`;
-DROP TABLE `ai_agent_knowledge_bases`;
-DROP TABLE `ai_knowledge_chunks`;
-DROP TABLE `ai_knowledge_documents`;
-DROP TABLE `ai_knowledge_bases`;
+DROP TABLE `ai_knowledge_retrieval_hits`
+$$
+DROP TABLE `ai_knowledge_retrievals`
+$$
+DROP TABLE `ai_agent_knowledge_bases`
+$$
+DROP TABLE `ai_knowledge_chunks`
+$$
+DROP TABLE `ai_knowledge_documents`
+$$
+DROP TABLE `ai_knowledge_bases`
+$$
 
 ALTER TABLE `ai_provider_models`
-  ALTER COLUMN `model_kind` DROP DEFAULT;
+  ALTER COLUMN `model_kind` DROP DEFAULT
+$$

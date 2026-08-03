@@ -1,4 +1,4 @@
-h1:wydj+lDuF+j2beNFxUL/EHYNuEpm5qcvL39X7NnrJXA=
+h1:tgi8iheco7fG9VrGRs+2PV/2ysKhCZRAMApjql6RkN8=
 202607150001_baseline.sql h1:elg7qkyR6lLW3sqj22zwsIPT5lz+rWrGmoOMH8qg45c=
 202607150101_ai_reply_durability.sql h1:C9rD6IYDKzwJmBFlSWWDQJwNqYBgcqqg+qq0hGCK8C0=
 202607150102_realtime_retention.sql h1:waqtQw3UdFKVuFeGZsttQi8rz4M/r5KaO/mK/q3ahRc=
@@ -28,4 +28,4 @@ h1:wydj+lDuF+j2beNFxUL/EHYNuEpm5qcvL39X7NnrJXA=
 202607310003_ai_provider_api_protocol.sql h1:8dLCfV3MIeXoP0Ilf6HB8Ftm0hdo9DBX3WMKj6bxFnE=
 202608020101_ai_context_expand.sql h1:vQIN+PgYbLd3AQihj7w1JaSRWoVNZB8QRFQ+1KYFqLs=
 202608020102_ai_context_permissions.sql h1:wvT9X5UuAozsrDaYD16kQBLSiEvf88YP5RFV9EH0UcQ=
-202608020103_ai_context_contract.sql h1:HVt3CBhHhYTmpQ0SB33mtt+h2TF1Xnf781XPP6r262U=
+202608020103_ai_context_contract.sql h1:g9QmWVPCWrGUkWwdi7XZILBqNhskJ8ccdYKh6SiKrHE=
