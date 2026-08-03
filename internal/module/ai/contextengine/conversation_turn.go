@@ -65,6 +65,15 @@ type ConversationTurnReader interface {
 	CompleteByAnchors(context.Context, uint64, uint64, []uint64) ([]ConversationTurn, error)
 }
 
+type ConversationTurnPage struct {
+	Turns                   []ConversationTurn
+	NextBeforeUserMessageID *uint64
+}
+
+type ConversationTurnPager interface {
+	PageCompleteBefore(context.Context, uint64, uint64, *uint64, int) (ConversationTurnPage, error)
+}
+
 var (
 	errTurnInvalid      = errors.New("invalid conversation turn")
 	errTurnTextTooSmall = errors.New("conversation turn fixed envelope does not fit")

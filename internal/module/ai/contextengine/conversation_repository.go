@@ -16,6 +16,8 @@ import (
 
 var ErrConversationTurnRepositoryNotConfigured = errors.New("conversation turn repository not configured")
 
+const maxConversationTurnPageSize = 64
+
 type GormConversationRepository struct {
 	db *gorm.DB
 }
@@ -144,6 +146,52 @@ func (repository *GormConversationRepository) CompleteByAnchors(
 		}
 	}
 	return ordered, nil
+}
+
+func (repository *GormConversationRepository) PageCompleteBefore(
+	ctx context.Context,
+	conversationID uint64,
+	userID uint64,
+	exclusiveAnchor *uint64,
+	pageSize int,
+) (ConversationTurnPage, error) {
+	if repository == nil || repository.db == nil {
+		return ConversationTurnPage{}, ErrConversationTurnRepositoryNotConfigured
+	}
+	if conversationID == 0 || userID == 0 || pageSize <= 0 || pageSize > maxConversationTurnPageSize ||
+		exclusiveAnchor != nil && *exclusiveAnchor == 0 {
+		return ConversationTurnPage{}, errTurnInvalid
+	}
+	query := repository.completeRowsQuery(ctx).
+		Select("m.id").
+		Where("m.conversation_id = ? AND conversation.user_id = ?", conversationID, userID)
+	if exclusiveAnchor != nil {
+		query = query.Where("m.id < ?", *exclusiveAnchor)
+	}
+	anchors := make([]uint64, 0, pageSize+1)
+	if err := query.Order("m.id DESC").Limit(pageSize+1).Pluck("m.id", &anchors).Error; err != nil {
+		return ConversationTurnPage{}, err
+	}
+	if len(anchors) == 0 {
+		return ConversationTurnPage{Turns: []ConversationTurn{}}, nil
+	}
+	hasMore := len(anchors) > pageSize
+	if hasMore {
+		anchors = anchors[:pageSize]
+	}
+	turns, err := repository.CompleteByAnchors(ctx, conversationID, userID, anchors)
+	if err != nil {
+		return ConversationTurnPage{}, err
+	}
+	if len(turns) != len(anchors) {
+		return ConversationTurnPage{}, fmt.Errorf("%w: page contains malformed turn", errTurnInvalid)
+	}
+	page := ConversationTurnPage{Turns: turns}
+	if hasMore {
+		oldest := anchors[len(anchors)-1]
+		page.NextBeforeUserMessageID = &oldest
+	}
+	return page, nil
 }
 
 func (repository *GormConversationRepository) completeRowsQuery(ctx context.Context) *gorm.DB {
