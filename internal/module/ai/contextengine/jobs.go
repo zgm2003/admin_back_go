@@ -26,6 +26,10 @@ type DocumentIndexFacts struct {
 	ChunkerVersion    string
 }
 
+type DocumentIndexFactsLoader interface {
+	LoadDocumentIndexFacts(context.Context, uint64) (DocumentIndexFacts, error)
+}
+
 func DocumentIndexIdempotencyKey(facts DocumentIndexFacts) (string, error) {
 	if facts.VersionID == 0 || facts.ProfileID == 0 || facts.SourceFactsSHA256 == ([sha256.Size]byte{}) ||
 		strings.TrimSpace(facts.ParserVersion) == "" || strings.TrimSpace(facts.ChunkerVersion) == "" {
@@ -37,10 +41,17 @@ func DocumentIndexIdempotencyKey(facts DocumentIndexFacts) (string, error) {
 	return hex.EncodeToString(digest[:]), nil
 }
 
-type QueueDocumentVersionEnqueuer struct{ queue taskqueue.Enqueuer }
+type QueueDocumentVersionEnqueuer struct {
+	queue taskqueue.Enqueuer
+	facts DocumentIndexFactsLoader
+}
 
-func NewDocumentVersionEnqueuer(queue taskqueue.Enqueuer) *QueueDocumentVersionEnqueuer {
-	return &QueueDocumentVersionEnqueuer{queue: queue}
+func NewDocumentVersionEnqueuer(queue taskqueue.Enqueuer, loaders ...DocumentIndexFactsLoader) *QueueDocumentVersionEnqueuer {
+	var loader DocumentIndexFactsLoader
+	if len(loaders) > 0 {
+		loader = loaders[0]
+	}
+	return &QueueDocumentVersionEnqueuer{queue: queue, facts: loader}
 }
 
 func (enqueuer *QueueDocumentVersionEnqueuer) EnqueueDocumentVersion(ctx context.Context, versionID uint64) error {
@@ -51,7 +62,21 @@ func (enqueuer *QueueDocumentVersionEnqueuer) EnqueueDocumentVersion(ctx context
 	if err != nil {
 		return fmt.Errorf("encode document index task: %w", err)
 	}
-	_, err = enqueuer.queue.Enqueue(ctx, taskqueue.Task{Type: TaskContextDocumentIndexV1, Payload: payload})
+	task := taskqueue.Task{Type: TaskContextDocumentIndexV1, Payload: payload}
+	if enqueuer.facts != nil {
+		facts, err := enqueuer.facts.LoadDocumentIndexFacts(ctx, versionID)
+		if err != nil {
+			return fmt.Errorf("load document index facts: %w", err)
+		}
+		if facts.VersionID != versionID {
+			return errors.New("document index facts version mismatch")
+		}
+		task.ID, err = DocumentIndexIdempotencyKey(facts)
+		if err != nil {
+			return fmt.Errorf("derive document index task identity: %w", err)
+		}
+	}
+	_, err = enqueuer.queue.Enqueue(ctx, task)
 	return err
 }
 

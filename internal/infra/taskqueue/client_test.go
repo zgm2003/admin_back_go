@@ -153,6 +153,16 @@ func TestNormalizeTaskUsesCodeOwnedDefaults(t *testing.T) {
 	assertOption(t, opts, asynq.Timeout(DefaultTimeout))
 }
 
+func TestNormalizePassesExplicitTaskIdentityToAsynq(t *testing.T) {
+	client := &Client{registry: registeredTestTask(t, "system:no-op:v1", QueueDefault, DefaultMaxRetry, DefaultTimeout, 0)}
+
+	_, opts, err := client.normalize(Task{ID: "context-version-42", Type: "system:no-op:v1", Payload: []byte(`{}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertOption(t, opts, asynq.TaskID("context-version-42"))
+}
+
 func TestNormalizeTaskRejectsExplicitQueueRetryTimeoutAndUniqueTTL(t *testing.T) {
 	client := &Client{
 		registry: registeredTestTask(t, "system:no-op:v1", QueueDefault, DefaultMaxRetry, DefaultTimeout, 0),

@@ -31,6 +31,7 @@ func IsDuplicateTask(err error) bool {
 // Task is the project-owned queue contract. Business code should build this
 // type instead of importing Asynq directly.
 type Task struct {
+	ID        string
 	Type      string
 	Payload   []byte
 	Queue     string
@@ -174,6 +175,7 @@ func (c *Client) normalize(task Task) (*asynq.Task, []asynq.Option, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	registeredTask.ID = task.ID
 	opts := []asynq.Option{
 		asynq.Queue(policy.Queue),
 		asynq.MaxRetry(policy.MaxRetry),
@@ -181,6 +183,9 @@ func (c *Client) normalize(task Task) (*asynq.Task, []asynq.Option, error) {
 	}
 	if policy.UniqueTTL > 0 {
 		opts = append(opts, asynq.Unique(policy.UniqueTTL))
+	}
+	if strings.TrimSpace(registeredTask.ID) != "" {
+		opts = append(opts, asynq.TaskID(strings.TrimSpace(registeredTask.ID)))
 	}
 	return asynq.NewTask(registeredTask.Type, registeredTask.Payload), opts, nil
 }

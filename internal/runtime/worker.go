@@ -310,7 +310,7 @@ func registerWorkerHandlers(
 		Index:            resources.Qdrant,
 		CollectionPrefix: cfg.Qdrant.CollectionPrefix,
 	})
-	contextEnqueuer := contextengine.NewDocumentVersionEnqueuer(queueClient)
+	contextEnqueuer := contextengine.NewDocumentVersionEnqueuer(queueClient, contextRepository)
 	aiTextTasks := aitext.NewGormStore(resources.DB)
 	aiToolRepository := aitool.NewGormRepository(resources.DB)
 	aiToolRuntime := aitool.NewService(aiToolRepository, aitool.DefaultExecutors(aiToolRepository))

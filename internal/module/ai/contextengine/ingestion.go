@@ -524,6 +524,28 @@ func (repository *GormIngestionRepository) AcquireVersionLease(ctx context.Conte
 	return work, disposition, nil
 }
 
+func (repository *GormIngestionRepository) LoadDocumentIndexFacts(ctx context.Context, versionID uint64) (DocumentIndexFacts, error) {
+	if repository == nil || repository.db == nil || versionID == 0 {
+		return DocumentIndexFacts{}, ErrDocumentIndexNotConfigured
+	}
+	var row struct {
+		VersionID       uint64 `gorm:"column:id"`
+		ProfileID       uint64 `gorm:"column:profile_id"`
+		SourceFactsHash []byte `gorm:"column:source_facts_sha256"`
+		ParserVersion   string `gorm:"column:parser_version"`
+		ChunkerVersion  string `gorm:"column:chunker_version"`
+	}
+	if err := repository.db.WithContext(ctx).Table("ai_context_document_versions").Select("id, profile_id, source_facts_sha256, parser_version, chunker_version").Where("id = ?", versionID).Take(&row).Error; err != nil {
+		return DocumentIndexFacts{}, err
+	}
+	facts := DocumentIndexFacts{VersionID: row.VersionID, ProfileID: row.ProfileID, ParserVersion: row.ParserVersion, ChunkerVersion: row.ChunkerVersion}
+	if len(row.SourceFactsHash) != sha256.Size {
+		return DocumentIndexFacts{}, ErrSourceFactsInvalid
+	}
+	copy(facts.SourceFactsSHA256[:], row.SourceFactsHash)
+	return facts, nil
+}
+
 func (repository *GormIngestionRepository) loadWork(ctx context.Context, versionID uint64) (DocumentIndexWork, error) {
 	var row ingestionVersionRow
 	if err := repository.db.WithContext(ctx).Where("id = ?", versionID).Take(&row).Error; err != nil {
