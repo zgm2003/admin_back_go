@@ -361,6 +361,18 @@ func (g *Gateway) Dispatch(ctx context.Context, attempt ProviderAttempt) (Dispat
 	if err := g.deps.Provider.PreflightPrepared(ctx, attempt); err != nil {
 		return DispatchResult{}, err
 	}
+	if attempt.ContextPlan != nil {
+		if err := attempt.ContextPlan.Validate(); err != nil || g.deps.DispatchGuard == nil {
+			return DispatchResult{}, gatewayError(ErrCodeInvalidPrepared, "context plan dispatch guard is not configured", 409)
+		}
+		g.record("context_dispatch_guard")
+		if appErr := g.deps.DispatchGuard.GuardDispatch(ctx, DispatchGuardInput{
+			RunID: attempt.RunID, AttemptNo: attempt.AttemptNo, ContextPlan: *attempt.ContextPlan,
+			PreparedRequestSHA256: attempt.RequestSHA256,
+		}); appErr != nil {
+			return DispatchResult{}, appErr
+		}
+	}
 	if err := g.MarkDispatched(ctx, attempt); err != nil {
 		return DispatchResult{}, err
 	}

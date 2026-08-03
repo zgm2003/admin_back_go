@@ -270,6 +270,18 @@ type testProvider struct {
 	capabilities   infraai.CapabilityMetadata
 }
 
+type testDispatchGuard struct {
+	calls int
+	input DispatchGuardInput
+	err   *apperror.Error
+}
+
+func (guard *testDispatchGuard) GuardDispatch(_ context.Context, input DispatchGuardInput) *apperror.Error {
+	guard.calls++
+	guard.input = input
+	return guard.err
+}
+
 type capturingProvider struct {
 	testProvider
 	attempt ProviderAttempt
@@ -323,6 +335,29 @@ func TestGatewayPreflightFailureNeverMarksOrDispatchesAttempt(t *testing.T) {
 	}
 	if provider.preflightCalls != 1 || store.markCalls != 0 || provider.calls != 0 {
 		t.Fatalf("preflight=%d mark=%d dispatch=%d", provider.preflightCalls, store.markCalls, provider.calls)
+	}
+}
+
+func TestGatewayDispatchGuardRejectsBeforeMarkAndProviderDispatch(t *testing.T) {
+	attempt := validAttempt(72, 1, 5)
+	attempt.ContextPlan = &ContextPlanEvidence{ID: 91, SHA256: sha256.Sum256([]byte("plan"))}
+	store := &testAttemptStore{attempt: cloneAttempt(attempt), state: "prepared"}
+	provider := &testProvider{}
+	guard := &testDispatchGuard{err: apperror.Forbidden("context revoked")}
+	deps := testGatewayDependencies(&testReserve{}, store)
+	deps.Provider = provider
+	deps.DispatchGuard = guard
+
+	_, err := New(deps).Dispatch(context.Background(), attempt)
+	if !errors.Is(err, guard.err) {
+		t.Fatalf("err=%v, want guard error", err)
+	}
+	if guard.calls != 1 || guard.input.RunID != attempt.RunID || guard.input.AttemptNo != attempt.AttemptNo ||
+		guard.input.ContextPlan != *attempt.ContextPlan || guard.input.PreparedRequestSHA256 != attempt.RequestSHA256 {
+		t.Fatalf("guard calls=%d input=%+v", guard.calls, guard.input)
+	}
+	if store.markCalls != 0 || provider.calls != 0 {
+		t.Fatalf("mark=%d provider=%d", store.markCalls, provider.calls)
 	}
 }
 

@@ -31,5 +31,5 @@ func BuildRuntime(dependencies RuntimeDependencies) *RuntimeService {
 	materializer := NewPlanMaterializer(facts, evidence)
 	planner := NewPlanner(PlannerDependencies{Repository: NewPlanRepository(dependencies.Database),
 		GuardFactory: NewAuthorizationGuardFactory(NewAuthoritySnapshotLoader(dependencies.Platform), nil)})
-	return NewRuntimeService(materializer, planner)
+	return NewRuntimeService(materializer, planner, NewDispatchGuardFactory(dependencies.Database, dependencies.Platform, nil))
 }

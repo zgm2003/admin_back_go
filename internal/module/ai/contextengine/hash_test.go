@@ -77,10 +77,10 @@ func TestModelCapabilityAndInputFingerprintHashesAreCanonical(t *testing.T) {
 		Messages: []FingerprintMessage{{
 			ID: 9, Role: "user", ContentSHA256: testSHA256("question"),
 			Attachments: []FingerprintAttachment{{
-				Ordinal: 1, Kind: AttachmentFile, ObjectKey: "ai_chat_attachments/a.txt", ETag: "etag-1",
+				Ordinal: 0, Kind: AttachmentFile, ObjectKey: "ai_chat_attachments/a.txt", ETag: "etag-1",
 				Size: 3, MIMEType: "text/plain", Filename: "a.txt",
 			}, {
-				Ordinal: 2, Kind: AttachmentFile, ObjectKey: "ai_chat_attachments/b.txt", ETag: "etag-2",
+				Ordinal: 1, Kind: AttachmentFile, ObjectKey: "ai_chat_attachments/b.txt", ETag: "etag-2",
 				Size: 4, MIMEType: "text/plain", Filename: "b.txt",
 			}},
 		}, {
@@ -238,7 +238,7 @@ func TestInputFingerprintPreservesLegacyImageURLFacts(t *testing.T) {
 		Messages: []FingerprintMessage{{
 			ID: 9, Role: "user", ContentSHA256: testSHA256("question"),
 			Attachments: []FingerprintAttachment{{
-				Ordinal: 1,
+				Ordinal: 0,
 				Kind:    AttachmentImage,
 				URL:     "https://example.test/history.png",
 			}},

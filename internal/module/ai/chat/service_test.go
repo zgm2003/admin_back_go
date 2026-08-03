@@ -124,6 +124,10 @@ func (build contextRuntimeFunc) BuildPlan(ctx context.Context, input ContextRunt
 	return build(ctx, input)
 }
 
+func (contextRuntimeFunc) GuardToolContinuation(context.Context, ContextToolContinuationInput) *apperror.Error {
+	return nil
+}
+
 type fakeRepository struct {
 	conversation       *Conversation
 	agent              *AgentEngineConfig
@@ -1467,6 +1471,10 @@ func (f *fakeContextRuntime) BuildPlan(ctx context.Context, input ContextRuntime
 	}
 	f.input = input
 	return f.result, f.err
+}
+
+func (*fakeContextRuntime) GuardToolContinuation(context.Context, ContextToolContinuationInput) *apperror.Error {
+	return nil
 }
 
 func TestExecuteConversationReplyBuildsContextAfterToolsWithoutMutatingUserText(t *testing.T) {

@@ -20,6 +20,7 @@ import (
 	"admin_back_go/internal/module/ai/aigateway"
 	"admin_back_go/internal/module/ai/billing"
 	aichat "admin_back_go/internal/module/ai/chat"
+	"admin_back_go/internal/module/ai/contextengine"
 	"admin_back_go/internal/module/ai/pricing"
 	"admin_back_go/internal/module/ai/replycommand"
 	airun "admin_back_go/internal/module/ai/run"
@@ -69,17 +70,18 @@ type paidChatAttemptExecutor struct {
 	replies   *replycommand.GormRepository
 	eventSink modulerealtime.TransactionalEventSink
 	finalizer aigateway.Finalizer
+	context   *contextengine.RuntimeService
 }
 
-func newPaidChatAttemptExecutor(client *database.Client, wallets *walletmodule.GormRepository, replies *replycommand.GormRepository, eventSink modulerealtime.TransactionalEventSink) *paidChatAttemptExecutor {
-	if client == nil || client.Gorm == nil || wallets == nil || replies == nil {
+func newPaidChatAttemptExecutor(client *database.Client, wallets *walletmodule.GormRepository, replies *replycommand.GormRepository, eventSink modulerealtime.TransactionalEventSink, contextRuntime *contextengine.RuntimeService) *paidChatAttemptExecutor {
+	if client == nil || client.Gorm == nil || wallets == nil || replies == nil || contextRuntime == nil {
 		return nil
 	}
 	store := newGormGatewayFinalizationStore(client.Gorm, wallets, replies, eventSink)
 	if store == nil {
 		return nil
 	}
-	return &paidChatAttemptExecutor{db: client.Gorm, wallets: wallets, replies: replies, eventSink: eventSink, finalizer: aigateway.NewFinalizer(store, persistedSettlementPricer{})}
+	return &paidChatAttemptExecutor{db: client.Gorm, wallets: wallets, replies: replies, eventSink: eventSink, finalizer: aigateway.NewFinalizer(store, persistedSettlementPricer{}), context: contextRuntime}
 }
 
 func (executor *paidChatAttemptExecutor) HasPreparedPaidChatAttempt(ctx context.Context, runID int64, commandID uint64) (bool, error) {
@@ -107,6 +109,19 @@ func (executor *paidChatAttemptExecutor) ExecutePaidChatAttempt(ctx context.Cont
 	}
 	if executor.finalizationRetryPending(ctx, input) {
 		return executor.finalizePaidAttempt(context.WithoutCancel(ctx), input, nil)
+	}
+	if len(input.ChatInput.ToolCalls) != 0 || len(input.ChatInput.ToolOutputs) != 0 {
+		if input.ContextPlan != nil {
+			if executor.context == nil {
+				return executor.finalizeContextFailure(context.WithoutCancel(ctx), input, string(contextengine.ErrCodePlanConflict))
+			}
+			if appErr := executor.context.GuardToolContinuation(ctx, contextengine.ToolContinuationInput{
+				PlanID: input.ContextPlan.ID, PlanSHA256: input.ContextPlan.SHA256,
+				ToolCalls: input.ChatInput.ToolCalls, ToolOutputs: input.ChatInput.ToolOutputs,
+			}); appErr != nil {
+				return executor.finalizeContextFailure(context.WithoutCancel(ctx), input, appErr.Code)
+			}
+		}
 	}
 	attemptNo, recoverPrepared, replayFinalization, recoveredToolResult, err := executor.nextAttempt(ctx, input.RunID, input.CommandID, input.ChatInput)
 	if err != nil {
@@ -136,6 +151,10 @@ func (executor *paidChatAttemptExecutor) ExecutePaidChatAttempt(ctx context.Cont
 		commandID: input.CommandID, owner: input.LeaseOwner, token: input.LeaseToken,
 		prepareStartedAt: input.PrepareStartedAt,
 	}
+	var dispatchGuard aigateway.DispatchGuard
+	if executor.context != nil {
+		dispatchGuard = executor.context.BindDispatchGuard(input.CommandID, input.LeaseOwner, input.LeaseToken)
+	}
 	dependencies := aigateway.Dependencies{
 		Assembler:    paidChatAssembler{transport: transport, input: input.ChatInput},
 		Quotes:       aigateway.PersistedQuoteValidator{},
@@ -149,6 +168,7 @@ func (executor *paidChatAttemptExecutor) ExecutePaidChatAttempt(ctx context.Cont
 		Owner: gormGatewayOwnerGuard{
 			commandID: input.CommandID, owner: input.LeaseOwner, token: input.LeaseToken, now: time.Now,
 		},
+		DispatchGuard: dispatchGuard,
 	}
 	gateway := aigateway.New(dependencies)
 	var attempt aigateway.ProviderAttempt
@@ -230,6 +250,10 @@ func (executor *paidChatAttemptExecutor) FinalizePaidChatLocalFailure(ctx contex
 	return executor.finalizePaidAttempt(ctx, input, nil)
 }
 
+func (executor *paidChatAttemptExecutor) FinalizePaidChatContextFailure(ctx context.Context, input aichat.PaidChatAttemptInput, code string) (*aichat.PaidChatAttemptResult, error) {
+	return executor.finalizeContextFailure(ctx, input, code)
+}
+
 func (executor *paidChatAttemptExecutor) FinalizeOutcomeUnknown(ctx context.Context, commandID uint64) error {
 	return executor.finalizeCommandRun(ctx, commandID, replycommand.StateOutcomeUnknown)
 }
@@ -257,6 +281,13 @@ func (executor *paidChatAttemptExecutor) finalizeCommandRun(ctx context.Context,
 
 func (executor *paidChatAttemptExecutor) finalizePreDispatchFailure(ctx context.Context, input aichat.PaidChatAttemptInput) (*aichat.PaidChatAttemptResult, error) {
 	if err := executor.markFinalizationTrigger(ctx, input, "ai.provider_pre_dispatch_failed", aigateway.TriggerPreDispatchFailed); err != nil {
+		return nil, err
+	}
+	return executor.finalizePaidAttempt(ctx, input, nil)
+}
+
+func (executor *paidChatAttemptExecutor) finalizeContextFailure(ctx context.Context, input aichat.PaidChatAttemptInput, code string) (*aichat.PaidChatAttemptResult, error) {
+	if err := executor.markFinalizationTrigger(ctx, input, code, aigateway.TriggerLocalFailure); err != nil {
 		return nil, err
 	}
 	return executor.finalizePaidAttempt(ctx, input, nil)

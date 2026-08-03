@@ -229,17 +229,18 @@ type Finalizer interface {
 }
 
 type Dependencies struct {
-	Assembler    Assembler
-	Quotes       QuoteValidator
-	Transactions TransactionRunner
-	Runs         RunStore
-	PriorUsage   PriorUsagePricer
-	Reserve      ReserveParticipant
-	Failures     ReserveFailureRecorder
-	Attempts     AttemptStore
-	Provider     Provider
-	Owner        OwnerGuard
-	Finalizer    Finalizer
+	Assembler     Assembler
+	Quotes        QuoteValidator
+	Transactions  TransactionRunner
+	Runs          RunStore
+	PriorUsage    PriorUsagePricer
+	Reserve       ReserveParticipant
+	Failures      ReserveFailureRecorder
+	Attempts      AttemptStore
+	Provider      Provider
+	Owner         OwnerGuard
+	DispatchGuard DispatchGuard
+	Finalizer     Finalizer
 }
 
 type Error struct {

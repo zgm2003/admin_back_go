@@ -19,6 +19,7 @@ import (
 	"admin_back_go/internal/infra/secretbox"
 	"admin_back_go/internal/module/ai/aigateway"
 	"admin_back_go/internal/module/ai/capability"
+	"admin_back_go/internal/module/ai/contextengine"
 	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/requestidentity"
 	airun "admin_back_go/internal/module/ai/run"
@@ -401,9 +402,24 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		}
 		firstUsage := resultTokens(result)
 		input.PrepareStartedAt = s.now()
-		outputs, toolErr := s.executeToolCalls(ctx, uint64(runID), runtimeTools, toolCalls)
+		continuationGuard, ok := s.contextRuntime.(contextengine.ToolContinuationGuard)
+		var outputs []infraai.ToolOutput
+		var toolErr error
+		if !ok {
+			toolErr = ErrContextRuntimeNotConfigured
+		} else if appErr := continuationGuard.GuardToolContinuation(ctx, contextengine.ToolContinuationInput{
+			PlanID: contextEvidence.ID, PlanSHA256: contextEvidence.SHA256, ToolCalls: toolCalls,
+		}); appErr != nil {
+			toolErr = appErr
+		} else {
+			outputs, toolErr = s.executeToolCalls(ctx, uint64(runID), runtimeTools, toolCalls)
+		}
 		if toolErr != nil {
 			if paidReply {
+				var contextErr *apperror.Error
+				if errors.As(toolErr, &contextErr) && strings.HasPrefix(contextErr.Code, "ai.context.") {
+					return s.finalizePaidContextFailure(context.WithoutCancel(ctx), runID, input, contextErr.Code)
+				}
 				return s.finalizePaidFailure(context.WithoutCancel(ctx), runID, input, false)
 			}
 			msg := toolErr.Error()
@@ -411,6 +427,18 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 				return nil, errors.Join(toolErr, finishErr)
 			}
 			return nil, toolErr
+		}
+		if appErr := continuationGuard.GuardToolContinuation(ctx, contextengine.ToolContinuationInput{
+			PlanID: contextEvidence.ID, PlanSHA256: contextEvidence.SHA256, ToolCalls: toolCalls, ToolOutputs: outputs,
+		}); appErr != nil {
+			if paidReply {
+				return s.finalizePaidContextFailure(context.WithoutCancel(ctx), runID, input, appErr.Code)
+			}
+			msg := appErr.Error()
+			if finishErr := finishRun(enum.AIRunStatusFailed, msg, appErr); finishErr != nil {
+				return nil, errors.Join(appErr, finishErr)
+			}
+			return nil, appErr
 		}
 		if input.CommandID > 0 && deliveryStopped(input.DeliveryContext) {
 			return &ConversationReplyResult{ConversationID: input.ConversationID, DeliveryStopped: true}, nil
@@ -805,6 +833,28 @@ func (s *Service) finalizePaidFailure(ctx context.Context, runID int64, input Co
 	} else {
 		result, err = finalizer.FinalizePaidChatLocalFailure(ctx, finalizationInput)
 	}
+	if err != nil {
+		return nil, err
+	}
+	if result == nil || !result.Finalized {
+		return nil, ErrProviderAttemptInvalid
+	}
+	return finalizedConversationReply(input, result), nil
+}
+
+func (s *Service) finalizePaidContextFailure(ctx context.Context, runID int64, input ConversationReplyInput, code string) (*ConversationReplyResult, error) {
+	if s == nil || s.paidAttemptExecutor == nil || runID <= 0 || input.CommandID == 0 || !strings.HasPrefix(code, "ai.context.") {
+		return nil, ErrProviderAttemptRecorderMissing
+	}
+	finalizer, ok := s.paidAttemptExecutor.(PaidChatContextFailureFinalizer)
+	if !ok {
+		return nil, ErrProviderAttemptRecorderMissing
+	}
+	result, err := finalizer.FinalizePaidChatContextFailure(ctx, PaidChatAttemptInput{
+		RunID: runID, CommandID: input.CommandID, LeaseOwner: input.LeaseOwner, LeaseToken: input.LeaseToken,
+		RequestID: input.RequestID, DeliveryContext: input.DeliveryContext,
+		CommandAttempt: input.CommandAttempt, CommandMaxAttempts: input.CommandMaxAttempts,
+	}, code)
 	if err != nil {
 		return nil, err
 	}

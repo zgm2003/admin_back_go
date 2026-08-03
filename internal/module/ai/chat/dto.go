@@ -216,6 +216,10 @@ type PaidChatAttemptFailureFinalizer interface {
 	FinalizePaidChatLocalFailure(context.Context, PaidChatAttemptInput) (*PaidChatAttemptResult, error)
 }
 
+type PaidChatContextFailureFinalizer interface {
+	FinalizePaidChatContextFailure(context.Context, PaidChatAttemptInput, string) (*PaidChatAttemptResult, error)
+}
+
 type EngineConfig struct {
 	EngineType  infraai.EngineType
 	BaseURL     string
@@ -272,6 +276,7 @@ type ToolExecuteResult = aitool.ExecuteResult
 type ContextRuntime = contextengine.Runtime
 type ContextRuntimeInput = contextengine.RuntimeInput
 type ContextRuntimeResult = contextengine.RuntimeResult
+type ContextToolContinuationInput = contextengine.ToolContinuationInput
 
 type Repository interface {
 	ConversationForReply(ctx context.Context, id int64, userID int64) (*Conversation, error)

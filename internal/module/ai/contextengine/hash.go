@@ -378,7 +378,7 @@ func canonicalFingerprintMessages(messages []FingerprintMessage) ([]fingerprintM
 		}
 		attachments := make([]fingerprintAttachmentCanonical, 0, len(message.Attachments))
 		for index, attachment := range message.Attachments {
-			if attachment.Ordinal != uint32(index+1) {
+			if attachment.Ordinal != uint32(index) {
 				return nil, fmt.Errorf("%w: attachment ordinal", errInvalidCanonicalHash)
 			}
 			facts := ContextAttachmentV1{
