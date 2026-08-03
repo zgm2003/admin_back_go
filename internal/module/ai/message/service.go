@@ -798,7 +798,8 @@ func normalizeRuntimeParams(input map[string]float64) (map[string]float64, *appe
 			if value < 1 || value > 50 || value != float64(int64(value)) {
 				return nil, apperror.BadRequest("max_history必须是1到50之间的整数")
 			}
-			out[key] = value
+			// Compatibility-only input. Conversation context is selected by the
+			// persisted Context Plan and this legacy value has no runtime effect.
 		default:
 			return nil, apperror.BadRequest("不支持的AI运行参数")
 		}

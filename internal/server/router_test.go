@@ -3140,13 +3140,11 @@ func TestRealtimeRouteAllowsConfiguredBrowserOrigin(t *testing.T) {
 	}
 }
 
-func TestRouterInstallsAIKnowledgeRESTRoutes(t *testing.T) {
-	knowledgeService := &fakeRouterAIKnowledgeService{}
+func TestRouterDoesNotInstallAIKnowledgeRESTRoutes(t *testing.T) {
 	router := newTestRouter(t, testDependencies{
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 7, SessionID: 9, Platform: "admin"}, nil
 		},
-		AiKnowledgeService: knowledgeService,
 	})
 
 	cases := []struct{ method, path, body string }{
@@ -3182,16 +3180,10 @@ func TestRouterInstallsAIKnowledgeRESTRoutes(t *testing.T) {
 				request.Header.Set("Content-Type", "application/json")
 			}
 			router.ServeHTTP(recorder, request)
-			if recorder.Code != http.StatusOK {
-				t.Fatalf("expected status 200, got %d body=%s", recorder.Code, recorder.Body.String())
+			if recorder.Code != http.StatusNotFound {
+				t.Fatalf("expected status 404, got %d body=%s", recorder.Code, recorder.Body.String())
 			}
 		})
-	}
-	if !knowledgeService.initCalled || knowledgeService.listQuery.Code != "arch" || knowledgeService.listQuery.Status == nil || *knowledgeService.listQuery.Status != enum.CommonYes {
-		t.Fatalf("AI knowledge init/list not routed correctly: called=%v query=%#v", knowledgeService.initCalled, knowledgeService.listQuery)
-	}
-	if knowledgeService.detailID != 1 || knowledgeService.documentsBaseID != 1 || knowledgeService.createdDocumentBaseID != 1 || knowledgeService.documentDetailID != 2 || knowledgeService.documentUpdateID != 2 || knowledgeService.documentStatusID != 2 || knowledgeService.deletedDocumentID != 2 || knowledgeService.reindexDocumentID != 2 || knowledgeService.chunksDocumentID != 2 || knowledgeService.retrievalTestBaseID != 1 || knowledgeService.agentBindingsID != 7 || knowledgeService.updatedAgentBindingsID != 7 {
-		t.Fatalf("AI knowledge nested routes not called correctly: %#v", knowledgeService)
 	}
 }
 
@@ -3200,10 +3192,9 @@ func TestRouterDoesNotInstallRetiredAIRoutes(t *testing.T) {
 		Authenticator: func(ctx context.Context, input middleware.TokenInput) (*middleware.AuthIdentity, *apperror.Error) {
 			return &middleware.AuthIdentity{UserID: 7, SessionID: 9, Platform: "admin"}, nil
 		},
-		AiProviderService:  &fakeRouterAIProviderService{},
-		AiAgentService:     &fakeRouterAIAgentService{},
-		AiKnowledgeService: &fakeRouterAIKnowledgeService{},
-		AiToolService:      &fakeRouterAIToolService{},
+		AiProviderService: &fakeRouterAIProviderService{},
+		AiAgentService:    &fakeRouterAIAgentService{},
+		AiToolService:     &fakeRouterAIToolService{},
 	})
 
 	retired := []struct {

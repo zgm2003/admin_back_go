@@ -32,12 +32,6 @@ const timeLayout = "2006-01-02 15:04:05"
 
 var emptyJSONObject = json.RawMessage("{}")
 
-var knowledgeRetrievalStatusLabels = map[string]string{
-	"success": "检索成功",
-	"failed":  "检索失败",
-	"skipped": "未检索",
-}
-
 type Service struct {
 	repository         Repository
 	feedbackRepository FeedbackRepository
@@ -192,43 +186,12 @@ func (s *Service) Detail(ctx context.Context, id int64) (*DetailResponse, *apper
 	if err != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI工具调用失败", err)
 	}
-	knowledgeRetrievals, appErr := s.knowledgeRetrievalItems(ctx, repo, id)
-	if appErr != nil {
-		return nil, appErr
-	}
 	requestSummary, summaryErr := buildSafeRequestSummary(attemptRows, toolCalls)
 	if summaryErr != nil {
 		s.logInvalidPreparedRequestSummary(ctx, row.ID, attemptRows)
 	}
-	result := detailItem(*row, events, knowledgeRetrievals, toolCalls, billingView, s.buildLatencyBreakdown(ctx, *row, attemptRows, events), requestSummary, contextPlanProjection)
+	result := detailItem(*row, events, toolCalls, billingView, s.buildLatencyBreakdown(ctx, *row, attemptRows, events), requestSummary, contextPlanProjection)
 	return &result, nil
-}
-
-func (s *Service) knowledgeRetrievalItems(ctx context.Context, repo Repository, runID int64) ([]KnowledgeRetrievalItem, *apperror.Error) {
-	rows, err := repo.KnowledgeRetrievals(ctx, runID)
-	if err != nil {
-		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI知识库检索记录失败", err)
-	}
-	if len(rows) == 0 {
-		return []KnowledgeRetrievalItem{}, nil
-	}
-	retrievalIDs := make([]int64, 0, len(rows))
-	for _, row := range rows {
-		retrievalIDs = append(retrievalIDs, row.ID)
-	}
-	hits, err := repo.KnowledgeRetrievalHits(ctx, retrievalIDs)
-	if err != nil {
-		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI知识库检索命中失败", err)
-	}
-	hitsByRetrieval := make(map[int64][]KnowledgeHitRow, len(rows))
-	for _, hit := range hits {
-		hitsByRetrieval[hit.RetrievalID] = append(hitsByRetrieval[hit.RetrievalID], hit)
-	}
-	items := make([]KnowledgeRetrievalItem, 0, len(rows))
-	for _, row := range rows {
-		items = append(items, knowledgeRetrievalItem(row, hitsByRetrieval[row.ID]))
-	}
-	return items, nil
 }
 
 func (s *Service) requireRepository() (Repository, *apperror.Error) {
@@ -684,7 +647,7 @@ func optionalNonBlank(value string) *string {
 	return &value
 }
 
-func detailItem(row RunDetailRow, events []EventRow, knowledgeRetrievals []KnowledgeRetrievalItem, toolCalls []ToolCallRow, billingView billingDetailView, latency LatencyBreakdown, requestSummary SafeRequestSummary, contextPlan *ContextPlanProjection) DetailResponse {
+func detailItem(row RunDetailRow, events []EventRow, toolCalls []ToolCallRow, billingView billingDetailView, latency LatencyBreakdown, requestSummary SafeRequestSummary, contextPlan *ContextPlanProjection) DetailResponse {
 	items := make([]EventItem, 0, len(events))
 	for _, event := range events {
 		if event.EventType == enum.AIRunEventFileMaterialized {
@@ -711,7 +674,7 @@ func detailItem(row RunDetailRow, events []EventRow, knowledgeRetrievals []Knowl
 		HeldAmount: billingView.held, ActualAmount: billingView.actual,
 		Pricing: billingView.pricing, UsageItems: billingView.usage, ProviderAttempts: billingView.attempts,
 		Latency: latency, RequestSummary: requestSummary, ContextPlan: contextPlan,
-		UserMessage: safeRunMessageSummary(row.UserMessage), AssistantMessage: safeRunMessageSummary(row.AssistantMessage), Events: items, KnowledgeRetrievals: knowledgeRetrievals, ToolCalls: callItems,
+		UserMessage: safeRunMessageSummary(row.UserMessage), AssistantMessage: safeRunMessageSummary(row.AssistantMessage), Events: items, ToolCalls: callItems,
 		Liked: row.LikedAt != nil, LikedAt: formatOptionalTimePointer(row.LikedAt),
 		StartedAt: formatOptionalTime(row.StartedAt), FinishedAt: formatOptionalTime(row.FinishedAt),
 		CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt),
@@ -1066,50 +1029,6 @@ func nonNegativeDurationMS(start, end *time.Time) *int64 {
 }
 
 func int64Pointer(value int64) *int64 { return &value }
-
-func knowledgeRetrievalItem(row KnowledgeRetrievalRow, hits []KnowledgeHitRow) KnowledgeRetrievalItem {
-	items := make([]KnowledgeHitItem, 0, len(hits))
-	for _, hit := range hits {
-		items = append(items, knowledgeHitItem(hit))
-	}
-	return KnowledgeRetrievalItem{
-		ID: row.ID, RunID: row.RunID, Query: row.Query,
-		Status: row.Status, StatusName: knowledgeRetrievalStatusName(row.Status),
-		TotalHits: row.TotalHits, SelectedHits: row.SelectedHits,
-		DurationMS: row.DurationMS, DurationText: durationString(row.DurationMS),
-		ErrorMessage: row.ErrorMessage, CreatedAt: formatTime(row.CreatedAt),
-		Hits: items,
-	}
-}
-
-func knowledgeHitItem(row KnowledgeHitRow) KnowledgeHitItem {
-	return KnowledgeHitItem{
-		ID: row.ID, KnowledgeBaseID: row.KnowledgeBaseID, KnowledgeBaseName: row.KnowledgeBaseName,
-		DocumentID: row.DocumentID, DocumentTitle: row.DocumentTitle,
-		ChunkID: row.ChunkID, ChunkIndex: row.ChunkIndex,
-		Score: row.Score, RankNo: row.RankNo, ContentSnapshot: row.ContentSnapshot,
-		Status: row.Status, StatusName: knowledgeHitStatusName(row.Status),
-		SkipReason: row.SkipReason, CreatedAt: formatTime(row.CreatedAt),
-	}
-}
-
-func knowledgeRetrievalStatusName(status string) string {
-	if label, ok := knowledgeRetrievalStatusLabels[status]; ok {
-		return label
-	}
-	return status
-}
-
-func knowledgeHitStatusName(status uint) string {
-	switch status {
-	case 1:
-		return "进入上下文"
-	case 2:
-		return "已跳过"
-	default:
-		return ""
-	}
-}
 
 func toolCallItem(row ToolCallRow) ToolCallItem {
 	return ToolCallItem{

@@ -757,7 +757,6 @@ func TestOptionsExposeOfficialModelAndEffectiveChatCapabilities(t *testing.T) {
 		t.Fatalf("missing official identity: %#v", option)
 	}
 	if option.Capabilities == nil || !option.Capabilities.RuntimeParameters.Temperature.Supported ||
-		!option.Capabilities.RuntimeParameters.MaxHistory.Supported || !option.Capabilities.RuntimeParameters.MaxHistory.Transitional ||
 		option.Capabilities.Attachments.MaxAttachmentsPerMessage != 5 ||
 		option.Capabilities.Attachments.MaxMessageAttachmentBytes != 50<<20 ||
 		!option.Capabilities.Attachments.Image.Enabled || option.Capabilities.Attachments.Image.MaxFiles != 5 ||

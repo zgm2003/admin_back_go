@@ -96,7 +96,6 @@ type MessageMetaAttachment struct {
 
 type MessageRuntimeParams struct {
 	Temperature *float64 `json:"temperature,omitempty"`
-	MaxHistory  *int     `json:"max_history,omitempty"`
 }
 
 type MessageMeta struct {

@@ -3,8 +3,8 @@ package server
 import (
 	aiagentadmin "admin_back_go/internal/module/ai/agent/transport/admin"
 	aichatadmin "admin_back_go/internal/module/ai/chat/transport/admin"
+	aicontextadmin "admin_back_go/internal/module/ai/contextengine/transport/admin"
 	aiconversationadmin "admin_back_go/internal/module/ai/conversation/transport/admin"
-	aiknowledgeadmin "admin_back_go/internal/module/ai/knowledge/transport/admin"
 	aimessageadmin "admin_back_go/internal/module/ai/message/transport/admin"
 	aiofficialmodeladmin "admin_back_go/internal/module/ai/officialmodel/transport/admin"
 	aiprovideradmin "admin_back_go/internal/module/ai/provider/transport/admin"
@@ -19,7 +19,7 @@ func registerAdminAIRoutes(router *gin.Engine, deps Dependencies) {
 	aiprovideradmin.Register(router, ai.Providers, deps.Core.RouteRegistry)
 	aiagentadmin.Register(router, ai.Agents, deps.Core.RouteRegistry)
 	aitooladmin.Register(router, ai.Tools, deps.Core.RouteRegistry)
-	aiknowledgeadmin.Register(router, ai.Knowledge, deps.Core.RouteRegistry)
+	aicontextadmin.Register(router, ai.Context, deps.Core.RouteRegistry)
 	aiconversationadmin.Register(router, ai.Conversations, deps.Core.RouteRegistry)
 	aimessageadmin.Register(router, ai.Messages, deps.Core.RouteRegistry)
 	aiofficialmodeladmin.Register(router, ai.OfficialModels, deps.Core.RouteRegistry)

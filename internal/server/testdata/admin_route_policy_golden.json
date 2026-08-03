@@ -70,36 +70,6 @@
     },
     {
       "method": "DELETE",
-      "path": "/api/admin/v1/ai-knowledge-bases/:id",
-      "operation_id": "delete_api_admin_v1_ai_knowledge_bases_id",
-      "access": {
-        "kind": "permission",
-        "permission_code": "ai_knowledge_del"
-      },
-      "audit": {
-        "enabled": true,
-        "module": "ai_knowledge",
-        "action": "delete",
-        "title": "删除AI知识库"
-      }
-    },
-    {
-      "method": "DELETE",
-      "path": "/api/admin/v1/ai-knowledge-documents/:id",
-      "operation_id": "delete_api_admin_v1_ai_knowledge_documents_id",
-      "access": {
-        "kind": "permission",
-        "permission_code": "ai_knowledge_document_del"
-      },
-      "audit": {
-        "enabled": true,
-        "module": "ai_knowledge_document",
-        "action": "delete",
-        "title": "删除AI知识库文档"
-      }
-    },
-    {
-      "method": "DELETE",
       "path": "/api/admin/v1/ai-official-models/:model_id/price-override",
       "operation_id": "delete_api_admin_v1_ai_official_models_model_id_price_override",
       "access": {
@@ -141,6 +111,36 @@
         "module": "ai_tool",
         "action": "delete",
         "title": "删除AI工具"
+      }
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/admin/v1/ai/context-documents/:id",
+      "operation_id": "ai_context_document_delete",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_context_document_manage"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_context_document",
+        "action": "delete",
+        "title": "删除上下文文档"
+      }
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/admin/v1/ai/context-spaces/:id",
+      "operation_id": "ai_context_space_delete",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_context_manage"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_context_space",
+        "action": "delete",
+        "title": "删除上下文空间"
       }
     },
     {
@@ -695,18 +695,6 @@
     },
     {
       "method": "GET",
-      "path": "/api/admin/v1/ai-agents/:id/knowledge-bases",
-      "operation_id": "get_api_admin_v1_ai_agents_id_knowledge_bases",
-      "access": {
-        "kind": "authenticated"
-      },
-      "audit": {
-        "enabled": false,
-        "reason": "read-only"
-      }
-    },
-    {
-      "method": "GET",
       "path": "/api/admin/v1/ai-agents/:id/tools",
       "operation_id": "get_api_admin_v1_ai_agents_id_tools",
       "access": {
@@ -781,78 +769,6 @@
       "method": "GET",
       "path": "/api/admin/v1/ai-conversations/:id/messages",
       "operation_id": "get_api_admin_v1_ai_conversations_id_messages",
-      "access": {
-        "kind": "authenticated"
-      },
-      "audit": {
-        "enabled": false,
-        "reason": "read-only"
-      }
-    },
-    {
-      "method": "GET",
-      "path": "/api/admin/v1/ai-knowledge-bases",
-      "operation_id": "get_api_admin_v1_ai_knowledge_bases",
-      "access": {
-        "kind": "authenticated"
-      },
-      "audit": {
-        "enabled": false,
-        "reason": "read-only"
-      }
-    },
-    {
-      "method": "GET",
-      "path": "/api/admin/v1/ai-knowledge-bases/:id",
-      "operation_id": "get_api_admin_v1_ai_knowledge_bases_id",
-      "access": {
-        "kind": "authenticated"
-      },
-      "audit": {
-        "enabled": false,
-        "reason": "read-only"
-      }
-    },
-    {
-      "method": "GET",
-      "path": "/api/admin/v1/ai-knowledge-bases/:id/documents",
-      "operation_id": "get_api_admin_v1_ai_knowledge_bases_id_documents",
-      "access": {
-        "kind": "authenticated"
-      },
-      "audit": {
-        "enabled": false,
-        "reason": "read-only"
-      }
-    },
-    {
-      "method": "GET",
-      "path": "/api/admin/v1/ai-knowledge-bases/page-init",
-      "operation_id": "get_api_admin_v1_ai_knowledge_bases_page_init",
-      "access": {
-        "kind": "authenticated"
-      },
-      "audit": {
-        "enabled": false,
-        "reason": "read-only"
-      }
-    },
-    {
-      "method": "GET",
-      "path": "/api/admin/v1/ai-knowledge-documents/:id",
-      "operation_id": "get_api_admin_v1_ai_knowledge_documents_id",
-      "access": {
-        "kind": "authenticated"
-      },
-      "audit": {
-        "enabled": false,
-        "reason": "read-only"
-      }
-    },
-    {
-      "method": "GET",
-      "path": "/api/admin/v1/ai-knowledge-documents/:id/chunks",
-      "operation_id": "get_api_admin_v1_ai_knowledge_documents_id_chunks",
       "access": {
         "kind": "authenticated"
       },
@@ -1018,6 +934,123 @@
       "operation_id": "get_api_admin_v1_ai_tools_page_init",
       "access": {
         "kind": "authenticated"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/v1/ai/agents/:id/context-profile",
+      "operation_id": "ai_agent_context_profile_get",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_context_view"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/v1/ai/agents/:id/context-spaces",
+      "operation_id": "ai_agent_context_spaces_get",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_context_view"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/v1/ai/context-documents/:id",
+      "operation_id": "ai_context_document_get",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_context_view"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/v1/ai/context-documents/:id/versions",
+      "operation_id": "ai_context_document_versions_list",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_context_view"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/v1/ai/context-profiles",
+      "operation_id": "ai_context_profiles_list",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_context_view"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/v1/ai/context-profiles/:id",
+      "operation_id": "ai_context_profile_get",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_context_view"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/v1/ai/context-spaces",
+      "operation_id": "ai_context_spaces_list",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_context_view"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/v1/ai/context-spaces/:id",
+      "operation_id": "ai_context_space_get",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_context_view"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/v1/ai/context-spaces/:id/documents",
+      "operation_id": "ai_context_space_documents_list",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_context_view"
       },
       "audit": {
         "enabled": false,
@@ -1988,36 +2021,6 @@
     },
     {
       "method": "PATCH",
-      "path": "/api/admin/v1/ai-knowledge-bases/:id/status",
-      "operation_id": "patch_api_admin_v1_ai_knowledge_bases_id_status",
-      "access": {
-        "kind": "permission",
-        "permission_code": "ai_knowledge_status"
-      },
-      "audit": {
-        "enabled": true,
-        "module": "ai_knowledge",
-        "action": "change_status",
-        "title": "修改AI知识库状态"
-      }
-    },
-    {
-      "method": "PATCH",
-      "path": "/api/admin/v1/ai-knowledge-documents/:id/status",
-      "operation_id": "patch_api_admin_v1_ai_knowledge_documents_id_status",
-      "access": {
-        "kind": "permission",
-        "permission_code": "ai_knowledge_document_status"
-      },
-      "audit": {
-        "enabled": true,
-        "module": "ai_knowledge_document",
-        "action": "change_status",
-        "title": "修改AI知识库文档状态"
-      }
-    },
-    {
-      "method": "PATCH",
       "path": "/api/admin/v1/ai-providers/:id/status",
       "operation_id": "patch_api_admin_v1_ai_providers_id_status",
       "access": {
@@ -2044,6 +2047,53 @@
         "module": "ai_tool",
         "action": "change_status",
         "title": "修改AI工具状态"
+      }
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/admin/v1/ai/context-documents/:id/status",
+      "operation_id": "ai_context_document_change_status",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_context_document_manage"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_context_document",
+        "action": "change_status",
+        "title": "修改上下文文档状态",
+        "skip_request_payload": true,
+        "skip_response_payload": true
+      }
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/admin/v1/ai/context-profiles/:id/status",
+      "operation_id": "ai_context_profile_change_status",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_context_profile_manage"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_context_profile",
+        "action": "change_status",
+        "title": "修改上下文配置状态"
+      }
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/admin/v1/ai/context-spaces/:id/status",
+      "operation_id": "ai_context_space_change_status",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_context_manage"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_context_space",
+        "action": "change_status",
+        "title": "修改上下文空间状态"
       }
     },
     {
@@ -2425,66 +2475,6 @@
     },
     {
       "method": "POST",
-      "path": "/api/admin/v1/ai-knowledge-bases",
-      "operation_id": "post_api_admin_v1_ai_knowledge_bases",
-      "access": {
-        "kind": "permission",
-        "permission_code": "ai_knowledge_add"
-      },
-      "audit": {
-        "enabled": true,
-        "module": "ai_knowledge",
-        "action": "create",
-        "title": "新增AI知识库"
-      }
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/v1/ai-knowledge-bases/:id/documents",
-      "operation_id": "post_api_admin_v1_ai_knowledge_bases_id_documents",
-      "access": {
-        "kind": "permission",
-        "permission_code": "ai_knowledge_document_add"
-      },
-      "audit": {
-        "enabled": true,
-        "module": "ai_knowledge_document",
-        "action": "create",
-        "title": "新增AI知识库文档"
-      }
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/v1/ai-knowledge-bases/:id/retrieval-tests",
-      "operation_id": "post_api_admin_v1_ai_knowledge_bases_id_retrieval_tests",
-      "access": {
-        "kind": "permission",
-        "permission_code": "ai_knowledge_retrieval_test"
-      },
-      "audit": {
-        "enabled": true,
-        "module": "ai_knowledge",
-        "action": "retrieval_test",
-        "title": "AI知识库检索测试"
-      }
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/v1/ai-knowledge-documents/:id/reindex",
-      "operation_id": "post_api_admin_v1_ai_knowledge_documents_id_reindex",
-      "access": {
-        "kind": "permission",
-        "permission_code": "ai_knowledge_reindex"
-      },
-      "audit": {
-        "enabled": true,
-        "module": "ai_knowledge",
-        "action": "reindex",
-        "title": "重建AI知识库文档索引"
-      }
-    },
-    {
-      "method": "POST",
       "path": "/api/admin/v1/ai-providers",
       "operation_id": "post_api_admin_v1_ai_providers",
       "access": {
@@ -2586,6 +2576,104 @@
         "module": "ai_tool",
         "action": "generate_draft",
         "title": "AI生成工具草稿"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/v1/ai/context-documents/:id/reindex",
+      "operation_id": "ai_context_document_reindex",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_context_document_manage"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_context_document",
+        "action": "reindex",
+        "title": "重建上下文文档索引",
+        "skip_request_payload": true,
+        "skip_response_payload": true
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/v1/ai/context-documents/:id/versions",
+      "operation_id": "ai_context_document_version_create",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_context_document_manage"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_context_document",
+        "action": "create_version",
+        "title": "创建上下文文档版本",
+        "skip_request_payload": true,
+        "skip_response_payload": true
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/v1/ai/context-evaluations",
+      "operation_id": "ai_context_evaluate",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_context_evaluate"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_context",
+        "action": "evaluate",
+        "title": "执行上下文评测",
+        "skip_request_payload": true,
+        "skip_response_payload": true
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/v1/ai/context-profiles",
+      "operation_id": "ai_context_profile_create",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_context_profile_manage"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_context_profile",
+        "action": "create",
+        "title": "新增上下文配置"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/v1/ai/context-spaces",
+      "operation_id": "ai_context_space_create",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_context_manage"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_context_space",
+        "action": "create",
+        "title": "新增上下文空间"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/v1/ai/context-spaces/:id/documents",
+      "operation_id": "ai_context_document_create",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_context_document_manage"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_context_document",
+        "action": "create",
+        "title": "新增上下文文档",
+        "skip_request_payload": true,
+        "skip_response_payload": true
       }
     },
     {
@@ -3092,21 +3180,6 @@
     },
     {
       "method": "PUT",
-      "path": "/api/admin/v1/ai-agents/:id/knowledge-bases",
-      "operation_id": "put_api_admin_v1_ai_agents_id_knowledge_bases",
-      "access": {
-        "kind": "permission",
-        "permission_code": "ai_agent_binding_add"
-      },
-      "audit": {
-        "enabled": true,
-        "module": "ai_agent_knowledge",
-        "action": "update_binding",
-        "title": "更新智能体知识库绑定"
-      }
-    },
-    {
-      "method": "PUT",
       "path": "/api/admin/v1/ai-agents/:id/tools",
       "operation_id": "put_api_admin_v1_ai_agents_id_tools",
       "access": {
@@ -3142,36 +3215,6 @@
       "audit": {
         "enabled": false,
         "reason": "self-service AI conversation read state"
-      }
-    },
-    {
-      "method": "PUT",
-      "path": "/api/admin/v1/ai-knowledge-bases/:id",
-      "operation_id": "put_api_admin_v1_ai_knowledge_bases_id",
-      "access": {
-        "kind": "permission",
-        "permission_code": "ai_knowledge_edit"
-      },
-      "audit": {
-        "enabled": true,
-        "module": "ai_knowledge",
-        "action": "update",
-        "title": "编辑AI知识库"
-      }
-    },
-    {
-      "method": "PUT",
-      "path": "/api/admin/v1/ai-knowledge-documents/:id",
-      "operation_id": "put_api_admin_v1_ai_knowledge_documents_id",
-      "access": {
-        "kind": "permission",
-        "permission_code": "ai_knowledge_document_edit"
-      },
-      "audit": {
-        "enabled": true,
-        "module": "ai_knowledge_document",
-        "action": "update",
-        "title": "编辑AI知识库文档"
       }
     },
     {
@@ -3244,6 +3287,66 @@
         "module": "ai_tool",
         "action": "update",
         "title": "编辑AI工具"
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/api/admin/v1/ai/agents/:id/context-profile",
+      "operation_id": "ai_agent_context_profile_update",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_context_profile_manage"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_agent_context",
+        "action": "update_profile",
+        "title": "修改AI智能体上下文配置"
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/api/admin/v1/ai/agents/:id/context-spaces",
+      "operation_id": "ai_agent_context_spaces_update",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_context_profile_manage"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_agent_context",
+        "action": "update_spaces",
+        "title": "修改AI智能体上下文空间"
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/api/admin/v1/ai/context-profiles/:id",
+      "operation_id": "ai_context_profile_update_metadata",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_context_profile_manage"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_context_profile",
+        "action": "update_metadata",
+        "title": "编辑上下文配置"
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/api/admin/v1/ai/context-spaces/:id",
+      "operation_id": "ai_context_space_update",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_context_manage"
+      },
+      "audit": {
+        "enabled": true,
+        "module": "ai_context_space",
+        "action": "update",
+        "title": "编辑上下文空间"
       }
     },
     {

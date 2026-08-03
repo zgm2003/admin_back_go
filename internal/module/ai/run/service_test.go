@@ -34,10 +34,6 @@ type fakeRepository struct {
 	billingRuns      []int64
 	events           []EventRow
 	toolCalls        []ToolCallRow
-	retrievals       []KnowledgeRetrievalRow
-	hits             []KnowledgeHitRow
-	hitQueryIDs      []int64
-	hitQueries       int
 	dashboardQuery   DashboardQuery
 	dashboardRows    DashboardRepositoryResult
 	dashboardErr     error
@@ -74,14 +70,6 @@ func (f *fakeRepository) Events(ctx context.Context, runID int64) ([]EventRow, e
 }
 func (f *fakeRepository) ToolCalls(ctx context.Context, runID int64) ([]ToolCallRow, error) {
 	return f.toolCalls, nil
-}
-func (f *fakeRepository) KnowledgeRetrievals(ctx context.Context, runID int64) ([]KnowledgeRetrievalRow, error) {
-	return f.retrievals, nil
-}
-func (f *fakeRepository) KnowledgeRetrievalHits(ctx context.Context, retrievalIDs []int64) ([]KnowledgeHitRow, error) {
-	f.hitQueries++
-	f.hitQueryIDs = append([]int64(nil), retrievalIDs...)
-	return f.hits, nil
 }
 func (f *fakeRepository) ContextPlan(_ context.Context, runID int64) (*contextengine.ContextPlan, error) {
 	f.contextPlanRuns = append(f.contextPlanRuns, runID)
@@ -878,39 +866,6 @@ func TestDetailAllowsImageRunWithoutMessages(t *testing.T) {
 	}
 	if res.Platform != enum.PlatformAdmin || res.UserMessage != nil || res.AssistantMessage != nil {
 		t.Fatalf("bad detail: %#v", res)
-	}
-}
-
-func TestDetailIncludesKnowledgeRetrievals(t *testing.T) {
-	startedAt := time.Date(2026, 5, 10, 20, 0, 0, 0, time.UTC)
-	repo := &fakeRepository{
-		run: &RunDetailRow{ID: 1, RequestID: "rid", Status: enum.AIRunStatusSuccess, CreatedAt: startedAt, UpdatedAt: startedAt},
-		retrievals: []KnowledgeRetrievalRow{
-			{ID: 7, RunID: 1, Query: "项目架构", Status: "success", TotalHits: 2, SelectedHits: 1, DurationMS: ptrUint(8), CreatedAt: startedAt},
-			{ID: 9, RunID: 1, Query: "部署", Status: "success", TotalHits: 1, SelectedHits: 1, DurationMS: ptrUint(3), CreatedAt: startedAt.Add(time.Millisecond)},
-		},
-		hits: []KnowledgeHitRow{
-			{ID: 8, RetrievalID: 7, KnowledgeBaseID: 1, KnowledgeBaseName: "架构库", DocumentID: 2, DocumentTitle: "Go 后端架构", ChunkID: 3, ChunkIndex: 1, Score: 0.82, RankNo: 1, ContentSnapshot: "Gin modular monolith", Status: 1, CreatedAt: startedAt},
-			{ID: 10, RetrievalID: 9, KnowledgeBaseID: 1, KnowledgeBaseName: "架构库", DocumentID: 4, DocumentTitle: "部署", ChunkID: 5, ChunkIndex: 1, Score: 0.75, RankNo: 1, ContentSnapshot: "Docker", Status: 1, CreatedAt: startedAt},
-		},
-	}
-	res, appErr := NewService(repo).Detail(context.Background(), 1)
-	if appErr != nil {
-		t.Fatalf("Detail returned error: %v", appErr)
-	}
-	if repo.hitQueries != 1 || len(repo.hitQueryIDs) != 2 || repo.hitQueryIDs[0] != 7 || repo.hitQueryIDs[1] != 9 {
-		t.Fatalf("knowledge hits must load in one query, calls=%d ids=%v", repo.hitQueries, repo.hitQueryIDs)
-	}
-	if len(res.KnowledgeRetrievals) != 2 || len(res.KnowledgeRetrievals[0].Hits) != 1 || len(res.KnowledgeRetrievals[1].Hits) != 1 {
-		t.Fatalf("missing knowledge retrievals: %#v", res.KnowledgeRetrievals)
-	}
-	retrieval := res.KnowledgeRetrievals[0]
-	if retrieval.Query != "项目架构" || retrieval.StatusName != "检索成功" || retrieval.DurationText != "8ms" || retrieval.SelectedHits != 1 || retrieval.TotalHits != 2 {
-		t.Fatalf("unexpected retrieval: %#v", retrieval)
-	}
-	hit := retrieval.Hits[0]
-	if hit.KnowledgeBaseName != "架构库" || hit.DocumentTitle != "Go 后端架构" || hit.StatusName != "进入上下文" || hit.ContentSnapshot != "Gin modular monolith" {
-		t.Fatalf("unexpected retrieval hit: %#v", hit)
 	}
 }
 

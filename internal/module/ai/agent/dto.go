@@ -137,7 +137,6 @@ type EffectiveCapabilitiesDTO struct {
 
 type RuntimeParameterCapabilities struct {
 	Temperature TemperatureParameterCapability `json:"temperature"`
-	MaxHistory  MaxHistoryParameterCapability  `json:"max_history"`
 }
 
 type TemperatureParameterCapability struct {
@@ -145,14 +144,6 @@ type TemperatureParameterCapability struct {
 	Default   float64 `json:"default"`
 	Min       float64 `json:"min"`
 	Max       float64 `json:"max"`
-}
-
-type MaxHistoryParameterCapability struct {
-	Supported    bool `json:"supported"`
-	Default      int  `json:"default"`
-	Min          int  `json:"min"`
-	Max          int  `json:"max"`
-	Transitional bool `json:"transitional"`
 }
 
 type AttachmentCapabilities struct {

@@ -10,7 +10,6 @@ import (
 	aiagent "admin_back_go/internal/module/ai/agent"
 	aichat "admin_back_go/internal/module/ai/chat"
 	aiconversation "admin_back_go/internal/module/ai/conversation"
-	aiknowledge "admin_back_go/internal/module/ai/knowledge"
 	aimessage "admin_back_go/internal/module/ai/message"
 	aiprovider "admin_back_go/internal/module/ai/provider"
 	airun "admin_back_go/internal/module/ai/run"
@@ -63,7 +62,6 @@ type testDependencies struct {
 	AiConversationService   aiconversation.HTTPService
 	AiAgentService          aiagent.HTTPService
 	AiProviderService       aiprovider.HTTPService
-	AiKnowledgeService      aiknowledge.HTTPService
 	AiMessageService        aimessage.HTTPService
 	AiRunService            airun.HTTPService
 	AiToolService           aitool.HTTPService
@@ -150,7 +148,6 @@ func (deps testDependencies) grouped() Dependencies {
 				Agents:        deps.AiAgentService,
 				Chat:          deps.AiChatService,
 				Conversations: deps.AiConversationService,
-				Knowledge:     deps.AiKnowledgeService,
 				Messages:      deps.AiMessageService,
 				Providers:     deps.AiProviderService,
 				Runs:          deps.AiRunService,

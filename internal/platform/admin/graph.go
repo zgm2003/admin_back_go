@@ -8,7 +8,6 @@ import (
 	aichat "admin_back_go/internal/module/ai/chat"
 	contextengine "admin_back_go/internal/module/ai/contextengine"
 	aiconversation "admin_back_go/internal/module/ai/conversation"
-	aiknowledge "admin_back_go/internal/module/ai/knowledge"
 	aimessage "admin_back_go/internal/module/ai/message"
 	"admin_back_go/internal/module/ai/officialmodel"
 	aiprovider "admin_back_go/internal/module/ai/provider"
@@ -85,7 +84,6 @@ type AIGraph struct {
 	Agents         aiagent.HTTPService
 	Chat           aichat.HTTPService
 	Conversations  aiconversation.HTTPService
-	Knowledge      aiknowledge.HTTPService
 	Messages       aimessage.HTTPService
 	OfficialModels officialmodel.HTTPService
 	Providers      aiprovider.HTTPService
@@ -125,7 +123,7 @@ func (g Graph) Validate() error {
 		{name: "ai.agents", value: g.AI.Agents},
 		{name: "ai.chat", value: g.AI.Chat},
 		{name: "ai.conversations", value: g.AI.Conversations},
-		{name: "ai.knowledge", value: g.AI.Knowledge},
+		{name: "ai.context", value: g.AI.Context},
 		{name: "ai.messages", value: g.AI.Messages},
 		{name: "ai.official_models", value: g.AI.OfficialModels},
 		{name: "ai.providers", value: g.AI.Providers},

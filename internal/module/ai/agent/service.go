@@ -724,7 +724,6 @@ func newEffectiveCapabilityDTO(value officialmodel.Capabilities, nativeFile capa
 			Temperature: TemperatureParameterCapability{
 				Supported: containsString(value.SupportedParameters, officialmodel.ParameterTemperature), Default: 1, Min: 0, Max: 2,
 			},
-			MaxHistory: MaxHistoryParameterCapability{Supported: true, Default: 20, Min: 1, Max: 50, Transitional: true},
 		},
 		Attachments: AttachmentCapabilities{
 			MaxAttachmentsPerMessage:  capability.MaxAttachmentsPerMessage,

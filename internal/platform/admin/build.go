@@ -27,7 +27,6 @@ import (
 	contextengine "admin_back_go/internal/module/ai/contextengine"
 	aiconversation "admin_back_go/internal/module/ai/conversation"
 	aiimage "admin_back_go/internal/module/ai/image"
-	aiknowledge "admin_back_go/internal/module/ai/knowledge"
 	aimessage "admin_back_go/internal/module/ai/message"
 	"admin_back_go/internal/module/ai/officialmodel"
 	aiprovider "admin_back_go/internal/module/ai/provider"
@@ -227,7 +226,6 @@ func Build(input BuildInput) (*BuildResult, error) {
 		aitool.WithDraftTaskService(aiTextService),
 		aitool.WithPricingResolver(aiOfficialModelResolver),
 	)
-	aiKnowledgeService := aiknowledge.NewService(aiknowledge.NewGormRepository(resources.DB))
 	aiConversationService := aiconversation.NewService(aiconversation.NewGormRepository(resources.DB))
 	aiRunService := airun.NewService(aiRunRepository, airun.WithLogger(logger))
 	paymentService := paymentmodule.NewService(paymentmodule.Dependencies{
@@ -426,7 +424,6 @@ func Build(input BuildInput) (*BuildResult, error) {
 			Agents:         aiAgentService,
 			Chat:           aiChatService,
 			Conversations:  aiConversationService,
-			Knowledge:      aiKnowledgeService,
 			Messages:       aiMessageService,
 			OfficialModels: aiOfficialModelResolver,
 			Providers:      aiProviderService,
