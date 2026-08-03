@@ -11,6 +11,7 @@ import (
 
 	"admin_back_go/internal/middleware"
 	contextengine "admin_back_go/internal/module/ai/contextengine"
+	"admin_back_go/internal/server/adminroute"
 	"admin_back_go/internal/shared/apperror"
 
 	"github.com/gin-gonic/gin"
@@ -27,6 +28,21 @@ func TestContextAdminContractMutationRequestsDoNotRepeatPathOrStatusFacts(t *tes
 			t.Fatalf("space document request repeats %s", forbidden)
 		}
 	}
+}
+
+func TestContextAdminContractSensitiveAuditsDoNotCapturePayloads(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	registry := adminroute.NewRegistry()
+	RegisterRoutes(gin.New(), "admin", &fakeContextHTTPService{}, registry)
+	for _, definition := range registry.Definitions() {
+		if definition.Path == "/api/admin/v1/ai/context-evaluations" {
+			if !definition.Audit.SkipRequestPayload || !definition.Audit.SkipResponsePayload {
+				t.Fatalf("evaluation audit captures query or context response: %+v", definition.Audit)
+			}
+			return
+		}
+	}
+	t.Fatal("evaluation route definition missing")
 }
 
 func TestContextRoutesUseTrustedPlatformAndIgnoreOverrides(t *testing.T) {
