@@ -45,6 +45,8 @@ type Dependencies struct {
 	PaymentService           payment.JobService
 	RealtimeRetentionService modulerealtime.JobService
 	ContextDocumentIndex     contextengine.DocumentIndexJobService
+	ContextProfileRebuild    contextengine.ProfileRebuildJobService
+	ContextIndexCleanup      contextengine.IndexCleanupJobService
 }
 
 // ScheduleRegistrar is the worker-owned boundary used by job schedule
@@ -114,6 +116,8 @@ func NewRegistry(deps Dependencies) (*taskqueue.Registry, error) {
 			return modulerealtime.RegisterTaskDefinitions(registry, deps.RealtimeRetentionService, logger)
 		},
 		func() error { return registerContextDocumentIndex(registry, deps.ContextDocumentIndex) },
+		func() error { return registerContextProfileRebuild(registry, deps.ContextProfileRebuild) },
+		func() error { return registerContextIndexCleanup(registry, deps.ContextIndexCleanup) },
 	} {
 		if err := register(); err != nil {
 			return nil, err

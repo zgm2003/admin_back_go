@@ -76,7 +76,8 @@ func (sources *gormContextSources) ActiveCollections(ctx context.Context) ([]con
 	}
 	var rows []struct {
 		ProfileID       uint64                `gorm:"column:profile_id"`
-		IndexGeneration uint64                `gorm:"column:index_generation"`
+		IndexGeneration *uint64               `gorm:"column:index_generation"`
+		IndexState      string                `gorm:"column:index_state"`
 		DenseDimensions uint64                `gorm:"column:dense_dimensions"`
 		DenseDistance   contextindex.Distance `gorm:"column:dense_distance"`
 	}
@@ -84,6 +85,7 @@ func (sources *gormContextSources) ActiveCollections(ctx context.Context) ([]con
 SELECT DISTINCT
   p.id AS profile_id,
   p.active_index_generation AS index_generation,
+  p.index_state AS index_state,
   p.embedding_dimensions AS dense_dimensions,
   p.dense_distance AS dense_distance
 FROM ai_context_profiles AS p
@@ -102,17 +104,18 @@ JOIN ai_context_document_versions AS v
  AND v.profile_id = p.id
  AND v.state = 'ready'
 WHERE p.status = 'enabled'
-  AND p.index_state = 'ready'
-  AND p.active_index_generation IS NOT NULL
 ORDER BY p.id ASC`).Scan(&rows).Error
 	if err != nil {
 		return nil, err
 	}
 	collections := make([]contextindex.ActiveCollection, len(rows))
 	for index, row := range rows {
+		if row.IndexGeneration == nil || (row.IndexState != "ready" && row.IndexState != "rebuilding") {
+			return nil, errors.New("active context source has no readable index generation")
+		}
 		collection := contextindex.ActiveCollection{
 			ProfileID:       row.ProfileID,
-			IndexGeneration: row.IndexGeneration,
+			IndexGeneration: *row.IndexGeneration,
 			DenseDimensions: row.DenseDimensions,
 			DenseDistance:   row.DenseDistance,
 		}

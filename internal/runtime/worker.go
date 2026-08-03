@@ -303,13 +303,18 @@ func registerWorkerHandlers(
 		storagecos.ObjectStreamerConfig{Enabled: true},
 	)
 	contextRepository := contextengine.NewIngestionRepository(resources.DB)
+	contextEmbeddings := contextengine.NewEmbeddingResolver(resources.DB, providers.AIEmbeddingFactory, providers.Secretbox)
 	contextDocumentIndex := contextengine.NewDocumentIndexService(contextengine.DocumentIndexDependencies{
 		Repository:       contextRepository,
 		Objects:          storagecos.NewConditionalObjectReader(aiChatObjectConfig, storagecos.ObjectStreamerConfig{Enabled: true}),
-		Embeddings:       contextengine.NewEmbeddingResolver(resources.DB, providers.AIEmbeddingFactory, providers.Secretbox),
+		Embeddings:       contextEmbeddings,
 		Index:            resources.Qdrant,
 		CollectionPrefix: cfg.Qdrant.CollectionPrefix,
 	})
+	contextProfileRebuild := contextengine.NewProfileRebuildService(contextengine.RebuildDependencies{
+		Repository: contextRepository, Embeddings: contextEmbeddings, Index: resources.Qdrant, CollectionPrefix: cfg.Qdrant.CollectionPrefix,
+	})
+	contextIndexCleanup := contextengine.NewIndexCleanupService(contextRepository, resources.Qdrant, cfg.Qdrant.CollectionPrefix, nil)
 	contextEnqueuer := contextengine.NewDocumentVersionEnqueuer(queueClient, contextRepository)
 	aiTextTasks := aitext.NewGormStore(resources.DB)
 	aiToolRepository := aitool.NewGormRepository(resources.DB)
@@ -391,6 +396,8 @@ func registerWorkerHandlers(
 		PaymentService:           paymentService,
 		RealtimeRetentionService: realtimeRetentionService,
 		ContextDocumentIndex:     contextDocumentIndex,
+		ContextProfileRebuild:    contextProfileRebuild,
+		ContextIndexCleanup:      contextIndexCleanup,
 	})
 	if err != nil {
 		return nil, nil, nil, nil, nil, err
@@ -405,7 +412,8 @@ func registerWorkerHandlers(
 		replycommand.NewReconciler(replycommand.ReconcilerOptions{Repository: replyRepository, Finalizer: paidChatExecutor}),
 		aitext.NewReconciler(aiTextTasks, textWaker, max(25, cfg.Queue.Concurrency)),
 		aiimage.NewReconciler(imageRepository, imageWaker, max(25, cfg.Queue.Concurrency)),
-		contextengine.NewDocumentIndexReconciler(contextRepository, contextEnqueuer, max(25, cfg.Queue.Concurrency), uint32(jobs.ContextDocumentIndexMaxRetry+1)),
+		contextengine.NewDocumentIndexReconciler(contextRepository, contextEnqueuer, max(25, cfg.Queue.Concurrency), uint32(jobs.ContextDocumentIndexMaxRetry+1),
+			contextengine.WithProfileIndexConsistency(contextRepository, resources.Qdrant, cfg.Qdrant.CollectionPrefix)),
 		nil
 }
 
@@ -413,18 +421,24 @@ func requireContextTaskRegistrations(registry *taskqueue.Registry) error {
 	if registry == nil {
 		return errors.New("worker task registry is required")
 	}
-	found := false
+	required := map[string]bool{
+		contextengine.TaskContextDocumentIndexV1:  false,
+		contextengine.TaskContextIndexCleanupV1:   false,
+		contextengine.TaskContextProfileRebuildV1: false,
+	}
 	for _, taskType := range registry.Types() {
 		if !strings.HasPrefix(taskType, "ai:context-") {
 			continue
 		}
-		if taskType != contextengine.TaskContextDocumentIndexV1 {
+		if _, known := required[taskType]; !known {
 			return fmt.Errorf("unexpected Context task registration: %s", taskType)
 		}
-		found = true
+		required[taskType] = true
 	}
-	if !found {
-		return fmt.Errorf("required Context task is not registered: %s", contextengine.TaskContextDocumentIndexV1)
+	for taskType, found := range required {
+		if !found {
+			return fmt.Errorf("required Context task is not registered: %s", taskType)
+		}
 	}
 	return nil
 }

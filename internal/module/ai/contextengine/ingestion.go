@@ -376,11 +376,7 @@ func validateDocumentVersionPolicies(version ContextDocumentVersion, parser docu
 }
 
 func documentChunkPoint(work DocumentIndexWork, persisted PersistedChunk, dense []float32) (contextindex.IndexedPoint, error) {
-	pointID, err := PointID(work.Profile.ID, contextindex.SourceKindDocumentChunk, persisted.ID, persisted.Chunk.ChunkFactsSHA256)
-	if err != nil {
-		return contextindex.IndexedPoint{}, err
-	}
-	ref, err := contextindex.NewPointRef(pointID, work.Profile.ID, work.IndexGeneration, contextindex.SourceKindDocumentChunk, persisted.ID, persisted.Chunk.ChunkFactsSHA256)
+	ref, err := documentChunkPointRef(work, persisted)
 	if err != nil {
 		return contextindex.IndexedPoint{}, err
 	}
@@ -396,6 +392,14 @@ func documentChunkPoint(work DocumentIndexWork, persisted PersistedChunk, dense 
 		return contextindex.IndexedPoint{}, err
 	}
 	return contextindex.NewIndexedPoint(metadata, dense, sparse)
+}
+
+func documentChunkPointRef(work DocumentIndexWork, persisted PersistedChunk) (contextindex.PointRef, error) {
+	pointID, err := PointID(work.Profile.ID, contextindex.SourceKindDocumentChunk, persisted.ID, persisted.Chunk.ChunkFactsSHA256)
+	if err != nil {
+		return contextindex.PointRef{}, err
+	}
+	return contextindex.NewPointRef(pointID, work.Profile.ID, work.IndexGeneration, contextindex.SourceKindDocumentChunk, persisted.ID, persisted.Chunk.ChunkFactsSHA256)
 }
 
 func locatorFromParser(locator documentparser.ContextLocatorV1) ContextLocatorV1 {
@@ -544,6 +548,117 @@ func (repository *GormIngestionRepository) LoadDocumentIndexFacts(ctx context.Co
 	}
 	copy(facts.SourceFactsSHA256[:], row.SourceFactsHash)
 	return facts, nil
+}
+
+func (repository *GormIngestionRepository) FindRebuildProfile(ctx context.Context, profileID uint64) (*ContextProfile, error) {
+	if repository == nil || repository.db == nil || profileID == 0 {
+		return nil, ErrDocumentIndexNotConfigured
+	}
+	var profile ContextProfile
+	err := repository.db.WithContext(ctx).Where("id = ?", profileID).Take(&profile).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &profile, err
+}
+
+func (repository *GormIngestionRepository) ListIndexConsistencyProfiles(ctx context.Context, limit int) ([]ContextProfile, error) {
+	if repository == nil || repository.db == nil || limit <= 0 {
+		return nil, ErrDocumentIndexNotConfigured
+	}
+	var profiles []ContextProfile
+	err := repository.db.WithContext(ctx).
+		Where("status = ? AND index_state IN ?", ProfileEnabled, []ProfileIndexState{ProfileIndexProvisioning, ProfileIndexReady, ProfileIndexRebuilding}).
+		Order("id ASC").Limit(limit).Find(&profiles).Error
+	return profiles, err
+}
+
+func (repository *GormIngestionRepository) CompareAndSwapRebuildIndex(ctx context.Context, input ProfileIndexCAS) (bool, error) {
+	if repository == nil || repository.db == nil {
+		return false, ErrDocumentIndexNotConfigured
+	}
+	query := repository.db.WithContext(ctx).Model(&ContextProfile{}).Where("id = ? AND index_state = ?", input.ID, input.Expected.State)
+	query = whereOptionalUint64(query, "active_index_generation", input.Expected.ActiveGeneration)
+	query = whereOptionalUint64(query, "target_index_generation", input.Expected.TargetGeneration)
+	fields := map[string]any{"index_state": input.Next.State, "active_index_generation": input.Next.ActiveGeneration, "target_index_generation": input.Next.TargetGeneration}
+	if input.Next.ErrorCode == nil {
+		fields["index_error_code"] = nil
+	} else {
+		fields["index_error_code"] = string(*input.Next.ErrorCode)
+	}
+	result := query.Updates(fields)
+	return result.RowsAffected == 1, result.Error
+}
+
+func (repository *GormIngestionRepository) LoadRebuildDocuments(ctx context.Context, profileID uint64) ([]RebuildDocument, error) {
+	if repository == nil || repository.db == nil || profileID == 0 {
+		return nil, ErrDocumentIndexNotConfigured
+	}
+	var versions []ingestionVersionRow
+	err := repository.db.WithContext(ctx).Table("ai_context_document_versions AS v").Select("v.*").
+		Joins("JOIN ai_context_documents AS d ON d.active_version_id = v.id AND d.deleted_at IS NULL AND d.status = ?", DocumentEnabled).
+		Where("v.profile_id = ? AND v.state = ?", profileID, DocumentVersionReady).Order("v.id ASC").Find(&versions).Error
+	if err != nil {
+		return nil, err
+	}
+	result := make([]RebuildDocument, 0, len(versions))
+	for _, version := range versions {
+		work, err := repository.loadWork(ctx, version.ID)
+		if err != nil {
+			return nil, err
+		}
+		var rows []contextChunkRow
+		if err := repository.db.WithContext(ctx).Where("document_version_id = ?", version.ID).Order("ordinal ASC").Find(&rows).Error; err != nil {
+			return nil, err
+		}
+		chunks := make([]PersistedChunk, 0, len(rows))
+		for _, row := range rows {
+			heading := []string{}
+			if err := json.Unmarshal([]byte(row.HeadingPath), &heading); err != nil {
+				return nil, err
+			}
+			var locator ContextLocatorV1
+			if err := json.Unmarshal([]byte(row.LocatorJSON), &locator); err != nil {
+				return nil, err
+			}
+			contentHash, err := SHA256FromBytes(row.ContentSHA256)
+			if err != nil {
+				return nil, err
+			}
+			factsHash, err := SHA256FromBytes(row.ChunkFactsSHA256)
+			if err != nil {
+				return nil, err
+			}
+			chunk := Chunk{Ordinal: row.Ordinal, Text: row.Content, IndexText: indexTextPrefix(heading) + row.Content,
+				EmbeddingInputTokenUpperBound: int64(row.EmbeddingInputTokenUpperBound), HeadingPath: heading, Locator: locator,
+				ContentSHA256: contentHash, ChunkFactsSHA256: factsHash}
+			chunks = append(chunks, PersistedChunk{ID: row.ID, Version: version.ID, Chunk: chunk})
+		}
+		result = append(result, RebuildDocument{Work: work, Chunks: chunks})
+	}
+	return result, nil
+}
+
+func (repository *GormIngestionRepository) ActiveDocumentVersionIDs(ctx context.Context, profileID uint64) ([]uint64, error) {
+	if repository == nil || repository.db == nil || profileID == 0 {
+		return nil, ErrDocumentIndexNotConfigured
+	}
+	var ids []uint64
+	err := repository.db.WithContext(ctx).Table("ai_context_document_versions AS v").Select("v.id").
+		Joins("JOIN ai_context_documents AS d ON d.active_version_id = v.id AND d.deleted_at IS NULL AND d.status = ?", DocumentEnabled).
+		Where("v.profile_id = ? AND v.state = ?", profileID, DocumentVersionReady).Order("v.id ASC").Scan(&ids).Error
+	return ids, err
+}
+
+func (repository *GormIngestionRepository) DocumentVersionVisible(ctx context.Context, profileID, versionID uint64) (bool, error) {
+	if repository == nil || repository.db == nil || profileID == 0 || versionID == 0 {
+		return false, ErrDocumentIndexNotConfigured
+	}
+	var count int64
+	err := repository.db.WithContext(ctx).Table("ai_context_document_versions AS v").
+		Joins("JOIN ai_context_documents AS d ON d.active_version_id = v.id AND d.deleted_at IS NULL AND d.status = ?", DocumentEnabled).
+		Where("v.id = ? AND v.profile_id = ? AND v.state = ?", versionID, profileID, DocumentVersionReady).Count(&count).Error
+	return count != 0, err
 }
 
 func (repository *GormIngestionRepository) loadWork(ctx context.Context, versionID uint64) (DocumentIndexWork, error) {

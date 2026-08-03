@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -18,13 +19,24 @@ import (
 	"admin_back_go/internal/module/crontask"
 )
 
-func TestWorkerReadinessRequiresDocumentIndexContextTaskRegistration(t *testing.T) {
+func TestWorkerReadinessRequiresExactlyPlan02ContextTaskRegistrations(t *testing.T) {
 	registry, err := jobs.NewRegistry(jobs.Dependencies{ContextDocumentIndex: contextDocumentIndexStub{}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := requireContextTaskRegistrations(registry); err != nil {
 		t.Fatal(err)
+	}
+	var contextTypes []string
+	for _, taskType := range registry.Types() {
+		if strings.HasPrefix(taskType, "ai:context-") {
+			contextTypes = append(contextTypes, taskType)
+		}
+	}
+	want := []string{contextengine.TaskContextDocumentIndexV1, contextengine.TaskContextIndexCleanupV1, contextengine.TaskContextProfileRebuildV1}
+	slices.Sort(want)
+	if !slices.Equal(contextTypes, want) {
+		t.Fatalf("context task types=%v want=%v", contextTypes, want)
 	}
 }
 

@@ -242,6 +242,10 @@ func (index ProfileIndex) ValidateTransition(next ProfileIndex) error {
 			equalGeneration(next.TargetGeneration, index.TargetGeneration) {
 			return nil
 		}
+		if next.State == ProfileIndexFailed && next.ErrorCode != nil && *next.ErrorCode == ErrCodeIndexInconsistent &&
+			equalGeneration(next.ActiveGeneration, index.ActiveGeneration) && equalGeneration(next.TargetGeneration, index.TargetGeneration) {
+			return nil
+		}
 	case ProfileIndexFailed:
 		if next.State == ProfileIndexRebuilding && equalGeneration(next.ActiveGeneration, index.ActiveGeneration) &&
 			generationAfter(next.TargetGeneration, index.ActiveGeneration, index.TargetGeneration) {

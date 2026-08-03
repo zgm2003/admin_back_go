@@ -78,8 +78,8 @@ func TestContextReadinessSourcesSelectOnlyEnabledReadySpaceDocuments(t *testing.
 		t.Fatal(err)
 	}
 	mock.ExpectQuery("(?s)SELECT DISTINCT.*FROM ai_context_profiles AS p.*ai_context_document_versions AS v.*ORDER BY p.id ASC").
-		WillReturnRows(sqlmock.NewRows([]string{"profile_id", "index_generation", "dense_dimensions", "dense_distance"}).
-			AddRow(uint64(7), uint64(3), uint64(1536), "cosine"))
+		WillReturnRows(sqlmock.NewRows([]string{"profile_id", "index_generation", "index_state", "dense_dimensions", "dense_distance"}).
+			AddRow(uint64(7), uint64(3), "ready", uint64(1536), "cosine"))
 
 	collections, err := newGormContextSources(db).ActiveCollections(t.Context())
 	if err != nil {
@@ -88,6 +88,27 @@ func TestContextReadinessSourcesSelectOnlyEnabledReadySpaceDocuments(t *testing.
 	want := contextindex.ActiveCollection{ProfileID: 7, IndexGeneration: 3, DenseDimensions: 1536, DenseDistance: contextindex.DistanceCosine}
 	if len(collections) != 1 || collections[0] != want {
 		t.Fatalf("collections=%#v want=%#v", collections, want)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestContextReadinessFailsOnInconsistentActiveSourceProfile(t *testing.T) {
+	sqlDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	db, err := gorm.Open(mysql.New(mysql.Config{Conn: sqlDB, SkipInitializeWithVersion: true}), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock.ExpectQuery("(?s)SELECT DISTINCT.*FROM ai_context_profiles AS p.*ai_context_document_versions AS v.*ORDER BY p.id ASC").
+		WillReturnRows(sqlmock.NewRows([]string{"profile_id", "index_generation", "index_state", "dense_dimensions", "dense_distance"}).
+			AddRow(uint64(7), uint64(3), "failed", uint64(1536), "cosine"))
+	if _, err := newGormContextSources(db).ActiveCollections(t.Context()); err == nil {
+		t.Fatal("failed profile with an active source was reported ready")
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

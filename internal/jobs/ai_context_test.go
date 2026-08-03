@@ -2,6 +2,8 @@ package jobs
 
 import (
 	"encoding/json"
+	"slices"
+	"strings"
 	"testing"
 
 	"admin_back_go/internal/infra/taskqueue"
@@ -27,6 +29,24 @@ func TestContextTaskRegistrationUsesClosedDocumentIndexContract(t *testing.T) {
 	}
 	if len(payload) != 1 || payload["document_version_id"] != float64(9) {
 		t.Fatalf("payload=%v", payload)
+	}
+}
+
+func TestContextTaskRegistrationContainsExactlyPlan02Handlers(t *testing.T) {
+	registry, err := NewRegistry(Dependencies{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var contextTypes []string
+	for _, taskType := range registry.Types() {
+		if strings.HasPrefix(taskType, "ai:context-") {
+			contextTypes = append(contextTypes, taskType)
+		}
+	}
+	want := []string{TaskContextDocumentIndexV1, TaskContextIndexCleanupV1, TaskContextProfileRebuildV1}
+	slices.Sort(want)
+	if !slices.Equal(contextTypes, want) {
+		t.Fatalf("context task types=%v want=%v", contextTypes, want)
 	}
 }
 
