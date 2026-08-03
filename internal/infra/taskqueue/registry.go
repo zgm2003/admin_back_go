@@ -34,13 +34,14 @@ var versionedTaskType = regexp.MustCompile(`^[a-z0-9]+(?::[a-z0-9][a-z0-9-]*)*:v
 // Producers and consumers share its queue, retry, timeout, uniqueness, payload,
 // and handler policy instead of duplicating Asynq options across modules.
 type Definition struct {
-	Type      string
-	Queue     string
-	Timeout   time.Duration
-	MaxRetry  int
-	UniqueTTL time.Duration
-	Decode    func([]byte) (any, *apperror.Error)
-	Handle    func(context.Context, any) *apperror.Error
+	Type              string
+	Queue             string
+	Timeout           time.Duration
+	MaxRetry          int
+	UniqueTTL         time.Duration
+	Decode            func([]byte) (any, *apperror.Error)
+	Handle            func(context.Context, any) *apperror.Error
+	FinalizeExhausted func(context.Context, any, *apperror.Error) *apperror.Error
 }
 
 // Policy is the immutable producer-facing part of a task definition.
@@ -142,6 +143,12 @@ func (r *Registry) Handle(ctx context.Context, task Task) error {
 		return nil
 	}
 	if appErr.Retryable() {
+		if definition.FinalizeExhausted != nil && task.MaxRetry == definition.MaxRetry && task.Retry >= task.MaxRetry {
+			if finalizerErr := definition.FinalizeExhausted(ctx, payload, appErr); finalizerErr != nil {
+				return finalizerErr
+			}
+			return errors.Join(appErr, asynq.SkipRetry)
+		}
 		return appErr
 	}
 	return errors.Join(appErr, asynq.SkipRetry)

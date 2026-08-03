@@ -73,6 +73,63 @@ func TestRegistryKeepsRetryableFailureEligibleForRetry(t *testing.T) {
 	}
 }
 
+func TestRegistryFinalizesOnlyExhaustedRetryableFailure(t *testing.T) {
+	finalized := 0
+	registry := NewRegistry()
+	err := registry.Register(Definition{
+		Type: "widget:run:v1", Queue: QueueLow, Timeout: time.Minute, MaxRetry: 3,
+		Decode: func([]byte) (any, *apperror.Error) { return "decoded", nil },
+		Handle: func(context.Context, any) *apperror.Error {
+			return apperror.New("widget.down", apperror.CategoryDependency, http.StatusServiceUnavailable, apperror.Retryable, "", nil, "widget unavailable")
+		},
+		FinalizeExhausted: func(_ context.Context, decoded any, cause *apperror.Error) *apperror.Error {
+			if decoded != "decoded" || cause == nil || cause.Code != "widget.down" {
+				t.Fatalf("finalizer decoded=%#v cause=%#v", decoded, cause)
+			}
+			finalized++
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := registry.Handle(context.Background(), Task{Type: "widget:run:v1", Retry: 2, MaxRetry: 3})
+	if got == nil || errors.Is(got, asynq.SkipRetry) || finalized != 0 {
+		t.Fatalf("pre-exhaustion err=%v finalized=%d", got, finalized)
+	}
+	got = registry.Handle(context.Background(), Task{Type: "widget:run:v1", Retry: 3, MaxRetry: 3})
+	if !errors.Is(got, asynq.SkipRetry) || finalized != 1 {
+		t.Fatalf("exhausted err=%v finalized=%d", got, finalized)
+	}
+}
+
+func TestRegistryLeavesExhaustedFailureRetryableWhenFinalizerFails(t *testing.T) {
+	registry := NewRegistry()
+	err := registry.Register(Definition{
+		Type: "widget:run:v1", Queue: QueueLow, Timeout: time.Minute, MaxRetry: 3,
+		Decode: func([]byte) (any, *apperror.Error) { return "decoded", nil },
+		Handle: func(context.Context, any) *apperror.Error {
+			return apperror.New("widget.down", apperror.CategoryDependency, http.StatusServiceUnavailable, apperror.Retryable, "", nil, "widget unavailable")
+		},
+		FinalizeExhausted: func(context.Context, any, *apperror.Error) *apperror.Error {
+			return apperror.New("widget.finalize_failed", apperror.CategoryInternal, http.StatusInternalServerError, apperror.Retryable, "", nil, "finalize failed")
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := registry.Handle(context.Background(), Task{Type: "widget:run:v1", Retry: 3, MaxRetry: 3})
+	if got == nil || errors.Is(got, asynq.SkipRetry) {
+		t.Fatalf("failed finalizer must remain retryable for reconciler recovery, got %v", got)
+	}
+	var appErr *apperror.Error
+	if !errors.As(got, &appErr) || appErr.Code != "widget.finalize_failed" {
+		t.Fatalf("got %v want stable finalizer error", got)
+	}
+}
+
 func TestRegistryRejectsDuplicateAndInvalidDefinitions(t *testing.T) {
 	valid := Definition{
 		Type:     "widget:run:v1",
