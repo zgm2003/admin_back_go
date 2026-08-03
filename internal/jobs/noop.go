@@ -12,6 +12,7 @@ import (
 	"admin_back_go/internal/infra/scheduler"
 	"admin_back_go/internal/infra/taskqueue"
 	aichat "admin_back_go/internal/module/ai/chat"
+	"admin_back_go/internal/module/ai/contextengine"
 	aiimage "admin_back_go/internal/module/ai/image"
 	"admin_back_go/internal/module/ai/replycommand"
 	aitext "admin_back_go/internal/module/ai/text"
@@ -43,6 +44,7 @@ type Dependencies struct {
 	NotificationTaskService  notificationtask.JobService
 	PaymentService           payment.JobService
 	RealtimeRetentionService modulerealtime.JobService
+	ContextDocumentIndex     contextengine.DocumentIndexJobService
 }
 
 // ScheduleRegistrar is the worker-owned boundary used by job schedule
@@ -111,6 +113,7 @@ func NewRegistry(deps Dependencies) (*taskqueue.Registry, error) {
 		func() error {
 			return modulerealtime.RegisterTaskDefinitions(registry, deps.RealtimeRetentionService, logger)
 		},
+		func() error { return registerContextDocumentIndex(registry, deps.ContextDocumentIndex) },
 	} {
 		if err := register(); err != nil {
 			return nil, err

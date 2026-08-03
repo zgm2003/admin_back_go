@@ -13,8 +13,26 @@ import (
 
 	"admin_back_go/internal/config"
 	infrarealtime "admin_back_go/internal/infra/realtime"
+	"admin_back_go/internal/jobs"
 	"admin_back_go/internal/module/crontask"
 )
+
+func TestWorkerReadinessRequiresDocumentIndexContextTaskRegistration(t *testing.T) {
+	registry, err := jobs.NewRegistry(jobs.Dependencies{ContextDocumentIndex: contextDocumentIndexStub{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := requireContextTaskRegistrations(registry); err != nil {
+		t.Fatal(err)
+	}
+}
+
+type contextDocumentIndexStub struct{}
+
+func (contextDocumentIndexStub) IndexDocument(context.Context, uint64) error { return nil }
+func (contextDocumentIndexStub) FinalizeDocumentIndex(context.Context, uint64, string) error {
+	return nil
+}
 
 func TestNewWorkerValidatesSecretsWithoutOpeningResources(t *testing.T) {
 	runtime, err := NewWorker(config.Config{}, slog.Default())

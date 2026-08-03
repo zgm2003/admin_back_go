@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"admin_back_go/internal/infra/taskqueue"
 	"admin_back_go/internal/jobs"
 	aichat "admin_back_go/internal/module/ai/chat"
+	"admin_back_go/internal/module/ai/contextengine"
 	aiimage "admin_back_go/internal/module/ai/image"
 	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/replycommand"
@@ -159,7 +161,7 @@ func productionWorkerHooks(cfg config.Config, logger *slog.Logger, keys *secretk
 				return nil, errors.New("worker runtime queue graph is incomplete")
 			}
 			publisher := realtimePublisherForWorker(cfg, resources, recorder)
-			replyRunner, replyReconciler, textReconciler, imageReconciler, err := registerWorkerHandlers(cfg, logger, resources, providers, publisher, queueClient, queueMux)
+			replyRunner, replyReconciler, textReconciler, imageReconciler, contextReconciler, err := registerWorkerHandlers(cfg, logger, resources, providers, publisher, queueClient, queueMux)
 			if err != nil {
 				return nil, err
 			}
@@ -185,8 +187,16 @@ func productionWorkerHooks(cfg config.Config, logger *slog.Logger, keys *secretk
 				_ = runnerCleanup(context.WithoutCancel(ctx))
 				return nil, err
 			}
+			contextReconcilerCleanup, err := startReplyCommandPoller(ctx, contextReconciler, time.Second, 1, logger)
+			if err != nil {
+				_ = imageReconcilerCleanup(context.WithoutCancel(ctx))
+				_ = textReconcilerCleanup(context.WithoutCancel(ctx))
+				_ = reconcilerCleanup(context.WithoutCancel(ctx))
+				_ = runnerCleanup(context.WithoutCancel(ctx))
+				return nil, err
+			}
 			return func(ctx context.Context) error {
-				return errors.Join(imageReconcilerCleanup(ctx), textReconcilerCleanup(ctx), reconcilerCleanup(ctx), runnerCleanup(ctx))
+				return errors.Join(contextReconcilerCleanup(ctx), imageReconcilerCleanup(ctx), textReconcilerCleanup(ctx), reconcilerCleanup(ctx), runnerCleanup(ctx))
 			}, nil
 		},
 		startQueue: func(ctx context.Context) (CleanupFunc, error) {
@@ -254,7 +264,7 @@ func registerWorkerHandlers(
 	realtimePublisher infrarealtime.Publisher,
 	queueClient *taskqueue.Client,
 	queueMux *taskqueue.Mux,
-) (*replycommand.Runner, *replycommand.Reconciler, *aitext.Reconciler, *aiimage.Reconciler, error) {
+) (*replycommand.Runner, *replycommand.Reconciler, *aitext.Reconciler, *aiimage.Reconciler, *contextengine.DocumentIndexReconciler, error) {
 	realtimeEventRepository := modulerealtime.NewGormRepository(resources.DB, modulerealtime.DefaultRegistry())
 	realtimeEventSink := modulerealtime.NewDurableEventSink(realtimeEventRepository, realtimePublisher, logger)
 	realtimeRetentionService := modulerealtime.NewRetentionService(realtimeEventRepository)
@@ -269,7 +279,7 @@ func registerWorkerHandlers(
 		Provider: user.NewExportDataProvider(user.NewGormRepository(resources.DB)),
 	})
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 	exportTaskService := exporttask.NewService(
 		exporttask.NewGormRepository(resources.DB),
@@ -292,6 +302,15 @@ func registerWorkerHandlers(
 		aiChatObjectConfig,
 		storagecos.ObjectStreamerConfig{Enabled: true},
 	)
+	contextRepository := contextengine.NewIngestionRepository(resources.DB)
+	contextDocumentIndex := contextengine.NewDocumentIndexService(contextengine.DocumentIndexDependencies{
+		Repository:       contextRepository,
+		Objects:          storagecos.NewConditionalObjectReader(aiChatObjectConfig, storagecos.ObjectStreamerConfig{Enabled: true}),
+		Embeddings:       contextengine.NewEmbeddingResolver(resources.DB, providers.AIEmbeddingFactory, providers.Secretbox),
+		Index:            resources.Qdrant,
+		CollectionPrefix: cfg.Qdrant.CollectionPrefix,
+	})
+	contextEnqueuer := contextengine.NewDocumentVersionEnqueuer(queueClient)
 	aiTextTasks := aitext.NewGormStore(resources.DB)
 	aiToolRepository := aitool.NewGormRepository(resources.DB)
 	aiToolRuntime := aitool.NewService(aiToolRepository, aitool.DefaultExecutors(aiToolRepository))
@@ -302,11 +321,11 @@ func registerWorkerHandlers(
 	walletRepository := walletmodule.NewGormRepository(resources.DB)
 	paidChatExecutor := newPaidChatAttemptExecutor(resources.DB, walletRepository, replyRepository, realtimeEventSink)
 	if paidChatExecutor == nil {
-		return nil, nil, nil, nil, errors.New("worker paid AI Gateway dependencies are incomplete")
+		return nil, nil, nil, nil, nil, errors.New("worker paid AI Gateway dependencies are incomplete")
 	}
 	paidTextExecutor := newPaidTextTaskExecutor(resources.DB, walletRepository, aiTextTasks, providers.AIChatFactory, providers.AIToolFactory, providers.Secretbox)
 	if paidTextExecutor == nil {
-		return nil, nil, nil, nil, errors.New("worker paid AI text Gateway dependencies are incomplete")
+		return nil, nil, nil, nil, nil, errors.New("worker paid AI text Gateway dependencies are incomplete")
 	}
 	textWaker := aitext.NewWakeupEnqueuer(queueClient)
 	aiTextService := aitext.NewService(aitext.ServiceDependencies{Store: aiTextTasks, Waker: textWaker, Executor: paidTextExecutor})
@@ -327,7 +346,7 @@ func registerWorkerHandlers(
 		Logger:              logger,
 	})
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("build worker AI chat service: %w", err)
+		return nil, nil, nil, nil, nil, fmt.Errorf("build worker AI chat service: %w", err)
 	}
 	replyRunner := replycommand.NewRunner(replycommand.RunnerOptions{
 		Repository:       replyRepository,
@@ -339,7 +358,7 @@ func registerWorkerHandlers(
 	imageRepository := aiimage.NewGormRepository(resources.DB)
 	paidImageExecutor := newPaidImageTaskExecutor(resources.DB, walletRepository, imageRepository, providers.AIImageFactory, providers.Secretbox, providers.ObjectReader, providers.ObjectWriter)
 	if paidImageExecutor == nil {
-		return nil, nil, nil, nil, errors.New("worker paid AI image Gateway dependencies are incomplete")
+		return nil, nil, nil, nil, nil, errors.New("worker paid AI image Gateway dependencies are incomplete")
 	}
 	imageWaker := aiimage.NewWakeupEnqueuer(queueClient)
 	aiImageService := aiimage.NewService(aiimage.Dependencies{
@@ -371,18 +390,43 @@ func registerWorkerHandlers(
 		NotificationTaskService:  notificationTaskService,
 		PaymentService:           paymentService,
 		RealtimeRetentionService: realtimeRetentionService,
+		ContextDocumentIndex:     contextDocumentIndex,
 	})
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
+	}
+	if err := requireContextTaskRegistrations(registry); err != nil {
+		return nil, nil, nil, nil, nil, err
 	}
 	if err := queueMux.RegisterRegistry(registry); err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 	return replyRunner,
 		replycommand.NewReconciler(replycommand.ReconcilerOptions{Repository: replyRepository, Finalizer: paidChatExecutor}),
 		aitext.NewReconciler(aiTextTasks, textWaker, max(25, cfg.Queue.Concurrency)),
 		aiimage.NewReconciler(imageRepository, imageWaker, max(25, cfg.Queue.Concurrency)),
+		contextengine.NewDocumentIndexReconciler(contextRepository, contextEnqueuer, max(25, cfg.Queue.Concurrency), uint32(jobs.ContextDocumentIndexMaxRetry)),
 		nil
+}
+
+func requireContextTaskRegistrations(registry *taskqueue.Registry) error {
+	if registry == nil {
+		return errors.New("worker task registry is required")
+	}
+	found := false
+	for _, taskType := range registry.Types() {
+		if !strings.HasPrefix(taskType, "ai:context-") {
+			continue
+		}
+		if taskType != contextengine.TaskContextDocumentIndexV1 {
+			return fmt.Errorf("unexpected Context task registration: %s", taskType)
+		}
+		found = true
+	}
+	if !found {
+		return fmt.Errorf("required Context task is not registered: %s", contextengine.TaskContextDocumentIndexV1)
+	}
+	return nil
 }
 
 func newWorkerRuntimeWithHooks(hooks workerHooks) *WorkerRuntime {
