@@ -364,7 +364,7 @@ func (repository *GormAdminRepository) ListAgentContextSpaces(ctx context.Contex
 
 func (repository *GormAdminRepository) ReplaceAgentContextSpaces(ctx context.Context, agentID uint64, ids []uint64) error {
 	return repository.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Table("ai_context_bindings").Where("agent_id = ?", agentID).Delete(nil).Error; err != nil {
+		if err := tx.Exec("DELETE FROM ai_context_bindings WHERE agent_id = ?", agentID).Error; err != nil {
 			return err
 		}
 		if len(ids) == 0 {
