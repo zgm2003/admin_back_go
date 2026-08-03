@@ -134,12 +134,14 @@ func payloadSchemaType(fieldType qdrantapi.FieldType) qdrantapi.PayloadSchemaTyp
 func probeQueryBatchRRF(ctx context.Context, api readinessAPI, collectionName string, active contextindex.ActiveCollection) error {
 	limit := uint64(1)
 	using := denseVectorName
+	denseQuery := make([]float32, active.DenseDimensions)
+	denseQuery[0] = 1
 	filter := &qdrantapi.Filter{Must: []*qdrantapi.Condition{
 		qdrantapi.NewMatchInt("profile_id", int64(active.ProfileID)),
 		qdrantapi.NewMatchInt("index_generation", int64(active.IndexGeneration)),
 	}}
 	branch := &qdrantapi.PrefetchQuery{
-		Query:  qdrantapi.NewQueryDense(make([]float32, active.DenseDimensions)),
+		Query:  qdrantapi.NewQueryDense(denseQuery),
 		Using:  &using,
 		Filter: filter,
 		Limit:  &limit,
