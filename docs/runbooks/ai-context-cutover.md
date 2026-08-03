@@ -83,9 +83,9 @@ Require a non-empty dump, SHA-256, successful disposable restore, and identical 
 6. Apply migrations exactly in Atlas order. The protected release controller must provide `ADMIN_ATLAS_URL` from its secret store; never print it or save it in either repository.
 
 ```powershell
-docker run --rm --network admin-platform --volume "${PWD}/../..:/workspace:ro" --workdir /workspace <pinned-atlas-image> migrate status --dir file://database/migrations --url $env:ADMIN_ATLAS_URL
-docker run --rm --network admin-platform --volume "${PWD}/../..:/workspace:ro" --workdir /workspace <pinned-atlas-image> migrate apply --dir file://database/migrations --url $env:ADMIN_ATLAS_URL
-docker run --rm --network admin-platform --volume "${PWD}/../..:/workspace:ro" --workdir /workspace <pinned-atlas-image> migrate status --dir file://database/migrations --url $env:ADMIN_ATLAS_URL
+docker run --rm --network admin-platform --volume "${PWD}/../..:/workspace:ro" --workdir /workspace arigaio/atlas:0.38.0@sha256:9883fdf5290020022ad0ac91fe20b846d32f93c19f68dfd3cf3b327c3e1b7e1a migrate status --dir file://database/migrations --url $env:ADMIN_ATLAS_URL
+docker run --rm --network admin-platform --volume "${PWD}/../..:/workspace:ro" --workdir /workspace arigaio/atlas:0.38.0@sha256:9883fdf5290020022ad0ac91fe20b846d32f93c19f68dfd3cf3b327c3e1b7e1a migrate apply --dir file://database/migrations --url $env:ADMIN_ATLAS_URL
+docker run --rm --network admin-platform --volume "${PWD}/../..:/workspace:ro" --workdir /workspace arigaio/atlas:0.38.0@sha256:9883fdf5290020022ad0ac91fe20b846d32f93c19f68dfd3cf3b327c3e1b7e1a migrate status --dir file://database/migrations --url $env:ADMIN_ATLAS_URL
 ```
 
 The applied sequence must be `202608020101`, `202608020102`, then `202608020103`. The final status must be clean. Never start a new binary against a partially migrated schema.

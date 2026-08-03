@@ -93,9 +93,9 @@ object keys, signed URLs, credentials, unrestricted metadata, or raw Provider
 responses.
 
 The old Knowledge runtime and admin surface are retired. They are not an
-alternate runtime path and must not be reintroduced. The Qdrant server
-candidate is also not promoted into Compose until the explicit real-server
-capability gate records an immutable image digest.
+alternate runtime path and must not be reintroduced. The Qdrant state service
+uses only the immutable image digest recorded by the explicit real-server
+capability gate; every state Compose lifecycle command loads that image lock.
 
 The backend publishes `contracts/admin/v1` from the compiled runtime route
 registry. The bundle contains OpenAPI 3.1, operation access/audit policy, the

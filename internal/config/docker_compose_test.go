@@ -66,6 +66,39 @@ func TestQdrantCandidateVerifierContract(t *testing.T) {
 	}
 }
 
+func TestDockerPlatformLoadsPinnedQdrantImageForStateCompose(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join("..", "..", "scripts", "docker-platform.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(content)
+	if !strings.Contains(script, "$stateImageEnv = Join-Path $repoRoot 'deploy\\docker-state\\qdrant-image.env'") {
+		t.Fatal("docker platform script does not bind the Qdrant image lock")
+	}
+	const pinnedStateCompose = "'compose', '--env-file', $stateImageEnv, '-f', $stateCompose"
+	if strings.Count(script, pinnedStateCompose) != 4 {
+		t.Fatalf("state Compose must load the Qdrant image lock in every lifecycle action")
+	}
+}
+
+func TestDockerStabilityIncludesPinnedQdrantState(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join("..", "..", "scripts", "tests", "docker-stability.tests.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(content)
+	for _, fragment := range []string{
+		"$stateImageEnv = Join-Path $repoRoot 'deploy\\docker-state\\qdrant-image.env'",
+		"@('compose', '--env-file', $stateImageEnv, '-f', $stateCompose)",
+		"-Service qdrant",
+		"'--alias', 'qdrant'",
+	} {
+		if !strings.Contains(script, fragment) {
+			t.Fatalf("Docker stability script missing %q", fragment)
+		}
+	}
+}
+
 type composeContract struct {
 	Name     string                    `yaml:"name"`
 	Services map[string]composeService `yaml:"services"`
@@ -93,12 +126,13 @@ func TestDockerStateComposeOwnsStateServices(t *testing.T) {
 	if contract.Name != "admin-state" {
 		t.Fatalf("name=%q", contract.Name)
 	}
-	if len(contract.Services) != 2 {
+	if len(contract.Services) != 3 {
 		t.Fatalf("services=%v", contract.Services)
 	}
 
 	mysql, mysqlOK := contract.Services["mysql"]
 	redis, redisOK := contract.Services["redis"]
+	qdrant, qdrantOK := contract.Services["qdrant"]
 	if !mysqlOK || mysql.Image != "mysql:8.4.10" ||
 		!reflect.DeepEqual(mysql.Command, []string{"mysqld", "--sql-mode=NO_ENGINE_SUBSTITUTION"}) ||
 		!reflect.DeepEqual(mysql.Ports, []string{"127.0.0.1:${ADMIN_MYSQL_HOST_PORT:-33306}:3306"}) ||
@@ -109,6 +143,13 @@ func TestDockerStateComposeOwnsStateServices(t *testing.T) {
 		!reflect.DeepEqual(redis.Ports, []string{"127.0.0.1:${ADMIN_REDIS_HOST_PORT:-36379}:6379"}) ||
 		!reflect.DeepEqual(redis.Volumes, []string{"redis-data:/data"}) {
 		t.Fatal("invalid Redis contract")
+	}
+	if !qdrantOK || qdrant.Image != "${QDRANT_SERVER_IMAGE:?QDRANT_SERVER_IMAGE must be a tested tag@sha256 digest}" ||
+		!reflect.DeepEqual(qdrant.Ports, []string{"127.0.0.1:${ADMIN_QDRANT_HTTP_HOST_PORT:-36333}:6333", "127.0.0.1:${ADMIN_QDRANT_GRPC_HOST_PORT:-36334}:6334"}) ||
+		!reflect.DeepEqual(qdrant.Volumes, []string{"qdrant-data:/qdrant/storage"}) ||
+		len(qdrant.Healthcheck.Test) != 2 || qdrant.Healthcheck.Test[0] != "CMD-SHELL" ||
+		!strings.Contains(qdrant.Healthcheck.Test[1], "/readyz") {
+		t.Fatal("invalid Qdrant contract")
 	}
 	if contract.Networks["platform"].Name != "admin-platform" || contract.Networks["platform"].External {
 		t.Fatal("state must own admin-platform")
