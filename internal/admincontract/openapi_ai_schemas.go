@@ -74,7 +74,7 @@ func aiWorkflowSchemas() map[string]any {
 			"sources": arraySchema(schemaReference("AIMessageCitationSource")), "invalid_keys": arraySchema(stringSchema()),
 		}),
 		"AIMessageItem": closedObjectSchema(
-			[]string{"id", "role", "content_type", "content", "paired_message_id", "run_id", "liked", "delivery_state", "settlement_pending", "created_at", "updated_at"},
+			[]string{"id", "role", "content_type", "content", "paired_message_id", "run_id", "liked", "delivery_state", "settlement_pending", "context", "created_at", "updated_at"},
 			map[string]any{
 				"id":                 positiveIntegerSchema(),
 				"role":               integerEnumSchema(1, 2, 3),
