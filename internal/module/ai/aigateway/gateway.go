@@ -77,6 +77,7 @@ func (g *Gateway) AssembleAndQuote(ctx context.Context, req RunRequest) (Prepare
 	if err != nil {
 		return PreparedCall{}, err
 	}
+	call.ContextPlan = cloneContextPlanEvidence(req.ContextPlan)
 	call, err = canonicalPrepared(call)
 	if err != nil {
 		return PreparedCall{}, err
@@ -222,7 +223,7 @@ func (g *Gateway) ReserveAndPrepare(ctx context.Context, input ReserveAndPrepare
 		if err := g.deps.Quotes.ValidateQuote(ctx, locked.Run, call.RequestSHA256, call.Quote); err != nil {
 			return err
 		}
-		attempt := ProviderAttempt{RunID: input.RunID, AttemptNo: input.AttemptNo, IdempotencyKey: attemptKey(input.RunID, input.AttemptNo), PreparedRequest: append([]byte(nil), call.RequestBody...), RequestSHA256: call.RequestSHA256, Quote: call.Quote}
+		attempt := ProviderAttempt{RunID: input.RunID, AttemptNo: input.AttemptNo, IdempotencyKey: attemptKey(input.RunID, input.AttemptNo), PreparedRequest: append([]byte(nil), call.RequestBody...), RequestSHA256: call.RequestSHA256, Quote: call.Quote, ContextPlan: cloneContextPlanEvidence(call.ContextPlan)}
 		if locked.HoldTargetUnits > target {
 			target = locked.HoldTargetUnits
 		}
@@ -707,7 +708,16 @@ func attemptKey(runID int64, attemptNo uint32) string {
 func cloneAttempt(a ProviderAttempt) ProviderAttempt {
 	a.PreparedRequest = append([]byte(nil), a.PreparedRequest...)
 	a.Quote.UpperBoundItems = append([]billing.UsageItem(nil), a.Quote.UpperBoundItems...)
+	a.ContextPlan = cloneContextPlanEvidence(a.ContextPlan)
 	return a
+}
+
+func cloneContextPlanEvidence(plan *ContextPlanEvidence) *ContextPlanEvidence {
+	if plan == nil {
+		return nil
+	}
+	cloned := *plan
+	return &cloned
 }
 
 func preparedAssemblySeal(call PreparedCall, runID int64, fingerprint [32]byte) [32]byte {
@@ -715,6 +725,13 @@ func preparedAssemblySeal(call PreparedCall, runID int64, fingerprint [32]byte) 
 	_, _ = fmt.Fprintf(digest, "%d\x00", runID)
 	_, _ = digest.Write(fingerprint[:])
 	_, _ = digest.Write(call.RequestSHA256[:])
+	if call.ContextPlan == nil {
+		_, _ = digest.Write([]byte("no-context-plan\x00"))
+	} else {
+		_, _ = digest.Write([]byte("context-plan\x00"))
+		_, _ = fmt.Fprintf(digest, "%d\x00", call.ContextPlan.ID)
+		_, _ = digest.Write(call.ContextPlan.SHA256[:])
+	}
 	_, _ = digest.Write([]byte(quoteJSON(call.Quote)))
 	var seal [32]byte
 	copy(seal[:], digest.Sum(nil))
@@ -729,7 +746,7 @@ func validPreparedAssembly(call PreparedCall, run RunSnapshot) bool {
 }
 
 func validatePersistedAttempt(locked LockedRunCharge, attemptNo uint32, attempt ProviderAttempt) error {
-	canonical, err := canonicalPrepared(PreparedCall{RequestBody: attempt.PreparedRequest, RequestSHA256: attempt.RequestSHA256, Quote: attempt.Quote})
+	canonical, err := canonicalPrepared(PreparedCall{RequestBody: attempt.PreparedRequest, RequestSHA256: attempt.RequestSHA256, Quote: attempt.Quote, ContextPlan: attempt.ContextPlan})
 	if err != nil {
 		return err
 	}
@@ -757,7 +774,15 @@ func sameAttemptEvidence(left, right ProviderAttempt) bool {
 		left.IdempotencyKey == right.IdempotencyKey &&
 		bytes.Equal(left.PreparedRequest, right.PreparedRequest) &&
 		left.RequestSHA256 == right.RequestSHA256 &&
-		equalQuoteEvidence(left.Quote, right.Quote)
+		equalQuoteEvidence(left.Quote, right.Quote) &&
+		sameContextPlanEvidence(left.ContextPlan, right.ContextPlan)
+}
+
+func sameContextPlanEvidence(left, right *ContextPlanEvidence) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return left.ID == right.ID && left.SHA256 == right.SHA256
 }
 
 func isInsufficient(err error) bool {

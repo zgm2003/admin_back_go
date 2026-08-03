@@ -5,6 +5,7 @@ import (
 	"time"
 
 	infraai "admin_back_go/internal/infra/ai"
+	"admin_back_go/internal/module/ai/aigateway"
 	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/requestidentity"
 	airun "admin_back_go/internal/module/ai/run"
@@ -180,6 +181,7 @@ type PaidChatAttemptInput struct {
 	PrepareStartedAt   time.Time
 	CommandAttempt     uint
 	CommandMaxAttempts uint
+	ContextPlan        *aigateway.ContextPlanEvidence
 	Engine             infraai.Engine
 	ChatInput          infraai.ChatInput
 	Sink               infraai.EventSink

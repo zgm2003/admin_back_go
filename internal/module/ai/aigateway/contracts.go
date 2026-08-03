@@ -10,19 +10,34 @@ import (
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/module/ai/billing"
 	"admin_back_go/internal/module/ai/requestidentity"
+	"admin_back_go/internal/shared/apperror"
 )
 
 type RunRequest struct {
-	UserID    int64
-	RunID     int64
-	RequestID string
-	Identity  requestidentity.Input
+	UserID      int64
+	RunID       int64
+	RequestID   string
+	Identity    requestidentity.Input
+	ContextPlan *ContextPlanEvidence
+}
+
+type ContextPlanEvidence struct {
+	ID     uint64
+	SHA256 [32]byte
+}
+
+func (evidence ContextPlanEvidence) Validate() error {
+	if evidence.ID == 0 || evidence.SHA256 == ([32]byte{}) {
+		return errors.New("context plan evidence requires id and SHA-256")
+	}
+	return nil
 }
 
 type PreparedCall struct {
 	RequestBody         []byte
 	RequestSHA256       [32]byte
 	Quote               QuoteEvidence
+	ContextPlan         *ContextPlanEvidence
 	assemblyRunID       int64
 	assemblyFingerprint [32]byte
 	assemblySeal        [32]byte
@@ -55,6 +70,18 @@ type ProviderAttempt struct {
 	PreparedRequest []byte
 	RequestSHA256   [32]byte
 	Quote           QuoteEvidence
+	ContextPlan     *ContextPlanEvidence
+}
+
+type DispatchGuardInput struct {
+	RunID                 int64
+	AttemptNo             uint32
+	ContextPlan           ContextPlanEvidence
+	PreparedRequestSHA256 [32]byte
+}
+
+type DispatchGuard interface {
+	GuardDispatch(context.Context, DispatchGuardInput) *apperror.Error
 }
 
 type DispatchResult struct {
@@ -244,6 +271,13 @@ func gatewayError(code, message string, status int) error {
 
 func canonicalPrepared(call PreparedCall) (PreparedCall, error) {
 	call.RequestBody = append([]byte(nil), call.RequestBody...)
+	if call.ContextPlan != nil {
+		if err := call.ContextPlan.Validate(); err != nil {
+			return PreparedCall{}, gatewayError(ErrCodeInvalidPrepared, err.Error(), 400)
+		}
+		plan := *call.ContextPlan
+		call.ContextPlan = &plan
+	}
 	if len(call.RequestBody) == 0 {
 		return PreparedCall{}, gatewayError(ErrCodeInvalidPrepared, "prepared request body is required", 400)
 	}

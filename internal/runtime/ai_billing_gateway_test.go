@@ -15,9 +15,11 @@ import (
 	"admin_back_go/internal/infra/ai/openaicompat"
 	"admin_back_go/internal/infra/storage/cos"
 	"admin_back_go/internal/module/ai/aigateway"
+	"admin_back_go/internal/module/ai/billing"
 	aichat "admin_back_go/internal/module/ai/chat"
 	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/pricing"
+	"admin_back_go/internal/module/ai/replycommand"
 	"admin_back_go/internal/shared/apperror"
 )
 
@@ -152,6 +154,60 @@ func TestClonePaidChatInputDeepCopiesTypedRequest(t *testing.T) {
 		input.Tools[0].Parameters["properties"].(map[string]any)["id"].(map[string]any)["type"] != "integer" ||
 		input.ToolCalls[0].Name != "lookup" || input.ToolOutputs[0].Output != "one" || input.Continuation.Items[0] != '[' {
 		t.Fatalf("clone mutated original input: %#v", input)
+	}
+}
+
+func TestGatewayAttemptFromRowPreservesContextPlanEvidence(t *testing.T) {
+	request := `{"model":"gpt-test"}`
+	requestHash := sha256.Sum256([]byte(request))
+	planHash := sha256.Sum256([]byte("ready plan"))
+	planID := uint64(91)
+	quote := aigateway.QuoteEvidence{PricingVersion: "v1", EffectiveMaxOutputTokens: 10, CurrentCallMaxUnits: 25, TargetHoldUnits: 25, UpperBoundItems: []billing.UsageItem{{Category: billing.UsageCategoryInputText, Unit: "token", Quantity: 1}}}
+	quote.PreparedRequestSHA256 = requestHash
+	quoteJSON, err := json.Marshal(quote)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := replycommand.Attempt{
+		ID: 71, RunID: 44, AttemptNo: 1, IdempotencyKey: strings.Repeat("a", 64),
+		PreparedRequestJSON: request, PreparedRequestSHA256: requestHash[:], QuoteJSON: string(quoteJSON),
+		ContextPlanID: &planID, ContextPlanSHA256: planHash[:],
+	}
+
+	attempt, err := gatewayAttemptFromRow(row)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attempt.ContextPlan == nil || attempt.ContextPlan.ID != planID || attempt.ContextPlan.SHA256 != planHash {
+		t.Fatalf("attempt=%+v", attempt)
+	}
+}
+
+func TestGatewayAttemptFromRowRejectsPartialContextPlanEvidence(t *testing.T) {
+	request := `{"model":"gpt-test"}`
+	requestHash := sha256.Sum256([]byte(request))
+	planID := uint64(91)
+	quote := aigateway.QuoteEvidence{PricingVersion: "v1", EffectiveMaxOutputTokens: 10, CurrentCallMaxUnits: 25, TargetHoldUnits: 25, UpperBoundItems: []billing.UsageItem{{Category: billing.UsageCategoryInputText, Unit: "token", Quantity: 1}}}
+	quote.PreparedRequestSHA256 = requestHash
+	quoteJSON, err := json.Marshal(quote)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := replycommand.Attempt{
+		ID: 71, RunID: 44, AttemptNo: 1, IdempotencyKey: strings.Repeat("a", 64),
+		PreparedRequestJSON: request, PreparedRequestSHA256: requestHash[:], QuoteJSON: string(quoteJSON),
+	}
+	for _, row := range []replycommand.Attempt{
+		func() replycommand.Attempt { row := base; row.ContextPlanID = &planID; return row }(),
+		func() replycommand.Attempt {
+			row := base
+			row.ContextPlanSHA256 = make([]byte, sha256.Size)
+			return row
+		}(),
+	} {
+		if _, err := gatewayAttemptFromRow(row); err == nil {
+			t.Fatalf("partial context plan evidence was accepted: %+v", row)
+		}
 	}
 }
 

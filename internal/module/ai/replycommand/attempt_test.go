@@ -1,6 +1,7 @@
 package replycommand
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	infraai "admin_back_go/internal/infra/ai"
+	"admin_back_go/internal/module/ai/aigateway"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"gorm.io/driver/mysql"
@@ -263,6 +265,118 @@ func TestPrepareStartedAtIsPersistedOnlyWithHeldAttempt(t *testing.T) {
 	attempt, ok, err := repository.PreparePaidAttemptInTransaction(context.Background(), tx, input)
 	if err != nil || !ok || attempt == nil || attempt.PrepareStartedAt == nil || !attempt.PrepareStartedAt.Equal(prepareStartedAt) {
 		t.Fatalf("attempt=%+v ok=%v err=%v", attempt, ok, err)
+	}
+	mock.ExpectRollback()
+	if err := tx.Rollback().Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPreparePaidAttemptPersistsContextPlanEvidence(t *testing.T) {
+	repository, root, mock, closeDB := newAttemptMockRepository(t)
+	defer closeDB()
+	planHash := sha256.Sum256([]byte("ready plan"))
+	input := validPaidPrepareInput()
+	input.ContextPlan = &aigateway.ContextPlanEvidence{ID: 91, SHA256: planHash}
+
+	mock.ExpectBegin()
+	tx := root.Begin()
+	if tx.Error != nil {
+		t.Fatal(tx.Error)
+	}
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `ai_provider_attempts` WHERE attempt_no = ? AND run_id = ? ORDER BY `ai_provider_attempts`.`id` LIMIT ?")).
+		WithArgs(uint(1), int64(44), 1).
+		WillReturnError(gorm.ErrRecordNotFound)
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `ai_context_plans` WHERE id = ? ORDER BY `ai_context_plans`.`id` LIMIT ?")).
+		WithArgs(uint64(91), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "run_id", "state", "plan_sha256"}).AddRow(uint64(91), uint64(44), "ready", planHash[:]))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT COALESCE(MAX(attempt_no), 0) FROM `ai_provider_attempts` WHERE run_id = ?")).
+		WithArgs(int64(44)).
+		WillReturnRows(sqlmock.NewRows([]string{"COALESCE(MAX(attempt_no), 0)"}).AddRow(0))
+	mock.ExpectExec("INSERT INTO `ai_provider_attempts`").WillReturnResult(sqlmock.NewResult(71, 1))
+
+	attempt, ok, err := repository.PreparePaidAttemptInTransaction(context.Background(), tx, input)
+	if err != nil || !ok || attempt == nil || attempt.ContextPlanID == nil || *attempt.ContextPlanID != 91 || !bytes.Equal(attempt.ContextPlanSHA256, planHash[:]) {
+		t.Fatalf("attempt=%+v ok=%v err=%v", attempt, ok, err)
+	}
+	mock.ExpectRollback()
+	if err := tx.Rollback().Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestValidateContextPlanEvidenceInTransactionRejectsRecoveryConflicts(t *testing.T) {
+	planHash := sha256.Sum256([]byte("ready plan"))
+	otherHash := sha256.Sum256([]byte("other plan"))
+	for _, test := range []struct {
+		name  string
+		runID uint64
+		state string
+		hash  []byte
+	}{
+		{name: "wrong run", runID: 45, state: "ready", hash: planHash[:]},
+		{name: "failed plan", runID: 44, state: "failed", hash: planHash[:]},
+		{name: "wrong hash", runID: 44, state: "ready", hash: otherHash[:]},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, root, mock, closeDB := newAttemptMockRepository(t)
+			defer closeDB()
+			mock.ExpectBegin()
+			tx := root.Begin()
+			if tx.Error != nil {
+				t.Fatal(tx.Error)
+			}
+			mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `ai_context_plans` WHERE id = ? ORDER BY `ai_context_plans`.`id` LIMIT ?")).
+				WithArgs(uint64(91), 1).
+				WillReturnRows(sqlmock.NewRows([]string{"id", "run_id", "state", "plan_sha256"}).AddRow(uint64(91), test.runID, test.state, test.hash))
+
+			err := ValidateContextPlanEvidenceInTransaction(context.Background(), tx, 44, &aigateway.ContextPlanEvidence{ID: 91, SHA256: planHash})
+			if err == nil {
+				t.Fatal("conflicting context plan recovery was accepted")
+			}
+			mock.ExpectRollback()
+			if err := tx.Rollback().Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestPreparePaidAttemptRejectsContextPlanOverwrite(t *testing.T) {
+	repository, root, mock, closeDB := newAttemptMockRepository(t)
+	defer closeDB()
+	input := validPaidPrepareInput()
+	input.ContextPlan = &aigateway.ContextPlanEvidence{ID: 91, SHA256: sha256.Sum256([]byte("plan-a"))}
+	persistedPlanHash := sha256.Sum256([]byte("plan-b"))
+	persistedPlanID := uint64(92)
+
+	mock.ExpectBegin()
+	tx := root.Begin()
+	if tx.Error != nil {
+		t.Fatal(tx.Error)
+	}
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `ai_provider_attempts` WHERE attempt_no = ? AND run_id = ? ORDER BY `ai_provider_attempts`.`id` LIMIT ?")).
+		WithArgs(uint(1), int64(44), 1).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "run_id", "attempt_no", "idempotency_key", "prepared_request_json",
+			"prepared_request_sha256", "quote_json", "context_plan_id", "context_plan_sha256",
+		}).AddRow(
+			uint64(71), int64(44), uint(1), input.IdempotencyKey, input.PreparedRequestJSON,
+			input.PreparedRequestSHA256[:], input.QuoteJSON, persistedPlanID, persistedPlanHash[:],
+		))
+
+	attempt, ok, err := repository.PreparePaidAttemptInTransaction(context.Background(), tx, input)
+	if err == nil || ok || attempt != nil {
+		t.Fatalf("context plan overwrite attempt=%+v ok=%v err=%v", attempt, ok, err)
 	}
 	mock.ExpectRollback()
 	if err := tx.Rollback().Error; err != nil {

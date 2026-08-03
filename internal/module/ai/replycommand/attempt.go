@@ -13,6 +13,7 @@ import (
 	"time"
 
 	infraai "admin_back_go/internal/infra/ai"
+	"admin_back_go/internal/module/ai/aigateway"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -39,6 +40,8 @@ type Attempt struct {
 	PreparedRequestJSON   string       `gorm:"column:prepared_request_json"`
 	PreparedRequestSHA256 []byte       `gorm:"column:prepared_request_sha256"`
 	QuoteJSON             string       `gorm:"column:quote_json"`
+	ContextPlanID         *uint64      `gorm:"column:context_plan_id"`
+	ContextPlanSHA256     []byte       `gorm:"column:context_plan_sha256"`
 	UsageJSON             string       `gorm:"column:usage_json"`
 	UsageStatus           string       `gorm:"column:usage_status"`
 	DispatchState         string       `gorm:"column:dispatch_state"`
@@ -68,6 +71,7 @@ type PrepareAttemptInput struct {
 	PreparedRequestJSON   string
 	PreparedRequestSHA256 [32]byte
 	QuoteJSON             string
+	ContextPlan           *aigateway.ContextPlanEvidence
 }
 
 type LegacyPrepareAttemptInput struct {
@@ -164,6 +168,9 @@ func (r *GormRepository) prepareAttempt(ctx context.Context, input PrepareAttemp
 	if input.QuoteJSON != "" && !json.Valid([]byte(input.QuoteJSON)) {
 		return nil, false, errors.New("quote evidence must be valid JSON")
 	}
+	if err := validateContextPlanEvidence(input.ContextPlan); err != nil {
+		return nil, false, err
+	}
 	var attempt *Attempt
 	apply := func(tx *gorm.DB) error {
 		if input.CommandID > 0 {
@@ -205,11 +212,24 @@ func (r *GormRepository) prepareAttempt(ctx context.Context, input PrepareAttemp
 				if input.IdempotencyKey != "" && existing.IdempotencyKey != input.IdempotencyKey {
 					return errors.New("prepared attempt idempotency key conflicts with existing row")
 				}
+				persistedPlan, err := ContextPlanEvidenceFromAttempt(existing)
+				if err != nil {
+					return err
+				}
+				if !sameContextPlanEvidence(persistedPlan, input.ContextPlan) {
+					return errors.New("prepared attempt context plan conflicts with existing row")
+				}
+				if err := requireReadyContextPlan(ctx, tx, input.RunID, input.ContextPlan); err != nil {
+					return err
+				}
 				attempt = &existing
 				return nil
 			} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 				return err
 			}
+		}
+		if err := requireReadyContextPlan(ctx, tx, input.RunID, input.ContextPlan); err != nil {
+			return err
 		}
 		if err := attemptQuery.Select("COALESCE(MAX(attempt_no), 0)").Scan(&maxAttempt).Error; err != nil {
 			return err
@@ -240,6 +260,13 @@ func (r *GormRepository) prepareAttempt(ctx context.Context, input PrepareAttemp
 			value := input.CommandID
 			commandID = &value
 		}
+		var contextPlanID *uint64
+		var contextPlanSHA256 []byte
+		if input.ContextPlan != nil {
+			value := input.ContextPlan.ID
+			contextPlanID = &value
+			contextPlanSHA256 = append([]byte(nil), input.ContextPlan.SHA256[:]...)
+		}
 		row := &Attempt{
 			RunID:                 input.RunID,
 			CommandID:             commandID,
@@ -249,6 +276,8 @@ func (r *GormRepository) prepareAttempt(ctx context.Context, input PrepareAttemp
 			PreparedRequestJSON:   prepared,
 			PreparedRequestSHA256: append([]byte(nil), preparedHash[:]...),
 			QuoteJSON:             quote,
+			ContextPlanID:         contextPlanID,
+			ContextPlanSHA256:     contextPlanSHA256,
 			UsageJSON:             `{"status":"unavailable"}`,
 			UsageStatus:           "unavailable",
 			DispatchState:         infraai.DispatchStateNotDispatched,
@@ -279,6 +308,83 @@ func optionalAttemptTime(value time.Time) *time.Time {
 		return nil
 	}
 	return &value
+}
+
+type attemptContextPlanRow struct {
+	ID         uint64 `gorm:"column:id;primaryKey"`
+	RunID      uint64 `gorm:"column:run_id"`
+	State      string `gorm:"column:state"`
+	PlanSHA256 []byte `gorm:"column:plan_sha256"`
+}
+
+func (attemptContextPlanRow) TableName() string { return "ai_context_plans" }
+
+func validateContextPlanEvidence(plan *aigateway.ContextPlanEvidence) error {
+	if plan == nil {
+		return nil
+	}
+	return plan.Validate()
+}
+
+func ValidateContextPlanEvidenceInTransaction(ctx context.Context, tx *gorm.DB, runID int64, plan *aigateway.ContextPlanEvidence) error {
+	if err := requireAttemptTransaction(tx); err != nil {
+		return err
+	}
+	if err := validateContextPlanEvidence(plan); err != nil {
+		return err
+	}
+	return requireReadyContextPlan(ctx, tx, runID, plan)
+}
+
+func requireReadyContextPlan(ctx context.Context, tx *gorm.DB, runID int64, plan *aigateway.ContextPlanEvidence) error {
+	if plan == nil {
+		return nil
+	}
+	var row attemptContextPlanRow
+	if err := tx.WithContext(ctx).Where("id = ?", plan.ID).First(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errors.New("context plan evidence not found")
+		}
+		return err
+	}
+	if runID <= 0 || row.RunID != uint64(runID) {
+		return errors.New("context plan belongs to a different run")
+	}
+	if row.State != "ready" {
+		return errors.New("context plan is not ready")
+	}
+	if !bytes.Equal(row.PlanSHA256, plan.SHA256[:]) {
+		return errors.New("context plan hash mismatch")
+	}
+	return nil
+}
+
+func ContextPlanEvidenceFromAttempt(attempt Attempt) (*aigateway.ContextPlanEvidence, error) {
+	hasID := attempt.ContextPlanID != nil
+	hasHash := len(attempt.ContextPlanSHA256) != 0
+	if hasID != hasHash {
+		return nil, errors.New("persisted context plan evidence is incomplete")
+	}
+	if !hasID {
+		return nil, nil
+	}
+	if len(attempt.ContextPlanSHA256) != sha256.Size {
+		return nil, errors.New("persisted context plan hash has invalid length")
+	}
+	var digest [sha256.Size]byte
+	copy(digest[:], attempt.ContextPlanSHA256)
+	plan := &aigateway.ContextPlanEvidence{ID: *attempt.ContextPlanID, SHA256: digest}
+	if err := validateContextPlanEvidence(plan); err != nil {
+		return nil, err
+	}
+	return plan, nil
+}
+
+func sameContextPlanEvidence(left, right *aigateway.ContextPlanEvidence) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return left.ID == right.ID && left.SHA256 == right.SHA256
 }
 
 func requireAttemptTransaction(tx *gorm.DB) error {

@@ -59,6 +59,8 @@ type ProviderAttempt struct {
 	PreparedRequestJSON   string        `gorm:"column:prepared_request_json"`
 	PreparedRequestSHA256 []byte        `gorm:"column:prepared_request_sha256"`
 	QuoteJSON             string        `gorm:"column:quote_json"`
+	ContextPlanID         *uint64       `gorm:"column:context_plan_id"`
+	ContextPlanSHA256     []byte        `gorm:"column:context_plan_sha256"`
 	UsageJSON             string        `gorm:"column:usage_json"`
 	UsageStatus           UsageStatus   `gorm:"column:usage_status"`
 	DispatchState         DispatchState `gorm:"column:dispatch_state"`

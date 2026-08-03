@@ -156,7 +156,7 @@ func (executor *paidChatAttemptExecutor) ExecutePaidChatAttempt(ctx context.Cont
 		attempt, err = gateway.ReserveAndPrepare(ctx, aigateway.ReserveAndPrepareInput{RunID: input.RunID, AttemptNo: attemptNo})
 	} else {
 		call, assembleErr := gateway.AssembleAndQuote(ctx, aigateway.RunRequest{
-			UserID: input.RequestIdentity.UserID, RunID: input.RunID, RequestID: input.RequestID, Identity: input.RequestIdentity,
+			UserID: input.RequestIdentity.UserID, RunID: input.RunID, RequestID: input.RequestID, Identity: input.RequestIdentity, ContextPlan: input.ContextPlan,
 		})
 		if assembleErr != nil {
 			if mustFinalizePreDispatchError(input, assembleErr) {
@@ -1082,7 +1082,7 @@ func (store gormGatewayAttemptStore) PutPrepared(ctx context.Context, transactio
 		prepared, ok, prepareErr := store.repository.PreparePaidAttemptInTransaction(ctx, tx, replycommand.PrepareAttemptInput{
 			RunID: attempt.RunID, CommandID: store.commandID, AttemptNo: uint(attempt.AttemptNo),
 			Owner: store.owner, Token: store.token, Now: time.Now(), PrepareStartedAt: store.prepareStartedAt, IdempotencyKey: attempt.IdempotencyKey,
-			PreparedRequestJSON: string(attempt.PreparedRequest), PreparedRequestSHA256: attempt.RequestSHA256, QuoteJSON: string(quoteJSON),
+			PreparedRequestJSON: string(attempt.PreparedRequest), PreparedRequestSHA256: attempt.RequestSHA256, QuoteJSON: string(quoteJSON), ContextPlan: attempt.ContextPlan,
 		})
 		if prepareErr != nil {
 			return aigateway.PreparedWriteResult{}, prepareErr
@@ -1094,6 +1094,9 @@ func (store gormGatewayAttemptStore) PutPrepared(ctx context.Context, transactio
 	} else {
 		if store.textTaskID == 0 {
 			return aigateway.PreparedWriteResult{}, aigateway.ErrNotConfigured
+		}
+		if attempt.ContextPlan != nil {
+			return aigateway.PreparedWriteResult{}, errors.New("context plan evidence is only valid for chat attempts")
 		}
 		var task aitext.TextTask
 		if err := tx.WithContext(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).
@@ -1145,6 +1148,13 @@ func (store gormGatewayAttemptStore) getAttemptForUpdate(ctx context.Context, tr
 			return aigateway.ProviderAttempt{}, aigateway.ErrNotFound
 		}
 		return aigateway.ProviderAttempt{}, err
+	}
+	contextPlan, err := replycommand.ContextPlanEvidenceFromAttempt(row)
+	if err != nil {
+		return aigateway.ProviderAttempt{}, fmt.Errorf("%w: %v", errPersistedPaidAttemptEvidence, err)
+	}
+	if err := replycommand.ValidateContextPlanEvidenceInTransaction(ctx, tx, row.RunID, contextPlan); err != nil {
+		return aigateway.ProviderAttempt{}, fmt.Errorf("%w: %v", errPersistedPaidAttemptEvidence, err)
 	}
 	return gatewayAttemptFromRow(row)
 }
@@ -1286,11 +1296,15 @@ func gatewayAttemptFromRow(row replycommand.Attempt) (aigateway.ProviderAttempt,
 	if err != nil {
 		return aigateway.ProviderAttempt{}, fmt.Errorf("%w: %v", errPersistedPaidAttemptEvidence, err)
 	}
+	contextPlan, err := replycommand.ContextPlanEvidenceFromAttempt(row)
+	if err != nil {
+		return aigateway.ProviderAttempt{}, fmt.Errorf("%w: %v", errPersistedPaidAttemptEvidence, err)
+	}
 	var requestHash [sha256.Size]byte
 	copy(requestHash[:], row.PreparedRequestSHA256)
 	return aigateway.ProviderAttempt{
 		AttemptID: row.ID, RunID: row.RunID, AttemptNo: uint32(row.AttemptNo), IdempotencyKey: strings.TrimSpace(row.IdempotencyKey),
-		PreparedRequest: []byte(row.PreparedRequestJSON), RequestSHA256: requestHash, Quote: quote,
+		PreparedRequest: []byte(row.PreparedRequestJSON), RequestSHA256: requestHash, Quote: quote, ContextPlan: contextPlan,
 	}, nil
 }
 

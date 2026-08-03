@@ -81,12 +81,51 @@ func TestCanonicalPreparedRejectsQuoteBoundToDifferentRequest(t *testing.T) {
 	}
 }
 
+func TestCanonicalPreparedRejectsInvalidContextPlanEvidence(t *testing.T) {
+	body := []byte(`{"model":"gpt-test"}`)
+	for _, plan := range []*ContextPlanEvidence{
+		{SHA256: sha256.Sum256([]byte("plan"))},
+		{ID: 91},
+	} {
+		if _, err := canonicalPrepared(PreparedCall{RequestBody: body, ContextPlan: plan, Quote: validQuote(5)}); err == nil {
+			t.Fatalf("invalid context plan was accepted: %+v", plan)
+		}
+	}
+}
+
 func validAttempt(runID int64, attemptNo uint32, target int64) ProviderAttempt {
 	body := []byte(`{"model":"x"}`)
 	hash := sha256.Sum256(body)
 	quote := validQuote(target)
 	quote.PreparedRequestSHA256 = hash
 	return ProviderAttempt{RunID: runID, AttemptNo: attemptNo, IdempotencyKey: attemptKey(runID, attemptNo), PreparedRequest: body, RequestSHA256: hash, Quote: quote}
+}
+
+func TestSameAttemptEvidenceIncludesContextPlan(t *testing.T) {
+	planHash := sha256.Sum256([]byte("plan"))
+	left := validAttempt(44, 1, 25)
+	left.ContextPlan = &ContextPlanEvidence{ID: 91, SHA256: planHash}
+	right := cloneAttempt(left)
+	right.ContextPlan = &ContextPlanEvidence{ID: 92, SHA256: planHash}
+
+	if sameAttemptEvidence(left, right) {
+		t.Fatal("different Context Plan IDs compared equal")
+	}
+}
+
+func TestPreparedAssemblySealIncludesContextPlan(t *testing.T) {
+	fingerprint := sha256.Sum256([]byte("input"))
+	call := PreparedCall{
+		RequestSHA256: sha256.Sum256([]byte(`{"model":"gpt-test"}`)),
+		ContextPlan:   &ContextPlanEvidence{ID: 91, SHA256: sha256.Sum256([]byte("plan-a"))},
+		Quote:         validQuote(44),
+	}
+	left := preparedAssemblySeal(call, 44, fingerprint)
+	call.ContextPlan = &ContextPlanEvidence{ID: 91, SHA256: sha256.Sum256([]byte("plan-b"))}
+
+	if right := preparedAssemblySeal(call, 44, fingerprint); left == right {
+		t.Fatal("assembly seal ignored Context Plan hash")
+	}
 }
 
 type testReserve struct {
@@ -534,6 +573,31 @@ func TestGatewayRejectsFingerprintConflictBeforeProvider(t *testing.T) {
 	}
 	if assembler.calls != 1 {
 		t.Fatalf("assembler calls=%d, want 1", assembler.calls)
+	}
+}
+
+func TestGatewayAssembleAndQuoteCopiesContextPlanEvidence(t *testing.T) {
+	identity := requestIdentity("context plan")
+	fingerprint := requestFingerprint(identity)
+	plan := &ContextPlanEvidence{ID: 91, SHA256: sha256.Sum256([]byte("ready plan"))}
+	gateway := New(Dependencies{
+		Assembler: &testAssembler{},
+		Quotes:    testQuoteValidator{},
+		Runs:      immutableRunStore{snapshot: RunSnapshot{RunID: 41, UserID: 7, RequestID: "r41", RequestFingerprint: fingerprint}},
+	})
+
+	call, err := gateway.AssembleAndQuote(context.Background(), RunRequest{
+		RunID: 41, UserID: 7, RequestID: "r41", Identity: identity, ContextPlan: plan,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if call.ContextPlan == nil || call.ContextPlan.ID != plan.ID || call.ContextPlan.SHA256 != plan.SHA256 {
+		t.Fatalf("prepared call=%+v", call)
+	}
+	plan.ID = 92
+	if call.ContextPlan.ID != 91 {
+		t.Fatal("prepared call retained the mutable request pointer")
 	}
 }
 
