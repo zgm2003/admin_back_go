@@ -10,22 +10,32 @@ import (
 )
 
 type DocumentIndexReconciler struct {
-	repository             IngestionRepository
-	enqueuer               *QueueDocumentVersionEnqueuer
-	batchSize              int
-	maxAttempts            uint32
-	consistencyRepository  ProfileIndexConsistencyRepository
-	index                  IndexLifecycle
-	collectionPrefix       string
-	conversationRepository ConversationIndexRepairRepository
-	conversationEnqueuer   *QueueConversationTurnEnqueuer
-	conversationAfterRunID uint64
+	repository                 IngestionRepository
+	enqueuer                   *QueueDocumentVersionEnqueuer
+	batchSize                  int
+	maxAttempts                uint32
+	consistencyRepository      ProfileIndexConsistencyRepository
+	index                      IndexLifecycle
+	collectionPrefix           string
+	conversationRepository     ConversationIndexRepairRepository
+	conversationEnqueuer       *QueueConversationTurnEnqueuer
+	conversationAfterRunID     uint64
+	conversationDocuments      ConversationDocumentRepairRepository
+	conversationEnsurer        ConversationDocumentEnsurer
+	conversationAfterMessageID uint64
 }
 
 func WithConversationIndexRepair(repository ConversationIndexRepairRepository, enqueuer *QueueConversationTurnEnqueuer) DocumentIndexReconcilerOption {
 	return func(reconciler *DocumentIndexReconciler) {
 		reconciler.conversationRepository = repository
 		reconciler.conversationEnqueuer = enqueuer
+	}
+}
+
+func WithConversationDocumentRepair(repository ConversationDocumentRepairRepository, ensurer ConversationDocumentEnsurer) DocumentIndexReconcilerOption {
+	return func(reconciler *DocumentIndexReconciler) {
+		reconciler.conversationDocuments = repository
+		reconciler.conversationEnsurer = ensurer
 	}
 }
 
@@ -89,7 +99,31 @@ func (reconciler *DocumentIndexReconciler) reconcile(ctx context.Context, now ti
 		return len(candidates) > 0 || consistent, err
 	}
 	conversationWorked, err := reconciler.reconcileConversationIndexes(ctx)
-	return len(candidates) > 0 || consistent || conversationWorked, err
+	if err != nil {
+		return len(candidates) > 0 || consistent || conversationWorked, err
+	}
+	attachmentWorked, err := reconciler.reconcileConversationDocuments(ctx)
+	return len(candidates) > 0 || consistent || conversationWorked || attachmentWorked, err
+}
+
+func (reconciler *DocumentIndexReconciler) reconcileConversationDocuments(ctx context.Context) (bool, error) {
+	if reconciler.conversationDocuments == nil && reconciler.conversationEnsurer == nil {
+		return false, nil
+	}
+	if reconciler.conversationDocuments == nil || reconciler.conversationEnsurer == nil {
+		return false, errors.New("conversation document reconciler is not configured")
+	}
+	messageIDs, next, err := reconciler.conversationDocuments.ListConversationAttachmentMessageIDs(ctx, reconciler.conversationAfterMessageID, reconciler.batchSize)
+	if err != nil {
+		return false, err
+	}
+	for _, messageID := range messageIDs {
+		if err := reconciler.conversationEnsurer.EnsureConversationDocuments(ctx, messageID); err != nil {
+			return false, err
+		}
+	}
+	reconciler.conversationAfterMessageID = next
+	return len(messageIDs) > 0, nil
 }
 
 func (reconciler *DocumentIndexReconciler) reconcileConversationIndexes(ctx context.Context) (bool, error) {

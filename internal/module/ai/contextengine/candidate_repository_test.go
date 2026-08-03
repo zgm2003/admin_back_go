@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"admin_back_go/internal/infra/contextindex"
+	"admin_back_go/internal/shared/enum"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/google/uuid"
@@ -27,7 +28,7 @@ func TestCandidateAuthorityUsesFixedProfileAndDocumentBatches(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "embedding_max_input_tokens", "embedding_token_counter_id", "status", "active_index_generation", "index_state"}).
 			AddRow(uint64(7), int64(4096), "utf8_bytes_v1", ProfileEnabled, active, ProfileIndexReady))
 	mock.ExpectQuery(`SELECT .* FROM ai_context_chunks AS chunk .* LEFT JOIN ai_context_bindings AS binding .* WHERE chunk.id IN \(\?\)`).
-		WithArgs(uint64(9), uint64(41)).
+		WithArgs(uint64(9), enum.CommonNo, uint64(41)).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"chunk_id", "document_version_id", "ordinal", "content", "content_sha256", "chunk_facts_sha256", "embedding_input_token_upper_bound", "locator_json",
 			"version_profile_id", "version_state", "document_id", "document_title", "document_space_id", "document_conversation_id", "document_active_version_id",

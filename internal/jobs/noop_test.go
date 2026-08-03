@@ -11,6 +11,7 @@ import (
 	"admin_back_go/internal/infra/scheduler"
 	"admin_back_go/internal/infra/taskqueue"
 	aichat "admin_back_go/internal/module/ai/chat"
+	"admin_back_go/internal/module/ai/contextengine"
 	aiimage "admin_back_go/internal/module/ai/image"
 	"admin_back_go/internal/module/ai/replycommand"
 	aitext "admin_back_go/internal/module/ai/text"
@@ -27,6 +28,10 @@ func TestNewRegistryOwnsEveryCurrentVersionedTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
+		contextengine.TaskContextConversationIndexV1,
+		contextengine.TaskContextDocumentIndexV1,
+		contextengine.TaskContextIndexCleanupV1,
+		contextengine.TaskContextProfileRebuildV1,
 		replycommand.TypeReplyCommandV1,
 		aiimage.TypeGenerateV1,
 		aichat.TypeRunTimeoutV1,
@@ -59,6 +64,10 @@ func TestNewRegistryOwnsEveryCurrentVersionedTask(t *testing.T) {
 		{aichat.TypeRunTimeoutV1, taskqueue.QueueDefault, 3, 30 * time.Second, 55 * time.Second},
 		{aitext.TypeGenerateV1, taskqueue.QueueDefault, 6, 15 * time.Minute, 15 * time.Minute},
 		{aiimage.TypeGenerateV1, taskqueue.QueueLow, 2, aiimage.GenerateTimeout, aiimage.GenerateTimeout},
+		{contextengine.TaskContextConversationIndexV1, taskqueue.QueueLow, 3, 10 * time.Minute, 0},
+		{contextengine.TaskContextDocumentIndexV1, taskqueue.QueueLow, contextengine.DocumentIndexMaxRetry, ContextDocumentIndexTimeout, 0},
+		{contextengine.TaskContextIndexCleanupV1, taskqueue.QueueLow, 3, 5 * time.Minute, 0},
+		{contextengine.TaskContextProfileRebuildV1, taskqueue.QueueLow, 3, 30 * time.Minute, 0},
 		{exporttask.TypeRunV1, taskqueue.QueueLow, 3, 5 * time.Minute, 0},
 		{exporttask.TypeCleanupExpiredV1, taskqueue.QueueLow, 3, time.Minute, 5 * time.Minute},
 		{notificationtask.TypeDispatchDueV1, taskqueue.QueueDefault, 3, 30 * time.Second, 55 * time.Second},

@@ -110,6 +110,23 @@ WHERE p.status = 'enabled'
       WHERE a.context_profile_id = p.id AND a.is_del = 2
         AND ((r.status = 'success' AND m.delivery_state = 'completed') OR (r.status = 'canceled' AND m.delivery_state = 'stopped'))
     )
+    OR EXISTS (
+      SELECT 1
+      FROM ai_context_documents AS d
+      JOIN ai_context_document_versions AS v
+        ON v.id = d.active_version_id AND v.document_id = d.id AND v.profile_id = p.id AND v.state = 'ready'
+      JOIN ai_conversations AS c ON c.id = d.conversation_id AND c.is_del = 2
+      JOIN ai_agents AS a ON a.id = c.agent_id AND a.context_profile_id = p.id AND a.is_del = 2
+      JOIN ai_messages AS m
+        ON m.id = d.source_message_id AND m.conversation_id = c.id AND m.role = 1 AND m.is_del = 2
+      WHERE d.status = 'enabled' AND d.deleted_at IS NULL
+        AND JSON_UNQUOTE(JSON_EXTRACT(m.meta_json, CONCAT('$.attachments[', d.source_attachment_index, '].type'))) = 'file'
+        AND JSON_UNQUOTE(JSON_EXTRACT(m.meta_json, CONCAT('$.attachments[', d.source_attachment_index, '].object_key'))) = v.source_object_key
+        AND JSON_UNQUOTE(JSON_EXTRACT(m.meta_json, CONCAT('$.attachments[', d.source_attachment_index, '].etag'))) = v.source_etag
+        AND CAST(JSON_UNQUOTE(JSON_EXTRACT(m.meta_json, CONCAT('$.attachments[', d.source_attachment_index, '].size'))) AS UNSIGNED) = v.source_size_bytes
+        AND JSON_UNQUOTE(JSON_EXTRACT(m.meta_json, CONCAT('$.attachments[', d.source_attachment_index, '].mime_type'))) = v.source_mime_type
+        AND JSON_UNQUOTE(JSON_EXTRACT(m.meta_json, CONCAT('$.attachments[', d.source_attachment_index, '].name'))) = v.source_filename
+    )
   )
 ORDER BY p.id ASC`).Scan(&rows).Error
 	if err != nil {

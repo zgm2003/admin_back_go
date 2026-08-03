@@ -138,6 +138,16 @@ func (r *GormRepository) Detail(ctx context.Context, id int64) (*RunDetailRow, e
 	}
 	row.UserMessage = r.messageSummary(ctx, id, "user_message_id")
 	row.AssistantMessage = r.messageSummary(ctx, id, "assistant_message_id")
+	documentService := contextengine.NewConversationDocumentService(&database.Client{Gorm: r.db}, nil)
+	diagnostics, err := documentService.ConversationAttachmentDiagnosticsForRun(ctx, uint64(id))
+	if err != nil {
+		return nil, err
+	}
+	for _, diagnostic := range diagnostics {
+		if len(row.DiagnosticCodes) == 0 || row.DiagnosticCodes[len(row.DiagnosticCodes)-1] != diagnostic.Code {
+			row.DiagnosticCodes = append(row.DiagnosticCodes, diagnostic.Code)
+		}
+	}
 	return &row, nil
 }
 

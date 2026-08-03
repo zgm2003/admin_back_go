@@ -196,6 +196,7 @@ type DetailResponse struct {
 	DurationMS          *uint                    `json:"duration_ms"`
 	DurationText        string                   `json:"duration_text"`
 	ErrorCode           string                   `json:"error_code"`
+	DiagnosticCodes     []string                 `json:"diagnostic_codes"`
 	ErrorMessage        string                   `json:"error_message"`
 	BillingStatus       string                   `json:"billing_status"`
 	BillingReason       string                   `json:"billing_reason"`
@@ -338,6 +339,7 @@ type RunDetailRow struct {
 	ModelID             string
 	ModelDisplayName    string
 	ErrorCode           string
+	DiagnosticCodes     []string `gorm:"-"`
 	PromptTokens        uint
 	CompletionTokens    uint
 	TotalTokens         uint

@@ -889,6 +889,8 @@ func TestHistoryDeleteSoftDeletesOnlySubmittedIDsAndPreservesAuditTables(t *test
 	expectOwnedConversationLock(mock)
 	expectNoActiveHistoryCommand(mock, true)
 	mock.ExpectQuery("SELECT .* FROM `ai_messages`.*id IN").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(41).AddRow(97))
+	mock.ExpectQuery("SELECT a.context_profile_id AS profile_id FROM ai_conversations AS c").
+		WillReturnRows(sqlmock.NewRows([]string{"profile_id"}).AddRow(nil))
 	mock.ExpectExec("UPDATE `ai_messages` SET .*`is_del`=\\?.*id IN").WillReturnResult(sqlmock.NewResult(0, 2))
 	mock.ExpectQuery("SELECT MAX\\(created_at\\).*FROM `ai_messages`").WillReturnRows(sqlmock.NewRows([]string{"last_message_at"}).AddRow(now.Add(-time.Minute)))
 	mock.ExpectExec("UPDATE `ai_conversations` SET .*`last_message_at`=\\?.*WHERE id = \\? AND user_id = \\? AND is_del = \\?").WillReturnResult(sqlmock.NewResult(0, 1))

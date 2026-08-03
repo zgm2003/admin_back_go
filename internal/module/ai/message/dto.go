@@ -177,6 +177,7 @@ type HistoryPrepareInput struct {
 
 type AgentRuntime struct {
 	AgentID                int64
+	ContextProfileID       *uint64
 	ProviderID             int64
 	ModelID                string
 	ModelDisplayName       string

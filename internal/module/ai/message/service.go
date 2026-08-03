@@ -38,14 +38,15 @@ const (
 )
 
 type Service struct {
-	repository      Repository
-	history         HistoryRepository
-	replyWaker      ReplyWaker
-	cancelPublisher CancelPublisher
-	pricingResolver officialmodel.Resolver
-	capabilities    infraai.TransportCapabilityResolver
-	objectInspector storagecos.ObjectInspector
-	uploadRules     uploadpolicy.Resolver
+	repository            Repository
+	history               HistoryRepository
+	replyWaker            ReplyWaker
+	cancelPublisher       CancelPublisher
+	pricingResolver       officialmodel.Resolver
+	capabilities          infraai.TransportCapabilityResolver
+	objectInspector       storagecos.ObjectInspector
+	uploadRules           uploadpolicy.Resolver
+	conversationDocuments contextengine.ConversationDocumentEnsurer
 }
 
 type Option func(*Service)
@@ -80,6 +81,10 @@ func WithObjectInspector(inspector storagecos.ObjectInspector) Option {
 
 func WithUploadRuleResolver(resolver uploadpolicy.Resolver) Option {
 	return func(s *Service) { s.uploadRules = resolver }
+}
+
+func WithConversationDocumentEnsurer(ensurer contextengine.ConversationDocumentEnsurer) Option {
+	return func(s *Service) { s.conversationDocuments = ensurer }
 }
 
 func NewService(repository Repository, options ...Option) *Service {
@@ -275,6 +280,9 @@ func (s *Service) Send(ctx context.Context, userID int64, input SendInput) (*Sen
 	if s.replyWaker != nil {
 		_ = s.replyWaker.WakeReply(ctx, created.CommandID)
 	}
+	if agent.ContextProfileID != nil {
+		s.ensureConversationDocuments(ctx, uint64(created.UserMessageID))
+	}
 	return &SendResponse{
 		ConversationID: input.ConversationID,
 		UserMessageID:  created.UserMessageID,
@@ -282,6 +290,19 @@ func (s *Service) Send(ctx context.Context, userID int64, input SendInput) (*Sen
 		RequestID:      created.RequestID,
 		State:          created.State,
 	}, nil
+}
+
+func (s *Service) ensureConversationDocuments(ctx context.Context, messageID uint64) {
+	if s == nil || s.conversationDocuments == nil || messageID == 0 {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx = context.WithoutCancel(ctx)
+	if err := s.conversationDocuments.EnsureConversationDocuments(ctx, messageID); err != nil {
+		slog.WarnContext(ctx, "AI conversation attachment ingestion deferred to reconciler", "message_id", messageID, "error", err)
+	}
 }
 
 func (s *Service) pricingSnapshotForSend(ctx context.Context, agent AgentRuntime, runtimeParams map[string]float64) (string, int64, error) {

@@ -114,9 +114,9 @@ func TestModelCapabilityAndInputFingerprintHashesAreCanonical(t *testing.T) {
 	reorderedAttachments := input
 	reorderedAttachments.Messages = append([]FingerprintMessage(nil), input.Messages...)
 	firstAttachment := input.Messages[0].Attachments[1]
-	firstAttachment.Ordinal = 1
+	firstAttachment.Ordinal = 0
 	secondAttachment := input.Messages[0].Attachments[0]
-	secondAttachment.Ordinal = 2
+	secondAttachment.Ordinal = 1
 	reorderedAttachments.Messages[0].Attachments = []FingerprintAttachment{firstAttachment, secondAttachment}
 	if hash, err := HashInputFingerprint(reorderedAttachments); err != nil || hash == fingerprint {
 		t.Fatalf("attachment ordering did not change input fingerprint: %x, %v", hash, err)

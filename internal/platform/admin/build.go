@@ -197,10 +197,10 @@ func Build(input BuildInput) (*BuildResult, error) {
 	}
 	uploadTokenRepository := uploadtoken.NewGormRepository(resources.DB)
 	uploadRuleResolver := uploadtoken.NewActiveRuleResolver(uploadTokenRepository)
-	aiObjectConfig := uploadtoken.NewObjectConfigProvider(uploadTokenRepository, providers.Secretbox)
+	aiChatObjectConfig := uploadtoken.NewObjectConfigProvider(uploadTokenRepository, providers.Secretbox)
 	contextService := contextengine.NewAdminService(
 		contextengine.NewAdminRepository(resources.DB),
-		storagecos.NewConditionalObjectReader(aiObjectConfig, storagecos.ObjectStreamerConfig{Enabled: true}),
+		storagecos.NewConditionalObjectReader(aiChatObjectConfig, storagecos.ObjectStreamerConfig{Enabled: true}),
 		nil,
 		contextengine.WithOfficialModelResolver(aiOfficialModelResolver),
 	)
@@ -244,11 +244,11 @@ func Build(input BuildInput) (*BuildResult, error) {
 		uploadtoken.Options{TTLPolicy: uploadtoken.NewSystemSettingTTLPolicyProvider(systemSettingRepository)},
 	)
 	aiChatObjectInspector := storagecos.NewObjectInspector(
-		aiObjectConfig,
+		aiChatObjectConfig,
 		storagecos.ObjectInspectorConfig{Enabled: true},
 	)
 	aiChatObjectStreamer := storagecos.NewObjectStreamer(
-		aiObjectConfig,
+		aiChatObjectConfig,
 		storagecos.ObjectStreamerConfig{Enabled: true},
 	)
 	queueMonitorService := queuemonitor.NewService(
@@ -314,6 +314,20 @@ func Build(input BuildInput) (*BuildResult, error) {
 	if contextRuntime == nil {
 		return nil, errors.New("build admin context runtime")
 	}
+	conversationDocuments := contextengine.NewConversationDocumentService(
+		resources.DB,
+		contextengine.NewDocumentVersionEnqueuer(input.Queue, contextengine.NewIngestionRepository(resources.DB)),
+	)
+	if conversationDocuments == nil {
+		return nil, errors.New("build admin conversation document service")
+	}
+	historyInvalidator := contextengine.NewHistoryInvalidationService(
+		resources.DB,
+		contextengine.NewIndexCleanupEnqueuer(input.Queue),
+	)
+	if historyInvalidator == nil {
+		return nil, errors.New("build admin history invalidation service")
+	}
 
 	aiChatService, err := aichat.NewRuntimeService(aichat.Dependencies{
 		Repository:        aichat.NewGormRepository(resources.DB),
@@ -340,6 +354,7 @@ func Build(input BuildInput) (*BuildResult, error) {
 			replycommand.NewHistoryParticipant(aiReplyRepository),
 			aimessage.WithRepositoryPricingResolver(aiOfficialModelResolver),
 			aimessage.WithRepositoryUploadRuleGuard(uploadRuleResolver),
+			aimessage.WithRepositoryHistoryDerivedInvalidator(historyInvalidator),
 		),
 		aimessage.WithReplyWaker(replycommand.NewWakeupEnqueuer(input.Queue)),
 		aimessage.WithCancelPublisher(replycommand.NewRedisCancelPublisher(resources.Redis)),
@@ -347,6 +362,7 @@ func Build(input BuildInput) (*BuildResult, error) {
 		aimessage.WithTransportCapabilityResolver(providers.AITransportCapabilities),
 		aimessage.WithObjectInspector(aiChatObjectInspector),
 		aimessage.WithUploadRuleResolver(uploadRuleResolver),
+		aimessage.WithConversationDocumentEnsurer(conversationDocuments),
 	)
 	notificationTaskService := notificationtask.NewService(
 		notificationtask.NewGormRepository(resources.DB, notificationtask.WithDurableEventSink(realtimeEventSink)),

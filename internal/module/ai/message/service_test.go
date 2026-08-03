@@ -158,6 +158,15 @@ type fakeReplyWaker struct {
 	err       error
 }
 
+type failingConversationDocumentEnsurer struct {
+	messageIDs []uint64
+}
+
+func (ensurer *failingConversationDocumentEnsurer) EnsureConversationDocuments(_ context.Context, messageID uint64) error {
+	ensurer.messageIDs = append(ensurer.messageIDs, messageID)
+	return errors.New("queue unavailable")
+}
+
 type staticTransportCapabilityResolver struct {
 	metadata infraai.CapabilityMetadata
 	ok       bool
@@ -419,6 +428,25 @@ func TestSendCommitsTextUserMessageAndDurableReplyCommand(t *testing.T) {
 	}
 	if strings.TrimSpace(repo.replyInput.InputSnapshot) == "" {
 		t.Fatal("input snapshot was not accepted with the paid run")
+	}
+}
+
+func TestAttachmentIngestionFailureDoesNotRollbackAcceptedMessage(t *testing.T) {
+	profileID := uint64(7)
+	agent := validMessageAgent()
+	agent.ContextProfileID = &profileID
+	repository := &fakeRepository{conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5}, agent: agent}
+	ensurer := &failingConversationDocumentEnsurer{}
+	response, appErr := NewService(
+		repository,
+		WithPricingResolver(testMessagePricingResolver()),
+		WithConversationDocumentEnsurer(ensurer),
+	).Send(context.Background(), 7, SendInput{ConversationID: 3, Content: "hello", RequestID: "attachment-ingestion"})
+	if appErr != nil || response == nil || response.UserMessageID != 12 {
+		t.Fatalf("response=%+v error=%v", response, appErr)
+	}
+	if !reflect.DeepEqual(ensurer.messageIDs, []uint64{12}) {
+		t.Fatalf("ingestion message IDs=%v", ensurer.messageIDs)
 	}
 }
 

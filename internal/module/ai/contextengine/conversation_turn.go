@@ -40,6 +40,7 @@ type TurnMessage struct {
 type TurnAttachment struct {
 	Index           uint32
 	Type            string
+	URL             string
 	StorageProvider string
 	ObjectKey       string
 	ETag            string

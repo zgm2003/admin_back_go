@@ -103,6 +103,9 @@ func (planner *Planner) BuildPlan(ctx context.Context, input BuildPlanInput) (Co
 		} else {
 			plan.Budget.KnownInputUpperBound = packed.KnownInputUpperBound
 			plan.Items = packed.Items
+			if selectedPlanAttachment(plan.Items) {
+				plan.Budget.Proof = BudgetOpaqueAttachment
+			}
 			planHash, err := HashPlan(plan)
 			if err != nil {
 				return ContextPlan{}, err
@@ -128,6 +131,15 @@ func (planner *Planner) BuildPlan(ctx context.Context, input BuildPlanInput) (Co
 		return ContextPlan{}, err
 	}
 	return persisted, nil
+}
+
+func selectedPlanAttachment(items []ContextPlanItem) bool {
+	for _, item := range items {
+		if item.Decision == DecisionSelected && item.Block.Kind.isAttachment() {
+			return true
+		}
+	}
+	return false
 }
 
 func validateAndHashBuildPlanInput(input BuildPlanInput) ([sha256.Size]byte, [sha256.Size]byte, error) {

@@ -295,6 +295,7 @@ func turnAttachments(raw *string) ([]TurnAttachment, error) {
 	var meta struct {
 		Attachments []struct {
 			Type      string `json:"type"`
+			URL       string `json:"url"`
 			ObjectKey string `json:"object_key"`
 			MIMEType  string `json:"mime_type"`
 			Name      string `json:"name"`
@@ -309,6 +310,7 @@ func turnAttachments(raw *string) ([]TurnAttachment, error) {
 	for i, attachment := range meta.Attachments {
 		attachments[i] = TurnAttachment{
 			Index: uint32(i), Type: strings.TrimSpace(attachment.Type), StorageProvider: "cos",
+			URL:       strings.TrimSpace(attachment.URL),
 			ObjectKey: strings.TrimSpace(attachment.ObjectKey), ETag: strings.TrimSpace(attachment.ETag),
 			Size: attachment.Size, MIMEType: strings.TrimSpace(attachment.MIMEType), Name: strings.TrimSpace(attachment.Name),
 		}

@@ -11,6 +11,7 @@ import (
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/infra/contextindex"
 	"admin_back_go/internal/infra/database"
+	"admin_back_go/internal/shared/enum"
 
 	"gorm.io/gorm"
 )
@@ -205,9 +206,25 @@ func (repository *GormCandidateRepository) loadDocumentCandidates(ctx context.Co
 		Joins("JOIN ai_context_documents AS document ON document.id = version.document_id AND document.deleted_at IS NULL").
 		Joins("LEFT JOIN ai_context_spaces AS space ON space.id = document.space_id AND space.deleted_at IS NULL").
 		Joins("LEFT JOIN ai_context_bindings AS binding ON binding.space_id = space.id AND binding.agent_id = ?", agentID).
-		Joins("LEFT JOIN ai_conversations AS conversation ON conversation.id = document.conversation_id AND conversation.is_del = 0").
+		Joins("LEFT JOIN ai_conversations AS conversation ON conversation.id = document.conversation_id AND conversation.is_del = ?", enum.CommonNo).
 		Where("chunk.id IN ?", uniqueUint64(chunkIDs)).Find(&rows).Error
-	return rows, err
+	if err != nil {
+		return nil, err
+	}
+	result := rows[:0]
+	for _, row := range rows {
+		if row.DocumentConversationID != nil {
+			authoritative, err := conversationDocumentVersionAuthoritative(ctx, repository.db, row.DocumentVersionID, true)
+			if err != nil {
+				return nil, err
+			}
+			if !authoritative {
+				continue
+			}
+		}
+		result = append(result, row)
+	}
+	return result, nil
 }
 
 func verifyDocumentCandidate(snapshot CandidateAuthoritySnapshot, candidate Candidate, row candidateDocumentRow) (VerifiedCandidate, bool, error) {

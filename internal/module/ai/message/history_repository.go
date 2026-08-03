@@ -29,12 +29,13 @@ const (
 )
 
 var (
-	ErrHistoryParticipantMissing = errors.New("message history reply participant is not configured")
-	ErrHistoryAgentUnavailable   = errors.New("message history agent is unavailable")
-	ErrHistorySourceInvalid      = errors.New("message history source snapshot is invalid")
-	ErrHistorySourceChanged      = errors.New("message history source attachments changed")
-	ErrHistoryRuntimeChanged     = errors.New("message history runtime changed")
-	ErrHistoryUploadRuleChanged  = errors.New("message history upload rule changed")
+	ErrHistoryParticipantMissing        = errors.New("message history reply participant is not configured")
+	ErrHistoryAgentUnavailable          = errors.New("message history agent is unavailable")
+	ErrHistorySourceInvalid             = errors.New("message history source snapshot is invalid")
+	ErrHistorySourceChanged             = errors.New("message history source attachments changed")
+	ErrHistoryRuntimeChanged            = errors.New("message history runtime changed")
+	ErrHistoryUploadRuleChanged         = errors.New("message history upload rule changed")
+	ErrHistoryDerivedInvalidatorMissing = errors.New("message history derived invalidator is not configured")
 )
 
 type historySourceSnapshot struct {
@@ -117,6 +118,7 @@ func (r *GormRepository) acceptHistoryReply(
 	replayRequest := r.historyReplayRequest(operation, userID, conversationID, sourceMessageID, replacementContent, requestID, validatedAttachments)
 
 	var accepted HistoryAccepted
+	var afterCommit HistoryAfterCommit
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if replay, replayErr := r.history.ReplayInTransaction(ctx, tx, replayRequest); replayErr != nil {
 			return replayErr
@@ -191,6 +193,15 @@ func (r *GormRepository) acceptHistoryReply(
 		if upperBound < cutFrom {
 			return ErrHistorySourceNotFound
 		}
+		if lockedRuntime.ContextProfileID != nil {
+			if r.historyInvalidator == nil {
+				return ErrHistoryDerivedInvalidatorMissing
+			}
+			afterCommit, err = r.historyInvalidator.InvalidateSuffixInTransaction(ctx, tx, userID, conversationID, cutFrom, upperBound)
+			if err != nil {
+				return err
+			}
+		}
 		now := r.historyNow()
 		result := tx.Model(&Message{}).
 			Where("conversation_id = ? AND is_del = ? AND id >= ? AND id <= ?", conversationID, enum.CommonNo, cutFrom, upperBound).
@@ -223,6 +234,9 @@ func (r *GormRepository) acceptHistoryReply(
 		}
 		return HistoryAccepted{}, err
 	}
+	if afterCommit != nil && !accepted.Replayed {
+		afterCommit(context.WithoutCancel(ctx))
+	}
 	return accepted, nil
 }
 
@@ -243,6 +257,7 @@ func (r *GormRepository) DeleteMessages(ctx context.Context, input DeleteInput) 
 		return nil, ErrHistoryIDsInvalid
 	}
 	ctx = nonNilHistoryContext(ctx)
+	var afterCommit HistoryAfterCommit
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := rejectActiveHistoryCommand(tx, input.UserID, input.ConversationID, false); err != nil {
 			return err
@@ -266,6 +281,19 @@ func (r *GormRepository) DeleteMessages(ctx context.Context, input DeleteInput) 
 		for index, row := range rows {
 			if row.ID != ids[index] {
 				return ErrHistorySourceNotFound
+			}
+		}
+		profileID, err := historyContextProfileID(tx, input.UserID, input.ConversationID)
+		if err != nil {
+			return err
+		}
+		if profileID != nil {
+			if r.historyInvalidator == nil {
+				return ErrHistoryDerivedInvalidatorMissing
+			}
+			afterCommit, err = r.historyInvalidator.InvalidateMessagesInTransaction(ctx, tx, input.UserID, input.ConversationID, ids)
+			if err != nil {
+				return err
 			}
 		}
 		now := r.historyNow()
@@ -293,7 +321,21 @@ func (r *GormRepository) DeleteMessages(ctx context.Context, input DeleteInput) 
 	if err != nil {
 		return nil, err
 	}
+	if afterCommit != nil {
+		afterCommit(context.WithoutCancel(ctx))
+	}
 	return ids, nil
+}
+
+func historyContextProfileID(tx *gorm.DB, userID, conversationID int64) (*uint64, error) {
+	var row struct {
+		ProfileID *uint64 `gorm:"column:profile_id"`
+	}
+	err := tx.Table("ai_conversations AS c").Select("a.context_profile_id AS profile_id").
+		Joins("JOIN ai_agents AS a ON a.id = c.agent_id AND a.is_del = ?", enum.CommonNo).
+		Where("c.id = ? AND c.user_id = ? AND c.is_del = ?", conversationID, userID, enum.CommonNo).
+		Take(&row).Error
+	return row.ProfileID, err
 }
 
 func (r *GormRepository) historyReplayRequest(
@@ -350,7 +392,7 @@ func (r *GormRepository) historyIdentityRuntime(ctx context.Context, db *gorm.DB
 
 func (r *GormRepository) historyRuntime(ctx context.Context, db *gorm.DB, userID, conversationID int64, locked bool) (AgentRuntime, error) {
 	query := db.WithContext(ctx).Table("ai_conversations").
-		Select(`ai_agents.id AS agent_id, ai_agents.provider_id AS provider_id, ai_agents.model_id AS model_id,
+		Select(`ai_agents.id AS agent_id, ai_agents.context_profile_id AS context_profile_id, ai_agents.provider_id AS provider_id, ai_agents.model_id AS model_id,
 			ai_agents.model_display_name AS model_display_name, ai_providers.engine_type AS engine_type,
 			ai_providers.api_protocol AS api_protocol,
 			ai_agents.billing_multiplier_ppm AS billing_multiplier_ppm,

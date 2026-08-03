@@ -316,6 +316,10 @@ func registerWorkerHandlers(
 	})
 	contextIndexCleanup := contextengine.NewIndexCleanupService(contextRepository, resources.Qdrant, cfg.Qdrant.CollectionPrefix, nil)
 	contextEnqueuer := contextengine.NewDocumentVersionEnqueuer(queueClient, contextRepository)
+	conversationDocuments := contextengine.NewConversationDocumentService(resources.DB, contextEnqueuer)
+	if conversationDocuments == nil {
+		return nil, nil, nil, nil, nil, errors.New("worker conversation document dependencies are incomplete")
+	}
 	conversationIndexRepository := contextengine.NewConversationIndexRepository(resources.DB.Gorm)
 	conversationIndexEnqueuer := contextengine.NewConversationTurnEnqueuer(queueClient)
 	conversationIndex := contextengine.NewConversationIndexService(contextengine.ConversationIndexDependencies{
@@ -430,7 +434,8 @@ func registerWorkerHandlers(
 		aiimage.NewReconciler(imageRepository, imageWaker, max(25, cfg.Queue.Concurrency)),
 		contextengine.NewDocumentIndexReconciler(contextRepository, contextEnqueuer, max(25, cfg.Queue.Concurrency), uint32(jobs.ContextDocumentIndexMaxRetry+1),
 			contextengine.WithProfileIndexConsistency(contextRepository, resources.Qdrant, cfg.Qdrant.CollectionPrefix),
-			contextengine.WithConversationIndexRepair(conversationIndexRepository, conversationIndexEnqueuer)),
+			contextengine.WithConversationIndexRepair(conversationIndexRepository, conversationIndexEnqueuer),
+			contextengine.WithConversationDocumentRepair(conversationDocuments, conversationDocuments)),
 		nil
 }
 

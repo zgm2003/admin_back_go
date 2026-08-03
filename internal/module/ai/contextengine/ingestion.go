@@ -603,6 +603,13 @@ func (repository *GormIngestionRepository) LoadRebuildDocuments(ctx context.Cont
 	}
 	result := make([]RebuildDocument, 0, len(versions))
 	for _, version := range versions {
+		authoritative, err := conversationDocumentVersionAuthoritative(ctx, repository.db, version.ID, true)
+		if err != nil {
+			return nil, err
+		}
+		if !authoritative {
+			continue
+		}
 		work, err := repository.loadWork(ctx, version.ID)
 		if err != nil {
 			return nil, err
@@ -647,7 +654,20 @@ func (repository *GormIngestionRepository) ActiveDocumentVersionIDs(ctx context.
 	err := repository.db.WithContext(ctx).Table("ai_context_document_versions AS v").Select("v.id").
 		Joins("JOIN ai_context_documents AS d ON d.active_version_id = v.id AND d.deleted_at IS NULL AND d.status = ?", DocumentEnabled).
 		Where("v.profile_id = ? AND v.state = ?", profileID, DocumentVersionReady).Order("v.id ASC").Scan(&ids).Error
-	return ids, err
+	if err != nil {
+		return nil, err
+	}
+	result := ids[:0]
+	for _, id := range ids {
+		authoritative, err := conversationDocumentVersionAuthoritative(ctx, repository.db, id, true)
+		if err != nil {
+			return nil, err
+		}
+		if authoritative {
+			result = append(result, id)
+		}
+	}
+	return result, nil
 }
 
 func (repository *GormIngestionRepository) DocumentVersionVisible(ctx context.Context, profileID, versionID uint64) (bool, error) {
@@ -658,7 +678,10 @@ func (repository *GormIngestionRepository) DocumentVersionVisible(ctx context.Co
 	err := repository.db.WithContext(ctx).Table("ai_context_document_versions AS v").
 		Joins("JOIN ai_context_documents AS d ON d.active_version_id = v.id AND d.deleted_at IS NULL AND d.status = ?", DocumentEnabled).
 		Where("v.id = ? AND v.profile_id = ? AND v.state = ?", versionID, profileID, DocumentVersionReady).Count(&count).Error
-	return count != 0, err
+	if err != nil || count == 0 {
+		return false, err
+	}
+	return conversationDocumentVersionAuthoritative(ctx, repository.db, versionID, true)
 }
 
 func (repository *GormIngestionRepository) ConversationTurnVisible(ctx context.Context, profileID, conversationID, userMessageID uint64, sourceSHA256 [32]byte) (bool, error) {
@@ -706,6 +729,13 @@ func (repository *GormIngestionRepository) loadWork(ctx context.Context, version
 	var document ContextDocument
 	if err := repository.db.WithContext(ctx).Where("id = ? AND deleted_at IS NULL", row.DocumentID).Take(&document).Error; err != nil {
 		return DocumentIndexWork{}, err
+	}
+	authoritative, err := conversationDocumentVersionAuthoritative(ctx, repository.db, versionID, false)
+	if err != nil {
+		return DocumentIndexWork{}, err
+	}
+	if !authoritative {
+		return DocumentIndexWork{}, ErrVersionLeaseLost
 	}
 	work := DocumentIndexWork{Version: row.ContextDocumentVersion, Profile: profile, Document: document, IndexGeneration: *profile.ActiveIndexGeneration}
 	if document.SpaceID != nil {
@@ -827,6 +857,13 @@ func (repository *GormIngestionRepository) ActivateVersion(ctx context.Context, 
 				return ErrVersionLeaseLost
 			}
 		} else if document.ConversationID != nil {
+			authoritative, err := conversationDocumentVersionAuthoritative(ctx, tx, input.VersionID, false)
+			if err != nil {
+				return err
+			}
+			if !authoritative {
+				return ErrVersionLeaseLost
+			}
 			var authority struct {
 				ContextProfileID *uint64 `gorm:"column:context_profile_id"`
 			}

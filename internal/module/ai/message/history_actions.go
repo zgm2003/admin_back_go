@@ -171,6 +171,9 @@ func (s *Service) acceptHistoryResult(ctx context.Context, conversationID int64,
 		}
 		_ = s.replyWaker.WakeReply(context.WithoutCancel(ctx), result.CommandID)
 	}
+	if !accepted.Replayed {
+		s.ensureConversationDocuments(ctx, uint64(result.UserMessageID))
+	}
 	return &SendResponse{
 		ConversationID: conversationID, UserMessageID: result.UserMessageID, CommandID: result.CommandID,
 		RequestID: result.RequestID, State: result.State,

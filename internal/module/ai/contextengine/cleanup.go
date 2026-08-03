@@ -2,9 +2,15 @@ package contextengine
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
+
+	"admin_back_go/internal/infra/taskqueue"
 )
 
 type CleanupKind string
@@ -29,6 +35,43 @@ type ContextIndexCleanupV1 struct {
 	UserMessageID     uint64      `json:"user_message_id,omitempty"`
 	SourceSHA256      [32]byte    `json:"source_sha256,omitempty"`
 	NotBeforeUnixMS   int64       `json:"not_before_unix_ms,omitempty"`
+}
+
+func CleanupIdempotencyKey(cleanup ContextIndexCleanupV1) (string, error) {
+	if err := cleanup.Validate(); err != nil {
+		return "", err
+	}
+	body, err := json.Marshal(cleanup)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(append([]byte(TaskContextIndexCleanupV1+"\x00"), body...))
+	return hex.EncodeToString(digest[:]), nil
+}
+
+type QueueIndexCleanupEnqueuer struct{ queue taskqueue.Enqueuer }
+
+func NewIndexCleanupEnqueuer(queue taskqueue.Enqueuer) *QueueIndexCleanupEnqueuer {
+	return &QueueIndexCleanupEnqueuer{queue: queue}
+}
+
+func (enqueuer *QueueIndexCleanupEnqueuer) EnqueueIndexCleanup(ctx context.Context, cleanup ContextIndexCleanupV1) error {
+	if enqueuer == nil || enqueuer.queue == nil {
+		return errors.New("context index cleanup enqueuer is not configured")
+	}
+	key, err := CleanupIdempotencyKey(cleanup)
+	if err != nil {
+		return err
+	}
+	payload, err := json.Marshal(cleanup)
+	if err != nil {
+		return fmt.Errorf("encode context index cleanup: %w", err)
+	}
+	_, err = enqueuer.queue.Enqueue(ctx, taskqueue.Task{ID: key, Type: TaskContextIndexCleanupV1, Payload: payload})
+	if taskqueue.IsDuplicateTask(err) {
+		return nil
+	}
+	return err
 }
 
 func (cleanup ContextIndexCleanupV1) Validate() error {

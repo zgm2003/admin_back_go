@@ -19,17 +19,25 @@ import (
 var ErrRepositoryNotConfigured = errors.New("aimessage repository not configured")
 
 type GormRepository struct {
-	db              *gorm.DB
-	replies         replycommand.Repository
-	history         replycommand.HistoryTransactionParticipant
-	pricing         officialmodel.Resolver
-	uploadRuleGuard UploadRuleTransactionGuard
-	now             func() time.Time
+	db                 *gorm.DB
+	replies            replycommand.Repository
+	history            replycommand.HistoryTransactionParticipant
+	pricing            officialmodel.Resolver
+	uploadRuleGuard    UploadRuleTransactionGuard
+	historyInvalidator HistoryDerivedInvalidator
+	now                func() time.Time
 }
 
 type RepositoryOption func(*GormRepository)
 
 type UploadRuleTransactionGuard = replycommand.UploadRuleTransactionGuard
+
+type HistoryAfterCommit = func(context.Context)
+
+type HistoryDerivedInvalidator interface {
+	InvalidateSuffixInTransaction(context.Context, *gorm.DB, int64, int64, int64, int64) (HistoryAfterCommit, error)
+	InvalidateMessagesInTransaction(context.Context, *gorm.DB, int64, int64, []int64) (HistoryAfterCommit, error)
+}
 
 func WithRepositoryPricingResolver(resolver officialmodel.Resolver) RepositoryOption {
 	return func(repository *GormRepository) { repository.pricing = resolver }
@@ -37,6 +45,10 @@ func WithRepositoryPricingResolver(resolver officialmodel.Resolver) RepositoryOp
 
 func WithRepositoryUploadRuleGuard(guard UploadRuleTransactionGuard) RepositoryOption {
 	return func(repository *GormRepository) { repository.uploadRuleGuard = guard }
+}
+
+func WithRepositoryHistoryDerivedInvalidator(invalidator HistoryDerivedInvalidator) RepositoryOption {
+	return func(repository *GormRepository) { repository.historyInvalidator = invalidator }
 }
 
 func NewGormRepository(client *database.Client, replies replycommand.Repository, history replycommand.HistoryTransactionParticipant, options ...RepositoryOption) *GormRepository {
@@ -91,7 +103,7 @@ func (r *GormRepository) AgentForConversation(ctx context.Context, conversationI
 	}
 	var row AgentRuntime
 	err := r.db.WithContext(ctx).Table("ai_conversations c").
-		Select(`a.id AS agent_id, a.provider_id AS provider_id, a.model_id AS model_id,
+		Select(`a.id AS agent_id, a.context_profile_id AS context_profile_id, a.provider_id AS provider_id, a.model_id AS model_id,
 			a.model_display_name AS model_display_name, e.engine_type AS engine_type,
 			e.api_protocol AS api_protocol,
 			a.billing_multiplier_ppm AS billing_multiplier_ppm,

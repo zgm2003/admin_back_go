@@ -181,6 +181,7 @@ func TestDocumentEvidenceCitationsAreCompleteAndContiguous(t *testing.T) {
 
 func TestAttachmentBlocksRequireTypedObjectFacts(t *testing.T) {
 	plan := validReadyPlan()
+	plan.Budget.Proof = BudgetOpaqueAttachment
 	plan.Items[0].Block.Kind = BlockCurrentAttachment
 	plan.Items[0].Block.ContentSnapshot = nil
 	plan.Items[0].Block.Metadata.Attachment = &ContextAttachmentV1{
@@ -208,6 +209,7 @@ func TestAttachmentBlocksRequireTypedObjectFacts(t *testing.T) {
 
 func TestAttachmentBlocksPreserveLegacyImageURLContract(t *testing.T) {
 	plan := validReadyPlan()
+	plan.Budget.Proof = BudgetOpaqueAttachment
 	plan.Items[0].Block.Kind = BlockHistoryAttachment
 	plan.Items[0].Block.ContentSnapshot = nil
 	plan.Items[0].Block.Metadata.Attachment = &ContextAttachmentV1{

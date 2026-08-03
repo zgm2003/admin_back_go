@@ -77,6 +77,9 @@ func (enqueuer *QueueDocumentVersionEnqueuer) EnqueueDocumentVersion(ctx context
 		}
 	}
 	_, err = enqueuer.queue.Enqueue(ctx, task)
+	if taskqueue.IsDuplicateTask(err) {
+		return nil
+	}
 	return err
 }
 
