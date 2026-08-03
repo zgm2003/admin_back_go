@@ -10,7 +10,6 @@ Set-StrictMode -Version Latest
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $frontendRoot = [IO.Path]::GetFullPath((Join-Path $repoRoot '..\admin_front_ts'))
 $stateCompose = Join-Path $repoRoot 'deploy\docker-state\docker-compose.yml'
-$stateImageEnv = Join-Path $repoRoot 'deploy\docker-state\qdrant-image.env'
 $appCompose = Join-Path $repoRoot 'deploy\docker-first\docker-compose.yml'
 
 function Resolve-DockerExecutable {
@@ -52,7 +51,7 @@ function Invoke-AppCompose {
 
 function Invoke-StateCompose {
   param([Parameter(Mandatory = $true)][string[]]$Arguments)
-  return Invoke-Docker -Arguments (@('compose', '--env-file', $stateImageEnv, '-f', $stateCompose) + $Arguments)
+  return Invoke-Docker -Arguments (@('compose', '-f', $stateCompose) + $Arguments)
 }
 
 function Invoke-DockerCleanup {
@@ -292,7 +291,6 @@ $reservationExists = $false
 $networkExists = $false
 $stateMySQL = ''
 $stateRedis = ''
-$stateQdrant = ''
 $lateAPI = ''
 $lateWorker = ''
 
@@ -316,16 +314,13 @@ try {
   Invoke-StateCompose -Arguments @('up', '-d', '--wait', '--wait-timeout', '180') | Out-Null
   $stateMySQL = Get-ComposeContainerID -Project state -Service mysql
   $stateRedis = Get-ComposeContainerID -Project state -Service redis
-  $stateQdrant = Get-ComposeContainerID -Project state -Service qdrant
   Wait-ForHealthy -Container $stateMySQL
   Wait-ForHealthy -Container $stateRedis
-  Wait-ForHealthy -Container $stateQdrant
 
   Invoke-Docker -Arguments @('network', 'create', $Network) | Out-Null
   $networkExists = $true
   Invoke-Docker -Arguments @('network', 'connect', '--alias', 'mysql', $Network, $stateMySQL) | Out-Null
   Invoke-Docker -Arguments @('network', 'connect', '--alias', 'redis', $Network, $stateRedis) | Out-Null
-  Invoke-Docker -Arguments @('network', 'connect', '--alias', 'qdrant', $Network, $stateQdrant) | Out-Null
   Invoke-AppCompose -Arguments @('up', '-d', '--no-build', '--wait', '--wait-timeout', '300') | Out-Null
 
   $frontend = Get-ComposeContainerID -Project app -Service frontend
@@ -363,7 +358,6 @@ try {
 
   Invoke-Docker -Arguments @('network', 'disconnect', $Network, $stateMySQL) | Out-Null
   Invoke-Docker -Arguments @('network', 'disconnect', $Network, $stateRedis) | Out-Null
-  Invoke-Docker -Arguments @('network', 'disconnect', $Network, $stateQdrant) | Out-Null
   Invoke-AppCompose -Arguments @('up', '-d', '--no-deps', '--no-build', '--force-recreate', 'admin-api', 'admin-worker') | Out-Null
   $lateAPI = Get-ComposeContainerID -Project app -Service admin-api
   $lateWorker = Get-ComposeContainerID -Project app -Service admin-worker
@@ -379,7 +373,6 @@ try {
 
   Invoke-Docker -Arguments @('network', 'connect', '--alias', 'mysql', $Network, $stateMySQL) | Out-Null
   Invoke-Docker -Arguments @('network', 'connect', '--alias', 'redis', $Network, $stateRedis) | Out-Null
-  Invoke-Docker -Arguments @('network', 'connect', '--alias', 'qdrant', $Network, $stateQdrant) | Out-Null
   Wait-ForHealthy -Container $lateAPI
   Wait-ForHealthy -Container $lateWorker
   Wait-ForWorkerStartCount -Container $lateWorker -Minimum 1
@@ -405,12 +398,12 @@ try {
   $finalFrontend = Get-ComposeContainerID -Project app -Service frontend
   $finalAPI = Get-ComposeContainerID -Project app -Service admin-api
   $finalWorker = Get-ComposeContainerID -Project app -Service admin-worker
-  foreach ($container in @($finalFrontend, $finalAPI, $finalWorker, $stateMySQL, $stateRedis, $stateQdrant)) {
+  foreach ($container in @($finalFrontend, $finalAPI, $finalWorker, $stateMySQL, $stateRedis)) {
     if (-not (Test-ContainerRunning -Container $container)) {
       throw "$container is not running after final restoration"
     }
   }
-  foreach ($container in @($finalFrontend, $finalAPI, $finalWorker, $stateMySQL, $stateRedis, $stateQdrant)) {
+  foreach ($container in @($finalFrontend, $finalAPI, $finalWorker, $stateMySQL, $stateRedis)) {
     Wait-ForHealthy -Container $container
   }
   Assert-NoRestarts -Container $finalAPI
@@ -442,9 +435,6 @@ finally {
   }
   if (-not [string]::IsNullOrWhiteSpace($stateRedis)) {
     Invoke-DockerCleanup -Arguments @('network', 'disconnect', $Network, $stateRedis)
-  }
-  if (-not [string]::IsNullOrWhiteSpace($stateQdrant)) {
-    Invoke-DockerCleanup -Arguments @('network', 'disconnect', $Network, $stateQdrant)
   }
   if ($networkExists) {
     Invoke-DockerCleanup -Arguments @('network', 'rm', $Network)

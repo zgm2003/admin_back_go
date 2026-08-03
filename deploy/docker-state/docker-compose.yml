@@ -40,23 +40,6 @@ services:
       retries: 10
       start_period: 5s
 
-  qdrant:
-    image: ${QDRANT_SERVER_IMAGE:?QDRANT_SERVER_IMAGE must be a tested tag@sha256 digest}
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:${ADMIN_QDRANT_HTTP_HOST_PORT:-36333}:6333"
-      - "127.0.0.1:${ADMIN_QDRANT_GRPC_HOST_PORT:-36334}:6334"
-    volumes:
-      - qdrant-data:/qdrant/storage
-    networks:
-      - platform
-    healthcheck:
-      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/6333 && printf \"GET /readyz HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n\" >&3 && grep -q \"200 OK\" <&3'"]
-      interval: 5s
-      timeout: 5s
-      retries: 30
-      start_period: 10s
-
 networks:
   platform:
     name: admin-platform
@@ -64,7 +47,6 @@ networks:
 volumes:
   mysql-data:
   redis-data:
-  qdrant-data:
 
 secrets:
   mysql_root_password:
