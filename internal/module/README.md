@@ -45,10 +45,24 @@ mail / sms / notification / notification/task
 uploadconfig / uploadtoken / export
 operationlog / crontask / queuemonitor / realtime
 payment / payment/wallet
-ai/provider / ai/agent / ai/chat / ai/conversation / ai/message / ai/run / ai/tool / ai/knowledge / ai/image
+ai/provider / ai/agent / ai/chat / ai/conversation / ai/message / ai/run / ai/tool / ai/knowledge / ai/contextengine / ai/image
 ```
 
 平台不是 module。当前只有 admin/app 部分入口，不代表能力是长期 `admin-only`。新增 app/openapi/merchant/miniapp 入口时，默认在同一个 capability 下增加 `transport/{platform}`，不要复制 `appauth`、`adminuser`、`merchantupload` 这类平台命名业务模块。
+
+## Context engineering ownership
+
+`ai/contextengine` owns closed Context facts and deterministic policy only:
+immutable Plan persistence, typed blocks, token budgeting, packing, hashing,
+and Provider Attempt Plan evidence. Provider-specific JSON stays in
+`internal/infra/ai`; the future `internal/infra/contextindex` adapter owns
+Qdrant; runtime composition stays in `internal/platform/admin` and
+`internal/runtime`.
+
+The current checkpoint does not activate Context retrieval or replace
+`aichat.KnowledgeRuntime`. Until Plan 03 switches the chat path, `ai/knowledge`
+remains the active retrieval module and no deployment may advertise the new
+Context retrieval runtime.
 
 ## 禁止
 

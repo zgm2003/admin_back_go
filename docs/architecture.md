@@ -18,6 +18,24 @@ belong to `internal/runtime`. Each constructor takes a process-owned
 `config.Snapshot` before hooks capture configuration, so later mutations of a
 caller's slices cannot change a running process.
 
+## Context engineering core checkpoint
+
+`internal/module/ai/contextengine` owns the closed Context domain facts and
+deterministic policy: Plan persistence, typed blocks, token bounds, packing,
+hashing, and Plan evidence. It does not own provider protocol JSON, Qdrant
+transport, or process composition.
+
+Provider compilers under `internal/infra/ai` remain the only owners of
+provider-specific request JSON. The future `internal/infra/contextindex`
+boundary will own Qdrant access. Process wiring and dependency lifecycle remain
+in `internal/platform/admin` and `internal/runtime`; business modules must not
+construct those adapters themselves.
+
+This checkpoint establishes schema and evidence contracts only. It has not
+replaced `aichat.KnowledgeRuntime`, and Context retrieval is not active.
+Deployments must not claim Context retrieval until Plan 03 switches the chat
+command path and its recovery guards.
+
 The backend publishes `contracts/admin/v1` from the compiled runtime route
 registry. The bundle contains OpenAPI 3.1, operation access/audit policy, the
 `users/me` menu/view contract, closed realtime schemas, and a SHA-256 manifest.
