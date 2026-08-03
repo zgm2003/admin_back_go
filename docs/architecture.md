@@ -18,7 +18,7 @@ belong to `internal/runtime`. Each constructor takes a process-owned
 `config.Snapshot` before hooks capture configuration, so later mutations of a
 caller's slices cannot change a running process.
 
-## Context engineering ingestion checkpoint
+## Context engineering runtime checkpoint
 
 `internal/module/ai/contextengine` owns the closed Context domain facts and
 deterministic policy: Plan persistence, typed blocks, token bounds, packing,
@@ -46,13 +46,58 @@ collections or promised Document Points inconsistent. Cleanup rechecks MySQL
 visibility, Active/Target/Alias pointers, and retirement grace before deleting
 derived data.
 
-This checkpoint implements the schema, evidence, parser, ingestion, Qdrant
-adapter, rebuild, cleanup, and Worker contracts. It has not replaced
-`aichat.KnowledgeRuntime`, and Context retrieval is not active. Deployments must
-not claim Context retrieval until Plan 03 switches the chat command path and
-its recovery guards. The Qdrant server candidate is also not promoted into
-Compose until the explicit real-server capability gate records an immutable
-image digest.
+The Context runtime is now the chat command path. One immutable terminal
+`ContextPlan` belongs to each Run. MySQL persists the Plan header and ordered
+Items; Qdrant is consulted only while building the Plan and can be rebuilt.
+`BuildPlan` runs after the current message and tool definitions are known, but
+before a provider Attempt is prepared. A `ready` Plan may be `skipped`,
+`no_hit`, or `hit`; a `failed` Plan has no Items or Plan hash and must never be
+dispatched.
+
+The evidence chain has three independent hashes:
+
+```text
+Run.request_fingerprint
+  -> ContextPlan.input_fingerprint_sha256
+  -> ContextPlan.plan_sha256
+  -> Prepared Attempt.prepared_request_sha256
+```
+
+New chat Attempts persist `context_plan_id` and `context_plan_sha256` beside
+the Prepared request evidence. Dispatch rechecks, in one guarded transaction,
+the Run/Reply Command identity, lease and cancellation state, Plan ownership,
+Plan state/hash, every selected source authority hash, and the Prepared hash.
+Any conflict revokes dispatch; it never silently rebuilds a Plan or falls back
+to the retired Knowledge runtime. Historical non-chat Attempts may keep both
+Context columns `NULL`.
+
+The terminal failure order is deliberately durable: a BuildPlan, permission,
+retrieval, rerank, packing, attachment, or continuation-reserve error is
+recorded before provider dispatch; a prepared/provider failure is finalized by
+the existing Attempt/Run billing path; cancellation, timeout, provider
+failure, and outcome-unknown each end in their own terminal state. Tool
+continuations reuse the original Plan and its fixed
+`tool_continuation_input_reserve`; an overflow is a terminal Context error,
+never truncation or a second hidden retrieval.
+
+Completed and stopped Assistant Messages project citations from their stored
+content plus the stored Plan only. The parser accepts exactly `[C<number>]`
+with a positive decimal number. Sources are selected `document_evidence`
+Items in Plan order; repeated valid keys mark one source, unmentioned selected
+sources remain visible, and unknown valid keys are returned without a guessed
+source. This projection is rebuilt from Message -> Run -> Plan on refresh and
+does not depend on WebSocket memory. Run Detail exposes the closed
+`context_plan` DTO with budget proof, safe metrics, decisions, scores,
+locators, and bounded snapshots; it never exposes retrieval Query text,
+object keys, signed URLs, credentials, unrestricted metadata, or raw Provider
+responses.
+
+`aichat.KnowledgeRuntime` and the old knowledge admin surface remain only as
+disconnected compatibility code until Plan 05 performs the same-batch route,
+contract, and schema cutover. They are not an alternate runtime path and must
+not be reintroduced into chat while the cutover is pending. The Qdrant server
+candidate is also not promoted into Compose until the explicit real-server
+capability gate records an immutable image digest.
 
 The backend publishes `contracts/admin/v1` from the compiled runtime route
 registry. The bundle contains OpenAPI 3.1, operation access/audit policy, the
