@@ -2,11 +2,24 @@ package admincontract
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
 	"testing"
 )
+
+func TestContextViewSeedIdentityIsPublishedForCutover(t *testing.T) {
+	seedPath := filepath.Join("..", "..", "database", "seeds", "admin_permissions.sql")
+	seed, err := os.ReadFile(seedPath)
+	if err != nil {
+		t.Fatalf("read permission seed: %v", err)
+	}
+	if strings.Count(string(seed), "(122, '上下文工程', '/ai/context'") != 1 {
+		t.Fatal("context menu seed identity is missing or duplicated")
+	}
+}
 
 func TestViewsDescribeUsersMeAndCurrentAdminViewKeys(t *testing.T) {
 	bundle := mustBuildBundle(t)

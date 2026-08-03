@@ -2,11 +2,32 @@ package admincontract
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
 	"testing"
 )
+
+func TestKnowledgePermissionRetirementSeedContract(t *testing.T) {
+	seedPath := filepath.Join("..", "..", "database", "seeds", "admin_permissions.sql")
+	seed, err := os.ReadFile(seedPath)
+	if err != nil {
+		t.Fatalf("read permission seed: %v", err)
+	}
+	text := string(seed)
+	for _, retired := range []string{
+		"ai_knowledge_retrieval_test", "ai_knowledge_reindex", "ai_knowledge_document_del",
+		"ai_knowledge_document_edit", "ai_knowledge_document_add", "ai_knowledge_status",
+		"ai_knowledge_del", "ai_knowledge_edit", "ai_knowledge_add", "ai_knowledge_document_status",
+		"ai_agent_binding_add",
+	} {
+		if strings.Contains(text, "'"+retired+"'") {
+			t.Fatalf("retired permission %q remains in final seed", retired)
+		}
+	}
+}
 
 func TestPermissionsCatalogAndOperationPoliciesAreComplete(t *testing.T) {
 	bundle := mustBuildBundle(t)
