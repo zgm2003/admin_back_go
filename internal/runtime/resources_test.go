@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/config"
+	contextqdrant "admin_back_go/internal/infra/contextindex/qdrant"
 	"admin_back_go/internal/infra/database"
 	"admin_back_go/internal/infra/redisclient"
 )
@@ -275,7 +276,7 @@ func TestOpenResourcesAPIPlanOpensRequiredResourcesAndReportsDisabledCapabilitie
 		t.Fatalf("second close: %v", err)
 	}
 	closeEvents := filterEvents(events, "close:")
-	if want := []string{"close:token_redis", "close:redis", "close:database"}; !reflect.DeepEqual(closeEvents, want) {
+	if want := []string{"close:qdrant", "close:token_redis", "close:redis", "close:database"}; !reflect.DeepEqual(closeEvents, want) {
 		t.Fatalf("close events=%v want=%v", closeEvents, want)
 	}
 }
@@ -310,6 +311,30 @@ func TestOpenResourcesWorkerPlanSkipsTokenRedisAndRequiresQueue(t *testing.T) {
 	}
 }
 
+func TestOpenResourcesOwnsOneQdrantClientAndClosesItBeforeStateResources(t *testing.T) {
+	var events []string
+	openers := successfulOpeners(&events)
+	qdrantOpens := 0
+	openers.Qdrant = func(context.Context, config.QdrantConfig) (OpenedResource[*contextqdrant.Client], error) {
+		qdrantOpens++
+		return openedQdrant(&events, "qdrant"), nil
+	}
+
+	resources, err := OpenResources(t.Context(), config.ProcessAPI, configuredResources(), openers)
+	if err != nil {
+		t.Fatalf("open resources: %v", err)
+	}
+	if resources.Qdrant == nil || qdrantOpens != 1 {
+		t.Fatalf("qdrant resource=%p opens=%d", resources.Qdrant, qdrantOpens)
+	}
+	if err := resources.Close(t.Context()); err != nil {
+		t.Fatalf("close resources: %v", err)
+	}
+	if got, want := filterEvents(events, "close:"), []string{"close:qdrant", "close:token_redis", "close:redis", "close:database"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("close events=%v want=%v", got, want)
+	}
+}
+
 func TestOpenResourcesRejectsEnabledRedisCapabilitiesWithoutAddress(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -341,10 +366,11 @@ func TestOpenResourcesRejectsEnabledRedisCapabilitiesWithoutAddress(t *testing.T
 
 func configuredResources() config.Config {
 	return config.Config{
-		MySQL: config.MySQLConfig{DSN: "user:password@tcp(mysql:3306)/admin"},
-		Redis: config.RedisConfig{Addr: "redis:6379"},
-		Token: config.TokenConfig{RedisDB: 2},
-		Queue: config.QueueConfig{RedisDB: 3},
+		MySQL:  config.MySQLConfig{DSN: "user:password@tcp(mysql:3306)/admin"},
+		Redis:  config.RedisConfig{Addr: "redis:6379"},
+		Qdrant: config.QdrantConfig{Addr: "qdrant:6334", CollectionPrefix: "admin_context"},
+		Token:  config.TokenConfig{RedisDB: 2},
+		Queue:  config.QueueConfig{RedisDB: 3},
 	}
 }
 
@@ -362,6 +388,11 @@ func successfulOpeners(events *[]string) Openers {
 		QueueRedis: func(context.Context, config.RedisConfig) (OpenedResource[*redisclient.Client], error) {
 			return openedRedis(events, "queue_redis"), nil
 		},
+		Qdrant: func(context.Context, config.QdrantConfig) (OpenedResource[*contextqdrant.Client], error) {
+			return openedQdrant(events, "qdrant"), nil
+		},
+		ContextIndex:   &fakeContextIndex{},
+		ContextSources: fakeContextSources{},
 	}
 }
 
@@ -384,6 +415,21 @@ func openedRedis(events *[]string, name string) OpenedResource[*redisclient.Clie
 	*events = append(*events, "open:"+name)
 	return OpenedResource[*redisclient.Client]{
 		Client: &redisclient.Client{},
+		Ping: func(context.Context) error {
+			*events = append(*events, "ping:"+name)
+			return nil
+		},
+		Close: func(context.Context) error {
+			*events = append(*events, "close:"+name)
+			return nil
+		},
+	}
+}
+
+func openedQdrant(events *[]string, name string) OpenedResource[*contextqdrant.Client] {
+	*events = append(*events, "open:"+name)
+	return OpenedResource[*contextqdrant.Client]{
+		Client: &contextqdrant.Client{},
 		Ping: func(context.Context) error {
 			*events = append(*events, "ping:"+name)
 			return nil

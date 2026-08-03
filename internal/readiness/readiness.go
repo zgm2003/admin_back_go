@@ -6,6 +6,7 @@ const (
 
 	StatusUp       = "up"
 	StatusDown     = "down"
+	StatusDegraded = "degraded"
 	StatusDisabled = "disabled"
 )
 

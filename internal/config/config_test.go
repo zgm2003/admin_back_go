@@ -42,6 +42,9 @@ func TestLoadUsesSafeDefaults(t *testing.T) {
 	if cfg.Redis.DB != 0 {
 		t.Fatalf("expected redis db 0, got %d", cfg.Redis.DB)
 	}
+	if cfg.Qdrant.Addr != "qdrant:6334" || cfg.Qdrant.CollectionPrefix != "admin_context" || cfg.Qdrant.TLS || cfg.Qdrant.APIKey != "" {
+		t.Fatalf("unexpected qdrant defaults: %#v", cfg.Qdrant)
+	}
 	if cfg.App.Secret != "" {
 		t.Fatalf("expected empty app secret by default, got %q", cfg.App.Secret)
 	}
@@ -143,6 +146,34 @@ func TestLoadUsesSafeDefaults(t *testing.T) {
 	}
 }
 
+func TestLoadQdrantEnvironmentContract(t *testing.T) {
+	t.Setenv("QDRANT_ADDR", "context-index.internal:6334")
+	t.Setenv("QDRANT_COLLECTION_PREFIX", "tenant_context")
+	t.Setenv("QDRANT_TLS", "true")
+	t.Setenv("QDRANT_API_KEY", "qdrant-secret")
+
+	cfg := loadForTest(t, ProcessAPI)
+	want := QdrantConfig{Addr: "context-index.internal:6334", CollectionPrefix: "tenant_context", TLS: true, APIKey: "qdrant-secret"}
+	if cfg.Qdrant != want {
+		t.Fatalf("qdrant config=%#v want=%#v", cfg.Qdrant, want)
+	}
+}
+
+func TestDockerFirstQdrantEnvironmentContract(t *testing.T) {
+	values := readEnvExample(t)
+	want := map[string]string{
+		"QDRANT_ADDR":              "qdrant:6334",
+		"QDRANT_COLLECTION_PREFIX": "admin_context",
+		"QDRANT_TLS":               "false",
+		"QDRANT_API_KEY":           "",
+	}
+	for key, value := range want {
+		if values[key] != value {
+			t.Fatalf("%s=%q want %q", key, values[key], value)
+		}
+	}
+}
+
 func TestLoadPreservesLanDevCORSOrigin(t *testing.T) {
 	t.Setenv("CORS_ALLOW_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173,http://192.168.5.20:5173")
 
@@ -165,6 +196,10 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	t.Setenv("REDIS_ADDR", "127.0.0.1:6380")
 	t.Setenv("REDIS_PASSWORD", "secret")
 	t.Setenv("REDIS_DB", "2")
+	t.Setenv("QDRANT_ADDR", "context-index.internal:6334")
+	t.Setenv("QDRANT_COLLECTION_PREFIX", "tenant_context")
+	t.Setenv("QDRANT_TLS", "true")
+	t.Setenv("QDRANT_API_KEY", "qdrant-secret")
 	t.Setenv("TOKEN_REDIS_PREFIX", "token-test:")
 	t.Setenv("TOKEN_SESSION_CACHE_TTL", "45m")
 	t.Setenv("TOKEN_SINGLE_SESSION_POINTER_TTL", "111h")
@@ -205,6 +240,9 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	}
 	if cfg.Redis.Addr != "127.0.0.1:6380" || cfg.Redis.Password != "secret" || cfg.Redis.DB != 2 {
 		t.Fatalf("unexpected redis config: %#v", cfg.Redis)
+	}
+	if cfg.Qdrant != (QdrantConfig{Addr: "context-index.internal:6334", CollectionPrefix: "tenant_context", TLS: true, APIKey: "qdrant-secret"}) {
+		t.Fatalf("unexpected qdrant config: %#v", cfg.Qdrant)
 	}
 	if cfg.Token.RedisPrefix != DefaultTokenRedisPrefix ||
 		cfg.Token.SessionCacheTTL != DefaultTokenSessionCacheTTL ||

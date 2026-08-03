@@ -20,6 +20,7 @@ type Config struct {
 	Logging   LoggingConfig
 	MySQL     MySQLConfig
 	Redis     RedisConfig
+	Qdrant    QdrantConfig
 	Token     TokenConfig
 	Queue     QueueConfig
 	Realtime  RealtimeConfig
@@ -131,6 +132,13 @@ type RedisConfig struct {
 	Addr     string
 	Password string
 	DB       int
+}
+
+type QdrantConfig struct {
+	Addr             string
+	CollectionPrefix string
+	TLS              bool
+	APIKey           string
 }
 
 type TokenConfig struct {
@@ -283,6 +291,10 @@ func loadFrom(lookup lookupEnv) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	qdrantTLS, err := envBoolean(lookup, "QDRANT_TLS", false)
+	if err != nil {
+		return Config{}, err
+	}
 	tokenRedisDB, err := envInteger(lookup, "TOKEN_REDIS_DB", DefaultTokenRedisDB, false)
 	if err != nil {
 		return Config{}, err
@@ -335,6 +347,12 @@ func loadFrom(lookup lookupEnv) (Config, error) {
 			Addr:     envText(lookup, "REDIS_ADDR", legacyRedisAddr(lookup)),
 			Password: envOpaque(lookup, "REDIS_PASSWORD", ""),
 			DB:       redisDB,
+		},
+		Qdrant: QdrantConfig{
+			Addr:             envText(lookup, "QDRANT_ADDR", "qdrant:6334"),
+			CollectionPrefix: envText(lookup, "QDRANT_COLLECTION_PREFIX", "admin_context"),
+			TLS:              qdrantTLS,
+			APIKey:           envOpaque(lookup, "QDRANT_API_KEY", ""),
 		},
 		Token: NormalizeTokenConfig(TokenConfig{
 			RedisDB: tokenRedisDB,

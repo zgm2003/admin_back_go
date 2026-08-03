@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/config"
+	contextqdrant "admin_back_go/internal/infra/contextindex/qdrant"
 	"admin_back_go/internal/infra/database"
 	"admin_back_go/internal/infra/redisclient"
 	"admin_back_go/internal/shared/apperror"
@@ -34,13 +35,17 @@ type OpenedResource[T any] struct {
 
 type DatabaseOpener func(context.Context, config.MySQLConfig) (OpenedResource[*database.Client], error)
 type RedisOpener func(context.Context, config.RedisConfig) (OpenedResource[*redisclient.Client], error)
+type QdrantOpener func(context.Context, config.QdrantConfig) (OpenedResource[*contextqdrant.Client], error)
 
 type Openers struct {
-	Database   DatabaseOpener
-	Redis      RedisOpener
-	TokenRedis RedisOpener
-	QueueRedis RedisOpener
-	Telemetry  telemetry.Recorder
+	Database       DatabaseOpener
+	Redis          RedisOpener
+	TokenRedis     RedisOpener
+	QueueRedis     RedisOpener
+	Qdrant         QdrantOpener
+	ContextIndex   ContextIndexReadiness
+	ContextSources ContextSourceReadiness
+	Telemetry      telemetry.Recorder
 }
 
 type resourceCapabilities struct {
@@ -57,10 +62,12 @@ type Resources struct {
 	Redis      *redisclient.Client
 	TokenRedis *redisclient.Client
 	QueueRedis *redisclient.Client
+	Qdrant     *contextqdrant.Client
 
-	cleanup      *Cleanup
-	capabilities resourceCapabilities
-	pings        map[string]func(context.Context) error
+	cleanup          *Cleanup
+	capabilities     resourceCapabilities
+	pings            map[string]func(context.Context) error
+	contextReadiness *ContextReadiness
 }
 
 func OpenResourcesWithStartupRetry(ctx context.Context, process config.Process, cfg config.Config, open Openers) (*Resources, error) {
@@ -200,14 +207,45 @@ func OpenResources(ctx context.Context, process config.Process, cfg config.Confi
 		queueRedis = opened.Client
 	}
 
+	openedQdrant, openErr := open.Qdrant(ctx, cfg.Qdrant)
+	if openErr != nil {
+		return nil, failResourceOpen(ctx, cleanup, "qdrant", openErr)
+	}
+	if openedQdrant.Close == nil {
+		return nil, failResourceOpen(ctx, cleanup, "qdrant", errors.New("opener returned nil close function"))
+	}
+	if err := cleanup.Add("qdrant", openedQdrant.Close); err != nil {
+		return nil, failResourceOpen(ctx, cleanup, "qdrant", err)
+	}
+	if openedQdrant.Client == nil {
+		return nil, failResourceOpen(ctx, cleanup, "qdrant", errors.New("opener returned nil client"))
+	}
+
+	contextIndex := open.ContextIndex
+	if contextIndex == nil {
+		contextIndex = qdrantContextIndex{client: openedQdrant.Client, collectionPrefix: cfg.Qdrant.CollectionPrefix}
+	}
+	contextSources := open.ContextSources
+	if contextSources == nil {
+		contextSources = newGormContextSources(db.Gorm)
+	}
+	var contextReadiness *ContextReadiness
+	if process == config.ProcessWorker {
+		contextReadiness = NewWorkerContextReadiness(contextIndex, contextSources)
+	} else {
+		contextReadiness = NewContextReadiness(contextIndex, contextSources)
+	}
+
 	return &Resources{
-		DB:           db,
-		Redis:        redis,
-		TokenRedis:   tokenRedis,
-		QueueRedis:   queueRedis,
-		cleanup:      cleanup,
-		capabilities: capabilities,
-		pings:        pings,
+		DB:               db,
+		Redis:            redis,
+		TokenRedis:       tokenRedis,
+		QueueRedis:       queueRedis,
+		Qdrant:           openedQdrant.Client,
+		cleanup:          cleanup,
+		capabilities:     capabilities,
+		pings:            pings,
+		contextReadiness: contextReadiness,
 	}, nil
 }
 
@@ -228,6 +266,7 @@ func (r *Resources) Health(ctx context.Context) Report {
 			"redis":       {Status: StatusDisabled},
 			"token_redis": {Status: StatusDisabled},
 			"queue_redis": {Status: StatusDisabled},
+			"qdrant":      {Status: StatusDisabled},
 			"realtime":    {Status: StatusDisabled},
 			"scheduler":   {Status: StatusDisabled},
 		})
@@ -237,6 +276,7 @@ func (r *Resources) Health(ctx context.Context) Report {
 		"redis":       r.resourceCheck(ctx, "redis", r.capabilities.redis),
 		"token_redis": r.resourceCheck(ctx, "token_redis", r.capabilities.tokenRedis),
 		"queue_redis": r.resourceCheck(ctx, "queue_redis", r.capabilities.queueRedis),
+		"qdrant":      r.contextReadiness.Check(ctx),
 		"realtime":    capabilityCheck(r.capabilities.realtime),
 		"scheduler":   capabilityCheck(r.capabilities.scheduler),
 	})
@@ -358,6 +398,9 @@ func (open Openers) withDefaults() Openers {
 			return defaultRedisOpener(ctx, cfg, recorder)
 		}
 	}
+	if open.Qdrant == nil {
+		open.Qdrant = defaultQdrantOpener
+	}
 	return open
 }
 
@@ -381,6 +424,21 @@ func defaultRedisOpener(_ context.Context, cfg config.RedisConfig, recorder tele
 	return OpenedResource[*redisclient.Client]{
 		Client: client,
 		Ping:   client.Ping,
+		Close:  func(context.Context) error { return client.Close() },
+	}, nil
+}
+
+func defaultQdrantOpener(_ context.Context, cfg config.QdrantConfig) (OpenedResource[*contextqdrant.Client], error) {
+	client, err := contextqdrant.New(contextqdrant.Config{
+		Address: cfg.Addr,
+		APIKey:  cfg.APIKey,
+		UseTLS:  cfg.TLS,
+	})
+	if err != nil {
+		return OpenedResource[*contextqdrant.Client]{}, err
+	}
+	return OpenedResource[*contextqdrant.Client]{
+		Client: client,
 		Close:  func(context.Context) error { return client.Close() },
 	}, nil
 }

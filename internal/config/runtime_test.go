@@ -22,6 +22,7 @@ func validConfigForTest() Config {
 			ConnMaxLifetime: time.Hour,
 		},
 		Redis:     RedisConfig{Addr: "redis.example.com:6379", DB: 0},
+		Qdrant:    QdrantConfig{Addr: "qdrant.example.com:6334", CollectionPrefix: "admin_context", TLS: true, APIKey: "qdrant-secret"},
 		Token:     TokenConfig{RedisDB: DefaultTokenRedisDB},
 		Queue:     QueueConfig{Enabled: true, RedisDB: 3, Concurrency: 10},
 		Realtime:  RealtimeConfig{Enabled: true, Publisher: RealtimePublisherLocal},
@@ -36,6 +37,37 @@ func productionConfigForTest() Config {
 	cfg.Realtime.Publisher = RealtimePublisherRedis
 	cfg.CORS.AllowOrigins = []string{"https://admin.example.com"}
 	return cfg
+}
+
+func TestValidateQdrantConfig(t *testing.T) {
+	tests := []struct {
+		name       string
+		production bool
+		mutate     func(*QdrantConfig)
+		want       string
+	}{
+		{name: "missing address", mutate: func(cfg *QdrantConfig) { cfg.Addr = "" }, want: "QDRANT_ADDR"},
+		{name: "credentials in address", mutate: func(cfg *QdrantConfig) { cfg.Addr = "secret@qdrant:6334" }, want: "QDRANT_ADDR"},
+		{name: "invalid prefix", mutate: func(cfg *QdrantConfig) { cfg.CollectionPrefix = "Admin-Context" }, want: "QDRANT_COLLECTION_PREFIX"},
+		{name: "production without TLS", production: true, mutate: func(cfg *QdrantConfig) { cfg.TLS = false }, want: "QDRANT_TLS"},
+		{name: "production without API key", production: true, mutate: func(cfg *QdrantConfig) { cfg.APIKey = "" }, want: "QDRANT_API_KEY"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := validConfigForTest()
+			if test.production {
+				cfg = productionConfigForTest()
+			}
+			test.mutate(&cfg.Qdrant)
+			err := Validate(ProcessAPI, cfg)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Validate() error=%v want key %q", err, test.want)
+			}
+			if strings.Contains(err.Error(), "qdrant-secret") {
+				t.Fatalf("validation leaked Qdrant API key: %v", err)
+			}
+		})
+	}
 }
 
 func TestValidateRejectsInvalidRuntimeConfig(t *testing.T) {
@@ -80,6 +112,13 @@ func TestValidateRejectsInvalidRuntimeConfig(t *testing.T) {
 		{name: "redis zero port", process: ProcessAPI, mutate: func(c *Config) { c.Redis.Addr = "redis.example.com:0" }, want: "REDIS_ADDR"},
 		{name: "redis high port", process: ProcessAPI, mutate: func(c *Config) { c.Redis.Addr = "redis.example.com:65536" }, want: "REDIS_ADDR"},
 		{name: "redis db", process: ProcessAPI, mutate: func(c *Config) { c.Redis.DB = -1 }, want: "REDIS_DB"},
+		{name: "qdrant required", process: ProcessAPI, mutate: func(c *Config) { c.Qdrant.Addr = "" }, want: "QDRANT_ADDR"},
+		{name: "qdrant host port", process: ProcessAPI, mutate: func(c *Config) { c.Qdrant.Addr = "qdrant.example.com" }, want: "QDRANT_ADDR"},
+		{name: "qdrant address credentials", process: ProcessAPI, mutate: func(c *Config) { c.Qdrant.Addr = "key@qdrant.example.com:6334" }, want: "QDRANT_ADDR"},
+		{name: "qdrant prefix uppercase", process: ProcessAPI, mutate: func(c *Config) { c.Qdrant.CollectionPrefix = "Admin_Context" }, want: "QDRANT_COLLECTION_PREFIX"},
+		{name: "qdrant prefix empty", process: ProcessAPI, mutate: func(c *Config) { c.Qdrant.CollectionPrefix = "" }, want: "QDRANT_COLLECTION_PREFIX"},
+		{name: "production qdrant tls", process: ProcessAPI, production: true, mutate: func(c *Config) { c.Qdrant.TLS = false }, want: "QDRANT_TLS"},
+		{name: "production qdrant api key", process: ProcessAPI, production: true, mutate: func(c *Config) { c.Qdrant.APIKey = "" }, want: "QDRANT_API_KEY"},
 		{name: "token redis db", process: ProcessAPI, mutate: func(c *Config) { c.Token.RedisDB = -1 }, want: "TOKEN_REDIS_DB"},
 		{name: "queue redis db", process: ProcessAPI, mutate: func(c *Config) { c.Queue.RedisDB = -1 }, want: "QUEUE_REDIS_DB"},
 		{name: "production mysql localhost", process: ProcessAPI, production: true, mutate: func(c *Config) { c.MySQL.DSN = "user:pass@tcp(localhost:3306)/admin" }, want: "MYSQL_DSN"},
@@ -639,6 +678,7 @@ func TestValidateErrorsDoNotExposeConfigValues(t *testing.T) {
 		{name: "http", process: ProcessAPI, mutate: func(c *Config) { c.HTTP.Addr = "private-http-address" }, forbidden: []string{"private-http-address"}},
 		{name: "mysql", process: ProcessAPI, mutate: func(c *Config) { c.MySQL.DSN = "user:private-dsn-password@tcp(db.example.com:3306)" }, forbidden: []string{"private-dsn-password", "user:private-dsn-password@tcp(db.example.com:3306)"}},
 		{name: "redis", process: ProcessAPI, mutate: func(c *Config) { c.Redis.Addr = "private-redis-address" }, forbidden: []string{"private-redis-address"}},
+		{name: "qdrant", process: ProcessAPI, mutate: func(c *Config) { c.Qdrant.Addr = "private-qdrant-address" }, forbidden: []string{"private-qdrant-address", "qdrant-secret"}},
 		{name: "scheduler", process: ProcessAPI, mutate: func(c *Config) { c.Scheduler.Timezone = "Private/Timezone" }, forbidden: []string{"Private/Timezone"}},
 		{name: "cors", process: ProcessAPI, mutate: func(c *Config) {
 			c.CORS.AllowOrigins = []string{"https://private-user:private-password@admin.example.com"}
@@ -678,6 +718,10 @@ func validEnvironmentForTest() map[string]string {
 		"REDIS_ADDR":               "redis.example.com:6379",
 		"REDIS_PASSWORD":           "opaque-password",
 		"REDIS_DB":                 "0",
+		"QDRANT_ADDR":              "qdrant.example.com:6334",
+		"QDRANT_COLLECTION_PREFIX": "admin_context",
+		"QDRANT_TLS":               "false",
+		"QDRANT_API_KEY":           "",
 		"TOKEN_REDIS_DB":           "2",
 		"QUEUE_ENABLED":            "true",
 		"QUEUE_REDIS_DB":           "3",
@@ -785,6 +829,8 @@ func TestLoadProductionAcceptsPrivateStateNodes(t *testing.T) {
 	values["MYSQL_DSN"] = "user:pass@tcp(10.0.0.8:3306)/admin"
 	values["REDIS_ADDR"] = "192.168.1.8:6379"
 	values["REALTIME_PUBLISHER"] = RealtimePublisherRedis
+	values["QDRANT_TLS"] = "true"
+	values["QDRANT_API_KEY"] = "qdrant-secret"
 	values["CORS_ALLOW_ORIGINS"] = "https://admin.example.com"
 	setEnvironmentForTest(t, values)
 
@@ -797,6 +843,8 @@ func TestLoadProductionWorkerIgnoresAPIOnlyCORS(t *testing.T) {
 	values := validEnvironmentForTest()
 	values["APP_ENV"] = "production"
 	values["REALTIME_PUBLISHER"] = RealtimePublisherRedis
+	values["QDRANT_TLS"] = "true"
+	values["QDRANT_API_KEY"] = "qdrant-secret"
 	values["CORS_ALLOW_ORIGINS"] = ",,,"
 	setEnvironmentForTest(t, values)
 

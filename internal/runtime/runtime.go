@@ -12,6 +12,7 @@ const (
 
 	StatusUp       = readiness.StatusUp
 	StatusDown     = readiness.StatusDown
+	StatusDegraded = readiness.StatusDegraded
 	StatusDisabled = readiness.StatusDisabled
 )
 

@@ -34,6 +34,9 @@ func Validate(process Process, cfg Config) error {
 	if err := validateRedisConfig(cfg.Redis, production); err != nil {
 		return err
 	}
+	if err := validateQdrantConfig(cfg.Qdrant, production); err != nil {
+		return err
+	}
 	if cfg.Token.RedisDB < 0 {
 		return fmt.Errorf("TOKEN_REDIS_DB must not be negative")
 	}
@@ -158,6 +161,33 @@ func validateRedisConfig(cfg RedisConfig, production bool) error {
 		if isLocalOrUnusableDependencyHost(host) {
 			return fmt.Errorf("REDIS_ADDR must not use a local or unusable host in production")
 		}
+	}
+	return nil
+}
+
+func validateQdrantConfig(cfg QdrantConfig, production bool) error {
+	addr := strings.TrimSpace(cfg.Addr)
+	if err := validateHostPort(addr, true); err != nil || strings.ContainsAny(addr, "@/?#") {
+		return fmt.Errorf("QDRANT_ADDR must be a credential-free host:port with a numeric port between 1 and 65535")
+	}
+	prefix := strings.TrimSpace(cfg.CollectionPrefix)
+	if prefix == "" || len(prefix) > 191 {
+		return fmt.Errorf("QDRANT_COLLECTION_PREFIX must contain 1 to 191 lowercase ASCII characters")
+	}
+	for index, char := range prefix {
+		if char >= 'a' && char <= 'z' || char >= '0' && char <= '9' || index > 0 && char == '_' {
+			continue
+		}
+		return fmt.Errorf("QDRANT_COLLECTION_PREFIX must start with lowercase ASCII and contain only lowercase ASCII, digits, and underscores")
+	}
+	if prefix[0] < 'a' || prefix[0] > 'z' {
+		return fmt.Errorf("QDRANT_COLLECTION_PREFIX must start with lowercase ASCII")
+	}
+	if production && !cfg.TLS {
+		return fmt.Errorf("QDRANT_TLS must be true in production")
+	}
+	if production && strings.TrimSpace(cfg.APIKey) == "" {
+		return fmt.Errorf("QDRANT_API_KEY is required in production")
 	}
 	return nil
 }

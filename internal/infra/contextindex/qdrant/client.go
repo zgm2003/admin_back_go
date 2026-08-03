@@ -9,7 +9,6 @@ import (
 	"net"
 	"strconv"
 	"strings"
-	"time"
 
 	"admin_back_go/internal/infra/contextindex"
 
@@ -71,12 +70,12 @@ func New(config Config) (*Client, error) {
 		return nil, fmt.Errorf("invalid Qdrant port %q", rawPort)
 	}
 	official, err := qdrantapi.NewClient(&qdrantapi.Config{
-		Host:                host,
-		Port:                port,
-		APIKey:              config.APIKey,
-		UseTLS:              config.UseTLS,
-		PoolSize:            1,
-		VersionCheckTimeout: 5 * time.Second,
+		Host:                   host,
+		Port:                   port,
+		APIKey:                 config.APIKey,
+		UseTLS:                 config.UseTLS,
+		PoolSize:               1,
+		SkipCompatibilityCheck: true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create Qdrant client: %w", err)
