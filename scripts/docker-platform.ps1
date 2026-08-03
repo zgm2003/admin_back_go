@@ -11,6 +11,7 @@ Set-StrictMode -Version Latest
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 . (Join-Path $PSScriptRoot 'dev\admin-dev-common.ps1')
 $stateCompose = Join-Path $repoRoot 'deploy\docker-state\docker-compose.yml'
+$stateImageEnv = Join-Path $repoRoot 'deploy\docker-state\qdrant-image.env'
 $appCompose = Join-Path $repoRoot 'deploy\docker-first\docker-compose.yml'
 $frontendRoot = [IO.Path]::GetFullPath((Join-Path $repoRoot '..\admin_front_ts'))
 $stateRuntime = Join-Path $repoRoot 'deploy\docker-state\runtime'
@@ -142,7 +143,7 @@ switch ($Action) {
       throw 'MySQL secret is missing; run init first'
     }
     Invoke-Docker @('compose', '-f', $appCompose, 'stop', 'frontend', 'admin-api', 'admin-worker')
-    Invoke-Docker @('compose', '-f', $stateCompose, 'up', '-d', '--wait', '--wait-timeout', '180')
+    Invoke-Docker @('compose', '--env-file', $stateImageEnv, '-f', $stateCompose, 'up', '-d', '--wait', '--wait-timeout', '180')
   }
 
   'up' {
@@ -159,7 +160,7 @@ switch ($Action) {
       $env:ADMIN_BACKEND_BUILD_REVISION = Resolve-GitRevision -Repository $repoRoot
       $env:ADMIN_FRONTEND_BUILD_REVISION = Resolve-GitRevision -Repository $frontendRoot
       Invoke-Docker @('compose', '-f', $appCompose, 'build', 'admin-api', 'frontend')
-      Invoke-Docker @('compose', '-f', $stateCompose, 'up', '-d', '--wait', '--wait-timeout', '180')
+      Invoke-Docker @('compose', '--env-file', $stateImageEnv, '-f', $stateCompose, 'up', '-d', '--wait', '--wait-timeout', '180')
       Invoke-Docker @('compose', '-f', $appCompose, 'up', '-d', '--no-build', '--wait', '--wait-timeout', '300')
     }
     finally {
@@ -171,11 +172,11 @@ switch ($Action) {
   'stop' {
     Assert-NoLiveAdminDevLock -Path $adminDevLock -RepositoryRoot $repoRoot
     Invoke-Docker @('compose', '-f', $appCompose, 'stop')
-    Invoke-Docker @('compose', '-f', $stateCompose, 'stop')
+      Invoke-Docker @('compose', '--env-file', $stateImageEnv, '-f', $stateCompose, 'stop')
   }
 
   'status' {
-    Invoke-Docker @('compose', '-f', $stateCompose, 'ps')
+      Invoke-Docker @('compose', '--env-file', $stateImageEnv, '-f', $stateCompose, 'ps')
     Invoke-Docker @('compose', '-f', $appCompose, 'ps')
   }
 }
