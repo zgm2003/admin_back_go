@@ -64,6 +64,15 @@ func aiWorkflowSchemas() map[string]any {
 			"attachments":    arraySchema(schemaReference("AIMessageMetaAttachment")),
 			"runtime_params": schemaReference("AIRuntimeParams"),
 		}),
+		"AIMessageCitationSource": closedObjectAllProperties(map[string]any{
+			"key": stringSchema(), "cited": booleanSchema(), "title": stringSchema(),
+			"locator": schemaReference("AIContextLocator"), "document_id": positiveIntegerSchema(),
+			"document_version_id": positiveIntegerSchema(),
+		}),
+		"AIMessageContext": closedObjectAllProperties(map[string]any{
+			"plan_id": positiveIntegerSchema(), "outcome": stringEnumSchema("skipped", "no_hit", "hit", "failed"),
+			"sources": arraySchema(schemaReference("AIMessageCitationSource")), "invalid_keys": arraySchema(stringSchema()),
+		}),
 		"AIMessageItem": closedObjectSchema(
 			[]string{"id", "role", "content_type", "content", "paired_message_id", "run_id", "liked", "delivery_state", "settlement_pending", "created_at", "updated_at"},
 			map[string]any{
@@ -77,6 +86,7 @@ func aiWorkflowSchemas() map[string]any {
 				"liked":              booleanSchema(),
 				"delivery_state":     nullableSchema(stringEnumSchema("completed", "stopped")),
 				"settlement_pending": booleanSchema(),
+				"context":            nullableSchema(schemaReference("AIMessageContext")),
 				"created_at":         stringSchema(),
 				"updated_at":         stringSchema(),
 			},
