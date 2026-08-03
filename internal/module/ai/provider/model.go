@@ -1,10 +1,28 @@
 package aiprovider
 
 import (
+	"fmt"
 	"time"
 
 	"admin_back_go/internal/module/ai/officialmodel"
 )
+
+type ModelKind string
+
+const (
+	ModelKindChat      ModelKind = "chat"
+	ModelKindEmbedding ModelKind = "embedding"
+	ModelKindRerank    ModelKind = "rerank"
+)
+
+func (kind ModelKind) Validate() error {
+	switch kind {
+	case ModelKindChat, ModelKindEmbedding, ModelKindRerank:
+		return nil
+	default:
+		return fmt.Errorf("invalid provider model kind %q", kind)
+	}
+}
 
 type Provider struct {
 	ID                  uint64     `gorm:"column:id;primaryKey"`
@@ -32,6 +50,7 @@ type ProviderModel struct {
 	ID                     uint64                      `gorm:"column:id;primaryKey"`
 	ProviderID             uint64                      `gorm:"column:provider_id"`
 	ModelID                string                      `gorm:"column:model_id"`
+	ModelKind              ModelKind                   `gorm:"column:model_kind"`
 	DisplayName            string                      `gorm:"column:display_name"`
 	OfficialModelID        *string                     `gorm:"column:official_model_id"`
 	OfficialCatalogVersion *string                     `gorm:"column:official_catalog_version"`

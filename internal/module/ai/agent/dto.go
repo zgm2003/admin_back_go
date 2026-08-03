@@ -5,6 +5,7 @@ import (
 
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/module/ai/officialmodel"
+	aiprovider "admin_back_go/internal/module/ai/provider"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/dict"
 )
@@ -90,6 +91,7 @@ type AgentDTO struct {
 	CreatedAt                  string                    `json:"created_at"`
 	UpdatedAt                  string                    `json:"updated_at"`
 	BillingMultiplier          string                    `json:"billing_multiplier"`
+	ContextProfileID           *uint64                   `json:"context_profile_id"`
 	OfficialModel              *OfficialModelSummaryDTO  `json:"official_model,omitempty"`
 	Capabilities               *EffectiveCapabilitiesDTO `json:"capabilities,omitempty"`
 	ProviderModelID            uint64                    `json:"provider_model_id"`
@@ -185,6 +187,7 @@ type CreateInput struct {
 	Avatar            string
 	Status            int
 	BillingMultiplier string
+	ContextProfileID  *uint64
 }
 
 type UpdateInput = CreateInput
@@ -233,6 +236,7 @@ type ProviderModelDTO struct {
 	ID                     uint64                      `json:"id"`
 	ProviderID             uint64                      `json:"provider_id"`
 	ModelID                string                      `json:"model_id"`
+	ModelKind              aiprovider.ModelKind        `json:"model_kind" validate:"oneof=chat embedding rerank"`
 	DisplayName            string                      `json:"display_name"`
 	OfficialModelID        string                      `json:"official_model_id"`
 	OfficialCatalogVersion string                      `json:"official_catalog_version"`

@@ -129,6 +129,29 @@ func TestAIProviderAPIProtocolResponseUsesClosedEnum(t *testing.T) {
 	}
 }
 
+func TestAIProviderModelKindAndAgentContextProfileContracts(t *testing.T) {
+	bundle := mustBuildBundle(t)
+	var document struct {
+		Components struct {
+			Schemas map[string]map[string]any `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(bundle.Artifacts["openapi.json"], &document); err != nil {
+		t.Fatal(err)
+	}
+
+	kind := openAPIPropertySchema(t, document.Components.Schemas, "Go_internal_module_ai_provider_ProviderModelDTO_Output", "model_kind")
+	wantKinds := []string{string(aiprovider.ModelKindChat), string(aiprovider.ModelKindEmbedding), string(aiprovider.ModelKindRerank)}
+	if diff := cmp.Diff(wantKinds, openAPIStringEnum(t, document.Components.Schemas, kind)); diff != "" {
+		t.Fatalf("model kind enum mismatch (-want +got):\n%s", diff)
+	}
+	agent := document.Components.Schemas["Go_internal_module_ai_agent_AgentDTO_Output"]
+	if agent == nil {
+		t.Fatal("AgentDTO output schema is missing")
+	}
+	assertNullableProperty(t, agent, "context_profile_id")
+}
+
 func openAPIPropertySchema(t *testing.T, schemas map[string]map[string]any, schemaName string, propertyName string) map[string]any {
 	t.Helper()
 	schema, exists := schemas[schemaName]

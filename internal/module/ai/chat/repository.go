@@ -11,6 +11,7 @@ import (
 	"admin_back_go/internal/infra/database"
 	"admin_back_go/internal/module/ai/billing"
 	"admin_back_go/internal/module/ai/officialmodel"
+	aiprovider "admin_back_go/internal/module/ai/provider"
 	"admin_back_go/internal/module/ai/requestidentity"
 	airun "admin_back_go/internal/module/ai/run"
 	"admin_back_go/internal/shared/enum"
@@ -353,7 +354,7 @@ func (r *GormRepository) agentRuntimeDB(ctx context.Context) *gorm.DB {
 			pm.official_catalog_version AS official_catalog_version,
 			pm.mapping_status AS mapping_status`).
 		Joins("JOIN ai_providers e ON e.id = a.provider_id AND e.is_del = ? AND e.status = ?", enum.CommonNo, enum.CommonYes).
-		Joins("JOIN ai_provider_models pm ON pm.provider_id = a.provider_id AND pm.model_id = a.model_id AND pm.status = ? AND pm.mapping_status = ?", enum.CommonYes, officialmodel.MappingStatusMapped).
+		Joins("JOIN ai_provider_models pm ON pm.provider_id = a.provider_id AND pm.model_id = a.model_id AND pm.model_kind = ? AND pm.status = ? AND pm.mapping_status = ?", aiprovider.ModelKindChat, enum.CommonYes, officialmodel.MappingStatusMapped).
 		Where("a.is_del = ? AND a.status = ?", enum.CommonNo, enum.CommonYes)
 }
 

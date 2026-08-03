@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"admin_back_go/internal/module/ai/billing"
+	"admin_back_go/internal/module/ai/officialmodel"
+	aiprovider "admin_back_go/internal/module/ai/provider"
 	"admin_back_go/internal/shared/enum"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -17,6 +19,21 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
+
+func TestAgentForRuntimePinsChatModel(t *testing.T) {
+	db, mock := noWriteGormDB(t)
+	mock.ExpectQuery("JOIN ai_provider_models pm ON .*pm.model_kind = \\? AND pm.status = \\? AND pm.mapping_status = \\?").
+		WithArgs(enum.CommonNo, enum.CommonYes, aiprovider.ModelKindChat, enum.CommonYes, officialmodel.MappingStatusMapped, enum.CommonNo, enum.CommonYes, uint64(5), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"agent_id", "model_id"}).AddRow(uint64(5), "gpt-5.6"))
+
+	row, err := (&GormRepository{db: db}).AgentForRuntime(context.Background(), 5)
+	if err != nil || row == nil || row.AgentID != 5 {
+		t.Fatalf("row=%#v err=%v", row, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("chat runtime did not pin chat model: %v", err)
+	}
+}
 
 func TestStaleRunningRunsDBFiltersOnlyOldRunningRows(t *testing.T) {
 	db := dryRunGormDB(t)

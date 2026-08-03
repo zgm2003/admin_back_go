@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/module/ai/officialmodel"
+	aiprovider "admin_back_go/internal/module/ai/provider"
 	"admin_back_go/internal/module/ai/replycommand"
 	"admin_back_go/internal/module/ai/requestidentity"
 	"admin_back_go/internal/shared/enum"
@@ -360,7 +361,7 @@ func (r *GormRepository) historyRuntime(ctx context.Context, db *gorm.DB, userID
 			ai_provider_models.mapping_status AS mapping_status`).
 		Joins("JOIN ai_agents ON ai_agents.id = ai_conversations.agent_id AND ai_agents.is_del = ?", enum.CommonNo).
 		Joins("JOIN ai_providers ON ai_providers.id = ai_agents.provider_id AND ai_providers.is_del = ? AND ai_providers.status = ?", enum.CommonNo, enum.CommonYes).
-		Joins("JOIN ai_provider_models ON ai_provider_models.provider_id = ai_agents.provider_id AND ai_provider_models.model_id = ai_agents.model_id AND ai_provider_models.status = ? AND ai_provider_models.mapping_status = ?", enum.CommonYes, officialmodel.MappingStatusMapped).
+		Joins("JOIN ai_provider_models ON ai_provider_models.provider_id = ai_agents.provider_id AND ai_provider_models.model_id = ai_agents.model_id AND ai_provider_models.model_kind = ? AND ai_provider_models.status = ? AND ai_provider_models.mapping_status = ?", aiprovider.ModelKindChat, enum.CommonYes, officialmodel.MappingStatusMapped).
 		Where("ai_conversations.id = ? AND ai_conversations.user_id = ? AND ai_conversations.is_del = ?", conversationID, userID, enum.CommonNo)
 	if locked {
 		query = query.Clauses(clause.Locking{Strength: "UPDATE"})

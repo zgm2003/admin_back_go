@@ -7,6 +7,7 @@ import (
 
 	"admin_back_go/internal/infra/database"
 	"admin_back_go/internal/module/ai/officialmodel"
+	aiprovider "admin_back_go/internal/module/ai/provider"
 	"admin_back_go/internal/shared/enum"
 
 	"gorm.io/gorm"
@@ -149,7 +150,7 @@ func (r *GormRepository) ListProviderModels(ctx context.Context, providerID uint
 		return nil, nil
 	}
 	var rows []ProviderModel
-	if err := r.db.WithContext(ctx).Where("provider_id = ? AND status = ?", providerID, enum.CommonYes).Order("model_id ASC").Find(&rows).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("provider_id = ? AND model_kind = ? AND status = ?", providerID, aiprovider.ModelKindChat, enum.CommonYes).Order("model_id ASC").Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -226,7 +227,7 @@ func (r *GormRepository) agentSelectDB(ctx context.Context) *gorm.DB {
 		pm.official_catalog_version AS official_catalog_version,
 		pm.mapping_status AS mapping_status`).
 		Joins("LEFT JOIN ai_providers e ON e.id = a.provider_id AND e.is_del = ?", enum.CommonNo).
-		Joins("LEFT JOIN ai_provider_models pm ON pm.provider_id = a.provider_id AND pm.model_id = a.model_id").
+		Joins("LEFT JOIN ai_provider_models pm ON pm.provider_id = a.provider_id AND pm.model_id = a.model_id AND pm.model_kind = ?", aiprovider.ModelKindChat).
 		Where("a.is_del = ?", enum.CommonNo)
 }
 

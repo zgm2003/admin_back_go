@@ -16,6 +16,7 @@ import (
 	"admin_back_go/internal/module/ai/capability"
 	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/pricing"
+	aiprovider "admin_back_go/internal/module/ai/provider"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/dict"
 	"admin_back_go/internal/shared/enum"
@@ -43,6 +44,12 @@ type Service struct {
 	pricingResolver officialmodel.Resolver
 	capabilities    infraai.TransportCapabilityResolver
 	uploadRules     uploadpolicy.Resolver
+	contextProfiles ContextProfileResolver
+}
+
+type ContextProfileResolver interface {
+	RequireAssignable(context.Context, uint64) error
+	RequireAgentProfileChangeAllowed(context.Context, uint64, *uint64) error
 }
 
 type Option func(*Service)
@@ -57,6 +64,10 @@ func WithTransportCapabilityResolver(resolver infraai.TransportCapabilityResolve
 
 func WithUploadRuleResolver(resolver uploadpolicy.Resolver) Option {
 	return func(service *Service) { service.uploadRules = resolver }
+}
+
+func WithContextProfileResolver(resolver ContextProfileResolver) Option {
+	return func(service *Service) { service.contextProfiles = resolver }
 }
 
 func NewService(repository Repository, box secretbox.Box, tester ConnectionTester, options ...Option) *Service {
@@ -205,6 +216,9 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (uint64, *apper
 	if appErr := s.ensureOfficialModelSelectable(ctx, *model); appErr != nil {
 		return 0, appErr
 	}
+	if appErr := s.requireAssignableContextProfile(ctx, row.ContextProfileID); appErr != nil {
+		return 0, appErr
+	}
 	id, err := repo.Create(ctx, row)
 	if err != nil {
 		return 0, apperror.LegacyWrap(apperror.CodeInternal, 500, "新增AI智能体失败", err)
@@ -248,6 +262,11 @@ func (s *Service) Update(ctx context.Context, id uint64, input UpdateInput) *app
 		}
 	} else if appErr := s.ensureOfficialModelCallable(ctx, *model); appErr != nil {
 		return appErr
+	}
+	if !sameOptionalUint64(row.ContextProfileID, fields.contextProfileID) {
+		if appErr := s.requireContextProfileChange(ctx, id, fields.contextProfileID); appErr != nil {
+			return appErr
+		}
 	}
 	updateFields := updateFieldsMap(fields)
 	if err := repo.Update(ctx, id, updateFields); err != nil {
@@ -412,6 +431,54 @@ func (s *Service) ensureActiveProvider(ctx context.Context, repo Repository, id 
 	return nil
 }
 
+func (s *Service) requireAssignableContextProfile(ctx context.Context, profileID *uint64) *apperror.Error {
+	if profileID == nil {
+		return nil
+	}
+	if *profileID == 0 {
+		return apperror.BadRequest("无效的上下文配置ID")
+	}
+	if s == nil || s.contextProfiles == nil {
+		return contextProfileUnavailable(nil)
+	}
+	if err := s.contextProfiles.RequireAssignable(ctx, *profileID); err != nil {
+		return contextProfileResolverError(err)
+	}
+	return nil
+}
+
+func (s *Service) requireContextProfileChange(ctx context.Context, agentID uint64, profileID *uint64) *apperror.Error {
+	if s == nil || s.contextProfiles == nil {
+		return contextProfileUnavailable(nil)
+	}
+	if err := s.contextProfiles.RequireAgentProfileChangeAllowed(ctx, agentID, profileID); err != nil {
+		return contextProfileResolverError(err)
+	}
+	return s.requireAssignableContextProfile(ctx, profileID)
+}
+
+func contextProfileResolverError(err error) *apperror.Error {
+	var appErr *apperror.Error
+	if errors.As(err, &appErr) {
+		return appErr
+	}
+	return contextProfileUnavailable(err)
+}
+
+func contextProfileUnavailable(cause error) *apperror.Error {
+	if cause != nil {
+		return apperror.Wrap("ai.context.profile_unavailable", apperror.CategoryDependency, 503, apperror.Permanent, "ai.context.profile_unavailable", nil, "上下文配置当前不可用", cause)
+	}
+	return apperror.New("ai.context.profile_unavailable", apperror.CategoryDependency, 503, apperror.Permanent, "ai.context.profile_unavailable", nil, "上下文配置当前不可用")
+}
+
+func sameOptionalUint64(left, right *uint64) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
+}
+
 func (s *Service) ensureProviderModel(ctx context.Context, repo Repository, providerID uint64, modelID string) (*ProviderModel, *apperror.Error) {
 	modelID = strings.TrimSpace(modelID)
 	if modelID == "" {
@@ -422,7 +489,7 @@ func (s *Service) ensureProviderModel(ctx context.Context, repo Repository, prov
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI供应商模型失败", err)
 	}
 	for _, model := range models {
-		if model.Status == enum.CommonYes && strings.TrimSpace(model.ModelID) == modelID {
+		if model.Status == enum.CommonYes && model.ModelKind == aiprovider.ModelKindChat && strings.TrimSpace(model.ModelID) == modelID {
 			if model.MappingStatus != officialmodel.MappingStatusMapped || model.OfficialModelID == nil || model.OfficialCatalogVersion == nil || model.MappedAt == nil {
 				return nil, apperror.Wrap("ai.official_model.unmapped", apperror.CategoryConflict, 409, apperror.Permanent, "", nil, "该供应商模型未映射到官方模型", nil)
 			}
@@ -462,6 +529,7 @@ func normalizeCreateInput(input CreateInput) (Agent, *apperror.Error) {
 		Status:               fields.status,
 		IsDel:                enum.CommonNo,
 		BillingMultiplierPPM: fields.billingMultiplierPPM,
+		ContextProfileID:     fields.contextProfileID,
 	}, nil
 }
 
@@ -475,6 +543,11 @@ func updateFieldsMap(fields normalizedFields) map[string]any {
 		"avatar":                 fields.avatar,
 		"status":                 fields.status,
 		"billing_multiplier_ppm": fields.billingMultiplierPPM,
+	}
+	if fields.contextProfileID == nil {
+		out["context_profile_id"] = nil
+	} else {
+		out["context_profile_id"] = *fields.contextProfileID
 	}
 	if fields.modelDisplayName != "" {
 		out["model_display_name"] = fields.modelDisplayName
@@ -492,6 +565,7 @@ type normalizedFields struct {
 	avatar               string
 	status               int
 	billingMultiplierPPM int64
+	contextProfileID     *uint64
 }
 
 func normalizeMutationFields(input CreateInput) (normalizedFields, *apperror.Error) {
@@ -535,13 +609,13 @@ func normalizeMutationFields(input CreateInput) (normalizedFields, *apperror.Err
 	if err != nil {
 		return normalizedFields{}, apperror.BadRequest("billing_multiplier必须是大于0且最多6位小数的十进制数")
 	}
-	return normalizedFields{providerID: input.ProviderID, name: name, modelID: modelID, scenesJSON: scenesJSON, systemPrompt: systemPrompt, avatar: avatar, status: status, billingMultiplierPPM: multiplier}, nil
+	return normalizedFields{providerID: input.ProviderID, name: name, modelID: modelID, scenesJSON: scenesJSON, systemPrompt: systemPrompt, avatar: avatar, status: status, billingMultiplierPPM: multiplier, contextProfileID: input.ContextProfileID}, nil
 }
 
 func (s *Service) agentDTO(ctx context.Context, row AgentWithProvider, attachmentPolicy requestAttachmentPolicy) (AgentDTO, error) {
 	scenes := decodeScenes(row.ScenesJSON)
 	multiplier := defaultMultiplier(row.BillingMultiplierPPM)
-	dto := AgentDTO{ID: row.ID, ProviderID: row.ProviderID, ProviderName: row.ProviderName, EngineType: row.EngineType, Name: row.Name, ModelID: row.ModelID, ModelDisplayName: row.ModelDisplayName, Scenes: scenes, SceneNames: sceneNames(scenes), SystemPrompt: row.SystemPrompt, Avatar: row.Avatar, Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt), BillingMultiplier: formatMultiplier(multiplier)}
+	dto := AgentDTO{ID: row.ID, ProviderID: row.ProviderID, ProviderName: row.ProviderName, EngineType: row.EngineType, Name: row.Name, ModelID: row.ModelID, ModelDisplayName: row.ModelDisplayName, Scenes: scenes, SceneNames: sceneNames(scenes), SystemPrompt: row.SystemPrompt, Avatar: row.Avatar, Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt), BillingMultiplier: formatMultiplier(multiplier), ContextProfileID: row.ContextProfileID}
 	model, err := s.resolveModelPrice(ctx, row.ModelID)
 	if err == nil {
 		effective, capabilityErr := s.effectiveCapabilityDTO(row.EngineType, model.Model.Capabilities, row.APIProtocol, row.providerRouteEnabled(), attachmentPolicy)
@@ -821,7 +895,7 @@ func formatMultiplier(ppm int64) string {
 
 func providerModelDTO(row ProviderModel) ProviderModelDTO {
 	return ProviderModelDTO{
-		ID: row.ID, ProviderID: row.ProviderID, ModelID: row.ModelID, DisplayName: row.DisplayName,
+		ID: row.ID, ProviderID: row.ProviderID, ModelID: row.ModelID, ModelKind: row.ModelKind, DisplayName: row.DisplayName,
 		OfficialModelID: pointerValue(row.OfficialModelID), OfficialCatalogVersion: pointerValue(row.OfficialCatalogVersion),
 		MappingStatus: row.MappingStatus, MappedAt: formatOptionalTime(row.MappedAt),
 		Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt),

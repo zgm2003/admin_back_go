@@ -17,22 +17,23 @@ import (
 )
 
 type fakeRepository struct {
-	rows               []Provider
-	total              int64
-	listQuery          ListQuery
-	rowByID            map[uint64]Provider
-	exists             bool
-	created            *Provider
-	updates            []map[string]any
-	statusID           uint64
-	status             int
-	deletedID          uint64
-	updateErr          error
-	modelsByProvider   map[uint64][]ProviderModel
-	replacedProviderID uint64
-	replacedModels     []ProviderModel
-	allModels          []ProviderModel
-	mappingUpdates     []providerModelMappingUpdate
+	rows                 []Provider
+	total                int64
+	listQuery            ListQuery
+	rowByID              map[uint64]Provider
+	exists               bool
+	created              *Provider
+	updates              []map[string]any
+	statusID             uint64
+	status               int
+	deletedID            uint64
+	updateErr            error
+	modelsByProvider     map[uint64][]ProviderModel
+	reconciledProviderID uint64
+	reconcileScope       ModelReconcileScope
+	reconciledModels     []ProviderModel
+	allModels            []ProviderModel
+	mappingUpdates       []providerModelMappingUpdate
 }
 
 type providerModelMappingUpdate struct {
@@ -77,9 +78,10 @@ func (f *fakeRepository) ListModels(ctx context.Context, providerID uint64) ([]P
 	return f.modelsByProvider[providerID], nil
 }
 
-func (f *fakeRepository) ReplaceModels(ctx context.Context, providerID uint64, models []ProviderModel) error {
-	f.replacedProviderID = providerID
-	f.replacedModels = append([]ProviderModel(nil), models...)
+func (f *fakeRepository) ReconcileModels(ctx context.Context, providerID uint64, scope ModelReconcileScope, models []ProviderModel) error {
+	f.reconciledProviderID = providerID
+	f.reconcileScope = scope
+	f.reconciledModels = append([]ProviderModel(nil), models...)
 	return nil
 }
 
@@ -135,10 +137,10 @@ func TestProviderSyncStoresExactOfficialModelMapping(t *testing.T) {
 	if _, appErr := service.SyncModels(context.Background(), 7); appErr != nil {
 		t.Fatalf("sync failed: %v", appErr)
 	}
-	if repo.replacedProviderID != 7 || len(repo.replacedModels) != 1 {
-		t.Fatalf("persisted models=%#v provider=%d", repo.replacedModels, repo.replacedProviderID)
+	if repo.reconciledProviderID != 7 || repo.reconcileScope != ModelReconcileChatOnly || len(repo.reconciledModels) != 1 {
+		t.Fatalf("persisted models=%#v provider=%d scope=%q", repo.reconciledModels, repo.reconciledProviderID, repo.reconcileScope)
 	}
-	mapping := repo.replacedModels[0]
+	mapping := repo.reconciledModels[0]
 	if mapping.MappingStatus != "mapped" || mapping.OfficialModelID == nil || *mapping.OfficialModelID != "gpt-4.1-mini" ||
 		mapping.OfficialCatalogVersion == nil || *mapping.OfficialCatalogVersion != "official_models_v1" || mapping.MappedAt == nil {
 		t.Fatalf("mapping=%#v", mapping)
@@ -160,10 +162,10 @@ func TestProviderSyncLeavesCaseMismatchAndUnknownModelUnmapped(t *testing.T) {
 	if _, appErr := service.SyncModels(context.Background(), 7); appErr != nil {
 		t.Fatalf("sync failed: %v", appErr)
 	}
-	if len(repo.replacedModels) != 2 {
-		t.Fatalf("persisted models=%#v", repo.replacedModels)
+	if len(repo.reconciledModels) != 2 {
+		t.Fatalf("persisted models=%#v", repo.reconciledModels)
 	}
-	for _, model := range repo.replacedModels {
+	for _, model := range repo.reconciledModels {
 		if model.MappingStatus != "unmapped" || model.OfficialModelID != nil || model.OfficialCatalogVersion != nil || model.MappedAt != nil {
 			t.Fatalf("model %q unexpectedly mapped: %#v", model.ModelID, model)
 		}
@@ -177,9 +179,9 @@ func TestReconcileOfficialModelMappingsUpdatesOnlyChangedMappings(t *testing.T) 
 	originalMappedAt := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
 	now := time.Date(2026, 7, 28, 9, 30, 0, 0, time.UTC)
 	repo := &fakeRepository{allModels: []ProviderModel{
-		{ID: 1, ProviderID: 7, ModelID: "gpt-4.1-mini", OfficialModelID: &currentOfficialID, OfficialCatalogVersion: &oldVersion, MappingStatus: officialmodel.MappingStatusMapped, MappedAt: &originalMappedAt, Status: 2},
-		{ID: 2, ProviderID: 7, ModelID: "gpt-4.1-mini", OfficialModelID: &currentOfficialID, OfficialCatalogVersion: &currentVersion, MappingStatus: officialmodel.MappingStatusMapped, MappedAt: &originalMappedAt, Status: 1},
-		{ID: 3, ProviderID: 8, ModelID: "private-model", OfficialModelID: &staleOfficialID, OfficialCatalogVersion: &oldVersion, MappingStatus: officialmodel.MappingStatusMapped, MappedAt: &originalMappedAt, Status: 2},
+		{ID: 1, ProviderID: 7, ModelID: "gpt-4.1-mini", ModelKind: ModelKindChat, OfficialModelID: &currentOfficialID, OfficialCatalogVersion: &oldVersion, MappingStatus: officialmodel.MappingStatusMapped, MappedAt: &originalMappedAt, Status: 2},
+		{ID: 2, ProviderID: 7, ModelID: "gpt-4.1-mini", ModelKind: ModelKindChat, OfficialModelID: &currentOfficialID, OfficialCatalogVersion: &currentVersion, MappingStatus: officialmodel.MappingStatusMapped, MappedAt: &originalMappedAt, Status: 1},
+		{ID: 3, ProviderID: 8, ModelID: "private-model", ModelKind: ModelKindChat, OfficialModelID: &staleOfficialID, OfficialCatalogVersion: &oldVersion, MappingStatus: officialmodel.MappingStatusMapped, MappedAt: &originalMappedAt, Status: 2},
 	}}
 	service := NewService(
 		repo,
@@ -341,7 +343,7 @@ func TestListDoesNotDefaultBlankEngineTypeFilter(t *testing.T) {
 func TestListRejectsInvalidStoredProviderStateInsteadOfInventingDTOFallback(t *testing.T) {
 	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
 	validProvider := Provider{ID: 1, Name: "OpenAI", EngineType: "openai", APIProtocol: APIProtocolChatCompletions, HealthStatus: provider.HealthUnknown, LastModelSyncStatus: provider.HealthUnknown, Status: 1, CreatedAt: now, UpdatedAt: now}
-	validModels := []ProviderModel{{ProviderID: 1, ModelID: "gpt-4.1-mini", MappingStatus: "unmapped", Status: 1, CreatedAt: now, UpdatedAt: now}}
+	validModels := []ProviderModel{{ProviderID: 1, ModelID: "gpt-4.1-mini", ModelKind: ModelKindChat, MappingStatus: "unmapped", Status: 1, CreatedAt: now, UpdatedAt: now}}
 	cases := []struct {
 		name     string
 		row      Provider
@@ -352,7 +354,7 @@ func TestListRejectsInvalidStoredProviderStateInsteadOfInventingDTOFallback(t *t
 		{name: "blank health_status", row: func() Provider { row := validProvider; row.HealthStatus = ""; return row }(), models: validModels, errorMsg: "AI供应商数据异常"},
 		{name: "blank last_model_sync_status", row: func() Provider { row := validProvider; row.LastModelSyncStatus = ""; return row }(), models: validModels, errorMsg: "AI供应商数据异常"},
 		{name: "invalid provider status", row: func() Provider { row := validProvider; row.Status = 99; return row }(), models: validModels, errorMsg: "AI供应商数据异常"},
-		{name: "invalid model status", row: validProvider, models: []ProviderModel{{ProviderID: 1, ModelID: "gpt-4.1-mini", MappingStatus: "unmapped", Status: 99, CreatedAt: now, UpdatedAt: now}}, errorMsg: "AI供应商模型数据异常"},
+		{name: "invalid model status", row: validProvider, models: []ProviderModel{{ProviderID: 1, ModelID: "gpt-4.1-mini", ModelKind: ModelKindChat, MappingStatus: "unmapped", Status: 99, CreatedAt: now, UpdatedAt: now}}, errorMsg: "AI供应商模型数据异常"},
 	}
 
 	for _, tc := range cases {
@@ -436,16 +438,16 @@ func TestCreatePersistsSelectedModels(t *testing.T) {
 	if id != 11 {
 		t.Fatalf("id = %d, want 11", id)
 	}
-	if repo.replacedProviderID != 11 {
-		t.Fatalf("replaced provider id = %d, want 11", repo.replacedProviderID)
+	if repo.reconciledProviderID != 11 || repo.reconcileScope != ModelReconcileChatOnly {
+		t.Fatalf("reconciled provider id = %d scope=%q", repo.reconciledProviderID, repo.reconcileScope)
 	}
-	if len(repo.replacedModels) != 2 {
-		t.Fatalf("model count = %d, want 2: %#v", len(repo.replacedModels), repo.replacedModels)
+	if len(repo.reconciledModels) != 2 {
+		t.Fatalf("model count = %d, want 2: %#v", len(repo.reconciledModels), repo.reconciledModels)
 	}
-	if repo.replacedModels[0].DisplayName != "默认轻量模型" {
-		t.Fatalf("display name not persisted: %#v", repo.replacedModels)
+	if repo.reconciledModels[0].DisplayName != "默认轻量模型" || repo.reconciledModels[0].ModelKind != ModelKindChat {
+		t.Fatalf("legacy model was not persisted as chat: %#v", repo.reconciledModels)
 	}
-	encoded, err := json.Marshal(repo.replacedModels)
+	encoded, err := json.Marshal(repo.reconciledModels)
 	if err != nil {
 		t.Fatalf("marshal replaced models: %v", err)
 	}
@@ -454,6 +456,61 @@ func TestCreatePersistsSelectedModels(t *testing.T) {
 		if strings.Contains(body, forbidden) {
 			t.Fatalf("provider model snapshot must not carry fake metadata field %s: %s", forbidden, body)
 		}
+	}
+}
+
+func TestCreateTypedModelsReconcilesCompleteCatalog(t *testing.T) {
+	repo := &fakeRepository{}
+	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+
+	_, appErr := service.Create(context.Background(), CreateInput{
+		Name: "OpenAI", EngineType: "openai", APIKey: "sk-test",
+		APIProtocol: APIProtocolResponses, Status: 1,
+		Models: []ProviderModelInput{
+			{ModelID: "gpt-5.6", ModelKind: ModelKindChat},
+			{ModelID: "text-embedding-3-large", ModelKind: ModelKindEmbedding},
+			{ModelID: "rerank-v1", ModelKind: ModelKindRerank},
+		},
+	})
+	if appErr != nil {
+		t.Fatal(appErr)
+	}
+	if repo.reconcileScope != ModelReconcileAll || len(repo.reconciledModels) != 3 {
+		t.Fatalf("scope=%q models=%#v", repo.reconcileScope, repo.reconciledModels)
+	}
+	for index, want := range []ModelKind{ModelKindChat, ModelKindEmbedding, ModelKindRerank} {
+		if repo.reconciledModels[index].ModelKind != want {
+			t.Fatalf("model %d kind=%q want=%q", index, repo.reconciledModels[index].ModelKind, want)
+		}
+	}
+}
+
+func TestCreateRejectsAmbiguousOrUnknownModelKinds(t *testing.T) {
+	service := NewService(&fakeRepository{}, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+	base := CreateInput{Name: "OpenAI", EngineType: "openai", APIKey: "sk-test", APIProtocol: APIProtocolResponses, Status: 1}
+
+	both := base
+	both.ModelIDs = []string{"gpt-5.6"}
+	both.Models = []ProviderModelInput{{ModelID: "gpt-5.6", ModelKind: ModelKindChat}}
+	if _, appErr := service.Create(context.Background(), both); appErr == nil {
+		t.Fatal("request containing model_ids and models was accepted")
+	}
+
+	unknown := base
+	unknown.Models = []ProviderModelInput{{ModelID: "future-model", ModelKind: ModelKind("future")}}
+	if _, appErr := service.Create(context.Background(), unknown); appErr == nil {
+		t.Fatal("unknown model kind was accepted")
+	}
+}
+
+func TestProviderModelDTOAlwaysPublishesExplicitKind(t *testing.T) {
+	rows := []ProviderModel{{ID: 9, ProviderID: 7, ModelID: "gpt-5.6", ModelKind: ModelKindChat, MappingStatus: officialmodel.MappingStatusUnmapped, Status: 1}}
+	dtos, appErr := providerModelDTOs(rows)
+	if appErr != nil {
+		t.Fatal(appErr)
+	}
+	if len(dtos) != 1 || dtos[0].ModelKind != ModelKindChat {
+		t.Fatalf("DTOs=%#v", dtos)
 	}
 }
 
@@ -517,7 +574,7 @@ func TestListDTOExcludesEncryptedAndPlainAPIKey(t *testing.T) {
 	repo := &fakeRepository{
 		rows:             []Provider{{ID: 1, Name: "OpenAI", EngineType: "openai", BaseURL: "", APIProtocol: APIProtocolChatCompletions, APIKeyEnc: "cipher-secret", APIKeyHint: "***cret", HealthStatus: "ok", LastModelSyncStatus: "unknown", Status: 1, CreatedAt: now, UpdatedAt: now}},
 		total:            1,
-		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", MappingStatus: "unmapped", Status: 1}}},
+		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", ModelKind: ModelKindChat, MappingStatus: "unmapped", Status: 1}}},
 	}
 	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 

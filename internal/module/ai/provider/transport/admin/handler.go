@@ -171,7 +171,7 @@ func routeID(c *gin.Context) (uint64, bool) {
 }
 
 func createInput(req mutationRequest) aiprovidermodule.CreateInput {
-	return aiprovidermodule.CreateInput{Name: req.Name, EngineType: req.EngineType, BaseURL: req.BaseURL, APIKey: req.APIKey, APIProtocol: req.APIProtocol, ModelIDs: req.ModelIDs, ModelDisplayNames: req.ModelDisplayNames, Status: req.Status}
+	return aiprovidermodule.CreateInput{Name: req.Name, EngineType: req.EngineType, BaseURL: req.BaseURL, APIKey: req.APIKey, APIProtocol: req.APIProtocol, ModelIDs: req.ModelIDs, Models: req.Models, ModelDisplayNames: req.ModelDisplayNames, Status: req.Status}
 }
 func updateInput(req mutationRequest) aiprovidermodule.UpdateInput {
 	return aiprovidermodule.UpdateInput(createInput(req))
@@ -180,7 +180,7 @@ func modelOptionsInput(req modelOptionsRequest) aiprovidermodule.ModelOptionsInp
 	return aiprovidermodule.ModelOptionsInput{EngineType: req.EngineType, BaseURL: req.BaseURL, APIKey: req.APIKey}
 }
 func updateModelsInput(req updateModelsRequest) aiprovidermodule.UpdateModelsInput {
-	return aiprovidermodule.UpdateModelsInput{ModelIDs: req.ModelIDs, ModelDisplayNames: req.ModelDisplayNames, Statuses: req.Statuses}
+	return aiprovidermodule.UpdateModelsInput{ModelIDs: req.ModelIDs, Models: req.Models, ModelDisplayNames: req.ModelDisplayNames, Statuses: req.Statuses}
 }
 
 func writeResult(c *gin.Context, result any, appErr *apperror.Error) {

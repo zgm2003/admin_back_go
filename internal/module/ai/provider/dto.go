@@ -81,6 +81,7 @@ type ProviderModelDTO struct {
 	ID                     uint64                      `json:"id"`
 	ProviderID             uint64                      `json:"provider_id"`
 	ModelID                string                      `json:"model_id"`
+	ModelKind              ModelKind                   `json:"model_kind" validate:"oneof=chat embedding rerank"`
 	DisplayName            string                      `json:"display_name"`
 	OfficialModelID        string                      `json:"official_model_id"`
 	OfficialCatalogVersion string                      `json:"official_catalog_version"`
@@ -113,6 +114,7 @@ type CreateInput struct {
 	APIKey            string
 	APIProtocol       string
 	ModelIDs          []string
+	Models            []ProviderModelInput
 	ModelDisplayNames map[string]string
 	Status            int
 }
@@ -127,8 +129,14 @@ type ModelOptionsInput struct {
 
 type UpdateModelsInput struct {
 	ModelIDs          []string
+	Models            []ProviderModelInput
 	ModelDisplayNames map[string]string
 	Statuses          map[string]int
+}
+
+type ProviderModelInput struct {
+	ModelID   string    `json:"model_id" binding:"required,max=191"`
+	ModelKind ModelKind `json:"model_kind" binding:"required,oneof=chat embedding rerank"`
 }
 
 type ProviderTester interface {

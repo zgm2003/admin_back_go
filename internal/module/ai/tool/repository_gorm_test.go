@@ -43,7 +43,7 @@ func TestGormRepositoryListRuntimeToolsUsesActiveBindingAndToolPredicates(t *tes
 	}
 }
 
-func TestGormRepositoryGetGenerateAgentConfigProjectsProviderAPIProtocol(t *testing.T) {
+func TestGormRepositoryGetGenerateAgentConfigPinsChatModelAndProjectsProviderAPIProtocol(t *testing.T) {
 	sqlDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	if err != nil {
 		t.Fatal(err)
@@ -57,7 +57,7 @@ func TestGormRepositoryGetGenerateAgentConfigProjectsProviderAPIProtocol(t *test
 		t.Fatal(err)
 	}
 	repository := NewGormRepository(&database.Client{Gorm: db, SQL: sqlDB})
-	mock.ExpectQuery("SELECT .*p.api_protocol AS engine_api_protocol.*FROM ai_agents AS a.*").
+	mock.ExpectQuery("SELECT .*p.api_protocol AS engine_api_protocol.*FROM ai_agents AS a.*pm.model_kind = \\?.*").
 		WillReturnRows(sqlmock.NewRows([]string{"engine_api_protocol"}).AddRow("responses"))
 
 	config, err := repository.GetGenerateAgentConfig(context.Background(), 5)

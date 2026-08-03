@@ -128,11 +128,11 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (uint64, *apper
 	if apiKey == "" {
 		return 0, apperror.BadRequest("API Key不能为空")
 	}
-	row, models, appErr := normalizeCreateInput(input)
+	row, catalog, appErr := normalizeCreateInput(input)
 	if appErr != nil {
 		return 0, appErr
 	}
-	models = s.mapProviderModels(models)
+	catalog.models = s.mapProviderModels(catalog.models)
 	exists, err := repo.ExistsByTypeName(ctx, row.EngineType, row.Name, 0)
 	if err != nil {
 		return 0, apperror.LegacyWrap(apperror.CodeInternal, 500, "校验AI供应商失败", err)
@@ -150,7 +150,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (uint64, *apper
 	if err != nil {
 		return 0, apperror.LegacyWrap(apperror.CodeInternal, 500, "新增AI供应商失败", err)
 	}
-	if err := repo.ReplaceModels(ctx, id, models); err != nil {
+	if err := repo.ReconcileModels(ctx, id, catalog.scope, catalog.models); err != nil {
 		return 0, apperror.LegacyWrap(apperror.CodeInternal, 500, "保存AI供应商模型失败", err)
 	}
 	return id, nil
@@ -171,11 +171,11 @@ func (s *Service) Update(ctx context.Context, id uint64, input UpdateInput) *app
 	if row == nil {
 		return apperror.NotFound("AI供应商不存在")
 	}
-	fields, models, appErr := normalizeUpdateFields(input)
+	fields, catalog, appErr := normalizeUpdateFields(input)
 	if appErr != nil {
 		return appErr
 	}
-	models = s.mapProviderModels(models)
+	catalog.models = s.mapProviderModels(catalog.models)
 	exists, err := repo.ExistsByTypeName(ctx, strings.TrimSpace(input.EngineType), strings.TrimSpace(input.Name), id)
 	if err != nil {
 		return apperror.LegacyWrap(apperror.CodeInternal, 500, "校验AI供应商失败", err)
@@ -194,7 +194,7 @@ func (s *Service) Update(ctx context.Context, id uint64, input UpdateInput) *app
 	if err := repo.Update(ctx, id, fields); err != nil {
 		return apperror.LegacyWrap(apperror.CodeInternal, 500, "编辑AI供应商失败", err)
 	}
-	if err := repo.ReplaceModels(ctx, id, models); err != nil {
+	if err := repo.ReconcileModels(ctx, id, catalog.scope, catalog.models); err != nil {
 		return apperror.LegacyWrap(apperror.CodeInternal, 500, "保存AI供应商模型失败", err)
 	}
 	return nil
@@ -352,7 +352,10 @@ func (s *Service) SyncModels(ctx context.Context, id uint64) (*ModelOptionsRespo
 		_ = repo.Update(ctx, id, fields)
 		return nil, appErr
 	}
-	if err := repo.ReplaceModels(ctx, id, providerModels); err != nil {
+	for index := range providerModels {
+		providerModels[index].ModelKind = ModelKindChat
+	}
+	if err := repo.ReconcileModels(ctx, id, ModelReconcileChatOnly, providerModels); err != nil {
 		fields["last_model_sync_status"] = provider.HealthFailed
 		fields["last_model_sync_error"] = truncateErrorString(err.Error())
 		_ = repo.Update(ctx, id, fields)
@@ -398,12 +401,12 @@ func (s *Service) UpdateProviderModels(ctx context.Context, id uint64, input Upd
 	if row == nil {
 		return apperror.NotFound("AI供应商不存在")
 	}
-	models, appErr := buildProviderModels(input.ModelIDs, input.ModelDisplayNames, input.Statuses)
+	catalog, appErr := buildModelCatalog(input.ModelIDs, input.Models, input.ModelDisplayNames, input.Statuses)
 	if appErr != nil {
 		return appErr
 	}
-	models = s.mapProviderModels(models)
-	if err := repo.ReplaceModels(ctx, id, models); err != nil {
+	catalog.models = s.mapProviderModels(catalog.models)
+	if err := repo.ReconcileModels(ctx, id, catalog.scope, catalog.models); err != nil {
 		return apperror.LegacyWrap(apperror.CodeInternal, 500, "保存AI供应商模型失败", err)
 	}
 	return nil
@@ -495,28 +498,28 @@ func normalizeListQuery(query ListQuery) ListQuery {
 	return query
 }
 
-func normalizeCreateInput(input CreateInput) (Provider, []ProviderModel, *apperror.Error) {
+func normalizeCreateInput(input CreateInput) (Provider, normalizedModelCatalog, *apperror.Error) {
 	fields, appErr := normalizeMutationFields(input.Name, input.EngineType, input.BaseURL, input.APIProtocol, input.Status)
 	if appErr != nil {
-		return Provider{}, nil, appErr
+		return Provider{}, normalizedModelCatalog{}, appErr
 	}
-	models, appErr := buildProviderModels(input.ModelIDs, input.ModelDisplayNames, nil)
+	catalog, appErr := buildModelCatalog(input.ModelIDs, input.Models, input.ModelDisplayNames, nil)
 	if appErr != nil {
-		return Provider{}, nil, appErr
+		return Provider{}, normalizedModelCatalog{}, appErr
 	}
-	return Provider{Name: fields.name, EngineType: fields.engineType, BaseURL: fields.baseURL, APIProtocol: fields.apiProtocol, Status: fields.status, HealthStatus: provider.HealthUnknown, LastModelSyncStatus: provider.HealthUnknown, IsDel: enum.CommonNo}, models, nil
+	return Provider{Name: fields.name, EngineType: fields.engineType, BaseURL: fields.baseURL, APIProtocol: fields.apiProtocol, Status: fields.status, HealthStatus: provider.HealthUnknown, LastModelSyncStatus: provider.HealthUnknown, IsDel: enum.CommonNo}, catalog, nil
 }
 
-func normalizeUpdateFields(input UpdateInput) (map[string]any, []ProviderModel, *apperror.Error) {
+func normalizeUpdateFields(input UpdateInput) (map[string]any, normalizedModelCatalog, *apperror.Error) {
 	fields, appErr := normalizeMutationFields(input.Name, input.EngineType, input.BaseURL, input.APIProtocol, input.Status)
 	if appErr != nil {
-		return nil, nil, appErr
+		return nil, normalizedModelCatalog{}, appErr
 	}
-	models, appErr := buildProviderModels(input.ModelIDs, input.ModelDisplayNames, nil)
+	catalog, appErr := buildModelCatalog(input.ModelIDs, input.Models, input.ModelDisplayNames, nil)
 	if appErr != nil {
-		return nil, nil, appErr
+		return nil, normalizedModelCatalog{}, appErr
 	}
-	return map[string]any{"name": fields.name, "engine_type": fields.engineType, "base_url": fields.baseURL, "api_protocol": fields.apiProtocol, "status": fields.status}, models, nil
+	return map[string]any{"name": fields.name, "engine_type": fields.engineType, "base_url": fields.baseURL, "api_protocol": fields.apiProtocol, "status": fields.status}, catalog, nil
 }
 
 type normalizedFields struct {
@@ -588,9 +591,52 @@ func buildProviderModels(modelIDs []string, displayNames map[string]string, stat
 		if !enum.IsCommonStatus(status) {
 			return nil, apperror.BadRequest("无效的模型状态")
 		}
-		models = append(models, ProviderModel{ModelID: modelID, DisplayName: strings.TrimSpace(displayNames[modelID]), Status: status})
+		models = append(models, ProviderModel{ModelID: modelID, ModelKind: ModelKindChat, DisplayName: strings.TrimSpace(displayNames[modelID]), Status: status})
 	}
 	return models, nil
+}
+
+type normalizedModelCatalog struct {
+	scope  ModelReconcileScope
+	models []ProviderModel
+}
+
+func buildModelCatalog(modelIDs []string, typed []ProviderModelInput, displayNames map[string]string, statuses map[string]int) (normalizedModelCatalog, *apperror.Error) {
+	if len(modelIDs) > 0 && len(typed) > 0 {
+		return normalizedModelCatalog{}, apperror.BadRequest("model_ids与models不能同时提交")
+	}
+	if len(typed) == 0 {
+		models, appErr := buildProviderModels(modelIDs, displayNames, statuses)
+		return normalizedModelCatalog{scope: ModelReconcileChatOnly, models: models}, appErr
+	}
+	models := make([]ProviderModel, 0, len(typed))
+	seen := make(map[providerModelIdentity]struct{}, len(typed))
+	for _, input := range typed {
+		modelID := strings.TrimSpace(input.ModelID)
+		if modelID == "" {
+			return normalizedModelCatalog{}, apperror.BadRequest("模型ID不能为空")
+		}
+		if err := input.ModelKind.Validate(); err != nil {
+			return normalizedModelCatalog{}, apperror.BadRequest("无效的模型用途")
+		}
+		identity := providerModelIdentity{modelID: modelID, kind: input.ModelKind}
+		if _, exists := seen[identity]; exists {
+			continue
+		}
+		seen[identity] = struct{}{}
+		status := enum.CommonYes
+		if statuses != nil && statuses[modelID] != 0 {
+			status = statuses[modelID]
+		}
+		if !enum.IsCommonStatus(status) {
+			return normalizedModelCatalog{}, apperror.BadRequest("无效的模型状态")
+		}
+		models = append(models, ProviderModel{ModelID: modelID, ModelKind: input.ModelKind, DisplayName: strings.TrimSpace(displayNames[modelID]), Status: status})
+	}
+	if len(models) == 0 {
+		return normalizedModelCatalog{}, apperror.BadRequest("请至少选择一个模型")
+	}
+	return normalizedModelCatalog{scope: ModelReconcileAll, models: models}, nil
 }
 
 func providerDTO(row Provider, models []ProviderModel) (ProviderDTO, *apperror.Error) {
@@ -635,11 +681,11 @@ func providerDTO(row Provider, models []ProviderModel) (ProviderDTO, *apperror.E
 func providerModelDTOs(rows []ProviderModel) ([]ProviderModelDTO, *apperror.Error) {
 	list := make([]ProviderModelDTO, 0, len(rows))
 	for _, row := range rows {
-		if !enum.IsCommonStatus(row.Status) || !validStoredMapping(row) {
+		if !enum.IsCommonStatus(row.Status) || row.ModelKind.Validate() != nil || !validStoredMapping(row) {
 			return nil, apperror.InternalKey("aiprovider.model.data_invalid", nil, "AI供应商模型数据异常")
 		}
 		list = append(list, ProviderModelDTO{
-			ID: row.ID, ProviderID: row.ProviderID, ModelID: row.ModelID, DisplayName: row.DisplayName,
+			ID: row.ID, ProviderID: row.ProviderID, ModelID: row.ModelID, ModelKind: row.ModelKind, DisplayName: row.DisplayName,
 			OfficialModelID: valueOrEmpty(row.OfficialModelID), OfficialCatalogVersion: valueOrEmpty(row.OfficialCatalogVersion),
 			MappingStatus: row.MappingStatus, MappedAt: formatPtrTime(row.MappedAt),
 			Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt),

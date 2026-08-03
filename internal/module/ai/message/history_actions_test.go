@@ -920,7 +920,7 @@ func expectNoActiveHistoryCommand(mock sqlmock.Sqlmock, locked bool) {
 
 func expectHistoryRuntime(mock sqlmock.Sqlmock, locked bool) {
 	runtime := historyRuntimeFixture()
-	pattern := "SELECT .*api_protocol.* FROM .*ai_conversations.*ai_agents.*ai_providers"
+	pattern := "SELECT .*api_protocol.* FROM .*ai_conversations.*ai_agents.*ai_providers.*ai_provider_models.model_kind = \\?"
 	if locked {
 		pattern += ".*FOR UPDATE"
 	}

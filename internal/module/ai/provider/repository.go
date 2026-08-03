@@ -3,6 +3,7 @@ package aiprovider
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"admin_back_go/internal/infra/database"
@@ -10,9 +11,26 @@ import (
 	"admin_back_go/internal/shared/enum"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 var ErrRepositoryNotConfigured = errors.New("aiprovider repository not configured")
+
+type ModelReconcileScope string
+
+const (
+	ModelReconcileChatOnly ModelReconcileScope = "chat_only"
+	ModelReconcileAll      ModelReconcileScope = "all"
+)
+
+func (scope ModelReconcileScope) Validate() error {
+	switch scope {
+	case ModelReconcileChatOnly, ModelReconcileAll:
+		return nil
+	default:
+		return fmt.Errorf("invalid provider model reconcile scope %q", scope)
+	}
+}
 
 type Repository interface {
 	List(ctx context.Context, query ListQuery) ([]Provider, int64, error)
@@ -24,7 +42,7 @@ type Repository interface {
 	ListModels(ctx context.Context, providerID uint64) ([]ProviderModel, error)
 	ListAllModels(ctx context.Context) ([]ProviderModel, error)
 	UpdateModelMapping(ctx context.Context, id uint64, mapping officialmodel.IdentityMapping) error
-	ReplaceModels(ctx context.Context, providerID uint64, models []ProviderModel) error
+	ReconcileModels(ctx context.Context, providerID uint64, scope ModelReconcileScope, models []ProviderModel) error
 	Delete(ctx context.Context, id uint64) error
 }
 
@@ -158,29 +176,89 @@ func (r *GormRepository) ListModels(ctx context.Context, providerID uint64) ([]P
 	return rows, nil
 }
 
-func (r *GormRepository) ReplaceModels(ctx context.Context, providerID uint64, models []ProviderModel) error {
+func (r *GormRepository) ReconcileModels(ctx context.Context, providerID uint64, scope ModelReconcileScope, models []ProviderModel) error {
 	if r == nil || r.db == nil {
 		return ErrRepositoryNotConfigured
 	}
 	if providerID == 0 {
-		return nil
+		return errors.New("provider id is required")
+	}
+	if err := scope.Validate(); err != nil {
+		return err
 	}
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("provider_id = ?", providerID).Delete(&ProviderModel{}).Error; err != nil {
+		var existing []ProviderModel
+		query := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("provider_id = ?", providerID)
+		if scope == ModelReconcileChatOnly {
+			query = query.Where("model_kind = ?", ModelKindChat)
+		}
+		if err := query.Order("id ASC").Find(&existing).Error; err != nil {
 			return err
 		}
+
+		existingByIdentity := make(map[providerModelIdentity]ProviderModel, len(existing))
+		for _, row := range existing {
+			existingByIdentity[providerModelIdentity{modelID: row.ModelID, kind: row.ModelKind}] = row
+		}
+		seen := make(map[providerModelIdentity]struct{}, len(models))
 		for _, model := range models {
-			model.ID = 0
+			model.ModelID = strings.TrimSpace(model.ModelID)
+			if model.ModelID == "" {
+				return errors.New("provider model id is required")
+			}
+			if err := model.ModelKind.Validate(); err != nil {
+				return err
+			}
+			if scope == ModelReconcileChatOnly && model.ModelKind != ModelKindChat {
+				return errors.New("chat-only reconciliation received a non-chat model")
+			}
+			identity := providerModelIdentity{modelID: model.ModelID, kind: model.ModelKind}
+			if _, duplicated := seen[identity]; duplicated {
+				return fmt.Errorf("duplicate provider model identity %q/%q", model.ModelID, model.ModelKind)
+			}
+			seen[identity] = struct{}{}
 			model.ProviderID = providerID
 			if model.Status == 0 {
 				model.Status = enum.CommonYes
 			}
+			if current, exists := existingByIdentity[identity]; exists {
+				if err := tx.Model(&ProviderModel{}).Where("id = ?", current.ID).Updates(providerModelMutableFields(model)).Error; err != nil {
+					return err
+				}
+				continue
+			}
+			model.ID = 0
 			if err := tx.Create(&model).Error; err != nil {
+				return err
+			}
+		}
+		for _, row := range existing {
+			identity := providerModelIdentity{modelID: row.ModelID, kind: row.ModelKind}
+			if _, retained := seen[identity]; retained || row.Status == enum.CommonNo {
+				continue
+			}
+			if err := tx.Model(&ProviderModel{}).Where("id = ?", row.ID).Update("status", enum.CommonNo).Error; err != nil {
 				return err
 			}
 		}
 		return nil
 	})
+}
+
+type providerModelIdentity struct {
+	modelID string
+	kind    ModelKind
+}
+
+func providerModelMutableFields(model ProviderModel) map[string]any {
+	return map[string]any{
+		"display_name":             model.DisplayName,
+		"official_model_id":        model.OfficialModelID,
+		"official_catalog_version": model.OfficialCatalogVersion,
+		"mapping_status":           model.MappingStatus,
+		"mapped_at":                model.MappedAt,
+		"status":                   model.Status,
+	}
 }
 
 func (r *GormRepository) ChangeStatus(ctx context.Context, id uint64, status int) error {

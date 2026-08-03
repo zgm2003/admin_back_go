@@ -7,6 +7,7 @@ import (
 
 	"admin_back_go/internal/infra/database"
 	"admin_back_go/internal/module/ai/officialmodel"
+	aiprovider "admin_back_go/internal/module/ai/provider"
 	"admin_back_go/internal/shared/enum"
 
 	"gorm.io/gorm"
@@ -305,7 +306,7 @@ func (r *GormRepository) activeTools(ctx context.Context) *gorm.DB {
 func (r *GormRepository) generateAgentDB(ctx context.Context) *gorm.DB {
 	return r.db.WithContext(ctx).Table("ai_agents AS a").
 		Joins("JOIN ai_providers p ON p.id = a.provider_id AND p.is_del = ? AND p.status = ?", enum.CommonNo, enum.CommonYes).
-		Joins("JOIN ai_provider_models pm ON pm.provider_id = a.provider_id AND pm.model_id = a.model_id AND pm.status = ? AND pm.mapping_status = ?", enum.CommonYes, officialmodel.MappingStatusMapped).
+		Joins("JOIN ai_provider_models pm ON pm.provider_id = a.provider_id AND pm.model_id = a.model_id AND pm.model_kind = ? AND pm.status = ? AND pm.mapping_status = ?", aiprovider.ModelKindChat, enum.CommonYes, officialmodel.MappingStatusMapped).
 		Where("a.is_del = ? AND a.status = ?", enum.CommonNo, enum.CommonYes).
 		Where("JSON_CONTAINS(a.scenes_json, JSON_QUOTE(?))", sceneAgentGenerate)
 }

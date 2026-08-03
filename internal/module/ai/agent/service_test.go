@@ -28,6 +28,28 @@ type countingUploadRuleResolver struct {
 	err   error
 }
 
+type fakeContextProfileResolver struct {
+	assignableIDs []uint64
+	changes       []contextProfileChange
+	assignErr     error
+	changeErr     error
+}
+
+type contextProfileChange struct {
+	agentID   uint64
+	profileID *uint64
+}
+
+func (resolver *fakeContextProfileResolver) RequireAssignable(_ context.Context, profileID uint64) error {
+	resolver.assignableIDs = append(resolver.assignableIDs, profileID)
+	return resolver.assignErr
+}
+
+func (resolver *fakeContextProfileResolver) RequireAgentProfileChangeAllowed(_ context.Context, agentID uint64, profileID *uint64) error {
+	resolver.changes = append(resolver.changes, contextProfileChange{agentID: agentID, profileID: profileID})
+	return resolver.changeErr
+}
+
 func (resolver *countingUploadRuleResolver) ResolveActive(context.Context) (uploadpolicy.Rule, error) {
 	resolver.calls++
 	return resolver.rule, resolver.err
@@ -224,7 +246,7 @@ func (f *fakeAIAgentTester) TestConnection(ctx context.Context, input infraai.Te
 	return &infraai.TestConnectionResult{OK: true, Status: "200 OK", Message: "ok"}, nil
 }
 
-func newTestAgentService(repository Repository, box secretbox.Box, tester ConnectionTester) *Service {
+func newTestAgentService(repository Repository, box secretbox.Box, tester ConnectionTester, options ...Option) *Service {
 	resolver := officialmodel.ResolverFunc(func(_ context.Context, modelID string) (officialmodel.ResolvedModel, error) {
 		rates := []pricing.Rate{
 			{Category: pricing.InputTokens, Unit: "token", PriceUnits: 1, UnitScale: 1},
@@ -236,14 +258,14 @@ func newTestAgentService(repository Repository, box secretbox.Box, tester Connec
 			PriceSourceURL: "https://openai.com/pricing", PriceVerifiedAt: time.Date(2026, 7, 27, 0, 0, 0, 0, time.UTC),
 		}, nil
 	})
-	return NewService(repository, box, tester, WithPricingResolver(resolver))
+	return NewService(repository, box, tester, append([]Option{WithPricingResolver(resolver)}, options...)...)
 }
 
 func TestAgentSelectionAllowsOnlyMappedActiveRoutes(t *testing.T) {
 	repo := &fakeAIAgentRepository{
 		activeProviders: map[uint64]Provider{1: {ID: 1, Name: "OpenAI", EngineType: "openai", Status: enum.CommonYes, IsDel: enum.CommonNo}},
 		modelsByProvider: map[uint64][]ProviderModel{1: {{
-			ProviderID: 1, ModelID: "gpt-4.1-mini", MappingStatus: officialmodel.MappingStatusUnmapped, Status: enum.CommonYes,
+			ProviderID: 1, ModelID: "gpt-4.1-mini", ModelKind: aiprovider.ModelKindChat, MappingStatus: officialmodel.MappingStatusUnmapped, Status: enum.CommonYes,
 		}}},
 	}
 	service := newTestAgentService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
@@ -263,13 +285,91 @@ func TestAgentSelectionAllowsOnlyMappedActiveRoutes(t *testing.T) {
 	}
 }
 
+func TestCreateAgentContextProfileIsExplicitAndNullable(t *testing.T) {
+	profileID := uint64(41)
+	repo := agentMutationRepository("gpt-5.6")
+	input := CreateInput{ProviderID: 1, Name: "客服助手", ModelID: "gpt-5.6", Scenes: []string{"chat"}, Status: enum.CommonYes}
+
+	pureChat := newTestAgentService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+	if _, appErr := pureChat.Create(context.Background(), input); appErr != nil {
+		t.Fatal(appErr)
+	}
+	if repo.created == nil || repo.created.ContextProfileID != nil {
+		t.Fatalf("pure chat agent profile=%#v", repo.created)
+	}
+
+	repo.created = nil
+	input.ContextProfileID = &profileID
+	if _, appErr := pureChat.Create(context.Background(), input); appErr == nil || appErr.Code != "ai.context.profile_unavailable" {
+		t.Fatalf("missing resolver error=%#v", appErr)
+	}
+	if repo.created != nil {
+		t.Fatal("agent persisted before profile validation")
+	}
+
+	resolver := &fakeContextProfileResolver{}
+	withProfile := newTestAgentService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil, WithContextProfileResolver(resolver))
+	if _, appErr := withProfile.Create(context.Background(), input); appErr != nil {
+		t.Fatal(appErr)
+	}
+	if len(resolver.assignableIDs) != 1 || resolver.assignableIDs[0] != profileID || repo.created == nil || repo.created.ContextProfileID == nil || *repo.created.ContextProfileID != profileID {
+		t.Fatalf("resolver=%#v agent=%#v", resolver, repo.created)
+	}
+}
+
+func TestUpdateAgentContextProfileChangeUsesResolverAndPreservesNull(t *testing.T) {
+	oldProfileID := uint64(41)
+	repo := agentMutationRepository("gpt-5.6")
+	repo.rawByID = map[uint64]Agent{7: {ID: 7, ProviderID: 1, ModelID: "gpt-5.6", ContextProfileID: &oldProfileID, BillingMultiplierPPM: 1_000_000}}
+	resolver := &fakeContextProfileResolver{}
+	service := newTestAgentService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil, WithContextProfileResolver(resolver))
+
+	input := UpdateInput{ProviderID: 1, Name: "客服助手", ModelID: "gpt-5.6", Scenes: []string{"chat"}, Status: enum.CommonYes, ContextProfileID: nil}
+	if appErr := service.Update(context.Background(), 7, input); appErr != nil {
+		t.Fatal(appErr)
+	}
+	if len(resolver.changes) != 1 || resolver.changes[0].agentID != 7 || resolver.changes[0].profileID != nil {
+		t.Fatalf("changes=%#v", resolver.changes)
+	}
+	if len(repo.updates) != 1 {
+		t.Fatalf("updates=%#v", repo.updates)
+	}
+	value, exists := repo.updates[0]["context_profile_id"]
+	if !exists || value != nil {
+		t.Fatalf("context_profile_id update=%#v exists=%v", value, exists)
+	}
+}
+
+func TestCreateAgentRejectsNonChatProviderModel(t *testing.T) {
+	repo := agentMutationRepository("shared-model")
+	repo.modelsByProvider[1][0].ModelKind = aiprovider.ModelKindEmbedding
+	service := newTestAgentService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+
+	_, appErr := service.Create(context.Background(), CreateInput{ProviderID: 1, Name: "bad", ModelID: "shared-model", Scenes: []string{"chat"}, Status: enum.CommonYes})
+	if appErr == nil {
+		t.Fatal("embedding model was accepted by chat Agent")
+	}
+}
+
+func agentMutationRepository(modelID string) *fakeAIAgentRepository {
+	officialID, catalogVersion := modelID, "test-catalog"
+	mappedAt := time.Date(2026, 7, 28, 0, 0, 0, 0, time.UTC)
+	return &fakeAIAgentRepository{
+		activeProviders: map[uint64]Provider{1: {ID: 1, Name: "OpenAI", EngineType: "openai", APIProtocol: aiprovider.APIProtocolResponses, Status: enum.CommonYes, IsDel: enum.CommonNo}},
+		modelsByProvider: map[uint64][]ProviderModel{1: {{
+			ProviderID: 1, ModelID: modelID, ModelKind: aiprovider.ModelKindChat, MappingStatus: officialmodel.MappingStatusMapped,
+			OfficialModelID: &officialID, OfficialCatalogVersion: &catalogVersion, MappedAt: &mappedAt, Status: enum.CommonYes,
+		}}},
+	}
+}
+
 func TestAgentSelectionRejectsTamperedMappedRoute(t *testing.T) {
 	officialID, catalogVersion := "gpt-4.1-mini", "test-catalog"
 	mappedAt := time.Date(2026, 7, 28, 0, 0, 0, 0, time.UTC)
 	repo := &fakeAIAgentRepository{
 		activeProviders: map[uint64]Provider{1: {ID: 1, Name: "OpenAI", EngineType: "openai", Status: enum.CommonYes, IsDel: enum.CommonNo}},
 		modelsByProvider: map[uint64][]ProviderModel{1: {{
-			ProviderID: 1, ModelID: "private-upstream-model", OfficialModelID: &officialID,
+			ProviderID: 1, ModelID: "private-upstream-model", ModelKind: aiprovider.ModelKindChat, OfficialModelID: &officialID,
 			OfficialCatalogVersion: &catalogVersion, MappingStatus: officialmodel.MappingStatusMapped,
 			MappedAt: &mappedAt, Status: enum.CommonYes,
 		}}},
@@ -292,7 +392,7 @@ func TestLifecycleDeprecatedKeepsExistingCallButRejectsSelection(t *testing.T) {
 	officialID, catalogVersion := "gpt-reviewed", "test-catalog"
 	mappedAt := time.Date(2026, 7, 28, 0, 0, 0, 0, time.UTC)
 	route := ProviderModel{
-		ProviderID: 1, ModelID: officialID, OfficialModelID: &officialID,
+		ProviderID: 1, ModelID: officialID, ModelKind: aiprovider.ModelKindChat, OfficialModelID: &officialID,
 		OfficialCatalogVersion: &catalogVersion, MappingStatus: officialmodel.MappingStatusMapped,
 		MappedAt: &mappedAt, Status: enum.CommonYes,
 	}
@@ -340,7 +440,7 @@ func TestCreateRequiresProviderModelAndDefaultScene(t *testing.T) {
 	repo := &fakeAIAgentRepository{
 		activeProviders: map[uint64]Provider{1: {ID: 1, Name: "OpenAI", EngineType: "openai", Status: enum.CommonYes, IsDel: enum.CommonNo}},
 		modelsByProvider: map[uint64][]ProviderModel{1: {
-			{ProviderID: 1, ModelID: "gpt-4.1-mini", DisplayName: "GPT-4.1 mini", Status: enum.CommonYes},
+			{ProviderID: 1, ModelID: "gpt-4.1-mini", ModelKind: aiprovider.ModelKindChat, DisplayName: "GPT-4.1 mini", Status: enum.CommonYes},
 		}},
 	}
 	service := newTestAgentService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
@@ -375,7 +475,7 @@ func TestCreateAcceptsAgentGenerateScene(t *testing.T) {
 	repo := &fakeAIAgentRepository{
 		activeProviders: map[uint64]Provider{1: {ID: 1, Name: "OpenAI", EngineType: "openai", Status: enum.CommonYes, IsDel: enum.CommonNo}},
 		modelsByProvider: map[uint64][]ProviderModel{1: {
-			{ProviderID: 1, ModelID: "gpt-4.1-mini", DisplayName: "GPT-4.1 mini", Status: enum.CommonYes},
+			{ProviderID: 1, ModelID: "gpt-4.1-mini", ModelKind: aiprovider.ModelKindChat, DisplayName: "GPT-4.1 mini", Status: enum.CommonYes},
 		}},
 	}
 	service := newTestAgentService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
@@ -400,7 +500,7 @@ func TestCreateAcceptsCanonicalGenerationScenes(t *testing.T) {
 	repo := &fakeAIAgentRepository{
 		activeProviders: map[uint64]Provider{1: {ID: 1, Name: "OpenAI", EngineType: "openai", Status: enum.CommonYes, IsDel: enum.CommonNo}},
 		modelsByProvider: map[uint64][]ProviderModel{1: {
-			{ProviderID: 1, ModelID: "gpt-image-2", DisplayName: "GPT Image 2", Status: enum.CommonYes},
+			{ProviderID: 1, ModelID: "gpt-image-2", ModelKind: aiprovider.ModelKindChat, DisplayName: "GPT Image 2", Status: enum.CommonYes},
 		}},
 	}
 	service := newTestAgentService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
@@ -446,7 +546,7 @@ func TestSceneOptionsIncludeAgentAndGenerationScenesOnly(t *testing.T) {
 func TestCreateRejectsModelOutsideProviderSnapshot(t *testing.T) {
 	repo := &fakeAIAgentRepository{
 		activeProviders:  map[uint64]Provider{1: {ID: 1, Name: "OpenAI", EngineType: "openai", Status: enum.CommonYes, IsDel: enum.CommonNo}},
-		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", Status: enum.CommonYes}}},
+		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", ModelKind: aiprovider.ModelKindChat, Status: enum.CommonYes}}},
 	}
 	service := newTestAgentService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
@@ -468,7 +568,7 @@ func TestCreateRejectsInvalidScene(t *testing.T) {
 		t.Run(invalidScene, func(t *testing.T) {
 			repo := &fakeAIAgentRepository{
 				activeProviders:  map[uint64]Provider{1: {ID: 1, Name: "OpenAI", EngineType: "openai", Status: enum.CommonYes, IsDel: enum.CommonNo}},
-				modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", Status: enum.CommonYes}}},
+				modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", ModelKind: aiprovider.ModelKindChat, Status: enum.CommonYes}}},
 			}
 			service := newTestAgentService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
@@ -604,7 +704,7 @@ func TestOptionsExposeOfficialModelAndEffectiveChatCapabilities(t *testing.T) {
 			ID: 3, EngineType: "openai", APIProtocol: aiprovider.APIProtocolResponses, Status: enum.CommonYes, IsDel: enum.CommonNo,
 		}},
 		modelsByProvider: map[uint64][]ProviderModel{3: {{
-			ID: 31, ProviderID: 3, ModelID: "provider-gpt-vision", Status: enum.CommonYes,
+			ID: 31, ProviderID: 3, ModelID: "provider-gpt-vision", ModelKind: aiprovider.ModelKindChat, Status: enum.CommonYes,
 			OfficialModelID: &officialID, OfficialCatalogVersion: &catalogVersion,
 			MappingStatus: officialmodel.MappingStatusMapped, MappedAt: &mappedAt,
 		}}},
@@ -718,7 +818,7 @@ func TestUpdateOnlyPersistsMVPFields(t *testing.T) {
 	repo := &fakeAIAgentRepository{
 		rawByID:          map[uint64]Agent{5: {ID: 5, Status: enum.CommonYes, IsDel: enum.CommonNo}},
 		activeProviders:  map[uint64]Provider{1: {ID: 1, Name: "OpenAI", EngineType: "openai", Status: enum.CommonYes, IsDel: enum.CommonNo}},
-		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", Status: enum.CommonYes}}},
+		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", ModelKind: aiprovider.ModelKindChat, Status: enum.CommonYes}}},
 	}
 	service := newTestAgentService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
@@ -747,7 +847,7 @@ func TestTestDecryptsProviderKeyAndUsesActiveProvider(t *testing.T) {
 			Agent: Agent{ID: 5, ProviderID: 1, ModelID: "gpt-4.1-mini", Status: enum.CommonYes, IsDel: enum.CommonNo},
 		}},
 		activeProviders:  map[uint64]Provider{1: {ID: 1, Name: "OpenAI", EngineType: "openai", BaseURL: "https://api.openai.test/v1", APIKeyEnc: cipher, Status: enum.CommonYes, IsDel: enum.CommonNo}},
-		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", Status: enum.CommonYes}}},
+		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", ModelKind: aiprovider.ModelKindChat, Status: enum.CommonYes}}},
 	}
 	tester := &fakeAIAgentTester{}
 	service := newTestAgentService(repo, box, tester)
@@ -773,7 +873,7 @@ func TestTestReturnsUpstreamError(t *testing.T) {
 	repo := &fakeAIAgentRepository{
 		rowByID:          map[uint64]AgentWithProvider{5: {Agent: Agent{ID: 5, ProviderID: 1, ModelID: "gpt-4.1-mini", Status: enum.CommonYes, IsDel: enum.CommonNo}}},
 		activeProviders:  map[uint64]Provider{1: {ID: 1, Name: "OpenAI", EngineType: "openai", BaseURL: "https://api.openai.test/v1", APIKeyEnc: cipher, Status: enum.CommonYes, IsDel: enum.CommonNo}},
-		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", Status: enum.CommonYes}}},
+		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", ModelKind: aiprovider.ModelKindChat, Status: enum.CommonYes}}},
 	}
 	service := newTestAgentService(repo, box, &fakeAIAgentTester{err: errors.New("upstream failed")})
 
@@ -786,7 +886,7 @@ func TestTestReturnsUpstreamError(t *testing.T) {
 func TestCreateValidatesBillingMultiplierWithoutPersistingOutputCap(t *testing.T) {
 	repo := &fakeAIAgentRepository{
 		activeProviders:  map[uint64]Provider{1: {ID: 1, Status: enum.CommonYes, IsDel: enum.CommonNo}},
-		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", Status: enum.CommonYes}}},
+		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", ModelKind: aiprovider.ModelKindChat, Status: enum.CommonYes}}},
 	}
 	service := newTestAgentService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 	for _, value := range []string{"0", "-1", "1.1234567"} {
@@ -805,7 +905,7 @@ func TestUpdatePreservesBillingConfigurationWhenProviderChanges(t *testing.T) {
 	repo := &fakeAIAgentRepository{
 		rawByID:          map[uint64]Agent{5: {ID: 5, BillingMultiplierPPM: 1250000, Status: enum.CommonYes, IsDel: enum.CommonNo}},
 		activeProviders:  map[uint64]Provider{1: {ID: 1, Status: enum.CommonYes, IsDel: enum.CommonNo}},
-		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", Status: enum.CommonYes}}},
+		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", ModelKind: aiprovider.ModelKindChat, Status: enum.CommonYes}}},
 	}
 	service := newTestAgentService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 	if appErr := service.Update(context.Background(), 5, UpdateInput{ProviderID: 1, Name: "a", ModelID: "gpt-4.1-mini", Status: enum.CommonYes}); appErr != nil {
@@ -824,7 +924,7 @@ func TestPageInitModelOptionsExposeBillingDefaults(t *testing.T) {
 	mappedAt := time.Date(2026, 7, 28, 0, 0, 0, 0, time.UTC)
 	repo := &fakeAIAgentRepository{
 		connections:      []Provider{{ID: 1, Name: "OpenAI", EngineType: "openai", Status: enum.CommonYes, IsDel: enum.CommonNo}},
-		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "injected-price-model", OfficialModelID: &officialID, OfficialCatalogVersion: &catalogVersion, MappingStatus: officialmodel.MappingStatusMapped, MappedAt: &mappedAt, Status: enum.CommonYes}}},
+		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "injected-price-model", ModelKind: aiprovider.ModelKindChat, OfficialModelID: &officialID, OfficialCatalogVersion: &catalogVersion, MappingStatus: officialmodel.MappingStatusMapped, MappedAt: &mappedAt, Status: enum.CommonYes}}},
 	}
 	resolverCalls := 0
 	resolver := officialmodel.ResolverFunc(func(_ context.Context, modelID string) (officialmodel.ResolvedModel, error) {

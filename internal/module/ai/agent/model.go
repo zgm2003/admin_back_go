@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/module/ai/officialmodel"
+	aiprovider "admin_back_go/internal/module/ai/provider"
 )
 
 type Agent struct {
@@ -16,6 +17,7 @@ type Agent struct {
 	SystemPrompt         string    `gorm:"column:system_prompt"`
 	Avatar               string    `gorm:"column:avatar"`
 	BillingMultiplierPPM int64     `gorm:"column:billing_multiplier_ppm"`
+	ContextProfileID     *uint64   `gorm:"column:context_profile_id"`
 	Status               int       `gorm:"column:status"`
 	IsDel                int       `gorm:"column:is_del"`
 	CreatedAt            time.Time `gorm:"column:created_at"`
@@ -42,6 +44,7 @@ type ProviderModel struct {
 	ID                     uint64                      `gorm:"column:id;primaryKey"`
 	ProviderID             uint64                      `gorm:"column:provider_id"`
 	ModelID                string                      `gorm:"column:model_id"`
+	ModelKind              aiprovider.ModelKind        `gorm:"column:model_kind"`
 	DisplayName            string                      `gorm:"column:display_name"`
 	OfficialModelID        *string                     `gorm:"column:official_model_id"`
 	OfficialCatalogVersion *string                     `gorm:"column:official_catalog_version"`

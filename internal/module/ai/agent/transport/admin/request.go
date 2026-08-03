@@ -22,6 +22,7 @@ type mutationRequest struct {
 	Avatar            string   `json:"avatar" binding:"omitempty,max=512"`
 	Status            int      `json:"status" binding:"required,oneof=1 2"`
 	BillingMultiplier string   `json:"billing_multiplier" binding:"omitempty,max=32"`
+	ContextProfileID  *uint64  `json:"context_profile_id" binding:"omitempty,gt=0"`
 }
 
 type statusRequest struct {

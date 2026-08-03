@@ -32,6 +32,23 @@ import (
 	"gorm.io/gorm/logger"
 )
 
+func TestAgentForConversationPinsChatModel(t *testing.T) {
+	db, mock, cleanup := newMessageMockDB(t)
+	defer cleanup()
+	mock.ExpectQuery("JOIN ai_provider_models pm ON .*pm.model_kind = \\? AND pm.status = \\? AND pm.mapping_status = \\?").
+		WithArgs(enum.CommonNo, enum.CommonNo, enum.CommonYes, aiprovider.ModelKindChat, enum.CommonYes, officialmodel.MappingStatusMapped, int64(3), int64(7), enum.CommonNo, 1).
+		WillReturnRows(sqlmock.NewRows([]string{"agent_id", "model_id"}).AddRow(uint64(5), "gpt-5.6"))
+
+	row, err := (&GormRepository{db: db}).AgentForConversation(context.Background(), 3, 7)
+	if err != nil || row == nil || row.AgentID != 5 {
+		t.Fatalf("row=%#v err=%v", row, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("message runtime did not pin chat model: %v", err)
+	}
+	mock.ExpectClose()
+}
+
 func TestMessagePricingSnapshotUsesInjectedResolver(t *testing.T) {
 	resolverCalls := 0
 	service := NewService(&fakeRepository{}, WithPricingResolver(officialmodel.ResolverFunc(func(_ context.Context, modelID string) (officialmodel.ResolvedModel, error) {
