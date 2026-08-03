@@ -15,8 +15,7 @@ type profileCreateRequest struct {
 	MemoryProviderModelID    *uint64 `json:"memory_provider_model_id"`
 }
 type profileUpdateRequest struct {
-	Name   string                      `json:"name" binding:"required"`
-	Status contextengine.ProfileStatus `json:"status" binding:"required"`
+	Name string `json:"name" binding:"required"`
 }
 type spaceRequest struct {
 	ProfileID   uint64 `json:"profile_id" binding:"required"`
@@ -35,6 +34,14 @@ type documentRequest struct {
 	SourceETag            string  `json:"source_etag" binding:"required"`
 	SourceSize            int64   `json:"source_size_bytes" binding:"required"`
 	SourceFilename        string  `json:"source_filename" binding:"required"`
+}
+type spaceDocumentRequest struct {
+	Title                 string `json:"title" binding:"required"`
+	SourceStorageProvider string `json:"source_storage_provider" binding:"required"`
+	SourceObjectKey       string `json:"source_object_key" binding:"required"`
+	SourceETag            string `json:"source_etag" binding:"required"`
+	SourceSize            int64  `json:"source_size_bytes" binding:"required,gt=0"`
+	SourceFilename        string `json:"source_filename" binding:"required"`
 }
 
 type profileListRequest struct {

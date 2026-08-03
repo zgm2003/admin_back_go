@@ -201,6 +201,14 @@ func (service *AdminService) UpdateProfile(ctx context.Context, id uint64, input
 	return &updated, nil
 }
 
+func (service *AdminService) UpdateProfileMetadata(ctx context.Context, id uint64, name string) (*ProfileDTO, *apperror.Error) {
+	profile, appErr := service.GetProfile(ctx, id)
+	if appErr != nil {
+		return nil, appErr
+	}
+	return service.UpdateProfile(ctx, id, UpdateProfileInput{Name: name, Status: profile.Status})
+}
+
 func (service *AdminService) CompareAndSwapProfileIndex(ctx context.Context, input ProfileIndexCAS) (bool, error) {
 	if input.ID == 0 || input.Expected.Validate() != nil || input.Expected.ValidateTransition(input.Next) != nil {
 		return false, ErrInvalidProfileIndex

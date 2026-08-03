@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 
 	"admin_back_go/internal/middleware"
@@ -14,6 +15,19 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+func TestContextAdminContractMutationRequestsDoNotRepeatPathOrStatusFacts(t *testing.T) {
+	profile := reflect.TypeOf(profileUpdateRequest{})
+	if profile.NumField() != 1 || profile.Field(0).Name != "Name" {
+		t.Fatalf("profile update fields=%v", profile)
+	}
+	document := reflect.TypeOf(spaceDocumentRequest{})
+	for _, forbidden := range []string{"SpaceID", "ConversationID", "SourceMessageID", "SourceAttachmentIndex"} {
+		if _, exists := document.FieldByName(forbidden); exists {
+			t.Fatalf("space document request repeats %s", forbidden)
+		}
+	}
+}
 
 func TestContextRoutesUseTrustedPlatformAndIgnoreOverrides(t *testing.T) {
 	gin.SetMode(gin.TestMode)

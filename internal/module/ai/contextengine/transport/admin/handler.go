@@ -25,6 +25,7 @@ type HTTPService interface {
 type adminReadService interface {
 	ListProfiles(context.Context, contextengine.ProfileStatus) (*contextengine.ProfileListResponse, *apperror.Error)
 	GetProfile(context.Context, uint64) (*contextengine.ProfileDTO, *apperror.Error)
+	UpdateProfileMetadata(context.Context, uint64, string) (*contextengine.ProfileDTO, *apperror.Error)
 	ChangeProfileStatus(context.Context, uint64, contextengine.ProfileStatus) (*contextengine.ProfileDTO, *apperror.Error)
 	ListSpaces(context.Context, string, uint64, string) (*contextengine.SpaceListResponse, *apperror.Error)
 	GetSpace(context.Context, string, uint64) (*contextengine.SpaceDTO, *apperror.Error)
@@ -67,6 +68,11 @@ func (handler *Handler) CreateProfile(c *gin.Context) {
 	write(c, result, appErr)
 }
 func (handler *Handler) UpdateProfile(c *gin.Context) {
+	service, serviceOK := handler.service.(adminReadService)
+	if !serviceOK {
+		unsupported(c)
+		return
+	}
 	id, ok := routeID(c)
 	if !ok {
 		return
@@ -75,7 +81,7 @@ func (handler *Handler) UpdateProfile(c *gin.Context) {
 	if !bind(c, &request) {
 		return
 	}
-	result, appErr := handler.service.UpdateProfile(c.Request.Context(), id, contextengine.UpdateProfileInput{Name: request.Name, Status: request.Status})
+	result, appErr := service.UpdateProfileMetadata(c.Request.Context(), id, request.Name)
 	write(c, result, appErr)
 }
 func (handler *Handler) ListProfiles(c *gin.Context) {
@@ -229,7 +235,7 @@ func (handler *Handler) ListSpaceDocuments(c *gin.Context) {
 	write(c, result, appErr)
 }
 func (handler *Handler) CreateSpaceDocument(c *gin.Context) {
-	var request documentRequest
+	var request spaceDocumentRequest
 	if !bind(c, &request) {
 		return
 	}
@@ -237,13 +243,11 @@ func (handler *Handler) CreateSpaceDocument(c *gin.Context) {
 	if !valid {
 		return
 	}
-	request.SpaceID = &spaceID
-	request.ConversationID, request.SourceMessageID, request.SourceAttachmentIndex = nil, nil, nil
 	actor, valid := actorID(c)
 	if !valid {
 		return
 	}
-	result, appErr := handler.service.CreateDocument(c.Request.Context(), handler.platform, actor, documentInput(request))
+	result, appErr := handler.service.CreateDocument(c.Request.Context(), handler.platform, actor, contextengine.CreateDocumentInput{SpaceID: &spaceID, Title: request.Title, SourceStorageProvider: request.SourceStorageProvider, SourceObjectKey: request.SourceObjectKey, SourceETag: request.SourceETag, SourceSize: request.SourceSize, SourceFilename: request.SourceFilename})
 	write(c, result, appErr)
 }
 func (handler *Handler) GetDocument(c *gin.Context) {
