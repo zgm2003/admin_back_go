@@ -78,7 +78,7 @@
               "enum": [
                 "ai/agents",
                 "ai/chat",
-                "ai/knowledge",
+                "ai/context",
                 "ai/official-models",
                 "ai/providers",
                 "ai/runs",
@@ -135,21 +135,15 @@
           "items": {
             "enum": [
               "ai_agent_add",
-              "ai_agent_binding_add",
               "ai_agent_del",
               "ai_agent_edit",
               "ai_agent_status",
               "ai_agent_test",
-              "ai_knowledge_add",
-              "ai_knowledge_del",
-              "ai_knowledge_document_add",
-              "ai_knowledge_document_del",
-              "ai_knowledge_document_edit",
-              "ai_knowledge_document_status",
-              "ai_knowledge_edit",
-              "ai_knowledge_reindex",
-              "ai_knowledge_retrieval_test",
-              "ai_knowledge_status",
+              "ai_context_document_manage",
+              "ai_context_evaluate",
+              "ai_context_manage",
+              "ai_context_profile_manage",
+              "ai_context_view",
               "ai_official_model_list",
               "ai_official_model_price_sync",
               "ai_provider_add",
@@ -303,11 +297,17 @@
       "permission_codes": []
     },
     {
-      "path": "/ai/knowledge",
-      "view_key": "ai/knowledge",
-      "i18n_key": "menu.ai_knowledge",
+      "path": "/ai/context",
+      "view_key": "ai/context",
+      "i18n_key": "menu.ai_context",
       "show_menu": 1,
-      "permission_codes": []
+      "permission_codes": [
+        "ai_context_document_manage",
+        "ai_context_evaluate",
+        "ai_context_manage",
+        "ai_context_profile_manage",
+        "ai_context_view"
+      ]
     },
     {
       "path": "/ai/official-models",
