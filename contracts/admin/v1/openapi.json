@@ -976,6 +976,80 @@
         ],
         "type": "object"
       },
+      "AIMessageCitationSource": {
+        "additionalProperties": false,
+        "properties": {
+          "cited": {
+            "type": "boolean"
+          },
+          "document_id": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "document_version_id": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "key": {
+            "type": "string"
+          },
+          "locator": {
+            "$ref": "#/components/schemas/AIContextLocator"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "cited",
+          "document_id",
+          "document_version_id",
+          "key",
+          "locator",
+          "title"
+        ],
+        "type": "object"
+      },
+      "AIMessageContext": {
+        "additionalProperties": false,
+        "properties": {
+          "invalid_keys": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "outcome": {
+            "enum": [
+              "skipped",
+              "no_hit",
+              "hit",
+              "failed"
+            ],
+            "type": "string"
+          },
+          "plan_id": {
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/AIMessageCitationSource"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "invalid_keys",
+          "outcome",
+          "plan_id",
+          "sources"
+        ],
+        "type": "object"
+      },
       "AIMessageDeleteRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1044,6 +1118,16 @@
           },
           "content_type": {
             "type": "string"
+          },
+          "context": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AIMessageContext"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "created_at": {
             "type": "string"
