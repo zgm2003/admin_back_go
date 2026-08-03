@@ -13,12 +13,36 @@ import (
 )
 
 const (
-	TaskContextDocumentIndexV1   = contextengine.TaskContextDocumentIndexV1
-	TaskContextProfileRebuildV1  = contextengine.TaskContextProfileRebuildV1
-	TaskContextIndexCleanupV1    = contextengine.TaskContextIndexCleanupV1
-	ContextDocumentIndexMaxRetry = contextengine.DocumentIndexMaxRetry
-	ContextDocumentIndexTimeout  = 3 * time.Minute
+	TaskContextConversationIndexV1 = contextengine.TaskContextConversationIndexV1
+	TaskContextDocumentIndexV1     = contextengine.TaskContextDocumentIndexV1
+	TaskContextProfileRebuildV1    = contextengine.TaskContextProfileRebuildV1
+	TaskContextIndexCleanupV1      = contextengine.TaskContextIndexCleanupV1
+	ContextDocumentIndexMaxRetry   = contextengine.DocumentIndexMaxRetry
+	ContextDocumentIndexTimeout    = 3 * time.Minute
 )
+
+func registerContextConversationIndex(registry *taskqueue.Registry, service contextengine.ConversationIndexJobService) error {
+	return registry.Register(taskqueue.Definition{
+		Type: TaskContextConversationIndexV1, Queue: taskqueue.QueueLow, Timeout: 10 * time.Minute, MaxRetry: 3,
+		Decode: func(data []byte) (any, *apperror.Error) {
+			var payload contextengine.ContextConversationIndexV1
+			if err := json.Unmarshal(data, &payload); err != nil || payload.Validate() != nil {
+				return nil, taskqueue.PayloadError(TaskContextConversationIndexV1, errors.New("conversation index payload is invalid"))
+			}
+			return payload, nil
+		},
+		Handle: func(ctx context.Context, decoded any) *apperror.Error {
+			if service == nil {
+				return taskqueue.InvariantError(TaskContextConversationIndexV1, errors.New("conversation index service is required"))
+			}
+			payload, ok := decoded.(contextengine.ContextConversationIndexV1)
+			if !ok {
+				return taskqueue.InvariantError(TaskContextConversationIndexV1, errors.New("unexpected payload type"))
+			}
+			return taskqueue.HandlerError(TaskContextConversationIndexV1, service.IndexConversationTurn(ctx, payload))
+		},
+	})
+}
 
 type ContextDocumentIndexV1 = contextengine.ContextDocumentIndexV1
 

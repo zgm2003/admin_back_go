@@ -89,21 +89,28 @@ SELECT DISTINCT
   p.embedding_dimensions AS dense_dimensions,
   p.dense_distance AS dense_distance
 FROM ai_context_profiles AS p
-JOIN ai_context_spaces AS s
-  ON s.profile_id = p.id
- AND s.status = 'enabled'
- AND s.deleted_at IS NULL
-JOIN ai_context_documents AS d
-  ON d.space_id = s.id
- AND d.status = 'enabled'
- AND d.deleted_at IS NULL
- AND d.active_version_id IS NOT NULL
-JOIN ai_context_document_versions AS v
-  ON v.id = d.active_version_id
- AND v.document_id = d.id
- AND v.profile_id = p.id
- AND v.state = 'ready'
 WHERE p.status = 'enabled'
+  AND (
+    EXISTS (
+      SELECT 1
+      FROM ai_context_spaces AS s
+      JOIN ai_context_documents AS d
+        ON d.space_id = s.id AND d.status = 'enabled' AND d.deleted_at IS NULL AND d.active_version_id IS NOT NULL
+      JOIN ai_context_document_versions AS v
+        ON v.id = d.active_version_id AND v.document_id = d.id AND v.profile_id = p.id AND v.state = 'ready'
+      WHERE s.profile_id = p.id AND s.status = 'enabled' AND s.deleted_at IS NULL
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM ai_agents AS a
+      JOIN ai_conversations AS c ON c.agent_id = a.id AND c.is_del = 2
+      JOIN ai_runs AS r ON r.agent_id = a.id AND r.conversation_id = c.id AND r.user_id = c.user_id
+      JOIN ai_messages AS u ON u.id = r.user_message_id AND u.conversation_id = c.id AND u.role = 1 AND u.is_del = 2
+      JOIN ai_messages AS m ON m.id = r.assistant_message_id AND m.conversation_id = c.id AND m.role = 2 AND m.is_del = 2
+      WHERE a.context_profile_id = p.id AND a.is_del = 2
+        AND ((r.status = 'success' AND m.delivery_state = 'completed') OR (r.status = 'canceled' AND m.delivery_state = 'stopped'))
+    )
+  )
 ORDER BY p.id ASC`).Scan(&rows).Error
 	if err != nil {
 		return nil, err

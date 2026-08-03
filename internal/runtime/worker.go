@@ -316,6 +316,11 @@ func registerWorkerHandlers(
 	})
 	contextIndexCleanup := contextengine.NewIndexCleanupService(contextRepository, resources.Qdrant, cfg.Qdrant.CollectionPrefix, nil)
 	contextEnqueuer := contextengine.NewDocumentVersionEnqueuer(queueClient, contextRepository)
+	conversationIndexRepository := contextengine.NewConversationIndexRepository(resources.DB.Gorm)
+	conversationIndexEnqueuer := contextengine.NewConversationTurnEnqueuer(queueClient)
+	conversationIndex := contextengine.NewConversationIndexService(contextengine.ConversationIndexDependencies{
+		Repository: conversationIndexRepository, Embeddings: contextEmbeddings, Index: resources.Qdrant, CollectionPrefix: cfg.Qdrant.CollectionPrefix,
+	})
 	contextRuntime := contextengine.BuildRuntime(contextengine.RuntimeDependencies{
 		Database: resources.DB, OfficialModels: aiOfficialModelResolver,
 		EmbeddingFactory: providers.AIEmbeddingFactory, RerankFactory: providers.AIRerankFactory,
@@ -332,7 +337,8 @@ func registerWorkerHandlers(
 		replycommand.WithDurableEventSink(realtimeEventSink),
 	)
 	walletRepository := walletmodule.NewGormRepository(resources.DB)
-	paidChatExecutor := newPaidChatAttemptExecutor(resources.DB, walletRepository, replyRepository, realtimeEventSink, contextRuntime)
+	paidChatExecutor := newPaidChatAttemptExecutor(resources.DB, walletRepository, replyRepository, realtimeEventSink, contextRuntime,
+		withConversationIndexPostCommit(conversationIndexRepository, conversationIndexEnqueuer))
 	if paidChatExecutor == nil {
 		return nil, nil, nil, nil, nil, errors.New("worker paid AI Gateway dependencies are incomplete")
 	}
@@ -405,6 +411,7 @@ func registerWorkerHandlers(
 		PaymentService:           paymentService,
 		RealtimeRetentionService: realtimeRetentionService,
 		ContextDocumentIndex:     contextDocumentIndex,
+		ContextConversationIndex: conversationIndex,
 		ContextProfileRebuild:    contextProfileRebuild,
 		ContextIndexCleanup:      contextIndexCleanup,
 	})
@@ -422,7 +429,8 @@ func registerWorkerHandlers(
 		aitext.NewReconciler(aiTextTasks, textWaker, max(25, cfg.Queue.Concurrency)),
 		aiimage.NewReconciler(imageRepository, imageWaker, max(25, cfg.Queue.Concurrency)),
 		contextengine.NewDocumentIndexReconciler(contextRepository, contextEnqueuer, max(25, cfg.Queue.Concurrency), uint32(jobs.ContextDocumentIndexMaxRetry+1),
-			contextengine.WithProfileIndexConsistency(contextRepository, resources.Qdrant, cfg.Qdrant.CollectionPrefix)),
+			contextengine.WithProfileIndexConsistency(contextRepository, resources.Qdrant, cfg.Qdrant.CollectionPrefix),
+			contextengine.WithConversationIndexRepair(conversationIndexRepository, conversationIndexEnqueuer)),
 		nil
 }
 
@@ -431,9 +439,10 @@ func requireContextTaskRegistrations(registry *taskqueue.Registry) error {
 		return errors.New("worker task registry is required")
 	}
 	required := map[string]bool{
-		contextengine.TaskContextDocumentIndexV1:  false,
-		contextengine.TaskContextIndexCleanupV1:   false,
-		contextengine.TaskContextProfileRebuildV1: false,
+		contextengine.TaskContextConversationIndexV1: false,
+		contextengine.TaskContextDocumentIndexV1:     false,
+		contextengine.TaskContextIndexCleanupV1:      false,
+		contextengine.TaskContextProfileRebuildV1:    false,
 	}
 	for _, taskType := range registry.Types() {
 		if !strings.HasPrefix(taskType, "ai:context-") {

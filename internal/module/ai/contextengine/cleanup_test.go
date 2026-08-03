@@ -7,8 +7,13 @@ import (
 )
 
 type cleanupRepositoryStub struct {
-	profile *ContextProfile
-	visible bool
+	profile     *ContextProfile
+	visible     bool
+	turnVisible bool
+}
+
+func (repository cleanupRepositoryStub) ConversationTurnVisible(context.Context, uint64, uint64, uint64, [32]byte) (bool, error) {
+	return repository.turnVisible, nil
 }
 
 func (repository cleanupRepositoryStub) FindRebuildProfile(context.Context, uint64) (*ContextProfile, error) {
@@ -60,5 +65,24 @@ func TestCleanupEnforcesRetiredCollectionGraceAndPointers(t *testing.T) {
 	}
 	if len(index.deletedCollections) != 1 {
 		t.Fatal("active collection was deleted")
+	}
+}
+
+func TestCleanupKeepsVisibleConversationTurnAndDeletesInvisiblePoint(t *testing.T) {
+	index := &consistencyIndexStub{}
+	service := NewIndexCleanupService(cleanupRepositoryStub{turnVisible: true}, index, "ctx", nil)
+	payload := ContextIndexCleanupV1{Kind: CleanupConversationPoints, ProfileID: 7, IndexGeneration: 2, ConversationID: 11, UserMessageID: 13, SourceSHA256: [32]byte{1}}
+	if err := service.CleanupIndex(t.Context(), payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(index.deletedConversationPoint) != 0 {
+		t.Fatal("visible conversation point was deleted")
+	}
+	service = NewIndexCleanupService(cleanupRepositoryStub{}, index, "ctx", nil)
+	if err := service.CleanupIndex(t.Context(), payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(index.deletedConversationPoint) != 1 || index.deletedConversationPoint[0] != 13 {
+		t.Fatalf("deleted conversation points=%v", index.deletedConversationPoint)
 	}
 }

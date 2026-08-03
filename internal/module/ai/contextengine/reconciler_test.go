@@ -2,12 +2,48 @@ package contextengine
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"testing"
 	"time"
 
 	"admin_back_go/internal/infra/contextindex"
 )
+
+type conversationRepairRepositoryStub struct {
+	afterRunIDs []uint64
+	payload     ContextConversationIndexV1
+}
+
+func (repository *conversationRepairRepositoryStub) ListConversationIndexPayloads(_ context.Context, afterRunID uint64, _ int) ([]ContextConversationIndexV1, uint64, error) {
+	repository.afterRunIDs = append(repository.afterRunIDs, afterRunID)
+	if afterRunID == 0 {
+		return []ContextConversationIndexV1{repository.payload}, 42, nil
+	}
+	return nil, 0, nil
+}
+
+func TestConversationTurnBackfillRestartsBoundedRunScan(t *testing.T) {
+	queue := &recordingTaskEnqueuer{}
+	repository := &conversationRepairRepositoryStub{payload: ContextConversationIndexV1{
+		ProfileID: 7, ConversationID: 11, UserMessageID: 13, SourceSHA256: sha256.Sum256([]byte("turn")),
+	}}
+	reconciler := NewDocumentIndexReconciler(
+		newMemoryIngestionRepository(), NewDocumentVersionEnqueuer(queue), 10, 4,
+		WithConversationIndexRepair(repository, NewConversationTurnEnqueuer(queue)),
+	)
+	for range 3 {
+		if _, err := reconciler.RunOnce(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(repository.afterRunIDs) != 3 || repository.afterRunIDs[0] != 0 || repository.afterRunIDs[1] != 42 || repository.afterRunIDs[2] != 0 {
+		t.Fatalf("after run IDs=%v, want [0 42 0]", repository.afterRunIDs)
+	}
+	if len(queue.tasks) != 2 || queue.tasks[0].Type != TaskContextConversationIndexV1 || queue.tasks[1].Type != TaskContextConversationIndexV1 {
+		t.Fatalf("tasks=%+v", queue.tasks)
+	}
+}
 
 func TestReconcileStableBatchRequeuesQueuedAndExpiredProcessing(t *testing.T) {
 	now := time.Now().UTC()
@@ -57,12 +93,13 @@ func (repository *consistencyRepositoryStub) LoadRebuildDocuments(_ context.Cont
 }
 
 type consistencyIndexStub struct {
-	aliases             map[string]string
-	collectionErrors    map[string]error
-	pointErrors         map[string]error
-	switches            []string
-	deletedCollections  []string
-	deletedVersionPoint []uint64
+	aliases                  map[string]string
+	collectionErrors         map[string]error
+	pointErrors              map[string]error
+	switches                 []string
+	deletedCollections       []string
+	deletedVersionPoint      []uint64
+	deletedConversationPoint []uint64
 }
 
 func (index *consistencyIndexStub) EnsureCollection(context.Context, contextindex.CollectionSpec) error {
@@ -89,6 +126,10 @@ func (index *consistencyIndexStub) DeleteCollection(_ context.Context, collectio
 }
 func (index *consistencyIndexStub) DeleteDocumentVersionPoints(_ context.Context, _ string, _, _, versionID uint64) error {
 	index.deletedVersionPoint = append(index.deletedVersionPoint, versionID)
+	return nil
+}
+func (index *consistencyIndexStub) DeleteConversationTurnPoint(_ context.Context, _ string, _, _, userMessageID uint64, _ [32]byte) error {
+	index.deletedConversationPoint = append(index.deletedConversationPoint, userMessageID)
 	return nil
 }
 func (index *consistencyIndexStub) Upsert(context.Context, string, []contextindex.IndexedPoint) error {

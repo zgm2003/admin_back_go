@@ -45,6 +45,7 @@ type Dependencies struct {
 	PaymentService           payment.JobService
 	RealtimeRetentionService modulerealtime.JobService
 	ContextDocumentIndex     contextengine.DocumentIndexJobService
+	ContextConversationIndex contextengine.ConversationIndexJobService
 	ContextProfileRebuild    contextengine.ProfileRebuildJobService
 	ContextIndexCleanup      contextengine.IndexCleanupJobService
 }
@@ -116,6 +117,7 @@ func NewRegistry(deps Dependencies) (*taskqueue.Registry, error) {
 			return modulerealtime.RegisterTaskDefinitions(registry, deps.RealtimeRetentionService, logger)
 		},
 		func() error { return registerContextDocumentIndex(registry, deps.ContextDocumentIndex) },
+		func() error { return registerContextConversationIndex(registry, deps.ContextConversationIndex) },
 		func() error { return registerContextProfileRebuild(registry, deps.ContextProfileRebuild) },
 		func() error { return registerContextIndexCleanup(registry, deps.ContextIndexCleanup) },
 	} {

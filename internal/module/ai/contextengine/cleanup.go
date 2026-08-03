@@ -12,6 +12,7 @@ type CleanupKind string
 const (
 	TaskContextIndexCleanupV1                = "ai:context-index-cleanup:v1"
 	CleanupDocumentVersionPoints CleanupKind = "document_version_points"
+	CleanupConversationPoints    CleanupKind = "conversation_points"
 	CleanupRetiredCollection     CleanupKind = "retired_collection"
 )
 
@@ -24,6 +25,9 @@ type ContextIndexCleanupV1 struct {
 	ProfileID         uint64      `json:"profile_id"`
 	IndexGeneration   uint64      `json:"index_generation"`
 	DocumentVersionID uint64      `json:"document_version_id,omitempty"`
+	ConversationID    uint64      `json:"conversation_id,omitempty"`
+	UserMessageID     uint64      `json:"user_message_id,omitempty"`
+	SourceSHA256      [32]byte    `json:"source_sha256,omitempty"`
 	NotBeforeUnixMS   int64       `json:"not_before_unix_ms,omitempty"`
 }
 
@@ -35,6 +39,10 @@ func (cleanup ContextIndexCleanupV1) Validate() error {
 	case CleanupDocumentVersionPoints:
 		if cleanup.DocumentVersionID == 0 || cleanup.NotBeforeUnixMS != 0 {
 			return errors.New("document point cleanup identity is invalid")
+		}
+	case CleanupConversationPoints:
+		if cleanup.DocumentVersionID != 0 || cleanup.NotBeforeUnixMS != 0 || cleanup.ConversationID == 0 || cleanup.UserMessageID == 0 || cleanup.SourceSHA256 == ([32]byte{}) {
+			return errors.New("conversation point cleanup identity is invalid")
 		}
 	case CleanupRetiredCollection:
 		if cleanup.DocumentVersionID != 0 || cleanup.NotBeforeUnixMS <= 0 {
@@ -49,6 +57,14 @@ func (cleanup ContextIndexCleanupV1) Validate() error {
 type CleanupRepository interface {
 	FindRebuildProfile(context.Context, uint64) (*ContextProfile, error)
 	DocumentVersionVisible(context.Context, uint64, uint64) (bool, error)
+}
+
+type ConversationCleanupRepository interface {
+	ConversationTurnVisible(context.Context, uint64, uint64, uint64, [32]byte) (bool, error)
+}
+
+type ConversationPointCleaner interface {
+	DeleteConversationTurnPoint(context.Context, string, uint64, uint64, uint64, [32]byte) error
 }
 
 type IndexCleanupService struct {
@@ -80,6 +96,20 @@ func (service *IndexCleanupService) CleanupIndex(ctx context.Context, cleanup Co
 			return err
 		}
 		return service.index.DeleteDocumentVersionPoints(ctx, collection, cleanup.ProfileID, cleanup.IndexGeneration, cleanup.DocumentVersionID)
+	case CleanupConversationPoints:
+		repository, ok := service.repository.(ConversationCleanupRepository)
+		if !ok {
+			return errors.New("conversation cleanup repository is unavailable")
+		}
+		cleaner, ok := service.index.(ConversationPointCleaner)
+		if !ok {
+			return errors.New("conversation point cleanup protocol is unavailable")
+		}
+		visible, err := repository.ConversationTurnVisible(ctx, cleanup.ProfileID, cleanup.ConversationID, cleanup.UserMessageID, cleanup.SourceSHA256)
+		if err != nil || visible {
+			return err
+		}
+		return cleaner.DeleteConversationTurnPoint(ctx, collection, cleanup.ProfileID, cleanup.IndexGeneration, cleanup.UserMessageID, cleanup.SourceSHA256)
 	case CleanupRetiredCollection:
 		if service.now().UTC().Before(time.UnixMilli(cleanup.NotBeforeUnixMS).UTC()) {
 			return errors.New("retired collection grace period has not elapsed")

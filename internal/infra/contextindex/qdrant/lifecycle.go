@@ -2,6 +2,7 @@ package qdrant
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 
@@ -123,6 +124,29 @@ func (client *Client) DeleteDocumentVersionPoints(ctx context.Context, collectio
 			qdrantapi.NewMatchInt("index_generation", int64(generation)),
 			qdrantapi.NewMatchInt("document_version_id", int64(versionID)),
 			qdrantapi.NewMatch("source_kind", string(contextindex.SourceKindDocumentChunk)),
+		}})})
+	return err
+}
+
+func (client *Client) DeleteConversationTurnPoint(ctx context.Context, collection string, profileID, generation, userMessageID uint64, sourceSHA256 [32]byte) error {
+	if err := contextindex.ValidateCollectionName(collection); err != nil {
+		return err
+	}
+	if profileID == 0 || generation == 0 || userMessageID == 0 || sourceSHA256 == ([32]byte{}) {
+		return errors.New("conversation point cleanup identity is incomplete")
+	}
+	api, ok := client.api.(lifecycleAPI)
+	if !ok {
+		return errors.New("Qdrant point cleanup protocol is unavailable")
+	}
+	wait := true
+	_, err := api.Delete(ctx, &qdrantapi.DeletePoints{CollectionName: collection, Wait: &wait,
+		Points: qdrantapi.NewPointsSelectorFilter(&qdrantapi.Filter{Must: []*qdrantapi.Condition{
+			qdrantapi.NewMatchInt("profile_id", int64(profileID)),
+			qdrantapi.NewMatchInt("index_generation", int64(generation)),
+			qdrantapi.NewMatchInt("source_id", int64(userMessageID)),
+			qdrantapi.NewMatch("source_kind", string(contextindex.SourceKindConversationTurn)),
+			qdrantapi.NewMatch("source_sha256", hex.EncodeToString(sourceSHA256[:])),
 		}})})
 	return err
 }

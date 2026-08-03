@@ -15,6 +15,7 @@ import (
 	"admin_back_go/internal/module/ai/aigateway"
 	"admin_back_go/internal/module/ai/billing"
 	aichat "admin_back_go/internal/module/ai/chat"
+	"admin_back_go/internal/module/ai/contextengine"
 	"admin_back_go/internal/module/ai/replycommand"
 	"admin_back_go/internal/module/ai/requestidentity"
 	airun "admin_back_go/internal/module/ai/run"
@@ -192,18 +193,43 @@ func decodeOptionalSHA256(value string) ([sha256.Size]byte, error) {
 }
 
 type gormGatewayFinalizationStore struct {
-	db        *gorm.DB
-	wallets   *walletmodule.GormRepository
-	replies   *replycommand.GormRepository
-	eventSink modulerealtime.TransactionalEventSink
-	now       func() time.Time
+	db                   *gorm.DB
+	wallets              *walletmodule.GormRepository
+	replies              *replycommand.GormRepository
+	eventSink            modulerealtime.TransactionalEventSink
+	now                  func() time.Time
+	conversationPayloads interface {
+		BuildConversationIndexPayload(context.Context, uint64, uint64) (contextengine.ContextConversationIndexV1, error)
+	}
+	conversationEnqueuer interface {
+		EnqueueConversationTurn(context.Context, contextengine.ContextConversationIndexV1) error
+	}
 }
 
-func newGormGatewayFinalizationStore(db *gorm.DB, wallets *walletmodule.GormRepository, replies *replycommand.GormRepository, eventSink modulerealtime.TransactionalEventSink) *gormGatewayFinalizationStore {
+type gatewayFinalizationOption func(*gormGatewayFinalizationStore)
+
+func withConversationIndexPostCommit(payloads interface {
+	BuildConversationIndexPayload(context.Context, uint64, uint64) (contextengine.ContextConversationIndexV1, error)
+}, enqueuer interface {
+	EnqueueConversationTurn(context.Context, contextengine.ContextConversationIndexV1) error
+}) gatewayFinalizationOption {
+	return func(store *gormGatewayFinalizationStore) {
+		store.conversationPayloads = payloads
+		store.conversationEnqueuer = enqueuer
+	}
+}
+
+func newGormGatewayFinalizationStore(db *gorm.DB, wallets *walletmodule.GormRepository, replies *replycommand.GormRepository, eventSink modulerealtime.TransactionalEventSink, options ...gatewayFinalizationOption) *gormGatewayFinalizationStore {
 	if db == nil || wallets == nil || replies == nil || eventSink == nil {
 		return nil
 	}
-	return &gormGatewayFinalizationStore{db: db, wallets: wallets, replies: replies, eventSink: eventSink, now: time.Now}
+	store := &gormGatewayFinalizationStore{db: db, wallets: wallets, replies: replies, eventSink: eventSink, now: time.Now}
+	for _, option := range options {
+		if option != nil {
+			option(store)
+		}
+	}
+	return store
 }
 
 func (store *gormGatewayFinalizationStore) WithLockedSettlement(ctx context.Context, runID int64, decide func(aigateway.FinalizationFacts) (aigateway.SettlementDecision, error)) (aigateway.FinalizationApplyResult, error) {
@@ -220,6 +246,9 @@ func (store *gormGatewayFinalizationStore) WithLockedSettlement(ctx context.Cont
 	var applied bool
 	var replayed bool
 	var commandID uint64
+	var terminalConversationID uint64
+	var terminalUserMessageID uint64
+	var terminalState replycommand.State
 	var durableEvent *modulerealtime.Event
 	err := store.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		run, charge, wallet, hold, err := lockChatSettlementMoneyGraph(ctx, tx, runID)
@@ -231,6 +260,10 @@ func (store *gormGatewayFinalizationStore) WithLockedSettlement(ctx context.Cont
 			return err
 		}
 		commandID = command.ID
+		if command.ConversationID > 0 && command.UserMessageID > 0 {
+			terminalConversationID = uint64(command.ConversationID)
+			terminalUserMessageID = uint64(command.UserMessageID)
+		}
 		if terminalChatBilling(run, charge) {
 			if err := validateChatFinalizationReplay(run, charge, wallet, hold, command, attempts); err != nil {
 				return err
@@ -266,6 +299,7 @@ func (store *gormGatewayFinalizationStore) WithLockedSettlement(ctx context.Cont
 		if err != nil {
 			return err
 		}
+		terminalState = commandInput.State
 		commandResult, err := store.replies.FinalizePaidCommandInTransaction(ctx, tx, commandInput)
 		if err != nil {
 			return err
@@ -296,6 +330,17 @@ func (store *gormGatewayFinalizationStore) WithLockedSettlement(ctx context.Cont
 		cleanupCtx := context.WithoutCancel(ctx)
 		if cleanupErr := replycommand.CleanupDeliveryChunks(cleanupCtx, store.replies, commandID, 4); cleanupErr != nil {
 			slog.WarnContext(cleanupCtx, "AI reply delivery cleanup deferred to reconciler", "command_id", commandID, "error", cleanupErr)
+		}
+	}
+	if applied && (terminalState == replycommand.StateSucceeded || terminalState == replycommand.StateCanceled) &&
+		store.conversationPayloads != nil && store.conversationEnqueuer != nil && terminalConversationID > 0 && terminalUserMessageID > 0 {
+		indexCtx := context.WithoutCancel(ctx)
+		payload, indexErr := store.conversationPayloads.BuildConversationIndexPayload(indexCtx, terminalConversationID, terminalUserMessageID)
+		if indexErr == nil {
+			indexErr = store.conversationEnqueuer.EnqueueConversationTurn(indexCtx, payload)
+		}
+		if indexErr != nil {
+			slog.WarnContext(indexCtx, "AI conversation index enqueue deferred to reconciler", "conversation_id", terminalConversationID, "user_message_id", terminalUserMessageID, "error", indexErr)
 		}
 	}
 	return aigateway.FinalizationApplyResult{Applied: applied, Replayed: replayed}, nil

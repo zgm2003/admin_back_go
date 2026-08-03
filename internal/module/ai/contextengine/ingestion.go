@@ -661,6 +661,36 @@ func (repository *GormIngestionRepository) DocumentVersionVisible(ctx context.Co
 	return count != 0, err
 }
 
+func (repository *GormIngestionRepository) ConversationTurnVisible(ctx context.Context, profileID, conversationID, userMessageID uint64, sourceSHA256 [32]byte) (bool, error) {
+	if repository == nil || repository.db == nil || profileID == 0 || conversationID == 0 || userMessageID == 0 || sourceSHA256 == ([32]byte{}) {
+		return false, ErrDocumentIndexNotConfigured
+	}
+	var row struct {
+		UserID  uint64 `gorm:"column:user_id"`
+		AgentID uint64 `gorm:"column:agent_id"`
+	}
+	if err := repository.db.WithContext(ctx).Table("ai_conversations").Select("user_id, agent_id").Where("id = ? AND is_del = ?", conversationID, enum.CommonNo).Take(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	var binding struct {
+		ProfileID uint64 `gorm:"column:context_profile_id"`
+	}
+	if err := repository.db.WithContext(ctx).Table("ai_agents").Select("context_profile_id").Where("id = ? AND is_del = ?", row.AgentID, enum.CommonNo).Take(&binding).Error; err != nil {
+		return false, err
+	}
+	if binding.ProfileID != profileID {
+		return false, nil
+	}
+	turns, err := NewConversationRepositoryWithDB(repository.db).CompleteByAnchors(ctx, conversationID, row.UserID, []uint64{userMessageID})
+	if err != nil {
+		return false, err
+	}
+	return len(turns) == 1 && turns[0].SourceSHA256 == sourceSHA256, nil
+}
+
 func (repository *GormIngestionRepository) loadWork(ctx context.Context, versionID uint64) (DocumentIndexWork, error) {
 	var row ingestionVersionRow
 	if err := repository.db.WithContext(ctx).Where("id = ?", versionID).Take(&row).Error; err != nil {

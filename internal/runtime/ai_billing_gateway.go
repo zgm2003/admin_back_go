@@ -73,11 +73,11 @@ type paidChatAttemptExecutor struct {
 	context   *contextengine.RuntimeService
 }
 
-func newPaidChatAttemptExecutor(client *database.Client, wallets *walletmodule.GormRepository, replies *replycommand.GormRepository, eventSink modulerealtime.TransactionalEventSink, contextRuntime *contextengine.RuntimeService) *paidChatAttemptExecutor {
+func newPaidChatAttemptExecutor(client *database.Client, wallets *walletmodule.GormRepository, replies *replycommand.GormRepository, eventSink modulerealtime.TransactionalEventSink, contextRuntime *contextengine.RuntimeService, finalizationOptions ...gatewayFinalizationOption) *paidChatAttemptExecutor {
 	if client == nil || client.Gorm == nil || wallets == nil || replies == nil || contextRuntime == nil {
 		return nil
 	}
-	store := newGormGatewayFinalizationStore(client.Gorm, wallets, replies, eventSink)
+	store := newGormGatewayFinalizationStore(client.Gorm, wallets, replies, eventSink, finalizationOptions...)
 	if store == nil {
 		return nil
 	}

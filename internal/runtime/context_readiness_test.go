@@ -67,7 +67,7 @@ func TestWorkerContextReadinessAlwaysRequiresQdrant(t *testing.T) {
 	}
 }
 
-func TestContextReadinessSourcesSelectOnlyEnabledReadySpaceDocuments(t *testing.T) {
+func TestContextReadinessSourcesSelectEnabledDocumentsOrConversationTurns(t *testing.T) {
 	sqlDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	if err != nil {
 		t.Fatal(err)
@@ -77,7 +77,7 @@ func TestContextReadinessSourcesSelectOnlyEnabledReadySpaceDocuments(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	mock.ExpectQuery("(?s)SELECT DISTINCT.*FROM ai_context_profiles AS p.*ai_context_document_versions AS v.*ORDER BY p.id ASC").
+	mock.ExpectQuery("(?s)SELECT DISTINCT.*FROM ai_context_profiles AS p.*ai_context_document_versions AS v.*OR EXISTS.*ai_conversations AS c.*ORDER BY p.id ASC").
 		WillReturnRows(sqlmock.NewRows([]string{"profile_id", "index_generation", "index_state", "dense_dimensions", "dense_distance"}).
 			AddRow(uint64(7), uint64(3), "ready", uint64(1536), "cosine"))
 
@@ -104,7 +104,7 @@ func TestContextReadinessFailsOnInconsistentActiveSourceProfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mock.ExpectQuery("(?s)SELECT DISTINCT.*FROM ai_context_profiles AS p.*ai_context_document_versions AS v.*ORDER BY p.id ASC").
+	mock.ExpectQuery("(?s)SELECT DISTINCT.*FROM ai_context_profiles AS p.*ai_context_document_versions AS v.*OR EXISTS.*ai_conversations AS c.*ORDER BY p.id ASC").
 		WillReturnRows(sqlmock.NewRows([]string{"profile_id", "index_generation", "index_state", "dense_dimensions", "dense_distance"}).
 			AddRow(uint64(7), uint64(3), "failed", uint64(1536), "cosine"))
 	if _, err := newGormContextSources(db).ActiveCollections(t.Context()); err == nil {

@@ -10,13 +10,23 @@ import (
 )
 
 type DocumentIndexReconciler struct {
-	repository            IngestionRepository
-	enqueuer              *QueueDocumentVersionEnqueuer
-	batchSize             int
-	maxAttempts           uint32
-	consistencyRepository ProfileIndexConsistencyRepository
-	index                 IndexLifecycle
-	collectionPrefix      string
+	repository             IngestionRepository
+	enqueuer               *QueueDocumentVersionEnqueuer
+	batchSize              int
+	maxAttempts            uint32
+	consistencyRepository  ProfileIndexConsistencyRepository
+	index                  IndexLifecycle
+	collectionPrefix       string
+	conversationRepository ConversationIndexRepairRepository
+	conversationEnqueuer   *QueueConversationTurnEnqueuer
+	conversationAfterRunID uint64
+}
+
+func WithConversationIndexRepair(repository ConversationIndexRepairRepository, enqueuer *QueueConversationTurnEnqueuer) DocumentIndexReconcilerOption {
+	return func(reconciler *DocumentIndexReconciler) {
+		reconciler.conversationRepository = repository
+		reconciler.conversationEnqueuer = enqueuer
+	}
 }
 
 type ProfileIndexConsistencyRepository interface {
@@ -75,7 +85,31 @@ func (reconciler *DocumentIndexReconciler) reconcile(ctx context.Context, now ti
 		}
 	}
 	consistent, err := reconciler.reconcileProfileIndexes(ctx)
-	return len(candidates) > 0 || consistent, err
+	if err != nil {
+		return len(candidates) > 0 || consistent, err
+	}
+	conversationWorked, err := reconciler.reconcileConversationIndexes(ctx)
+	return len(candidates) > 0 || consistent || conversationWorked, err
+}
+
+func (reconciler *DocumentIndexReconciler) reconcileConversationIndexes(ctx context.Context) (bool, error) {
+	if reconciler.conversationRepository == nil && reconciler.conversationEnqueuer == nil {
+		return false, nil
+	}
+	if reconciler.conversationRepository == nil || reconciler.conversationEnqueuer == nil {
+		return false, errors.New("conversation index reconciler is not configured")
+	}
+	payloads, next, err := reconciler.conversationRepository.ListConversationIndexPayloads(ctx, reconciler.conversationAfterRunID, reconciler.batchSize)
+	if err != nil {
+		return false, err
+	}
+	for _, payload := range payloads {
+		if err := reconciler.conversationEnqueuer.EnqueueConversationTurn(ctx, payload); err != nil {
+			return false, err
+		}
+	}
+	reconciler.conversationAfterRunID = next
+	return len(payloads) > 0, nil
 }
 
 func (reconciler *DocumentIndexReconciler) reconcileProfileIndexes(ctx context.Context) (bool, error) {
