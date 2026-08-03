@@ -282,7 +282,7 @@ type Repository interface {
 	ConversationForReply(ctx context.Context, id int64, userID int64) (*Conversation, error)
 	AcceptedRunForReply(ctx context.Context, userID int64, requestID string) (*airun.Run, error)
 	AgentForRuntime(ctx context.Context, agentID uint64) (*AgentEngineConfig, error)
-	LatestMessages(ctx context.Context, conversationID int64, limit int) ([]MessageHistory, error)
+	MessageForReply(ctx context.Context, conversationID int64, messageID int64) (*MessageHistory, error)
 	CreateRun(ctx context.Context, input CreateRunRecord) (int64, error)
 	CompleteRun(ctx context.Context, input CompleteRunRecord) error
 	FinishRun(ctx context.Context, input FinishRunRecord) error

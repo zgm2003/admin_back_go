@@ -110,21 +110,26 @@ func (r *GormRepository) ProviderForPreparedRecovery(ctx context.Context, provid
 	return &row, nil
 }
 
-func (r *GormRepository) LatestMessages(ctx context.Context, conversationID int64, limit int) ([]MessageHistory, error) {
+func (r *GormRepository) MessageForReply(ctx context.Context, conversationID int64, messageID int64) (*MessageHistory, error) {
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured
 	}
-	if limit <= 0 {
-		limit = 20
+	if conversationID <= 0 || messageID <= 0 {
+		return nil, nil
 	}
-	var rows []MessageHistory
-	err := r.db.WithContext(ctx).Table("ai_messages").
+	var row MessageHistory
+	result := r.db.WithContext(ctx).Table("ai_messages").
 		Select("id, role, content_type, content, meta_json, created_at").
-		Where("conversation_id = ? AND is_del = ?", conversationID, enum.CommonNo).
-		Order("id DESC").
-		Limit(limit).
-		Scan(&rows).Error
-	return rows, err
+		Where("id = ? AND conversation_id = ? AND is_del = ?", messageID, conversationID, enum.CommonNo).
+		Limit(1).
+		Scan(&row)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if row.ID == 0 {
+		return nil, nil
+	}
+	return &row, nil
 }
 
 func (r *GormRepository) CreateRun(ctx context.Context, input CreateRunRecord) (int64, error) {

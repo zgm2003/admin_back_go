@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -30,7 +29,6 @@ import (
 
 const defaultTimeoutLimit = 100
 const defaultRunStaleTimeout = 15 * time.Minute
-const maxHistoryLimit = 50
 
 var (
 	ErrAssistantPublisherNotConfigured    = errors.New("assistant publisher is not configured")
@@ -198,22 +196,19 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	if appErr != nil {
 		return nil, appErr
 	}
-	history, err := repo.LatestMessages(ctx, input.ConversationID, maxHistoryLimit+1)
+	userMessage, err := repo.MessageForReply(ctx, input.ConversationID, input.UserMessageID)
 	if err != nil {
 		return nil, err
 	}
-	selectedContext := selectedChatContext(history, input.UserMessageID, maxHistoryFromMeta(metaForMessage(history, input.UserMessageID)))
-	if appErr := requireNativeFileContextWithinLimit(selectedContext); appErr != nil {
-		return nil, appErr
-	}
-	userMessage, ok := userMessageForID(history, input.UserMessageID)
-	if !ok {
+	if userMessage == nil || userMessage.Role != enum.AIMessageRoleUser {
 		msg := "用户消息不存在"
 		appErr := apperror.BadRequest(msg)
 		return nil, appErr
 	}
-	userContent := userMessage.Content
-	inputSnapshot, appErr := chatRunInputSnapshot(userMessage)
+	if appErr := requireNativeFileContextWithinLimit([]MessageHistory{*userMessage}); appErr != nil {
+		return nil, appErr
+	}
+	inputSnapshot, appErr := chatRunInputSnapshot(*userMessage)
 	if appErr != nil {
 		return nil, appErr
 	}
@@ -255,13 +250,6 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 			return s.runRecorder.Fail(context.Background(), finishInput)
 		}
 	}
-	messages, messageErr := chatMessages(*agent, selectedContext, input.UserMessageID, userContent)
-	if messageErr != nil {
-		if finishErr := finishRun(enum.AIRunStatusFailed, messageErr.Error(), messageErr); finishErr != nil {
-			return nil, errors.Join(messageErr, finishErr)
-		}
-		return nil, messageErr
-	}
 	runtimeTools, appErr := s.runtimeTools(ctx, uint64(input.AgentID))
 	if appErr != nil {
 		if paidReply {
@@ -277,7 +265,7 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		RunID: uint64(runID), ReplyCommandID: input.CommandID, LeaseOwner: input.LeaseOwner, LeaseToken: input.LeaseToken,
 		CurrentMessageID: uint64(input.UserMessageID), AgentID: uint64(input.AgentID), UserID: uint64(input.UserID),
 		ConversationID: uint64(input.ConversationID), ProviderID: agent.ProviderID, ModelID: agent.ModelID, APIProtocol: agent.APIProtocol,
-		Messages: messages, Tools: toolDefinitions(runtimeTools), Temperature: chatTemperature(history, input.UserMessageID),
+		Tools: toolDefinitions(runtimeTools), Temperature: chatTemperature([]MessageHistory{*userMessage}, input.UserMessageID),
 	})
 	if contextErr != nil {
 		if paidReply {
@@ -330,14 +318,13 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		}
 	}()
 	sink := infraai.EventSink(delivery)
-	chatInput := infraai.ChatInput{AgentID: uint64(input.AgentID), RunID: uint64(runID), UserID: uint64(input.UserID), UserKey: userKey(input.UserID), ModelID: agent.ModelID, Messages: messages, Temperature: chatTemperature(history, input.UserMessageID), Tools: toolDefinitions(runtimeTools)}
-	chatInput = contextResult.ChatInput
+	chatInput := contextResult.ChatInput
 	chatInput.AgentID = uint64(input.AgentID)
 	chatInput.RunID = uint64(runID)
 	chatInput.UserID = uint64(input.UserID)
 	chatInput.UserKey = userKey(input.UserID)
 	chatInput.ModelID = agent.ModelID
-	chatInput.Temperature = chatTemperature(history, input.UserMessageID)
+	chatInput.Temperature = chatTemperature([]MessageHistory{*userMessage}, input.UserMessageID)
 	chatInput.Tools = toolDefinitions(runtimeTools)
 	contextEvidence := &contextResult.Evidence
 	if err := chatInput.Validate(); err != nil {
@@ -355,7 +342,7 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		return nil, err
 	}
 	if paidReply && s.paidAttemptExecutor != nil {
-		identity, identityErr := paidReplyRequestIdentity(acceptedRun, input, userMessage)
+		identity, identityErr := paidReplyRequestIdentity(acceptedRun, input, *userMessage)
 		if identityErr != nil {
 			preDispatchRunID = 0
 			result, finalizationErr := s.finalizePaidFailure(context.WithoutCancel(ctx), runID, input, true)
@@ -1519,32 +1506,6 @@ func chatTemperature(rows []MessageHistory, currentUserMessageID int64) *float64
 	return &temperature
 }
 
-func selectedChatContext(rows []MessageHistory, currentUserMessageID int64, maxHistory int) []MessageHistory {
-	sorted := append([]MessageHistory(nil), rows...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i].ID < sorted[j].ID })
-	history := make([]MessageHistory, 0, len(sorted))
-	var current *MessageHistory
-	for index := range sorted {
-		row := sorted[index]
-		if row.ID == currentUserMessageID {
-			copy := row
-			current = &copy
-			continue
-		}
-		if strings.TrimSpace(row.Content) == "" && len(messageAttachments(row)) == 0 {
-			continue
-		}
-		history = append(history, row)
-	}
-	if maxHistory > 0 && len(history) > maxHistory {
-		history = history[len(history)-maxHistory:]
-	}
-	if current != nil {
-		history = append(history, *current)
-	}
-	return history
-}
-
 func requireNativeFileContextWithinLimit(messages []MessageHistory) *apperror.Error {
 	var total int64
 	for _, message := range messages {
@@ -1586,25 +1547,6 @@ func messageAttachments(row MessageHistory) []any {
 		return nil
 	}
 	return meta.Attachments
-}
-
-func maxHistoryFromMeta(meta map[string]any) int {
-	value, ok := meta["runtime_params"].(map[string]any)
-	if !ok {
-		return 0
-	}
-	number, ok := numberFromAny(value["max_history"])
-	if !ok {
-		return 0
-	}
-	n := int(number)
-	if n < 1 {
-		return 0
-	}
-	if n > maxHistoryLimit {
-		return maxHistoryLimit
-	}
-	return n
 }
 
 func metaForMessage(rows []MessageHistory, userMessageID int64) map[string]any {

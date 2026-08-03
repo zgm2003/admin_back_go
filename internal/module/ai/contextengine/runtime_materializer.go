@@ -35,13 +35,18 @@ type RuntimeEvidenceResolver interface {
 type PlanMaterializer struct {
 	facts    RuntimeFactsReader
 	evidence RuntimeEvidenceResolver
+	history  ConversationTurnPager
 }
 
-func NewPlanMaterializer(facts RuntimeFactsReader, evidence RuntimeEvidenceResolver) *PlanMaterializer {
+func NewPlanMaterializer(facts RuntimeFactsReader, evidence RuntimeEvidenceResolver, history ...ConversationTurnPager) *PlanMaterializer {
 	if facts == nil {
 		return nil
 	}
-	return &PlanMaterializer{facts: facts, evidence: evidence}
+	materializer := &PlanMaterializer{facts: facts, evidence: evidence}
+	if len(history) > 0 {
+		materializer.history = history[0]
+	}
+	return materializer
 }
 
 func (materializer *PlanMaterializer) Materialize(ctx context.Context, input RuntimeInput) (BuildPlanInput, error) {
@@ -61,6 +66,11 @@ func (materializer *PlanMaterializer) Materialize(ctx context.Context, input Run
 		Profile: cloneProfileSnapshot(facts.Profile), RetrievalOutcome: RetrievalSkipped,
 		PackGroups: clonePackGroups(facts.CoreGroups),
 	}
+	historyGroups, err := runtimeHistoryGroups(ctx, materializer.history, input, facts)
+	if err != nil {
+		return BuildPlanInput{}, err
+	}
+	output.PackGroups = append(output.PackGroups, historyGroups...)
 	if facts.Profile == nil {
 		return output, nil
 	}

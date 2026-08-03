@@ -15,8 +15,7 @@ func TestChatMessagesPreserveSystemHistoryCurrentAndAttachments(t *testing.T) {
 		{ID: 2, Role: enum.AIMessageRoleAssistant, Content: "answer"},
 		{ID: 1, Role: enum.AIMessageRoleUser, Content: "question", MetaJSON: &historyMeta},
 	}
-	selected := selectedChatContext(rows, 9, 0)
-	messages, err := chatMessages(AgentEngineConfig{SystemPrompt: "  system  "}, selected, 9, "context\n\nquestion")
+	messages, err := chatMessages(AgentEngineConfig{SystemPrompt: "  system  "}, []MessageHistory{rows[2], rows[1], rows[0]}, 9, "context\n\nquestion")
 	if err != nil {
 		t.Fatal(err)
 	}

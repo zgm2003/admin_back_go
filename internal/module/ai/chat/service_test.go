@@ -222,9 +222,15 @@ func (f *fakeRepository) AgentForRuntime(ctx context.Context, agentID uint64) (*
 	f.agentID = agentID
 	return f.agent, nil
 }
-func (f *fakeRepository) LatestMessages(ctx context.Context, conversationID int64, limit int) ([]MessageHistory, error) {
+func (f *fakeRepository) MessageForReply(ctx context.Context, conversationID int64, messageID int64) (*MessageHistory, error) {
 	f.historyCalls++
-	return f.history, nil
+	for _, message := range f.history {
+		if message.ID == messageID {
+			copy := message
+			return &copy, nil
+		}
+	}
+	return nil, nil
 }
 func (f *fakeRepository) ProviderForPreparedRecovery(_ context.Context, providerID uint64) (*AgentEngineConfig, error) {
 	f.recoveryProviderID = providerID
@@ -1348,66 +1354,32 @@ func TestTimeoutRunsAllowsInputStaleTimeoutOverride(t *testing.T) {
 	}
 }
 
-func TestSelectedChatContextKeepsHistoryOrderAndAppendsCurrentUser(t *testing.T) {
-	now := time.Now()
-	selected := selectedChatContext([]MessageHistory{
-		{ID: 3, Role: enum.AIMessageRoleAssistant, Content: "two", CreatedAt: now},
-		{ID: 1, Role: enum.AIMessageRoleUser, Content: "one", CreatedAt: now},
-		{ID: 4, Role: enum.AIMessageRoleUser, Content: "current", CreatedAt: now},
-	}, 4, 0)
-	if len(selected) != 3 || selected[0].Content != "one" || selected[1].Content != "two" || selected[2].Content != "current" {
-		t.Fatalf("unexpected selected context: %#v", selected)
-	}
-}
-
-func TestTypedChatInputExtractsAttachmentsTemperatureAndMaxHistory(t *testing.T) {
+func TestMaxHistoryMetadataDoesNotAffectCurrentRuntimeParameters(t *testing.T) {
 	meta := `{"attachments":[{"type":"image","url":"https://example.test/a.png"}],"runtime_params":{"temperature":0.7,"max_tokens":1024,"max_history":1}}`
 	rows := []MessageHistory{
 		{ID: 1, Role: enum.AIMessageRoleUser, Content: "old"},
 		{ID: 2, Role: enum.AIMessageRoleAssistant, Content: "older"},
 		{ID: 3, Role: enum.AIMessageRoleUser, Content: "current", MetaJSON: &meta},
 	}
-	selected := selectedChatContext(rows, 3, maxHistoryFromMeta(metaForMessage(rows, 3)))
-	messages, err := chatMessages(AgentEngineConfig{}, selected, 3, "current")
-	if err != nil {
-		t.Fatal(err)
-	}
 	temperature := chatTemperature(rows, 3)
 	if temperature == nil || *temperature != 0.7 {
 		t.Fatalf("temperature not extracted: %#v", temperature)
 	}
-	if len(messages) != 2 || messages[0].Role != infraai.MessageRoleAssistant || messages[0].Parts[0].Text != "older" ||
-		messages[1].Role != infraai.MessageRoleUser || len(messages[1].Parts) != 2 || messages[1].Parts[0].Text != "current" ||
-		messages[1].Parts[1].Attachment == nil || messages[1].Parts[1].Attachment.URL != "https://example.test/a.png" {
-		t.Fatalf("typed messages or max_history changed: %#v", messages)
+	if attachments := messageAttachments(rows[2]); len(attachments) != 1 {
+		t.Fatalf("current attachments=%#v", attachments)
 	}
 }
 
-func TestNativeFileContextLimitIncludesSelectedHistory(t *testing.T) {
-	agent, box := validAgentConfig(t)
+func TestNativeFileContextLimitDoesNotReloadHistoricalAttachments(t *testing.T) {
 	historyMeta := `{"attachments":[{"type":"file","object_key":"ai_chat_attachments/history.pdf","etag":"\"h1\"","mime_type":"application/pdf","name":"history.pdf","size":52428800}]}`
 	currentMeta := `{"attachments":[{"type":"file","object_key":"ai_chat_attachments/current.txt","etag":"\"c1\"","mime_type":"text/plain","name":"current.txt","size":1}]}`
-	engine := &captureEngine{}
-	repo := &fakeRepository{
-		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5, IsDel: enum.CommonNo},
-		agent:        agent,
-		history: []MessageHistory{
-			{ID: 1, Role: enum.AIMessageRoleUser, ContentType: "text", Content: "historical question", MetaJSON: &historyMeta},
-			{ID: 2, Role: enum.AIMessageRoleAssistant, ContentType: "text", Content: "historical answer"},
-			{ID: 9, Role: enum.AIMessageRoleUser, ContentType: "text", Content: "current question", MetaJSON: &currentMeta},
-		},
+	history := MessageHistory{ID: 1, Role: enum.AIMessageRoleUser, MetaJSON: &historyMeta}
+	current := MessageHistory{ID: 9, Role: enum.AIMessageRoleUser, MetaJSON: &currentMeta}
+	if appErr := requireNativeFileContextWithinLimit([]MessageHistory{history, current}); appErr == nil {
+		t.Fatal("combined historical and current attachments should exceed the native limit")
 	}
-
-	_, err := newTestChatService(Dependencies{
-		Repository: repo, AssistantPublisher: repo, Publisher: &fakePublisher{}, RunRecorder: &fakeRunRecorder{nextID: 100},
-		EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box,
-	}).ExecuteConversationReply(context.Background(), ConversationReplyInput{
-		ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid-history-limit",
-	})
-	var appErr *apperror.Error
-	if !errors.As(err, &appErr) || appErr.Code != "ai.attachment.context_total_too_large" || appErr.Category != apperror.CategoryValidation ||
-		appErr.HTTPStatus != 400 || appErr.Retry != apperror.Permanent || appErr.Message != "当前对话文件上下文超过 50 MB，请新建对话或减少历史范围" {
-		t.Fatalf("over-limit error=%#v", err)
+	if appErr := requireNativeFileContextWithinLimit([]MessageHistory{current}); appErr != nil {
+		t.Fatalf("current attachment alone was rejected: %v", appErr)
 	}
 }
 
