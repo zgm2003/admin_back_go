@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	airun "admin_back_go/internal/module/ai/run"
 	"admin_back_go/internal/shared/enum"
 
 	"gorm.io/gorm"
@@ -36,6 +35,17 @@ type lockedReplyCommand struct {
 }
 
 func (lockedReplyCommand) TableName() string { return "ai_reply_commands" }
+
+type lockedAuthorityRun struct {
+	ID             int64  `gorm:"column:id"`
+	RequestID      string `gorm:"column:request_id"`
+	UserID         int64  `gorm:"column:user_id"`
+	ConversationID *int64 `gorm:"column:conversation_id"`
+	UserMessageID  *int64 `gorm:"column:user_message_id"`
+	Status         string `gorm:"column:status"`
+}
+
+func (lockedAuthorityRun) TableName() string { return "ai_runs" }
 
 type PlanAuthoritySnapshot struct {
 	InputFingerprintSHA256 [sha256.Size]byte
@@ -132,7 +142,7 @@ func (guard *authorizationGuard) GuardPlanCommitInTransaction(ctx context.Contex
 	if guard == nil || tx == nil || guard.loader == nil || guard.now == nil || token.AuthoritySnapshotSHA256 != guard.expectedHash {
 		return PlanCommitGuardResult{}, ErrInvalidPlanCommitToken
 	}
-	var run airun.Run
+	var run lockedAuthorityRun
 	if err := tx.WithContext(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", token.RunID).Take(&run).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return PlanCommitGuardResult{}, ErrPlanCommitAborted
@@ -167,7 +177,7 @@ func (guard *authorizationGuard) GuardPlanCommitInTransaction(ctx context.Contex
 	return PlanCommitGuardResult{}, nil
 }
 
-func validateLockedPlanAuthority(run airun.Run, command lockedReplyCommand, token PlanCommitToken, now time.Time) error {
+func validateLockedPlanAuthority(run lockedAuthorityRun, command lockedReplyCommand, token PlanCommitToken, now time.Time) error {
 	if run.ID != int64(token.RunID) || command.ID != token.ReplyCommandID || run.Status != enum.AIRunStatusRunning ||
 		command.State != "running" || command.CancelRequestedAt != nil || command.LeaseOwner == nil ||
 		*command.LeaseOwner != token.LeaseOwner || command.LeaseToken != token.LeaseToken || command.LeaseExpiresAt == nil ||

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/infra/database"
+	"admin_back_go/internal/module/ai/contextengine"
 	"admin_back_go/internal/shared/enum"
 
 	"gorm.io/gorm"
@@ -138,6 +139,16 @@ func (r *GormRepository) Detail(ctx context.Context, id int64) (*RunDetailRow, e
 	row.UserMessage = r.messageSummary(ctx, id, "user_message_id")
 	row.AssistantMessage = r.messageSummary(ctx, id, "assistant_message_id")
 	return &row, nil
+}
+
+func (r *GormRepository) ContextPlan(ctx context.Context, runID int64) (*contextengine.ContextPlan, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	if runID <= 0 {
+		return nil, contextengine.ErrInvalidContextPlan
+	}
+	return contextengine.NewPlanRepositoryFromGorm(r.db).FindTerminalByRunID(ctx, uint64(runID))
 }
 
 func (r *GormRepository) BillingDetail(ctx context.Context, runID int64) (*ChargeRow, []UsageChargeItemRow, []ProviderAttemptRow, error) {

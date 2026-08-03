@@ -20,6 +20,7 @@ import (
 	storagecos "admin_back_go/internal/infra/storage/cos"
 	"admin_back_go/internal/module/ai/aigateway"
 	"admin_back_go/internal/module/ai/capability"
+	"admin_back_go/internal/module/ai/contextengine"
 	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/pricing"
 	"admin_back_go/internal/module/ai/replycommand"
@@ -111,15 +112,75 @@ func (s *Service) List(ctx context.Context, userID int64, query ListQuery) (*Lis
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI消息失败", err)
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].ID < rows[j].ID })
+	contexts, appErr := messageContexts(ctx, repo, rows)
+	if appErr != nil {
+		return nil, appErr
+	}
 	list := make([]MessageItem, 0, len(rows))
 	for _, row := range rows {
-		list = append(list, messageItem(row))
+		item := messageItem(row)
+		item.Context = contexts[row.ID]
+		list = append(list, item)
 	}
 	nextID := int64(0)
 	if hasMore && len(rows) > 0 {
 		nextID = rows[0].ID
 	}
 	return &ListResponse{List: list, NextID: nextID, HasMore: hasMore}, nil
+}
+
+func messageContexts(ctx context.Context, repository Repository, rows []MessageProjection) (map[int64]*contextengine.MessageContext, *apperror.Error) {
+	runIDs := make([]uint64, 0)
+	seen := make(map[uint64]struct{})
+	for _, row := range rows {
+		if !messageCanHaveContext(row) {
+			continue
+		}
+		runID := uint64(*row.RunID)
+		if _, exists := seen[runID]; exists {
+			continue
+		}
+		seen[runID] = struct{}{}
+		runIDs = append(runIDs, runID)
+	}
+	result := make(map[int64]*contextengine.MessageContext)
+	if len(runIDs) == 0 {
+		return result, nil
+	}
+	planRepository, ok := repository.(ContextPlanRepository)
+	if !ok {
+		return nil, apperror.Internal("AI消息上下文仓储未配置")
+	}
+	plans, err := planRepository.ContextPlans(ctx, runIDs)
+	if err != nil {
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI消息上下文失败", err)
+	}
+	for _, row := range rows {
+		if !messageCanHaveContext(row) {
+			continue
+		}
+		runID := uint64(*row.RunID)
+		plan, exists := plans[runID]
+		if !exists {
+			continue
+		}
+		if plan.RunID != runID {
+			return nil, apperror.Internal("AI消息上下文关联无效")
+		}
+		projection, err := contextengine.ProjectMessageContext(row.Content, plan)
+		if err != nil {
+			return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "AI消息上下文无效", err)
+		}
+		result[row.ID] = &projection
+	}
+	return result, nil
+}
+
+func messageCanHaveContext(row MessageProjection) bool {
+	if row.Role != enum.AIMessageRoleAssistant || row.RunID == nil || *row.RunID <= 0 || row.DeliveryState == nil {
+		return false
+	}
+	return *row.DeliveryState == DeliveryStateCompleted || *row.DeliveryState == DeliveryStateStopped
 }
 
 func (s *Service) Send(ctx context.Context, userID int64, input SendInput) (*SendResponse, *apperror.Error) {

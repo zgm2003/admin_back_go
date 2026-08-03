@@ -13,6 +13,7 @@ import (
 
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/module/ai/billing"
+	"admin_back_go/internal/module/ai/contextengine"
 	"admin_back_go/internal/shared/clock"
 	"admin_back_go/internal/shared/enum"
 )
@@ -41,6 +42,9 @@ type fakeRepository struct {
 	dashboardRows    DashboardRepositoryResult
 	dashboardErr     error
 	dashboardCalls   int
+	contextPlan      *contextengine.ContextPlan
+	contextPlanRuns  []int64
+	contextPlanErr   error
 }
 
 func (f *fakeRepository) AgentOptions(ctx context.Context) ([]OptionRow, error) {
@@ -78,6 +82,10 @@ func (f *fakeRepository) KnowledgeRetrievalHits(ctx context.Context, retrievalID
 	f.hitQueries++
 	f.hitQueryIDs = append([]int64(nil), retrievalIDs...)
 	return f.hits, nil
+}
+func (f *fakeRepository) ContextPlan(_ context.Context, runID int64) (*contextengine.ContextPlan, error) {
+	f.contextPlanRuns = append(f.contextPlanRuns, runID)
+	return f.contextPlan, f.contextPlanErr
 }
 func (f *fakeRepository) Dashboard(_ context.Context, query DashboardQuery) (DashboardRepositoryResult, error) {
 	f.dashboardCalls++

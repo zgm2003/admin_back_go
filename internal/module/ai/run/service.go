@@ -18,6 +18,7 @@ import (
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/module/ai/aigateway"
 	"admin_back_go/internal/module/ai/billing"
+	"admin_back_go/internal/module/ai/contextengine"
 	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/pricing"
 	"admin_back_go/internal/shared/apperror"
@@ -160,6 +161,21 @@ func (s *Service) Detail(ctx context.Context, id int64) (*DetailResponse, *apper
 	if row == nil {
 		return nil, apperror.NotFound("AI运行记录不存在")
 	}
+	contextPlan, err := repo.ContextPlan(ctx, id)
+	if err != nil {
+		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI运行上下文计划失败", err)
+	}
+	var contextPlanProjection *ContextPlanProjection
+	if contextPlan != nil {
+		if contextPlan.RunID != uint64(row.ID) {
+			return nil, apperror.Internal("AI运行上下文计划关联无效")
+		}
+		projection, err := contextengine.ProjectContextPlan(*contextPlan)
+		if err != nil {
+			return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "AI运行上下文计划无效", err)
+		}
+		contextPlanProjection = &projection
+	}
 	charge, usageRows, attemptRows, err := repo.BillingDetail(ctx, id)
 	if err != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI运行计费详情失败", err)
@@ -184,7 +200,7 @@ func (s *Service) Detail(ctx context.Context, id int64) (*DetailResponse, *apper
 	if summaryErr != nil {
 		s.logInvalidPreparedRequestSummary(ctx, row.ID, attemptRows)
 	}
-	result := detailItem(*row, events, knowledgeRetrievals, toolCalls, billingView, s.buildLatencyBreakdown(ctx, *row, attemptRows, events), requestSummary)
+	result := detailItem(*row, events, knowledgeRetrievals, toolCalls, billingView, s.buildLatencyBreakdown(ctx, *row, attemptRows, events), requestSummary, contextPlanProjection)
 	return &result, nil
 }
 
@@ -668,7 +684,7 @@ func optionalNonBlank(value string) *string {
 	return &value
 }
 
-func detailItem(row RunDetailRow, events []EventRow, knowledgeRetrievals []KnowledgeRetrievalItem, toolCalls []ToolCallRow, billingView billingDetailView, latency LatencyBreakdown, requestSummary SafeRequestSummary) DetailResponse {
+func detailItem(row RunDetailRow, events []EventRow, knowledgeRetrievals []KnowledgeRetrievalItem, toolCalls []ToolCallRow, billingView billingDetailView, latency LatencyBreakdown, requestSummary SafeRequestSummary, contextPlan *ContextPlanProjection) DetailResponse {
 	items := make([]EventItem, 0, len(events))
 	for _, event := range events {
 		if event.EventType == enum.AIRunEventFileMaterialized {
@@ -693,7 +709,7 @@ func detailItem(row RunDetailRow, events []EventRow, knowledgeRetrievals []Knowl
 		BillingStatus: billingView.status, BillingReason: billingView.reason,
 		HeldAmount: billingView.held, ActualAmount: billingView.actual,
 		Pricing: billingView.pricing, UsageItems: billingView.usage, ProviderAttempts: billingView.attempts,
-		Latency: latency, RequestSummary: requestSummary,
+		Latency: latency, RequestSummary: requestSummary, ContextPlan: contextPlan,
 		UserMessage: safeRunMessageSummary(row.UserMessage), AssistantMessage: safeRunMessageSummary(row.AssistantMessage), Events: items, KnowledgeRetrievals: knowledgeRetrievals, ToolCalls: callItems,
 		Liked: row.LikedAt != nil, LikedAt: formatOptionalTimePointer(row.LikedAt),
 		StartedAt: formatOptionalTime(row.StartedAt), FinishedAt: formatOptionalTime(row.FinishedAt),

@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"time"
 
+	"admin_back_go/internal/module/ai/contextengine"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/dict"
 )
 
 type JSONObject = json.RawMessage
+type ContextPlanProjection = contextengine.ContextPlanProjection
 
 type InitResponse struct {
 	Dict InitDict `json:"dict"`
@@ -204,6 +206,7 @@ type DetailResponse struct {
 	ProviderAttempts    []ProviderAttemptDetail  `json:"provider_attempts"`
 	Latency             LatencyBreakdown         `json:"latency"`
 	RequestSummary      SafeRequestSummary       `json:"request_summary"`
+	ContextPlan         *ContextPlanProjection   `json:"context_plan"`
 	UserMessage         *MessageSummary          `json:"user_message"`
 	AssistantMessage    *MessageSummary          `json:"assistant_message"`
 	Events              []EventItem              `json:"events"`
@@ -454,6 +457,7 @@ type Repository interface {
 	ToolCalls(ctx context.Context, runID int64) ([]ToolCallRow, error)
 	KnowledgeRetrievals(ctx context.Context, runID int64) ([]KnowledgeRetrievalRow, error)
 	KnowledgeRetrievalHits(ctx context.Context, retrievalIDs []int64) ([]KnowledgeHitRow, error)
+	ContextPlan(ctx context.Context, runID int64) (*contextengine.ContextPlan, error)
 	Dashboard(ctx context.Context, query DashboardQuery) (DashboardRepositoryResult, error)
 }
 

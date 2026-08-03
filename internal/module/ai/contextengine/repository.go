@@ -300,6 +300,66 @@ func NewPlanRepository(client *database.Client) *GormPlanRepository {
 	return &GormPlanRepository{db: client.Gorm}
 }
 
+func NewPlanRepositoryFromGorm(db *gorm.DB) *GormPlanRepository {
+	if db == nil {
+		return nil
+	}
+	return &GormPlanRepository{db: db}
+}
+
+func (repository *GormPlanRepository) FindTerminalByRunIDs(ctx context.Context, runIDs []uint64) (map[uint64]ContextPlan, error) {
+	if repository == nil || repository.db == nil {
+		return nil, ErrPlanRepositoryNotConfigured
+	}
+	uniqueRunIDs := make([]uint64, 0, len(runIDs))
+	seenRunIDs := make(map[uint64]struct{}, len(runIDs))
+	for _, runID := range runIDs {
+		if runID == 0 {
+			return nil, ErrInvalidContextPlan
+		}
+		if _, exists := seenRunIDs[runID]; exists {
+			continue
+		}
+		seenRunIDs[runID] = struct{}{}
+		uniqueRunIDs = append(uniqueRunIDs, runID)
+	}
+	if len(uniqueRunIDs) == 0 {
+		return map[uint64]ContextPlan{}, nil
+	}
+
+	var planRows []contextPlanRow
+	if err := repository.db.WithContext(ctx).Where("run_id IN ?", uniqueRunIDs).Order("id ASC").Find(&planRows).Error; err != nil {
+		return nil, fmt.Errorf("find terminal context plans: %w", err)
+	}
+	if len(planRows) == 0 {
+		return map[uint64]ContextPlan{}, nil
+	}
+	planIDs := make([]uint64, 0, len(planRows))
+	for _, row := range planRows {
+		planIDs = append(planIDs, row.ID)
+	}
+	var itemRows []contextPlanItemRow
+	if err := repository.db.WithContext(ctx).Where("plan_id IN ?", planIDs).Order("plan_id ASC, ordinal ASC").Find(&itemRows).Error; err != nil {
+		return nil, fmt.Errorf("find terminal context plan items: %w", err)
+	}
+	itemsByPlanID := make(map[uint64][]contextPlanItemRow, len(planRows))
+	for _, row := range itemRows {
+		itemsByPlanID[row.PlanID] = append(itemsByPlanID[row.PlanID], row)
+	}
+	result := make(map[uint64]ContextPlan, len(planRows))
+	for _, row := range planRows {
+		if _, duplicate := result[row.RunID]; duplicate {
+			return nil, ErrInvalidContextPlan
+		}
+		plan, err := contextPlanFromRows(row, itemsByPlanID[row.ID])
+		if err != nil {
+			return nil, fmt.Errorf("decode terminal context plan: %w", err)
+		}
+		result[row.RunID] = plan
+	}
+	return result, nil
+}
+
 func (repository *GormPlanRepository) FindTerminalByRunID(ctx context.Context, runID uint64) (*ContextPlan, error) {
 	if repository == nil || repository.db == nil {
 		return nil, ErrPlanRepositoryNotConfigured

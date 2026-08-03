@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"admin_back_go/internal/module/ai/contextengine"
 	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/replycommand"
 	"admin_back_go/internal/shared/apperror"
@@ -99,24 +100,27 @@ type MessageRuntimeParams struct {
 	MaxHistory  *int     `json:"max_history,omitempty"`
 }
 
+type MessageContext = contextengine.MessageContext
+
 type MessageMeta struct {
 	Attachments   []MessageMetaAttachment `json:"attachments,omitempty"`
 	RuntimeParams *MessageRuntimeParams   `json:"runtime_params,omitempty"`
 }
 
 type MessageItem struct {
-	ID                int64        `json:"id"`
-	Role              int          `json:"role"`
-	ContentType       string       `json:"content_type"`
-	Content           string       `json:"content"`
-	MetaJSON          *MessageMeta `json:"meta_json,omitempty"`
-	PairedMessageID   *int64       `json:"paired_message_id"`
-	RunID             *int64       `json:"run_id"`
-	Liked             bool         `json:"liked"`
-	DeliveryState     *string      `json:"delivery_state"`
-	SettlementPending bool         `json:"settlement_pending"`
-	CreatedAt         string       `json:"created_at"`
-	UpdatedAt         string       `json:"updated_at"`
+	ID                int64           `json:"id"`
+	Role              int             `json:"role"`
+	ContentType       string          `json:"content_type"`
+	Content           string          `json:"content"`
+	MetaJSON          *MessageMeta    `json:"meta_json,omitempty"`
+	PairedMessageID   *int64          `json:"paired_message_id"`
+	RunID             *int64          `json:"run_id"`
+	Liked             bool            `json:"liked"`
+	DeliveryState     *string         `json:"delivery_state"`
+	SettlementPending bool            `json:"settlement_pending"`
+	Context           *MessageContext `json:"context"`
+	CreatedAt         string          `json:"created_at"`
+	UpdatedAt         string          `json:"updated_at"`
 }
 
 type MessageProjection struct {
@@ -193,6 +197,10 @@ type Repository interface {
 	List(ctx context.Context, query ListQuery) ([]MessageProjection, bool, error)
 	CreateReply(ctx context.Context, input replycommand.CreateReplyInput) (replycommand.CreateReplyResult, error)
 	RequestCancel(ctx context.Context, input replycommand.RequestCancelInput) (replycommand.RequestCancelResult, error)
+}
+
+type ContextPlanRepository interface {
+	ContextPlans(context.Context, []uint64) (map[uint64]contextengine.ContextPlan, error)
 }
 
 type HistoryRepository interface {
