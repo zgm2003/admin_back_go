@@ -40,6 +40,7 @@ type BuildPlanInput struct {
 	Profile          *ProfileSnapshot
 	RetrievalOutcome RetrievalOutcome
 	PackGroups       []PackGroup
+	Failure          *PlanError
 }
 
 func NewPlanner(dependencies PlannerDependencies) *Planner {
@@ -78,31 +79,36 @@ func (planner *Planner) BuildPlan(ctx context.Context, input BuildPlanInput) (Co
 		Budget: budget, RetrievalOutcome: input.RetrievalOutcome, State: PlanReady,
 		Metrics: ContextPlanMetricsV1{Schema: ContextPlanMetricsSchemaV1},
 	}
-	packed, packErr := Pack(PackInput{
-		KnownInputBudget:             input.Budget.KnownInputBudget,
-		ToolContinuationInputReserve: input.Budget.ToolContinuationInputReserve,
-		Candidates:                   input.PackGroups,
-	})
-	if packErr != nil {
-		code := ErrorCode(packErr.Code)
-		if code.Validate() != nil {
-			return ContextPlan{}, packErr
-		}
-		planError, err := NewPlanError("packing", code)
-		if err != nil {
-			return ContextPlan{}, err
-		}
+	if input.Failure != nil {
 		plan.State = PlanFailed
-		plan.RetrievalOutcome = RetrievalFailed
-		plan.Error = &planError
+		plan.Error = clonePointer(input.Failure)
 	} else {
-		plan.Budget.KnownInputUpperBound = packed.KnownInputUpperBound
-		plan.Items = packed.Items
-		planHash, err := HashPlan(plan)
-		if err != nil {
-			return ContextPlan{}, err
+		packed, packErr := Pack(PackInput{
+			KnownInputBudget:             input.Budget.KnownInputBudget,
+			ToolContinuationInputReserve: input.Budget.ToolContinuationInputReserve,
+			Candidates:                   input.PackGroups,
+		})
+		if packErr != nil {
+			code := ErrorCode(packErr.Code)
+			if code.Validate() != nil {
+				return ContextPlan{}, packErr
+			}
+			planError, err := NewPlanError("packing", code)
+			if err != nil {
+				return ContextPlan{}, err
+			}
+			plan.State = PlanFailed
+			plan.RetrievalOutcome = RetrievalFailed
+			plan.Error = &planError
+		} else {
+			plan.Budget.KnownInputUpperBound = packed.KnownInputUpperBound
+			plan.Items = packed.Items
+			planHash, err := HashPlan(plan)
+			if err != nil {
+				return ContextPlan{}, err
+			}
+			plan.PlanSHA256 = &planHash
 		}
-		plan.PlanSHA256 = &planHash
 	}
 	if err := plan.Validate(); err != nil {
 		return ContextPlan{}, err
@@ -138,7 +144,10 @@ func validateAndHashBuildPlanInput(input BuildPlanInput) ([sha256.Size]byte, [sh
 	if !equalProfileSnapshot(input.Profile, input.Fingerprint.Profile) {
 		return [sha256.Size]byte{}, [sha256.Size]byte{}, ErrInvalidContextPlan
 	}
-	if input.RetrievalOutcome == RetrievalFailed || input.RetrievalOutcome.Validate() != nil {
+	if input.RetrievalOutcome.Validate() != nil || (input.RetrievalOutcome == RetrievalFailed) != (input.Failure != nil) {
+		return [sha256.Size]byte{}, [sha256.Size]byte{}, ErrInvalidContextPlan
+	}
+	if input.Failure != nil && input.Failure.Validate() != nil {
 		return [sha256.Size]byte{}, [sha256.Size]byte{}, ErrInvalidContextPlan
 	}
 	currentFound := false

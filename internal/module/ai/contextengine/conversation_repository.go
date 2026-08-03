@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"admin_back_go/internal/infra/database"
-	"admin_back_go/internal/module/ai/replycommand"
 	"admin_back_go/internal/shared/enum"
 
 	"gorm.io/gorm"
@@ -164,8 +163,8 @@ func (repository *GormConversationRepository) completeRowsQuery(ctx context.Cont
 		Where("m.role = ? AND m.is_del = ?", enum.AIMessageRoleUser, enum.CommonNo).
 		Where(`((command_row.state = ? AND run_row.status = ? AND assistant.delivery_state = ?)
 			OR (command_row.state = ? AND run_row.status = ? AND assistant.delivery_state = ?))`,
-			replycommand.StateSucceeded, enum.AIRunStatusSuccess, replycommand.DeliveryStateCompleted,
-			replycommand.StateCanceled, enum.AIRunStatusCanceled, replycommand.DeliveryStateStopped).
+			"succeeded", enum.AIRunStatusSuccess, "completed",
+			"canceled", enum.AIRunStatusCanceled, "stopped").
 		Where(`NOT EXISTS (
 			SELECT 1 FROM ai_tool_calls incomplete_tool
 			WHERE incomplete_tool.run_id = run_row.id

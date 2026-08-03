@@ -11,6 +11,7 @@ import (
 	"admin_back_go/internal/infra/accesstoken"
 	infraai "admin_back_go/internal/infra/ai"
 	aiproviderinfra "admin_back_go/internal/infra/ai/provider"
+	"admin_back_go/internal/infra/contextindex"
 	"admin_back_go/internal/infra/database"
 	"admin_back_go/internal/infra/logstore"
 	paymentcore "admin_back_go/internal/infra/payment"
@@ -61,10 +62,11 @@ import (
 )
 
 type BuildResources struct {
-	DB         *database.Client
-	Redis      *redisclient.Client
-	TokenRedis *redisclient.Client
-	QueueRedis *redisclient.Client
+	DB           *database.Client
+	Redis        *redisclient.Client
+	TokenRedis   *redisclient.Client
+	QueueRedis   *redisclient.Client
+	ContextIndex contextindex.Querier
 }
 
 type ProviderSet struct {
@@ -76,6 +78,8 @@ type ProviderSet struct {
 
 	AIConnectionTester      aiprovider.ProviderTester
 	AIChatFactory           aichat.EngineFactory
+	AIEmbeddingFactory      infraai.EmbeddingFactory
+	AIRerankFactory         infraai.RerankFactory
 	AIImageFactory          aiimage.ImageEngineFactory
 	AITransportCapabilities infraai.TransportCapabilityResolver
 
@@ -302,6 +306,14 @@ func Build(input BuildInput) (*BuildResult, error) {
 		resources.DB,
 		replycommand.WithDurableEventSink(realtimeEventSink),
 	)
+	contextRuntime := contextengine.BuildRuntime(contextengine.RuntimeDependencies{
+		Database: resources.DB, OfficialModels: aiOfficialModelResolver,
+		EmbeddingFactory: providers.AIEmbeddingFactory, RerankFactory: providers.AIRerankFactory,
+		Secretbox: providers.Secretbox, Index: resources.ContextIndex, CollectionPrefix: cfg.Qdrant.CollectionPrefix, Platform: "admin",
+	})
+	if contextRuntime == nil {
+		return nil, errors.New("build admin context runtime")
+	}
 
 	aiChatService, err := aichat.NewRuntimeService(aichat.Dependencies{
 		Repository:        aichat.NewGormRepository(resources.DB),
@@ -311,7 +323,7 @@ func Build(input BuildInput) (*BuildResult, error) {
 		EngineFactory:     providers.AIChatFactory,
 		FileOpener:        aiChatObjectStreamer,
 		ToolRuntime:       aiToolService,
-		KnowledgeRuntime:  knowledgeRuntimeAdapter{service: aiKnowledgeService},
+		ContextRuntime:    contextRuntime,
 		RunRecorder:       aiRunRecorder,
 		TextGeneration:    aiTextService,
 		PricingResolver:   aiOfficialModelResolver,
@@ -456,28 +468,6 @@ func validateBuildInput(input BuildInput) error {
 		return errors.New("admin build provider set is required")
 	}
 	return nil
-}
-
-type knowledgeRuntimeAdapter struct {
-	service *aiknowledge.Service
-}
-
-func (adapter knowledgeRuntimeAdapter) RetrieveForRun(ctx context.Context, input aichat.KnowledgeRuntimeInput) (*aichat.KnowledgeContextResult, *apperror.Error) {
-	if adapter.service == nil {
-		return nil, apperror.Internal("AI知识库服务未配置")
-	}
-	result, appErr := adapter.service.RetrieveForRun(ctx, aiknowledge.KnowledgeRuntimeInput{
-		RunID:          input.RunID,
-		AgentID:        input.AgentID,
-		ConversationID: input.ConversationID,
-		UserMessageID:  input.UserMessageID,
-		Query:          input.Query,
-		StartedAt:      input.StartedAt,
-	})
-	if appErr != nil || result == nil {
-		return nil, appErr
-	}
-	return &aichat.KnowledgeContextResult{RetrievalID: result.RetrievalID, Status: result.Status, Context: result.Context}, nil
 }
 
 func tokenAuthenticatorFor(authenticator *auth.SessionLifecycle) middleware.TokenAuthenticator {

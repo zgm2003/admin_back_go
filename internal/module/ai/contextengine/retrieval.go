@@ -347,25 +347,48 @@ func mergeCandidates(left, right VerifiedCandidate, separatorBound int64) (Verif
 	merged.Content += "\n\n" + right.Content
 	merged.ContentSHA256 = sha256.Sum256([]byte(merged.Content))
 	merged.TokenUpperBound += right.TokenUpperBound + separatorBound
+	mergedHash, err := documentChunkSourceSHA256(merged.ChunkIDs, merged.ChunkFactsSHA256)
+	if err != nil {
+		return VerifiedCandidate{}, err
+	}
+	merged.SourceSHA256 = mergedHash
+	merged.Branches.Branches = append(merged.Branches.Branches, right.Branches.Branches...)
+	return merged, nil
+}
+
+func documentChunkSourceSHA256(chunkIDs []uint64, chunkHashes [][sha256.Size]byte) ([sha256.Size]byte, error) {
+	if len(chunkIDs) == 0 || len(chunkIDs) != len(chunkHashes) {
+		return [sha256.Size]byte{}, ErrInvalidContextPlan
+	}
+	seen := make(map[uint64]struct{}, len(chunkIDs))
+	for index, id := range chunkIDs {
+		if id == 0 || isZeroSHA256(chunkHashes[index]) {
+			return [sha256.Size]byte{}, ErrInvalidContextPlan
+		}
+		if _, duplicate := seen[id]; duplicate {
+			return [sha256.Size]byte{}, ErrInvalidContextPlan
+		}
+		seen[id] = struct{}{}
+	}
+	if len(chunkIDs) == 1 {
+		return chunkHashes[0], nil
+	}
 	type mergedChunkHash struct {
 		ChunkID uint64 `json:"chunk_id"`
 		SHA256  string `json:"chunk_facts_sha256"`
 	}
-	hashInput := make([]mergedChunkHash, len(merged.ChunkIDs))
-	for i, id := range merged.ChunkIDs {
-		hashInput[i].ChunkID = id
-		hashInput[i].SHA256 = fmt.Sprintf("%x", merged.ChunkFactsSHA256[i])
+	hashInput := make([]mergedChunkHash, len(chunkIDs))
+	for index, id := range chunkIDs {
+		hashInput[index] = mergedChunkHash{ChunkID: id, SHA256: fmt.Sprintf("%x", chunkHashes[index])}
 	}
 	raw, err := json.Marshal(struct {
 		Schema string            `json:"schema"`
 		Chunks []mergedChunkHash `json:"chunks"`
 	}{Schema: "merged_document_chunks_v1", Chunks: hashInput})
 	if err != nil {
-		return VerifiedCandidate{}, err
+		return [sha256.Size]byte{}, err
 	}
-	merged.SourceSHA256 = sha256.Sum256(raw)
-	merged.Branches.Branches = append(merged.Branches.Branches, right.Branches.Branches...)
-	return merged, nil
+	return sha256.Sum256(raw), nil
 }
 
 func cloneVerifiedCandidates(input []VerifiedCandidate) []VerifiedCandidate {

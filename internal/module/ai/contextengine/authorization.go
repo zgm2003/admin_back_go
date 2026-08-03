@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"admin_back_go/internal/module/ai/replycommand"
 	airun "admin_back_go/internal/module/ai/run"
 	"admin_back_go/internal/shared/enum"
 
@@ -22,6 +21,21 @@ type AuthoritySource struct {
 	SourceRef    string
 	SourceSHA256 [sha256.Size]byte
 }
+
+type lockedReplyCommand struct {
+	ID                uint64     `gorm:"column:id"`
+	State             string     `gorm:"column:state"`
+	RequestID         string     `gorm:"column:request_id"`
+	UserID            int64      `gorm:"column:user_id"`
+	ConversationID    int64      `gorm:"column:conversation_id"`
+	UserMessageID     int64      `gorm:"column:user_message_id"`
+	LeaseOwner        *string    `gorm:"column:lease_owner"`
+	LeaseToken        uint64     `gorm:"column:lease_token"`
+	LeaseExpiresAt    *time.Time `gorm:"column:lease_expires_at"`
+	CancelRequestedAt *time.Time `gorm:"column:cancel_requested_at"`
+}
+
+func (lockedReplyCommand) TableName() string { return "ai_reply_commands" }
 
 type PlanAuthoritySnapshot struct {
 	InputFingerprintSHA256 [sha256.Size]byte
@@ -125,7 +139,7 @@ func (guard *authorizationGuard) GuardPlanCommitInTransaction(ctx context.Contex
 		}
 		return PlanCommitGuardResult{}, err
 	}
-	var command replycommand.Command
+	var command lockedReplyCommand
 	if err := tx.WithContext(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", token.ReplyCommandID).Take(&command).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return PlanCommitGuardResult{}, ErrPlanCommitAborted
@@ -153,9 +167,9 @@ func (guard *authorizationGuard) GuardPlanCommitInTransaction(ctx context.Contex
 	return PlanCommitGuardResult{}, nil
 }
 
-func validateLockedPlanAuthority(run airun.Run, command replycommand.Command, token PlanCommitToken, now time.Time) error {
+func validateLockedPlanAuthority(run airun.Run, command lockedReplyCommand, token PlanCommitToken, now time.Time) error {
 	if run.ID != int64(token.RunID) || command.ID != token.ReplyCommandID || run.Status != enum.AIRunStatusRunning ||
-		command.State != replycommand.StateRunning || command.CancelRequestedAt != nil || command.LeaseOwner == nil ||
+		command.State != "running" || command.CancelRequestedAt != nil || command.LeaseOwner == nil ||
 		*command.LeaseOwner != token.LeaseOwner || command.LeaseToken != token.LeaseToken || command.LeaseExpiresAt == nil ||
 		!command.LeaseExpiresAt.After(now) {
 		return ErrPlanCommitAborted

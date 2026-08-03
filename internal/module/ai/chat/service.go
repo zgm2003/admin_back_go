@@ -38,6 +38,7 @@ var (
 	ErrProviderAttemptInvalid             = errors.New("provider attempt identity is invalid")
 	ErrPaidFinalizationRetry              = errors.New("paid AI finalization must be retried")
 	ErrToolRuntimeNotConfigured           = errors.New("AI tool runtime is not configured")
+	ErrContextRuntimeNotConfigured        = errors.New("AI context runtime is not configured")
 	ErrOfficialModelResolverNotConfigured = errors.New("official model resolver is not configured")
 )
 
@@ -52,7 +53,7 @@ type Dependencies struct {
 	FileOpener          infraai.PreparedFileOpener
 	Secretbox           secretbox.Box
 	ToolRuntime         ToolRuntime
-	KnowledgeRuntime    KnowledgeRuntime
+	ContextRuntime      ContextRuntime
 	RunRecorder         RunRecorder
 	TextGeneration      TextGeneration
 	PricingResolver     officialmodel.Resolver
@@ -72,7 +73,7 @@ type Service struct {
 	fileOpener          infraai.PreparedFileOpener
 	secretbox           secretbox.Box
 	toolRuntime         ToolRuntime
-	knowledgeRuntime    KnowledgeRuntime
+	contextRuntime      ContextRuntime
 	runRecorder         RunRecorder
 	textGeneration      TextGeneration
 	pricingResolver     officialmodel.Resolver
@@ -94,7 +95,7 @@ func NewService(deps Dependencies) *Service {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Service{repository: deps.Repository, assistantPublisher: deps.AssistantPublisher, deliveryCommitter: deps.DeliveryCommitter, attemptRecorder: deps.AttemptRecorder, paidAttemptExecutor: deps.PaidAttemptExecutor, publisher: deps.Publisher, engineFactory: deps.EngineFactory, fileOpener: deps.FileOpener, secretbox: deps.Secretbox, toolRuntime: deps.ToolRuntime, knowledgeRuntime: deps.KnowledgeRuntime, runRecorder: deps.RunRecorder, textGeneration: deps.TextGeneration, pricingResolver: deps.PricingResolver, runStaleTimeout: runStaleTimeout, now: now, logger: logger}
+	return &Service{repository: deps.Repository, assistantPublisher: deps.AssistantPublisher, deliveryCommitter: deps.DeliveryCommitter, attemptRecorder: deps.AttemptRecorder, paidAttemptExecutor: deps.PaidAttemptExecutor, publisher: deps.Publisher, engineFactory: deps.EngineFactory, fileOpener: deps.FileOpener, secretbox: deps.Secretbox, toolRuntime: deps.ToolRuntime, contextRuntime: deps.ContextRuntime, runRecorder: deps.RunRecorder, textGeneration: deps.TextGeneration, pricingResolver: deps.PricingResolver, runStaleTimeout: runStaleTimeout, now: now, logger: logger}
 }
 
 func NewRuntimeService(deps Dependencies) (*Service, error) {
@@ -106,6 +107,9 @@ func NewRuntimeService(deps Dependencies) (*Service, error) {
 	}
 	if deps.DeliveryCommitter == nil {
 		return nil, ErrDeliveryCommitterNotConfigured
+	}
+	if deps.ContextRuntime == nil {
+		return nil, ErrContextRuntimeNotConfigured
 	}
 	return NewService(deps), nil
 }
@@ -235,38 +239,72 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 			return nil, err
 		}
 	}
-	finishRun := func(status string, msg string, cause error) {
+	finishRun := func(status string, msg string, cause error) error {
 		if paidReply {
-			return
+			return nil
 		}
 		finishedAt := s.now()
 		finishInput := airun.FailInput{RunID: runID, Message: msg, FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)}
 		switch status {
 		case enum.AIRunStatusCanceled:
-			_ = s.runRecorder.Cancel(context.Background(), airun.CancelInput(finishInput))
+			return s.runRecorder.Cancel(context.Background(), airun.CancelInput(finishInput))
 		case enum.AIRunStatusTimeout:
-			_ = s.runRecorder.Timeout(context.Background(), airun.TimeoutInput(finishInput))
+			return s.runRecorder.Timeout(context.Background(), airun.TimeoutInput(finishInput))
 		default:
-			_ = s.runRecorder.Fail(context.Background(), finishInput)
-		}
-	}
-	if s.knowledgeRuntime != nil {
-		knowledge, knowledgeErr := s.knowledgeRuntime.RetrieveForRun(ctx, KnowledgeRuntimeInput{
-			RunID:          uint64(runID),
-			AgentID:        uint64(input.AgentID),
-			ConversationID: input.ConversationID,
-			UserMessageID:  input.UserMessageID,
-			Query:          userContent,
-			StartedAt:      startedAt,
-		})
-		if knowledgeErr == nil && knowledge != nil && strings.TrimSpace(knowledge.Context) != "" {
-			userContent = strings.TrimSpace(knowledge.Context) + "\n\n用户问题：\n" + userContent
+			return s.runRecorder.Fail(context.Background(), finishInput)
 		}
 	}
 	messages, messageErr := chatMessages(*agent, selectedContext, input.UserMessageID, userContent)
 	if messageErr != nil {
-		finishRun(enum.AIRunStatusFailed, messageErr.Error(), messageErr)
+		if finishErr := finishRun(enum.AIRunStatusFailed, messageErr.Error(), messageErr); finishErr != nil {
+			return nil, errors.Join(messageErr, finishErr)
+		}
 		return nil, messageErr
+	}
+	runtimeTools, appErr := s.runtimeTools(ctx, uint64(input.AgentID))
+	if appErr != nil {
+		if paidReply {
+			preDispatchRunID = 0
+			return s.finalizePaidFailure(context.WithoutCancel(ctx), runID, input, true)
+		}
+		if finishErr := finishRun(enum.AIRunStatusFailed, appErr.Message, appErr); finishErr != nil {
+			return nil, errors.Join(appErr, finishErr)
+		}
+		return nil, appErr
+	}
+	contextResult, contextErr := s.contextRuntime.BuildPlan(ctx, ContextRuntimeInput{
+		RunID: uint64(runID), ReplyCommandID: input.CommandID, LeaseOwner: input.LeaseOwner, LeaseToken: input.LeaseToken,
+		CurrentMessageID: uint64(input.UserMessageID), AgentID: uint64(input.AgentID), UserID: uint64(input.UserID),
+		ConversationID: uint64(input.ConversationID), ProviderID: agent.ProviderID, ModelID: agent.ModelID, APIProtocol: agent.APIProtocol,
+		Messages: messages, Tools: toolDefinitions(runtimeTools), Temperature: chatTemperature(history, input.UserMessageID),
+	})
+	if contextErr != nil {
+		if paidReply {
+			preDispatchRunID = 0
+			result, finalizationErr := s.finalizePaidFailure(context.WithoutCancel(ctx), runID, input, true)
+			if finalizationErr != nil {
+				return nil, errors.Join(contextErr, finalizationErr)
+			}
+			return result, nil
+		}
+		if finishErr := finishRun(statusFromError(ctx, contextErr), contextErr.Error(), contextErr); finishErr != nil {
+			return nil, errors.Join(contextErr, finishErr)
+		}
+		return nil, contextErr
+	}
+	if err := validateContextRuntimeResult(runID, contextResult); err != nil {
+		if paidReply {
+			preDispatchRunID = 0
+			result, finalizationErr := s.finalizePaidFailure(context.WithoutCancel(ctx), runID, input, true)
+			if finalizationErr != nil {
+				return nil, errors.Join(err, finalizationErr)
+			}
+			return result, nil
+		}
+		if finishErr := finishRun(enum.AIRunStatusFailed, err.Error(), err); finishErr != nil {
+			return nil, errors.Join(err, finishErr)
+		}
+		return nil, err
 	}
 	delivery := newDeliverySink(deliverySinkOptions{
 		DeliveryContext: input.DeliveryContext,
@@ -291,14 +329,29 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		}
 	}()
 	sink := infraai.EventSink(delivery)
-	chatInput := infraai.ChatInput{
-		AgentID:     uint64(input.AgentID),
-		RunID:       uint64(runID),
-		UserID:      uint64(input.UserID),
-		UserKey:     userKey(input.UserID),
-		ModelID:     agent.ModelID,
-		Messages:    messages,
-		Temperature: chatTemperature(history, input.UserMessageID),
+	chatInput := infraai.ChatInput{AgentID: uint64(input.AgentID), RunID: uint64(runID), UserID: uint64(input.UserID), UserKey: userKey(input.UserID), ModelID: agent.ModelID, Messages: messages, Temperature: chatTemperature(history, input.UserMessageID), Tools: toolDefinitions(runtimeTools)}
+	chatInput = contextResult.ChatInput
+	chatInput.AgentID = uint64(input.AgentID)
+	chatInput.RunID = uint64(runID)
+	chatInput.UserID = uint64(input.UserID)
+	chatInput.UserKey = userKey(input.UserID)
+	chatInput.ModelID = agent.ModelID
+	chatInput.Temperature = chatTemperature(history, input.UserMessageID)
+	chatInput.Tools = toolDefinitions(runtimeTools)
+	contextEvidence := &contextResult.Evidence
+	if err := chatInput.Validate(); err != nil {
+		if paidReply {
+			preDispatchRunID = 0
+			result, finalizationErr := s.finalizePaidFailure(context.WithoutCancel(ctx), runID, input, true)
+			if finalizationErr != nil {
+				return nil, errors.Join(err, finalizationErr)
+			}
+			return result, nil
+		}
+		if finishErr := finishRun(enum.AIRunStatusFailed, err.Error(), err); finishErr != nil {
+			return nil, errors.Join(err, finishErr)
+		}
+		return nil, err
 	}
 	if paidReply && s.paidAttemptExecutor != nil {
 		identity, identityErr := paidReplyRequestIdentity(acceptedRun, input, userMessage)
@@ -312,18 +365,8 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		}
 		input.RequestIdentity = identity
 	}
-	runtimeTools, appErr := s.runtimeTools(ctx, uint64(input.AgentID))
-	if appErr != nil {
-		if paidReply {
-			preDispatchRunID = 0
-			return s.finalizePaidFailure(context.WithoutCancel(ctx), runID, input, true)
-		}
-		finishRun(enum.AIRunStatusFailed, appErr.Message, appErr)
-		return nil, appErr
-	}
-	chatInput.Tools = toolDefinitions(runtimeTools)
 	preDispatchRunID = 0
-	paidResult, err := s.streamChatWithAttempt(ctx, runID, input, engine, chatInput, sink)
+	paidResult, err := s.streamChatWithAttempt(ctx, runID, input, contextEvidence, engine, chatInput, sink)
 	if flushErr := delivery.Flush(context.WithoutCancel(ctx)); flushErr != nil {
 		if err != nil {
 			err = errors.Join(err, flushErr)
@@ -336,7 +379,9 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	}
 	if err != nil {
 		msg := err.Error()
-		finishRun(statusFromError(ctx, err), msg, err)
+		if finishErr := finishRun(statusFromError(ctx, err), msg, err); finishErr != nil {
+			return nil, errors.Join(err, finishErr)
+		}
 		return nil, err
 	}
 	result := paidResult.ChatResult
@@ -349,7 +394,9 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 				return s.finalizePaidFailure(context.WithoutCancel(ctx), runID, input, false)
 			}
 			msg := appErr.Message
-			finishRun(enum.AIRunStatusFailed, msg, appErr)
+			if finishErr := finishRun(enum.AIRunStatusFailed, msg, appErr); finishErr != nil {
+				return nil, errors.Join(appErr, finishErr)
+			}
 			return nil, appErr
 		}
 		firstUsage := resultTokens(result)
@@ -360,7 +407,9 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 				return s.finalizePaidFailure(context.WithoutCancel(ctx), runID, input, false)
 			}
 			msg := toolErr.Error()
-			finishRun(enum.AIRunStatusFailed, msg, toolErr)
+			if finishErr := finishRun(enum.AIRunStatusFailed, msg, toolErr); finishErr != nil {
+				return nil, errors.Join(toolErr, finishErr)
+			}
 			return nil, toolErr
 		}
 		if input.CommandID > 0 && deliveryStopped(input.DeliveryContext) {
@@ -369,7 +418,7 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		chatInput.ToolCalls = toolCalls
 		chatInput.ToolOutputs = outputs
 		chatInput.Continuation = cloneChatContinuation(result.Continuation)
-		paidResult, err = s.streamChatWithAttempt(ctx, runID, input, engine, chatInput, sink)
+		paidResult, err = s.streamChatWithAttempt(ctx, runID, input, contextEvidence, engine, chatInput, sink)
 		if flushErr := delivery.Flush(context.WithoutCancel(ctx)); flushErr != nil {
 			if err != nil {
 				err = errors.Join(err, flushErr)
@@ -382,7 +431,9 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		}
 		if err != nil {
 			msg := err.Error()
-			finishRun(statusFromError(ctx, err), msg, err)
+			if finishErr := finishRun(statusFromError(ctx, err), msg, err); finishErr != nil {
+				return nil, errors.Join(err, finishErr)
+			}
 			return nil, err
 		}
 		result = paidResult.ChatResult
@@ -394,7 +445,9 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 				return s.finalizePaidFailure(context.WithoutCancel(ctx), runID, input, false)
 			}
 			msg := appErr.Message
-			finishRun(enum.AIRunStatusFailed, msg, appErr)
+			if finishErr := finishRun(enum.AIRunStatusFailed, msg, appErr); finishErr != nil {
+				return nil, errors.Join(appErr, finishErr)
+			}
 			return nil, appErr
 		}
 		addTokenUsage(result, firstUsage)
@@ -404,7 +457,9 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 			if paidReply {
 				return s.finalizePaidFailure(context.WithoutCancel(ctx), runID, input, false)
 			}
-			finishRun(enum.AIRunStatusFailed, msg, appErr)
+			if finishErr := finishRun(enum.AIRunStatusFailed, msg, appErr); finishErr != nil {
+				return nil, errors.Join(appErr, finishErr)
+			}
 			return nil, appErr
 		}
 	}
@@ -427,7 +482,9 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 			return s.finalizePaidFailure(context.WithoutCancel(ctx), runID, input, false)
 		}
 		msg := appErr.Message
-		finishRun(enum.AIRunStatusFailed, msg, appErr)
+		if finishErr := finishRun(enum.AIRunStatusFailed, msg, appErr); finishErr != nil {
+			return nil, errors.Join(appErr, finishErr)
+		}
 		return nil, appErr
 	}
 	if input.CommandID > 0 && deliveryStopped(input.DeliveryContext) {
@@ -438,7 +495,9 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		if paidReply {
 			return s.finalizePaidFailure(context.WithoutCancel(ctx), runID, input, false)
 		}
-		finishRun(enum.AIRunStatusFailed, msg, ErrAssistantPublisherNotConfigured)
+		if finishErr := finishRun(enum.AIRunStatusFailed, msg, ErrAssistantPublisherNotConfigured); finishErr != nil {
+			return nil, errors.Join(ErrAssistantPublisherNotConfigured, finishErr)
+		}
 		return nil, ErrAssistantPublisherNotConfigured
 	}
 	assistantID, published, err := s.assistantPublisher.PublishAssistant(ctx, AssistantPublication{CommandID: input.CommandID, ConversationID: input.ConversationID, Owner: input.LeaseOwner, Token: input.LeaseToken, Content: answer, Now: s.now()})
@@ -447,7 +506,9 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		if paidReply {
 			return s.finalizePaidFailure(context.WithoutCancel(ctx), runID, input, false)
 		}
-		finishRun(enum.AIRunStatusFailed, msg, err)
+		if finishErr := finishRun(enum.AIRunStatusFailed, msg, err); finishErr != nil {
+			return nil, errors.Join(err, finishErr)
+		}
 		return nil, err
 	}
 	if !published || assistantID <= 0 {
@@ -455,7 +516,9 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 		if paidReply {
 			return s.finalizePaidFailure(context.WithoutCancel(ctx), runID, input, false)
 		}
-		finishRun(enum.AIRunStatusCanceled, msg, ErrAssistantPublicationRejected)
+		if finishErr := finishRun(enum.AIRunStatusCanceled, msg, ErrAssistantPublicationRejected); finishErr != nil {
+			return nil, errors.Join(ErrAssistantPublicationRejected, finishErr)
+		}
 		return nil, ErrAssistantPublicationRejected
 	}
 	finishedAt := s.now()
@@ -463,8 +526,7 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	tokens := resultTokens(result)
 	if !paidReply {
 		if err := s.runRecorder.Complete(context.Background(), airun.CompleteInput{RunID: runID, AssistantMessageID: &assistantMessageID, PromptTokens: tokens.Prompt, CompletionTokens: tokens.Completion, TotalTokens: tokens.Total, FinishedAt: finishedAt, DurationMS: durationMS(startedAt, finishedAt)}); err != nil {
-			s.logger.WarnContext(context.WithoutCancel(ctx), "AI run completion recording failed after durable reply commit",
-				"command_id", input.CommandID, "run_id", runID, "assistant_message_id", assistantID, "error", err)
+			return nil, err
 		}
 	}
 	return &ConversationReplyResult{ConversationID: input.ConversationID, AssistantMessageID: assistantID}, nil
@@ -547,7 +609,7 @@ func (s *Service) executePreparedPaidAttemptRecovery(
 			replyErr = closeErr
 		}
 	}()
-	paidResult, err := s.streamChatWithAttempt(ctx, run.ID, input, engine, infraai.ChatInput{
+	paidResult, err := s.streamChatWithAttempt(ctx, run.ID, input, nil, engine, infraai.ChatInput{
 		AgentID: uint64(run.AgentID), RunID: uint64(run.ID), UserID: uint64(run.UserID), UserKey: userKey(run.UserID),
 	}, infraai.EventSink(delivery))
 	if flushErr := delivery.Flush(context.WithoutCancel(ctx)); flushErr != nil {
@@ -752,7 +814,7 @@ func (s *Service) finalizePaidFailure(ctx context.Context, runID int64, input Co
 	return finalizedConversationReply(input, result), nil
 }
 
-func (s *Service) streamChatWithAttempt(ctx context.Context, runID int64, input ConversationReplyInput, engine infraai.Engine, chatInput infraai.ChatInput, sink infraai.EventSink) (*PaidChatAttemptResult, error) {
+func (s *Service) streamChatWithAttempt(ctx context.Context, runID int64, input ConversationReplyInput, contextPlan *aigateway.ContextPlanEvidence, engine infraai.Engine, chatInput infraai.ChatInput, sink infraai.EventSink) (*PaidChatAttemptResult, error) {
 	if input.CommandID == 0 {
 		result, err := engine.StreamChat(ctx, chatInput, sink)
 		return &PaidChatAttemptResult{ChatResult: result}, err
@@ -769,6 +831,7 @@ func (s *Service) streamChatWithAttempt(ctx context.Context, runID int64, input 
 			PrepareStartedAt:   input.PrepareStartedAt,
 			CommandAttempt:     input.CommandAttempt,
 			CommandMaxAttempts: input.CommandMaxAttempts,
+			ContextPlan:        contextPlan,
 			Engine:             engine,
 			ChatInput:          chatInput,
 			Sink:               sink,
@@ -870,6 +933,24 @@ func (s *Service) streamChatWithAttempt(ctx context.Context, runID int64, input 
 		return nil, infraai.NewProviderError(infraai.ProviderOutcomeUnknown, finish.ProviderRequestID, errors.Join(providerErr, finishErr))
 	}
 	return &PaidChatAttemptResult{ChatResult: result}, providerErr
+}
+
+func validateContextRuntimeResult(runID int64, result ContextRuntimeResult) error {
+	if runID <= 0 || result.ChatInput.RunID != uint64(runID) {
+		return ErrProviderAttemptInvalid
+	}
+	if err := result.Evidence.Validate(); err != nil {
+		return fmt.Errorf("%w: %v", ErrProviderAttemptInvalid, err)
+	}
+	if len(result.ChatInput.Messages) == 0 {
+		return ErrProviderAttemptInvalid
+	}
+	for _, message := range result.ChatInput.Messages {
+		if err := message.Validate(); err != nil {
+			return fmt.Errorf("%w: %v", ErrProviderAttemptInvalid, err)
+		}
+	}
+	return nil
 }
 
 // FinalizeConversationReply is the runner's pre-dispatch cancellation hook.

@@ -48,6 +48,17 @@ func TestNewRuntimeServiceRejectsMissingDeliveryCommitter(t *testing.T) {
 	}
 }
 
+func TestNewRuntimeServiceRejectsMissingContextRuntime(t *testing.T) {
+	service, err := NewRuntimeService(Dependencies{
+		ToolRuntime:       &fakeToolRuntime{},
+		PricingResolver:   testCurrentPricingResolver(),
+		DeliveryCommitter: &fakeDeliveryCommitter{},
+	})
+	if service != nil || !errors.Is(err, ErrContextRuntimeNotConfigured) {
+		t.Fatalf("service=%#v err=%v", service, err)
+	}
+}
+
 func TestTextCompletionPricingSnapshotUsesInjectedResolver(t *testing.T) {
 	resolverCalls := 0
 	service := newTestChatService(Dependencies{PricingResolver: officialmodel.ResolverFunc(func(_ context.Context, modelID string) (officialmodel.ResolvedModel, error) {
@@ -99,7 +110,18 @@ func newTestChatService(deps Dependencies) *Service {
 	if deps.DeliveryCommitter == nil {
 		deps.DeliveryCommitter = &fakeDeliveryCommitter{}
 	}
+	if deps.ContextRuntime == nil {
+		deps.ContextRuntime = contextRuntimeFunc(func(_ context.Context, input ContextRuntimeInput) (ContextRuntimeResult, error) {
+			return ContextRuntimeResult{Evidence: aigateway.ContextPlanEvidence{ID: 1, SHA256: sha256.Sum256([]byte("test-plan"))}, ChatInput: infraai.ChatInput{RunID: input.RunID, Messages: input.Messages}}, nil
+		})
+	}
 	return NewService(deps)
+}
+
+type contextRuntimeFunc func(context.Context, ContextRuntimeInput) (ContextRuntimeResult, error)
+
+func (build contextRuntimeFunc) BuildPlan(ctx context.Context, input ContextRuntimeInput) (ContextRuntimeResult, error) {
+	return build(ctx, input)
 }
 
 type fakeRepository struct {
@@ -151,6 +173,7 @@ func (f *fakeDurableTextService) SubmitAndWait(_ context.Context, input aitext.A
 type fakeRunRecorder struct {
 	nextID      int64
 	completeErr error
+	failErr     error
 	started     airun.StartInput
 	completed   airun.CompleteInput
 	failed      airun.FailInput
@@ -173,7 +196,7 @@ func (f *fakeRunRecorder) Complete(ctx context.Context, input airun.CompleteInpu
 
 func (f *fakeRunRecorder) Fail(ctx context.Context, input airun.FailInput) error {
 	f.failed = input
-	return nil
+	return f.failErr
 }
 
 func (f *fakeRunRecorder) Cancel(ctx context.Context, input airun.CancelInput) error {
@@ -365,7 +388,7 @@ func TestStreamChatWithAttemptReturnsPaidFinalization(t *testing.T) {
 		AssistantMessageID: 22,
 	}}}
 
-	result, err := service.streamChatWithAttempt(t.Context(), 100, ConversationReplyInput{CommandID: 41}, nil, infraai.ChatInput{}, nil)
+	result, err := service.streamChatWithAttempt(t.Context(), 100, ConversationReplyInput{CommandID: 41}, nil, nil, infraai.ChatInput{}, nil)
 	if err != nil {
 		t.Fatalf("stream paid chat: %v", err)
 	}
@@ -976,7 +999,7 @@ func TestStreamChatWithAttemptMapsProviderErrorsToStrictTerminalEvidence(t *test
 
 			_, err := service.streamChatWithAttempt(ctx, 100, ConversationReplyInput{
 				CommandID: 41, LeaseOwner: "worker-a", LeaseToken: 7,
-			}, &fakeEngine{err: tc.providerErr}, infraai.ChatInput{}, nil)
+			}, nil, &fakeEngine{err: tc.providerErr}, infraai.ChatInput{}, nil)
 
 			if !errors.Is(err, tc.providerErr) {
 				t.Fatalf("err=%v, want provider error %v", err, tc.providerErr)
@@ -1408,9 +1431,13 @@ type fakeToolRuntime struct {
 	executeInput []ToolExecuteInput
 	executeErr   error
 	executeReply map[string]any
+	events       *[]string
 }
 
 func (f *fakeToolRuntime) ListRuntimeTools(ctx context.Context, agentID uint64) ([]RuntimeTool, *apperror.Error) {
+	if f.events != nil {
+		*f.events = append(*f.events, "tools")
+	}
 	return f.runtimeTools, nil
 }
 
@@ -1427,68 +1454,81 @@ func (f *fakeToolRuntime) Execute(ctx context.Context, input ToolExecuteInput) (
 	return &ToolExecuteResult{CallID: input.CallID, Name: input.Tool.Code, Output: raw}, nil
 }
 
-type fakeKnowledgeRuntime struct {
-	input  KnowledgeRuntimeInput
-	result *KnowledgeContextResult
-	err    *apperror.Error
+type fakeContextRuntime struct {
+	input  ContextRuntimeInput
+	result ContextRuntimeResult
+	err    error
+	events *[]string
 }
 
-func (f *fakeKnowledgeRuntime) RetrieveForRun(ctx context.Context, input KnowledgeRuntimeInput) (*KnowledgeContextResult, *apperror.Error) {
-	f.input = input
-	if f.err != nil {
-		return nil, f.err
+func (f *fakeContextRuntime) BuildPlan(ctx context.Context, input ContextRuntimeInput) (ContextRuntimeResult, error) {
+	if f.events != nil {
+		*f.events = append(*f.events, "plan")
 	}
-	return f.result, nil
+	f.input = input
+	return f.result, f.err
 }
 
-func TestExecuteConversationReplyInjectsKnowledgeContext(t *testing.T) {
+func TestExecuteConversationReplyBuildsContextAfterToolsWithoutMutatingUserText(t *testing.T) {
 	agent, box := validAgentConfig(t)
 	engine := &captureEngine{}
+	events := []string{}
 	repo := &fakeRepository{
 		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5, IsDel: enum.CommonNo},
 		agent:        agent,
 		history:      []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, Content: "这个项目后端架构是什么？"}},
 	}
-	knowledge := &fakeKnowledgeRuntime{result: &KnowledgeContextResult{RetrievalID: 88, Context: "[K1] 知识库：架构库；文档：Go 后端架构\nGin modular monolith"}}
-	_, err := newTestChatService(Dependencies{Repository: repo, AssistantPublisher: repo, Publisher: &fakePublisher{}, RunRecorder: &fakeRunRecorder{nextID: 100}, EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box, KnowledgeRuntime: knowledge}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
+	contextRuntime := &fakeContextRuntime{events: &events, result: readyContextResult(100, "这个项目后端架构是什么？", "Gin modular monolith")}
+	toolRuntime := &fakeToolRuntime{events: &events}
+	_, err := newTestChatService(Dependencies{Repository: repo, AssistantPublisher: repo, Publisher: &fakePublisher{}, RunRecorder: &fakeRunRecorder{nextID: 100}, EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box, ToolRuntime: toolRuntime, ContextRuntime: contextRuntime}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
 	if err != nil {
 		t.Fatalf("ExecuteConversationReply returned error: %v", err)
 	}
-	if knowledge.input.RunID != 100 || knowledge.input.AgentID != 5 || knowledge.input.ConversationID != 3 || knowledge.input.UserMessageID != 9 || knowledge.input.Query != "这个项目后端架构是什么？" {
-		t.Fatalf("knowledge runtime input mismatch: %#v", knowledge.input)
+	if !reflect.DeepEqual(events, []string{"tools", "plan"}) {
+		t.Fatalf("runtime order=%v", events)
+	}
+	if contextRuntime.input.RunID != 100 || contextRuntime.input.AgentID != 5 || contextRuntime.input.ConversationID != 3 || contextRuntime.input.CurrentMessageID != 9 {
+		t.Fatalf("context runtime input mismatch: %#v", contextRuntime.input)
 	}
 	if len(engine.input.Messages) == 0 {
-		t.Fatal("knowledge request has no typed messages")
+		t.Fatal("context request has no typed messages")
 	}
 	current := engine.input.Messages[len(engine.input.Messages)-1]
-	if current.Role != infraai.MessageRoleUser || len(current.Parts) == 0 ||
-		!strings.Contains(current.Parts[0].Text, "Gin modular monolith") || !strings.Contains(current.Parts[0].Text, "用户问题：\n这个项目后端架构是什么？") {
-		t.Fatalf("knowledge context not injected into model input: %#v", current)
+	if current.Role != infraai.MessageRoleUser || len(current.Parts) != 1 || current.Parts[0].Text != "这个项目后端架构是什么？" {
+		t.Fatalf("current user message changed: %#v", current)
 	}
-	if repo.history[0].Content != "这个项目后端架构是什么？" {
-		t.Fatalf("knowledge injection mutated persisted message: %#v", repo.history[0])
+	if len(engine.input.Messages) < 2 || engine.input.Messages[len(engine.input.Messages)-2].Role != infraai.MessageRoleSystem ||
+		!strings.Contains(engine.input.Messages[len(engine.input.Messages)-2].Parts[0].Text, "[UNTRUSTED_CONTEXT C1]") {
+		t.Fatalf("document evidence is not an isolated system envelope: %#v", engine.input.Messages)
 	}
 }
 
-func TestExecuteConversationReplyContinuesWhenKnowledgeRetrievalFails(t *testing.T) {
+func TestExecuteConversationReplyFailsRunWhenContextBuildFails(t *testing.T) {
 	agent, box := validAgentConfig(t)
 	engine := &captureEngine{}
+	recorder := &fakeRunRecorder{nextID: 100}
 	repo := &fakeRepository{
 		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5, IsDel: enum.CommonNo},
 		agent:        agent,
 		history:      []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, Content: "hi"}},
 	}
-	knowledge := &fakeKnowledgeRuntime{err: apperror.Internal("知识库检索失败")}
-	res, err := newTestChatService(Dependencies{Repository: repo, AssistantPublisher: repo, Publisher: &fakePublisher{}, RunRecorder: &fakeRunRecorder{nextID: 100}, EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box, KnowledgeRuntime: knowledge}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
-	if err != nil {
-		t.Fatalf("knowledge failure must not block chat: %v", err)
+	contextErr := errors.New("embedding unavailable")
+	res, err := newTestChatService(Dependencies{Repository: repo, AssistantPublisher: repo, Publisher: &fakePublisher{}, RunRecorder: recorder, EngineFactory: &fakeEngineFactory{engine: engine}, Secretbox: box, ToolRuntime: &fakeToolRuntime{}, ContextRuntime: &fakeContextRuntime{err: contextErr}}).ExecuteConversationReply(context.Background(), ConversationReplyInput{ConversationID: 3, UserID: 7, AgentID: 5, UserMessageID: 9, RequestID: "rid"})
+	if res != nil || !errors.Is(err, contextErr) {
+		t.Fatalf("result=%#v err=%v", res, err)
 	}
-	if len(engine.input.Messages) == 0 {
-		t.Fatal("fallback request has no typed messages")
+	if recorder.failed.RunID != 100 || len(engine.input.Messages) != 0 || repo.assistant.Content != "" {
+		t.Fatalf("context failure leaked past pre-dispatch: failed=%#v input=%#v assistant=%#v", recorder.failed, engine.input, repo.assistant)
 	}
-	current := engine.input.Messages[len(engine.input.Messages)-1]
-	if res.AssistantMessageID != 22 || current.Role != infraai.MessageRoleUser || len(current.Parts) != 1 || current.Parts[0].Text != "hi" {
-		t.Fatalf("chat should continue with original message: res=%#v input=%#v", res, current)
+}
+
+func readyContextResult(runID uint64, userText, evidenceText string) ContextRuntimeResult {
+	return ContextRuntimeResult{
+		Evidence: aigateway.ContextPlanEvidence{ID: 77, SHA256: sha256.Sum256([]byte("plan"))},
+		ChatInput: infraai.ChatInput{RunID: runID, Messages: []infraai.Message{
+			{Role: infraai.MessageRoleSystem, Parts: []infraai.ContentPart{{Kind: infraai.ContentPartText, Text: "[UNTRUSTED_CONTEXT C1]\ncontent:\n" + evidenceText + "\n[/UNTRUSTED_CONTEXT C1]"}}},
+			{Role: infraai.MessageRoleUser, Parts: []infraai.ContentPart{{Kind: infraai.ContentPartText, Text: userText}}},
+		}},
 	}
 }
 

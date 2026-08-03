@@ -316,6 +316,14 @@ func registerWorkerHandlers(
 	})
 	contextIndexCleanup := contextengine.NewIndexCleanupService(contextRepository, resources.Qdrant, cfg.Qdrant.CollectionPrefix, nil)
 	contextEnqueuer := contextengine.NewDocumentVersionEnqueuer(queueClient, contextRepository)
+	contextRuntime := contextengine.BuildRuntime(contextengine.RuntimeDependencies{
+		Database: resources.DB, OfficialModels: aiOfficialModelResolver,
+		EmbeddingFactory: providers.AIEmbeddingFactory, RerankFactory: providers.AIRerankFactory,
+		Secretbox: providers.Secretbox, Index: resources.Qdrant, CollectionPrefix: cfg.Qdrant.CollectionPrefix, Platform: "admin",
+	})
+	if contextRuntime == nil {
+		return nil, nil, nil, nil, nil, errors.New("worker context runtime dependencies are incomplete")
+	}
 	aiTextTasks := aitext.NewGormStore(resources.DB)
 	aiToolRepository := aitool.NewGormRepository(resources.DB)
 	aiToolRuntime := aitool.NewService(aiToolRepository, aitool.DefaultExecutors(aiToolRepository))
@@ -344,6 +352,7 @@ func registerWorkerHandlers(
 		EngineFactory:       providers.AIChatFactory,
 		FileOpener:          aiChatObjectStreamer,
 		ToolRuntime:         aiToolRuntime,
+		ContextRuntime:      contextRuntime,
 		RunRecorder:         aiRunRecorder,
 		TextGeneration:      aiTextService,
 		PricingResolver:     aiOfficialModelResolver,
