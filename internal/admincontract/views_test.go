@@ -64,6 +64,7 @@ func TestViewsDescribeUsersMeAndCurrentAdminViewKeys(t *testing.T) {
 		t.Fatalf("view keys are not sorted")
 	}
 	for _, required := range []string{
+		"ai/context",
 		"ai/chat",
 		"component/display",
 		"component/download",

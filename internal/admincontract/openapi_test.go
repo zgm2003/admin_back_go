@@ -326,11 +326,12 @@ func TestWorkflowSchemasCloseBusinessFieldsAndDeclareNullability(t *testing.T) {
 		t.Fatal("AIMessageRevisionRequest.attachments must remain optional so omission preserves existing attachments")
 	}
 	assertNullableProperty(t, document.Components.Schemas["AIRunUserFeedbackResult"], "liked_at")
-	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIRunDetail", "id", "user_message", "assistant_message", "events", "knowledge_retrievals", "tool_calls")
+	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIRunDetail", "id", "user_message", "assistant_message", "events", "context_plan", "tool_calls")
 	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIRunDetail", "liked", "liked_at")
 	assertNullableProperty(t, document.Components.Schemas["AIRunDetail"], "liked_at")
 	assertNullableProperty(t, document.Components.Schemas["AIRunDetail"], "user_message")
 	assertNullableProperty(t, document.Components.Schemas["AIRunDetail"], "assistant_message")
+	assertNullableProperty(t, document.Components.Schemas["AIRunDetail"], "context_plan")
 	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIRunDetail", "billing_status", "billing_reason", "held_amount", "actual_amount", "pricing", "usage_items", "provider_attempts", "latency", "request_summary")
 	assertNullableProperty(t, document.Components.Schemas["AIRunDetail"], "pricing")
 	for _, name := range []string{"AIRunPricing", "AIRunPricingRate", "AIRunUsageItem", "AIRunProviderAttempt", "AIRunLatencyBreakdown", "AIRunRequestSummary"} {
@@ -412,7 +413,7 @@ func TestWorkflowSchemasCloseBusinessFieldsAndDeclareNullability(t *testing.T) {
 		t.Fatalf("AIRuntimeParams additionalProperties=%#v", runtimeParams["additionalProperties"])
 	}
 	properties := runtimeParams["properties"].(map[string]any)
-	if got := sortedMapKeys(properties); !reflect.DeepEqual(got, []string{"max_history", "temperature"}) {
+	if got := sortedMapKeys(properties); !reflect.DeepEqual(got, []string{"temperature"}) {
 		t.Fatalf("AIRuntimeParams properties=%v", got)
 	}
 	attachment := document.Components.Schemas["AIAttachmentRequest"]

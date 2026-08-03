@@ -28,7 +28,7 @@ func buildViewsDocument() ViewsDocument {
 	views := []View{
 		{Path: "/ai/agents", ViewKey: "ai/agents", I18nKey: "menu.ai_agents", ShowMenu: 1},
 		{Path: "/ai/chat", ViewKey: "ai/chat", I18nKey: "menu.ai_chat", ShowMenu: 1},
-		{Path: "/ai/knowledge", ViewKey: "ai/knowledge", I18nKey: "menu.ai_knowledge", ShowMenu: 1},
+		{Path: "/ai/context", ViewKey: "ai/context", I18nKey: "menu.ai_context", ShowMenu: 1, PermissionCodes: []string{"ai_context_document_manage", "ai_context_evaluate", "ai_context_manage", "ai_context_profile_manage", "ai_context_view"}},
 		{Path: "/ai/official-models", ViewKey: "ai/official-models", I18nKey: "menu.ai_official_models", ShowMenu: 1, PermissionCodes: []string{"ai_official_model_list"}},
 		{Path: "/ai/providers", ViewKey: "ai/providers", I18nKey: "menu.ai_providers", ShowMenu: 1},
 		{Path: "/ai/runs", ViewKey: "ai/runs", I18nKey: "menu.ai_runs", ShowMenu: 1, PermissionCodes: []string{"ai_run_list"}},

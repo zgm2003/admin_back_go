@@ -42,7 +42,6 @@ func aiWorkflowSchemas() map[string]any {
 
 		"AIRuntimeParams": closedObjectSchema(nil, map[string]any{
 			"temperature": schemaWith(numberSchema(), "minimum", 0, "maximum", 2),
-			"max_history": integerRangeSchema(1, 50),
 		}),
 		"AIAttachmentRequest": closedObjectAllProperties(map[string]any{
 			"type":       stringEnumSchema("image", "file"),
@@ -170,8 +169,13 @@ func aiWorkflowSchemas() map[string]any {
 		"AIRunMessageSummary":        aiRunMessageSummarySchema(),
 		"AIRunEvent":                 aiRunEventSchema(),
 		"AIRunToolCall":              aiRunToolCallSchema(),
-		"AIRunKnowledgeHit":          aiRunKnowledgeHitSchema(),
-		"AIRunKnowledgeRetrieval":    aiRunKnowledgeRetrievalSchema(),
+		"AIContextLocator":           aiContextLocatorSchema(),
+		"AIContextPlanProfile":       aiContextPlanProfileSchema(),
+		"AIContextPlanError":         aiContextPlanErrorSchema(),
+		"AIContextPlanBudget":        aiContextPlanBudgetSchema(),
+		"AIContextPlanMetrics":       aiContextPlanMetricsSchema(),
+		"AIContextPlanItem":          aiContextPlanItemSchema(),
+		"AIContextPlan":              aiContextPlanSchema(),
 		"AIRunPricingRate":           aiRunPricingRateSchema(),
 		"AIRunPricing":               aiRunPricingSchema(),
 		"AIRunUsageItem":             aiRunUsageItemSchema(),
@@ -306,39 +310,72 @@ func aiRunToolCallSchema() map[string]any {
 	})
 }
 
-func aiRunKnowledgeHitSchema() map[string]any {
-	return closedObjectAllProperties(map[string]any{
-		"id":                  positiveIntegerSchema(),
-		"knowledge_base_id":   positiveIntegerSchema(),
-		"knowledge_base_name": stringSchema(),
-		"document_id":         positiveIntegerSchema(),
-		"document_title":      stringSchema(),
-		"chunk_id":            positiveIntegerSchema(),
-		"chunk_index":         nonNegativeIntegerSchema(),
-		"score":               numberSchema(),
-		"rank_no":             nonNegativeIntegerSchema(),
-		"content_snapshot":    stringSchema(),
-		"status":              integerEnumSchema(1, 2),
-		"status_name":         stringSchema(),
-		"skip_reason":         stringSchema(),
-		"created_at":          stringSchema(),
+func aiContextLocatorSchema() map[string]any {
+	return closedObjectSchema([]string{"schema", "kind"}, map[string]any{
+		"schema": stringEnumSchema("context_locator_v1"), "kind": nonEmptyStringSchema(),
+		"page": nullableSchema(nonNegativeIntegerSchema()), "paragraph": nullableSchema(nonNegativeIntegerSchema()),
+		"line_start": nullableSchema(nonNegativeIntegerSchema()), "line_end": nullableSchema(nonNegativeIntegerSchema()),
+		"row_start": nullableSchema(nonNegativeIntegerSchema()), "row_end": nullableSchema(nonNegativeIntegerSchema()),
+		"sheet": nullableSchema(stringSchema()), "cell_start": nullableSchema(stringSchema()), "cell_end": nullableSchema(stringSchema()),
+		"heading_path": arraySchema(stringSchema()),
 	})
 }
 
-func aiRunKnowledgeRetrievalSchema() map[string]any {
+func aiContextPlanProfileSchema() map[string]any {
 	return closedObjectAllProperties(map[string]any{
-		"id":            positiveIntegerSchema(),
-		"run_id":        positiveIntegerSchema(),
-		"query":         stringSchema(),
-		"status":        stringEnumSchema("success", "failed", "skipped"),
-		"status_name":   stringSchema(),
-		"total_hits":    nonNegativeIntegerSchema(),
-		"selected_hits": nonNegativeIntegerSchema(),
-		"duration_ms":   nullableSchema(nonNegativeIntegerSchema()),
-		"duration_text": stringSchema(),
-		"error_message": stringSchema(),
-		"created_at":    stringSchema(),
-		"hits":          arraySchema(schemaReference("AIRunKnowledgeHit")),
+		"id": positiveIntegerSchema(), "index_generation": nullableSchema(positiveIntegerSchema()),
+	})
+}
+
+func aiContextPlanErrorSchema() map[string]any {
+	return closedObjectAllProperties(map[string]any{
+		"stage": nonEmptyStringSchema(), "code": nonEmptyStringSchema(), "message": nullableSchema(stringSchema()),
+	})
+}
+
+func aiContextPlanBudgetSchema() map[string]any {
+	return closedObjectAllProperties(map[string]any{
+		"context_window_tokens": positiveIntegerSchema(), "effective_output_tokens": positiveIntegerSchema(),
+		"provider_protocol_upper_bound": nonNegativeIntegerSchema(), "tool_continuation_input_reserve": nonNegativeIntegerSchema(),
+		"policy_safety_margin": nonNegativeIntegerSchema(), "known_input_budget": nonNegativeIntegerSchema(),
+		"known_input_upper_bound": nonNegativeIntegerSchema(), "proof": stringEnumSchema("exact", "conservative", "opaque_attachment"),
+	})
+}
+
+func aiContextPlanMetricsSchema() map[string]any {
+	return closedObjectSchema([]string{"schema"}, map[string]any{
+		"schema":           stringEnumSchema("context_plan_metrics_v1"),
+		"authorization_ms": nonNegativeIntegerSchema(), "conversation_ms": nonNegativeIntegerSchema(),
+		"query_embedding_ms": nonNegativeIntegerSchema(), "retrieval_ms": nonNegativeIntegerSchema(),
+		"rerank_ms": nonNegativeIntegerSchema(), "packing_ms": nonNegativeIntegerSchema(),
+		"candidate_count": nonNegativeIntegerSchema(), "query_embedding_request_count": nonNegativeIntegerSchema(),
+		"rerank_request_count": nonNegativeIntegerSchema(), "query_input_tokens": nullableSchema(nonNegativeIntegerSchema()),
+		"rerank_input_tokens": nullableSchema(nonNegativeIntegerSchema()),
+	})
+}
+
+func aiContextPlanItemSchema() map[string]any {
+	return closedObjectAllProperties(map[string]any{
+		"ordinal":     nonNegativeIntegerSchema(),
+		"kind":        stringEnumSchema("system_instruction", "current_user_message", "current_attachment", "recent_turn", "recalled_turn", "history_attachment", "conversation_memory", "document_evidence", "tool_definition", "tool_call", "tool_result"),
+		"source_type": stringSchema(), "source_ref": stringSchema(), "required": booleanSchema(), "priority": integerSchema(),
+		"token_upper_bound": nonNegativeIntegerSchema(), "decision": stringEnumSchema("selected", "excluded"),
+		"exclusion_reason": nullableSchema(stringEnumSchema("budget_exceeded", "duplicate_content", "below_relevance_threshold", "superseded_memory", "inactive_source", "permission_changed", "unsupported_attachment")),
+		"fusion_score":     nullableSchema(stringSchema()), "rerank_score": nullableSchema(stringSchema()), "citation_key": nullableSchema(stringSchema()),
+		"title": stringSchema(), "locator": nullableSchema(schemaReference("AIContextLocator")),
+		"document_id": nonNegativeIntegerSchema(), "document_version_id": nonNegativeIntegerSchema(),
+		"content_snapshot": stringSchema(), "content_truncated": booleanSchema(),
+	})
+}
+
+func aiContextPlanSchema() map[string]any {
+	return closedObjectAllProperties(map[string]any{
+		"id": positiveIntegerSchema(), "profile": nullableSchema(schemaReference("AIContextPlanProfile")),
+		"policy_version": nonEmptyStringSchema(), "api_protocol": stringEnumSchema("chat_completions", "responses"),
+		"token_counter_id": nonEmptyStringSchema(), "retrieval_outcome": stringEnumSchema("skipped", "no_hit", "hit", "failed"),
+		"state": stringEnumSchema("ready", "failed"), "error": nullableSchema(schemaReference("AIContextPlanError")),
+		"budget": schemaReference("AIContextPlanBudget"), "metrics": schemaReference("AIContextPlanMetrics"),
+		"items": arraySchema(schemaReference("AIContextPlanItem")),
 	})
 }
 
@@ -348,7 +385,7 @@ func aiRunDetailSchema() map[string]any {
 	properties["user_message"] = nullableSchema(schemaReference("AIRunMessageSummary"))
 	properties["assistant_message"] = nullableSchema(schemaReference("AIRunMessageSummary"))
 	properties["events"] = arraySchema(schemaReference("AIRunEvent"))
-	properties["knowledge_retrievals"] = arraySchema(schemaReference("AIRunKnowledgeRetrieval"))
+	properties["context_plan"] = nullableSchema(schemaReference("AIContextPlan"))
 	properties["tool_calls"] = arraySchema(schemaReference("AIRunToolCall"))
 	properties["billing_status"] = stringEnumSchema("pending", "held", "settled", "released", "unbilled")
 	properties["billing_reason"] = stringEnumSchema(
