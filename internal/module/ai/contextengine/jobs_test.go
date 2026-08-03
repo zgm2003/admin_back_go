@@ -14,6 +14,12 @@ func (queue *recordingTaskEnqueuer) Enqueue(_ context.Context, task taskqueue.Ta
 	return taskqueue.EnqueueResult{Type: task.Type}, nil
 }
 
+type fixedDocumentIndexFactsLoader struct{ facts DocumentIndexFacts }
+
+func (loader fixedDocumentIndexFactsLoader) LoadDocumentIndexFacts(context.Context, uint64) (DocumentIndexFacts, error) {
+	return loader.facts, nil
+}
+
 func TestDocumentIndexEnqueuerPersistsOnlyVersionIdentity(t *testing.T) {
 	queue := &recordingTaskEnqueuer{}
 	enqueuer := NewDocumentVersionEnqueuer(queue)
@@ -41,5 +47,21 @@ func TestDocumentIndexIdempotencyKeyIncludesImmutableMySQLFacts(t *testing.T) {
 	}
 	if first == second {
 		t.Fatal("profile change must change idempotency key")
+	}
+}
+
+func TestDocumentIndexProducerUsesMySQLFactsAsTaskIdentity(t *testing.T) {
+	facts := DocumentIndexFacts{VersionID: 42, ProfileID: 3, SourceFactsSHA256: [32]byte{1}, ParserVersion: "1", ChunkerVersion: ChunkerVersionV1}
+	want, err := DocumentIndexIdempotencyKey(facts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queue := &recordingTaskEnqueuer{}
+	enqueuer := NewDocumentVersionEnqueuer(queue, fixedDocumentIndexFactsLoader{facts: facts})
+	if err := enqueuer.EnqueueDocumentVersion(context.Background(), facts.VersionID); err != nil {
+		t.Fatal(err)
+	}
+	if len(queue.tasks) != 1 || queue.tasks[0].ID != want {
+		t.Fatalf("task identity=%q, want %q", queue.tasks[0].ID, want)
 	}
 }

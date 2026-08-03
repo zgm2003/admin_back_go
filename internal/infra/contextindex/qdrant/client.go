@@ -52,6 +52,7 @@ type qdrantAPI interface {
 	DeleteCollection(context.Context, string) error
 	CreateFieldIndex(context.Context, *qdrantapi.CreateFieldIndexCollection) (*qdrantapi.UpdateResult, error)
 	Upsert(context.Context, *qdrantapi.UpsertPoints) (*qdrantapi.UpdateResult, error)
+	Get(context.Context, *qdrantapi.GetPoints) ([]*qdrantapi.RetrievedPoint, error)
 	QueryBatch(context.Context, *qdrantapi.QueryBatchPoints) ([]*qdrantapi.BatchResult, error)
 	Close() error
 }
@@ -162,6 +163,63 @@ func (client *Client) Upsert(ctx context.Context, collection string, points []co
 		Wait:           &wait,
 	}); err != nil {
 		return fmt.Errorf("upsert Qdrant points in %q: %w", collection, err)
+	}
+	return nil
+}
+
+func (client *Client) VerifyPoints(ctx context.Context, collection string, expected []contextindex.PointRef, denseDimensions uint32) error {
+	if err := contextindex.ValidateCollectionName(collection); err != nil {
+		return err
+	}
+	if len(expected) == 0 || denseDimensions == 0 {
+		return errors.New("Qdrant point verification requires identities and dense dimensions")
+	}
+	want := make(map[uuid.UUID]contextindex.PointRef, len(expected))
+	ids := make([]*qdrantapi.PointId, len(expected))
+	for i, ref := range expected {
+		if err := ref.Validate(); err != nil {
+			return fmt.Errorf("expected point %d: %w", i, err)
+		}
+		if _, duplicate := want[ref.ID]; duplicate {
+			return fmt.Errorf("duplicate expected point ID %s", ref.ID)
+		}
+		want[ref.ID] = ref
+		ids[i] = qdrantapi.NewID(ref.ID.String())
+	}
+	points, err := client.api.Get(ctx, &qdrantapi.GetPoints{
+		CollectionName: collection,
+		Ids:            ids,
+		WithPayload:    pointPayloadSelector(),
+		WithVectors:    qdrantapi.NewWithVectorsInclude(denseVectorName),
+	})
+	if err != nil {
+		return fmt.Errorf("verify Qdrant points in %q: %w", collection, err)
+	}
+	if len(points) != len(want) {
+		return fmt.Errorf("Qdrant returned %d points, want %d", len(points), len(want))
+	}
+	seen := make(map[uuid.UUID]struct{}, len(points))
+	for i, point := range points {
+		if point == nil || point.GetId() == nil {
+			return fmt.Errorf("Qdrant point %d has no ID", i)
+		}
+		metadata, err := decodeMetadata(point.GetId().GetUuid(), point.GetPayload())
+		if err != nil {
+			return fmt.Errorf("decode Qdrant point %d: %w", i, err)
+		}
+		expectedRef, ok := want[metadata.Ref.ID]
+		if !ok || expectedRef != metadata.Ref {
+			return fmt.Errorf("Qdrant point %s identity or source hash differs", metadata.Ref.ID)
+		}
+		if _, duplicate := seen[metadata.Ref.ID]; duplicate {
+			return fmt.Errorf("Qdrant returned duplicate point %s", metadata.Ref.ID)
+		}
+		seen[metadata.Ref.ID] = struct{}{}
+		vectors := point.GetVectors().GetVectors().GetVectors()
+		dense := vectors[denseVectorName].GetDense()
+		if dense == nil || len(dense.GetData()) != int(denseDimensions) {
+			return fmt.Errorf("Qdrant point %s dense dimension differs", metadata.Ref.ID)
+		}
 	}
 	return nil
 }

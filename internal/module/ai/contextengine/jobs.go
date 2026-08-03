@@ -56,6 +56,6 @@ func (enqueuer *QueueDocumentVersionEnqueuer) EnqueueDocumentVersion(ctx context
 }
 
 type DocumentIndexJobService interface {
-	IndexDocument(context.Context, uint64) error
-	FinalizeDocumentIndex(context.Context, uint64, string) error
+	IndexDocument(context.Context, uint64) (DocumentIndexAttempt, error)
+	FinalizeDocumentIndex(context.Context, DocumentIndexAttempt, string, int) error
 }

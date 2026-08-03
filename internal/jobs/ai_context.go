@@ -20,6 +20,11 @@ const (
 
 type ContextDocumentIndexV1 = contextengine.ContextDocumentIndexV1
 
+type contextDocumentIndexInvocation struct {
+	payload contextengine.ContextDocumentIndexV1
+	attempt contextengine.DocumentIndexAttempt
+}
+
 func registerContextDocumentIndex(registry *taskqueue.Registry, service contextengine.DocumentIndexJobService) error {
 	return registry.Register(taskqueue.Definition{
 		Type: TaskContextDocumentIndexV1, Queue: taskqueue.QueueLow,
@@ -29,27 +34,29 @@ func registerContextDocumentIndex(registry *taskqueue.Registry, service contexte
 			if err := json.Unmarshal(data, &payload); err != nil || payload.DocumentVersionID == 0 {
 				return nil, taskqueue.PayloadError(TaskContextDocumentIndexV1, errors.New("document_version_id must be positive"))
 			}
-			return payload, nil
+			return &contextDocumentIndexInvocation{payload: payload}, nil
 		},
 		Handle: func(ctx context.Context, decoded any) *apperror.Error {
 			if service == nil {
 				return taskqueue.InvariantError(TaskContextDocumentIndexV1, errors.New("context document index service is required"))
 			}
-			payload, ok := decoded.(ContextDocumentIndexV1)
+			invocation, ok := decoded.(*contextDocumentIndexInvocation)
 			if !ok {
 				return taskqueue.InvariantError(TaskContextDocumentIndexV1, errors.New("unexpected payload type"))
 			}
-			return taskqueue.HandlerError(TaskContextDocumentIndexV1, service.IndexDocument(ctx, payload.DocumentVersionID))
+			var err error
+			invocation.attempt, err = service.IndexDocument(ctx, invocation.payload.DocumentVersionID)
+			return taskqueue.HandlerError(TaskContextDocumentIndexV1, err)
 		},
-		FinalizeExhausted: func(ctx context.Context, decoded any, _ *apperror.Error) *apperror.Error {
+		FinalizeExhausted: func(ctx context.Context, decoded any, _ *apperror.Error, delivery taskqueue.Attempt) *apperror.Error {
 			if service == nil {
 				return taskqueue.InvariantError(TaskContextDocumentIndexV1+".finalize", errors.New("context document index service is required"))
 			}
-			payload, ok := decoded.(ContextDocumentIndexV1)
+			invocation, ok := decoded.(*contextDocumentIndexInvocation)
 			if !ok {
 				return taskqueue.InvariantError(TaskContextDocumentIndexV1+".finalize", errors.New("unexpected payload type"))
 			}
-			if err := service.FinalizeDocumentIndex(ctx, payload.DocumentVersionID, "ai.context.index_retry_exhausted"); err != nil {
+			if err := service.FinalizeDocumentIndex(ctx, invocation.attempt, "ai.context.index_retry_exhausted", delivery.Limit); err != nil {
 				return apperror.Wrap("ai.context.index_finalize_failed", apperror.CategoryInternal, http.StatusInternalServerError,
 					apperror.Retryable, "", nil, "context index finalization failed", err)
 			}

@@ -11,7 +11,7 @@ func TestReconcileStableBatchRequeuesQueuedAndExpiredProcessing(t *testing.T) {
 	repository := newMemoryIngestionRepository(memoryVersion(3, DocumentVersionQueued), memoryVersion(1, DocumentVersionProcessing), memoryVersion(2, DocumentVersionReady))
 	repository.expireLease(1, now.Add(-time.Minute), 1)
 	queue := &recordingTaskEnqueuer{}
-	reconciler := NewDocumentIndexReconciler(repository, NewDocumentVersionEnqueuer(queue), 10, 3)
+	reconciler := NewDocumentIndexReconciler(repository, NewDocumentVersionEnqueuer(queue), 10, 4)
 	if err := reconciler.Reconcile(context.Background(), now); err != nil {
 		t.Fatal(err)
 	}
@@ -23,9 +23,9 @@ func TestReconcileStableBatchRequeuesQueuedAndExpiredProcessing(t *testing.T) {
 func TestReconcileFinalizesExhaustedLeaseWithoutExternalWork(t *testing.T) {
 	now := time.Now().UTC()
 	repository := newMemoryIngestionRepository(memoryVersion(1, DocumentVersionProcessing))
-	repository.expireLease(1, now.Add(-time.Minute), 3)
+	repository.expireLease(1, now.Add(-time.Minute), 4)
 	queue := &recordingTaskEnqueuer{}
-	reconciler := NewDocumentIndexReconciler(repository, NewDocumentVersionEnqueuer(queue), 10, 3)
+	reconciler := NewDocumentIndexReconciler(repository, NewDocumentVersionEnqueuer(queue), 10, 4)
 	if err := reconciler.Reconcile(context.Background(), now); err != nil {
 		t.Fatal(err)
 	}

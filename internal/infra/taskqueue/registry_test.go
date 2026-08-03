@@ -82,9 +82,12 @@ func TestRegistryFinalizesOnlyExhaustedRetryableFailure(t *testing.T) {
 		Handle: func(context.Context, any) *apperror.Error {
 			return apperror.New("widget.down", apperror.CategoryDependency, http.StatusServiceUnavailable, apperror.Retryable, "", nil, "widget unavailable")
 		},
-		FinalizeExhausted: func(_ context.Context, decoded any, cause *apperror.Error) *apperror.Error {
+		FinalizeExhausted: func(_ context.Context, decoded any, cause *apperror.Error, attempt Attempt) *apperror.Error {
 			if decoded != "decoded" || cause == nil || cause.Code != "widget.down" {
 				t.Fatalf("finalizer decoded=%#v cause=%#v", decoded, cause)
+			}
+			if attempt.Number != 4 || attempt.Limit != 4 {
+				t.Fatalf("attempt=%+v, want fourth and final execution", attempt)
 			}
 			finalized++
 			return nil
@@ -112,7 +115,7 @@ func TestRegistryLeavesExhaustedFailureRetryableWhenFinalizerFails(t *testing.T)
 		Handle: func(context.Context, any) *apperror.Error {
 			return apperror.New("widget.down", apperror.CategoryDependency, http.StatusServiceUnavailable, apperror.Retryable, "", nil, "widget unavailable")
 		},
-		FinalizeExhausted: func(context.Context, any, *apperror.Error) *apperror.Error {
+		FinalizeExhausted: func(context.Context, any, *apperror.Error, Attempt) *apperror.Error {
 			return apperror.New("widget.finalize_failed", apperror.CategoryInternal, http.StatusInternalServerError, apperror.Retryable, "", nil, "finalize failed")
 		},
 	})

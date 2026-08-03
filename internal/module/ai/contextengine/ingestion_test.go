@@ -93,8 +93,15 @@ func (*memoryIngestionRepository) ActivateVersion(context.Context, VersionActiva
 func (repository *memoryIngestionRepository) FailVersion(_ context.Context, id, token uint64, stage, code, message string, now time.Time) error {
 	return repository.forceFailed(id, stage, code)
 }
-func (repository *memoryIngestionRepository) FinalizeVersion(_ context.Context, id uint64, code string, attemptLimit uint32, now time.Time) error {
-	return repository.forceFailed(id, "index", code)
+func (repository *memoryIngestionRepository) FinalizeVersion(_ context.Context, attempt DocumentIndexAttempt, code string, requireExpired bool, now time.Time) error {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	version := repository.versions[attempt.VersionID]
+	if version == nil || version.state != DocumentVersionProcessing || version.attempts != attempt.AttemptCount || version.token != attempt.LeaseToken || version.expires.After(now) == requireExpired {
+		return ErrVersionLeaseLost
+	}
+	version.state = DocumentVersionFailed
+	return nil
 }
 func (repository *memoryIngestionRepository) ListReconcileCandidates(_ context.Context, now time.Time, limit int) ([]ReconcileCandidate, error) {
 	repository.mu.Lock()
@@ -102,7 +109,7 @@ func (repository *memoryIngestionRepository) ListReconcileCandidates(_ context.C
 	var result []ReconcileCandidate
 	for id := uint64(1); len(result) < limit && id < 100; id++ {
 		if version := repository.versions[id]; version != nil && (version.state == DocumentVersionQueued || version.state == DocumentVersionProcessing && !version.expires.After(now)) {
-			result = append(result, ReconcileCandidate{VersionID: id, State: version.state, AttemptCount: version.attempts})
+			result = append(result, ReconcileCandidate{VersionID: id, State: version.state, AttemptCount: version.attempts, LeaseToken: version.token})
 		}
 	}
 	return result, nil
@@ -141,6 +148,7 @@ func (repository *memoryIngestionRepository) expireLease(id uint64, expires time
 	repository.versions[id].state = DocumentVersionProcessing
 	repository.versions[id].expires = expires
 	repository.versions[id].attempts = attempts
+	repository.versions[id].token = uint64(attempts)
 }
 func (repository *memoryIngestionRepository) state(id uint64) string {
 	repository.mu.Lock()
@@ -184,4 +192,29 @@ func TestDocumentIndexClassifiesTransientAndPermanentFailures(t *testing.T) {
 	if got := classifyIngestionError(ErrChunkFactsConflict); got == nil || got.Retryable() {
 		t.Fatalf("chunk conflict classification=%+v", got)
 	}
+}
+
+func TestDocumentVersionPoliciesRejectMismatchedFrozenVersions(t *testing.T) {
+	parser := frozenParser{name: "txt", version: "1"}
+	version := ContextDocumentVersion{ParserName: "txt", ParserVersion: "2", ChunkerVersion: ChunkerVersionV1}
+	if err := validateDocumentVersionPolicies(version, parser); !errors.Is(err, ErrParserPolicyUnavailable) {
+		t.Fatalf("parser policy error=%v", err)
+	}
+
+	version.ParserVersion = "1"
+	version.ChunkerVersion = "context_chunker_v2"
+	if err := validateDocumentVersionPolicies(version, parser); !errors.Is(err, ErrChunkerPolicyUnavailable) {
+		t.Fatalf("chunker policy error=%v", err)
+	}
+}
+
+type frozenParser struct {
+	name    string
+	version string
+}
+
+func (parser frozenParser) Name() string    { return parser.name }
+func (parser frozenParser) Version() string { return parser.version }
+func (frozenParser) Parse(context.Context, documentparser.Source, documentparser.Limits) ([]documentparser.Block, error) {
+	return nil, nil
 }

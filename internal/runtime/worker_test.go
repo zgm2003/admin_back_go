@@ -14,6 +14,7 @@ import (
 	"admin_back_go/internal/config"
 	infrarealtime "admin_back_go/internal/infra/realtime"
 	"admin_back_go/internal/jobs"
+	"admin_back_go/internal/module/ai/contextengine"
 	"admin_back_go/internal/module/crontask"
 )
 
@@ -29,8 +30,10 @@ func TestWorkerReadinessRequiresDocumentIndexContextTaskRegistration(t *testing.
 
 type contextDocumentIndexStub struct{}
 
-func (contextDocumentIndexStub) IndexDocument(context.Context, uint64) error { return nil }
-func (contextDocumentIndexStub) FinalizeDocumentIndex(context.Context, uint64, string) error {
+func (contextDocumentIndexStub) IndexDocument(context.Context, uint64) (contextengine.DocumentIndexAttempt, error) {
+	return contextengine.DocumentIndexAttempt{}, nil
+}
+func (contextDocumentIndexStub) FinalizeDocumentIndex(context.Context, contextengine.DocumentIndexAttempt, string, int) error {
 	return nil
 }
 

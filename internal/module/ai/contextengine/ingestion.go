@@ -41,6 +41,10 @@ var (
 	ErrDocumentIndexNotConfigured = errors.New("context document index service is not configured")
 	ErrEmbeddingDimension         = errors.New("context embedding dimension mismatch")
 	ErrIndexGenerationUnavailable = errors.New("context profile active index generation is unavailable")
+	ErrParserPolicyUnavailable    = errors.New("context document parser policy is unavailable")
+	ErrChunkerPolicyUnavailable   = errors.New("context document chunker policy is unavailable")
+	ErrIndexVerificationFailed    = errors.New("context document index verification failed")
+	ErrSourceFactsInvalid         = errors.New("context document source facts are invalid")
 )
 
 type LeaseDisposition string
@@ -55,6 +59,13 @@ type VersionLease struct {
 	Token        uint64
 	AttemptCount uint32
 	ExpiresAt    time.Time
+}
+
+type DocumentIndexAttempt struct {
+	VersionID      uint64
+	LeaseToken     uint64
+	AttemptCount   uint32
+	IdempotencyKey string
 }
 
 type DocumentIndexWork struct {
@@ -77,6 +88,8 @@ type PersistedChunk struct {
 
 type VersionActivation struct {
 	VersionID                     uint64
+	ProfileID                     uint64
+	IndexGeneration               uint64
 	LeaseToken                    uint64
 	SourceSHA256                  [sha256.Size]byte
 	ChunkCount                    uint32
@@ -90,6 +103,7 @@ type ReconcileCandidate struct {
 	VersionID    uint64
 	State        string
 	AttemptCount uint32
+	LeaseToken   uint64
 }
 
 type IngestionRepository interface {
@@ -99,12 +113,12 @@ type IngestionRepository interface {
 	UpsertImmutableChunks(context.Context, uint64, uint64, []Chunk, time.Time) ([]PersistedChunk, error)
 	ActivateVersion(context.Context, VersionActivation) error
 	FailVersion(context.Context, uint64, uint64, string, string, string, time.Time) error
-	FinalizeVersion(context.Context, uint64, string, uint32, time.Time) error
+	FinalizeVersion(context.Context, DocumentIndexAttempt, string, bool, time.Time) error
 	ListReconcileCandidates(context.Context, time.Time, int) ([]ReconcileCandidate, error)
 }
 
 type DocumentParser interface {
-	Parse(context.Context, documentparser.Source, documentparser.Limits) ([]documentparser.Block, error)
+	Resolve(string, string) (documentparser.Parser, error)
 }
 
 type EmbeddingResolver interface {
@@ -113,6 +127,7 @@ type EmbeddingResolver interface {
 
 type IndexWriter interface {
 	Upsert(context.Context, string, []contextindex.IndexedPoint) error
+	VerifyPoints(context.Context, string, []contextindex.PointRef, uint32) error
 }
 
 type DocumentIndexDependencies struct {
@@ -141,40 +156,73 @@ func NewDocumentIndexService(deps DocumentIndexDependencies) *DocumentIndexServi
 	return &DocumentIndexService{deps: deps}
 }
 
-func (service *DocumentIndexService) IndexDocument(ctx context.Context, versionID uint64) error {
+func (service *DocumentIndexService) IndexDocument(ctx context.Context, versionID uint64) (DocumentIndexAttempt, error) {
 	if service == nil || service.deps.Repository == nil || service.deps.Objects == nil || service.deps.Parser == nil ||
 		service.deps.Embeddings == nil || service.deps.Index == nil || strings.TrimSpace(service.deps.CollectionPrefix) == "" || versionID == 0 {
-		return apperror.Wrap("ai.context.index_not_configured", apperror.CategoryInternal, http.StatusInternalServerError,
+		return DocumentIndexAttempt{}, apperror.Wrap("ai.context.index_not_configured", apperror.CategoryInternal, http.StatusInternalServerError,
 			apperror.Permanent, "", nil, "context document index is not configured", ErrDocumentIndexNotConfigured)
 	}
 	now := service.deps.Now().UTC()
 	work, disposition, err := service.deps.Repository.AcquireVersionLease(ctx, versionID, now, documentIndexLease)
 	if err != nil {
-		return classifyIngestionError(err)
+		return DocumentIndexAttempt{}, classifyIngestionError(err)
 	}
 	if disposition == LeaseTerminal || disposition == LeaseBusy {
-		return nil
+		return DocumentIndexAttempt{}, nil
+	}
+	attempt := DocumentIndexAttempt{VersionID: versionID, LeaseToken: work.Lease.Token, AttemptCount: work.Lease.AttemptCount}
+	facts := DocumentIndexFacts{
+		VersionID:      work.Version.ID,
+		ProfileID:      work.Profile.ID,
+		ParserVersion:  work.Version.ParserVersion,
+		ChunkerVersion: work.Version.ChunkerVersion,
+	}
+	if len(work.Version.SourceFactsSHA256) != sha256.Size {
+		return attempt, service.failAttempt(ctx, work, ErrSourceFactsInvalid)
+	}
+	copy(facts.SourceFactsSHA256[:], work.Version.SourceFactsSHA256)
+	attempt.IdempotencyKey, err = DocumentIndexIdempotencyKey(facts)
+	if err != nil {
+		return attempt, service.failAttempt(ctx, work, err)
 	}
 	if err := service.runPipeline(ctx, work); err != nil {
 		classified := classifyIngestionError(err)
 		if classified != nil && !classified.Retryable() {
 			if failErr := service.deps.Repository.FailVersion(ctx, versionID, work.Lease.Token, failureStage(err), classified.Code, classified.Message, service.deps.Now().UTC()); failErr != nil {
-				return classifyIngestionError(failErr)
+				return attempt, classifyIngestionError(failErr)
 			}
 		}
-		return classified
+		return attempt, classified
 	}
-	return nil
+	return attempt, nil
 }
 
-func (service *DocumentIndexService) FinalizeDocumentIndex(ctx context.Context, versionID uint64, code string) error {
-	if service == nil || service.deps.Repository == nil || versionID == 0 {
+func (service *DocumentIndexService) FinalizeDocumentIndex(ctx context.Context, attempt DocumentIndexAttempt, code string, deliveryLimit int) error {
+	if service == nil || service.deps.Repository == nil {
 		return ErrDocumentIndexNotConfigured
+	}
+	if attempt.VersionID == 0 || attempt.LeaseToken == 0 || attempt.AttemptCount == 0 || deliveryLimit != int(attempt.AttemptCount) {
+		return nil
 	}
 	if strings.TrimSpace(code) == "" {
 		code = "ai.context.index_retry_exhausted"
 	}
-	return service.deps.Repository.FinalizeVersion(ctx, versionID, code, DocumentIndexMaxRetry, service.deps.Now().UTC())
+	err := service.deps.Repository.FinalizeVersion(ctx, attempt, code, false, service.deps.Now().UTC())
+	if errors.Is(err, ErrVersionLeaseLost) {
+		return nil
+	}
+	return err
+}
+
+func (service *DocumentIndexService) failAttempt(ctx context.Context, work DocumentIndexWork, cause error) error {
+	classified := classifyIngestionError(cause)
+	if classified == nil || classified.Retryable() {
+		return classified
+	}
+	if err := service.deps.Repository.FailVersion(ctx, work.Version.ID, work.Lease.Token, failureStage(cause), classified.Code, classified.Message, service.deps.Now().UTC()); err != nil {
+		return classifyIngestionError(err)
+	}
+	return classified
 }
 
 func (service *DocumentIndexService) runPipeline(ctx context.Context, work DocumentIndexWork) error {
@@ -198,7 +246,14 @@ func (service *DocumentIndexService) runPipeline(ctx context.Context, work Docum
 		return storage.ErrConditionalObjectVersionChanged
 	}
 	hasher := sha256.New()
-	blocks, err := service.deps.Parser.Parse(ctx, documentparser.Source{Filename: work.Version.SourceFilename,
+	parser, err := service.deps.Parser.Resolve(work.Version.SourceFilename, work.Version.SourceMIMEType)
+	if err != nil {
+		return err
+	}
+	if err := validateDocumentVersionPolicies(work.Version, parser); err != nil {
+		return err
+	}
+	blocks, err := parser.Parse(ctx, documentparser.Source{Filename: work.Version.SourceFilename,
 		MIMEType: work.Version.SourceMIMEType, Size: work.Version.SourceSize, Reader: io.TeeReader(body, hasher)}, service.deps.Limits)
 	if err != nil {
 		return err
@@ -244,7 +299,8 @@ func (service *DocumentIndexService) runPipeline(ctx context.Context, work Docum
 	if err != nil {
 		return err
 	}
-	points := make([]contextindex.IndexedPoint, 0, len(persisted))
+	collection := collectionName(work, service.deps.CollectionPrefix)
+	expectedRefs := make([]contextindex.PointRef, 0, len(persisted))
 	var requests uint32
 	var inputTokens uint64
 	for start := 0; start < len(persisted); start += documentEmbeddingBatch {
@@ -264,6 +320,7 @@ func (service *DocumentIndexService) runPipeline(ctx context.Context, work Docum
 		if len(result.Vectors) != len(texts) {
 			return ErrEmbeddingDimension
 		}
+		batchPoints := make([]contextindex.IndexedPoint, 0, len(result.Vectors))
 		for i, vector := range result.Vectors {
 			if len(vector) != int(work.Profile.EmbeddingDimensions) {
 				return ErrEmbeddingDimension
@@ -272,18 +329,24 @@ func (service *DocumentIndexService) runPipeline(ctx context.Context, work Docum
 			if pointErr != nil {
 				return pointErr
 			}
-			points = append(points, point)
+			batchPoints = append(batchPoints, point)
+			expectedRefs = append(expectedRefs, point.Metadata.Ref)
+		}
+		if err := service.deps.Index.Upsert(ctx, collection, batchPoints); err != nil {
+			return err
 		}
 		if err := check(); err != nil {
 			return err
 		}
 	}
-	collection := fmt.Sprintf("%s_profile_%d_g%d", strings.TrimSpace(service.deps.CollectionPrefix), work.Profile.ID, work.IndexGeneration)
-	if len(points) != len(chunks) {
+	if len(expectedRefs) != len(chunks) {
 		return errors.New("document point count differs from persisted chunk count")
 	}
-	if err := service.deps.Index.Upsert(ctx, collection, points); err != nil {
-		return err
+	for start := 0; start < len(expectedRefs); start += documentEmbeddingBatch {
+		end := min(start+documentEmbeddingBatch, len(expectedRefs))
+		if err := service.deps.Index.VerifyPoints(ctx, collection, expectedRefs[start:end], work.Profile.EmbeddingDimensions); err != nil {
+			return fmt.Errorf("%w: %v", ErrIndexVerificationFailed, err)
+		}
 	}
 	if err := check(); err != nil {
 		return err
@@ -292,9 +355,24 @@ func (service *DocumentIndexService) runPipeline(ctx context.Context, work Docum
 	for _, chunk := range chunks {
 		bound += uint64(chunk.EmbeddingInputTokenUpperBound)
 	}
-	return service.deps.Repository.ActivateVersion(ctx, VersionActivation{VersionID: work.Version.ID, LeaseToken: work.Lease.Token,
+	return service.deps.Repository.ActivateVersion(ctx, VersionActivation{VersionID: work.Version.ID, ProfileID: work.Profile.ID,
+		IndexGeneration: work.IndexGeneration, LeaseToken: work.Lease.Token,
 		SourceSHA256: sourceSHA, ChunkCount: uint32(len(chunks)), EmbeddingInputTokenUpperBound: bound,
 		EmbeddingRequestCount: requests, EmbeddingInputTokens: inputTokens, FinishedAt: service.deps.Now().UTC()})
+}
+
+func collectionName(work DocumentIndexWork, prefix string) string {
+	return fmt.Sprintf("%s_profile_%d_g%d", strings.TrimSpace(prefix), work.Profile.ID, work.IndexGeneration)
+}
+
+func validateDocumentVersionPolicies(version ContextDocumentVersion, parser documentparser.Parser) error {
+	if parser == nil || parser.Name() != strings.TrimSpace(version.ParserName) || parser.Version() != strings.TrimSpace(version.ParserVersion) {
+		return ErrParserPolicyUnavailable
+	}
+	if strings.TrimSpace(version.ChunkerVersion) != ChunkerVersionV1 {
+		return ErrChunkerPolicyUnavailable
+	}
+	return nil
 }
 
 func documentChunkPoint(work DocumentIndexWork, persisted PersistedChunk, dense []float32) (contextindex.IndexedPoint, error) {
@@ -336,7 +414,8 @@ func classifyIngestionError(err error) *apperror.Error {
 	}
 	permanent := errors.Is(err, documentparser.ErrDocumentParseFailed) || errors.Is(err, documentparser.ErrMalformedDocument) ||
 		errors.Is(err, storage.ErrConditionalObjectVersionChanged) || errors.Is(err, ErrChunkFactsConflict) ||
-		errors.Is(err, ErrEmbeddingDimension) || errors.Is(err, ErrIndexGenerationUnavailable)
+		errors.Is(err, ErrEmbeddingDimension) || errors.Is(err, ErrIndexGenerationUnavailable) ||
+		errors.Is(err, ErrParserPolicyUnavailable) || errors.Is(err, ErrChunkerPolicyUnavailable) || errors.Is(err, ErrSourceFactsInvalid)
 	if permanent {
 		return apperror.Wrap("ai.context.document_index_invalid", apperror.CategoryValidation, http.StatusUnprocessableEntity,
 			apperror.Permanent, "", nil, "context document cannot be indexed", err)
@@ -558,9 +637,42 @@ func (repository *GormIngestionRepository) ActivateVersion(ctx context.Context, 
 		if version.State != DocumentVersionProcessing || version.LeaseToken == nil || *version.LeaseToken != input.LeaseToken || version.LeaseExpiresAt == nil || !version.LeaseExpiresAt.After(input.FinishedAt) {
 			return ErrVersionLeaseLost
 		}
+		if version.ProfileID != input.ProfileID {
+			return ErrVersionLeaseLost
+		}
+		var profile ContextProfile
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", version.ProfileID).Take(&profile).Error; err != nil {
+			return err
+		}
+		if profile.ActiveIndexGeneration == nil || *profile.ActiveIndexGeneration != input.IndexGeneration {
+			return ErrIndexGenerationUnavailable
+		}
 		var document ContextDocument
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND deleted_at IS NULL", version.DocumentID).Take(&document).Error; err != nil {
 			return err
+		}
+		if document.SpaceID != nil {
+			var space ContextSpace
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND deleted_at IS NULL", *document.SpaceID).Take(&space).Error; err != nil {
+				return err
+			}
+			if space.ProfileID != version.ProfileID {
+				return ErrVersionLeaseLost
+			}
+		} else if document.ConversationID != nil {
+			var authority struct {
+				ContextProfileID *uint64 `gorm:"column:context_profile_id"`
+			}
+			if err := tx.Table("ai_conversations AS c").Select("a.context_profile_id").
+				Joins("JOIN ai_agents AS a ON a.id = c.agent_id AND a.is_del = 2").
+				Where("c.id = ? AND c.is_del = 2", *document.ConversationID).Take(&authority).Error; err != nil {
+				return err
+			}
+			if authority.ContextProfileID == nil || *authority.ContextProfileID != version.ProfileID {
+				return ErrVersionLeaseLost
+			}
+		} else {
+			return ErrVersionLeaseLost
 		}
 		updates := map[string]any{"state": DocumentVersionReady, "source_sha256": input.SourceSHA256[:], "chunk_count": input.ChunkCount,
 			"embedding_input_token_upper_bound": input.EmbeddingInputTokenUpperBound, "embedding_request_count": input.EmbeddingRequestCount,
@@ -590,9 +702,15 @@ func (repository *GormIngestionRepository) FailVersion(ctx context.Context, vers
 	return nil
 }
 
-func (repository *GormIngestionRepository) FinalizeVersion(ctx context.Context, versionID uint64, code string, attemptLimit uint32, now time.Time) error {
-	result := repository.db.WithContext(ctx).Model(&ingestionVersionRow{}).
-		Where("id = ? AND state = ? AND attempt_count >= ?", versionID, DocumentVersionProcessing, attemptLimit).
+func (repository *GormIngestionRepository) FinalizeVersion(ctx context.Context, attempt DocumentIndexAttempt, code string, requireExpiredLease bool, now time.Time) error {
+	query := repository.db.WithContext(ctx).Model(&ingestionVersionRow{}).
+		Where("id = ? AND state = ? AND attempt_count = ? AND lease_token = ?", attempt.VersionID, DocumentVersionProcessing, attempt.AttemptCount, attempt.LeaseToken)
+	if requireExpiredLease {
+		query = query.Where("lease_expires_at <= ?", now)
+	} else {
+		query = query.Where("lease_expires_at > ?", now)
+	}
+	result := query.
 		Updates(map[string]any{"state": DocumentVersionFailed, "failure_stage": "index", "error_code": code,
 			"error_message": "context document indexing retry budget exhausted", "finished_at": now, "lease_token": nil, "lease_expires_at": nil})
 	if result.Error != nil {
@@ -609,7 +727,7 @@ func (repository *GormIngestionRepository) ListReconcileCandidates(ctx context.C
 		return nil, errors.New("reconcile batch limit must be positive")
 	}
 	var rows []ReconcileCandidate
-	err := repository.db.WithContext(ctx).Table("ai_context_document_versions").Select("id AS version_id, state, attempt_count").
+	err := repository.db.WithContext(ctx).Table("ai_context_document_versions").Select("id AS version_id, state, attempt_count, COALESCE(lease_token, 0) AS lease_token").
 		Where("state = ? OR (state = ? AND lease_expires_at <= ?)", DocumentVersionQueued, DocumentVersionProcessing, now).
 		Order("id ASC").Limit(limit).Scan(&rows).Error
 	return rows, err

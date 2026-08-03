@@ -41,8 +41,17 @@ type Definition struct {
 	UniqueTTL         time.Duration
 	Decode            func([]byte) (any, *apperror.Error)
 	Handle            func(context.Context, any) *apperror.Error
-	FinalizeExhausted func(context.Context, any, *apperror.Error) *apperror.Error
+	FinalizeExhausted ExhaustedFinalizer
 }
+
+// Attempt is the one-based execution number derived from Asynq's zero-based
+// retry count. Limit includes the initial execution.
+type Attempt struct {
+	Number int
+	Limit  int
+}
+
+type ExhaustedFinalizer func(context.Context, any, *apperror.Error, Attempt) *apperror.Error
 
 // Policy is the immutable producer-facing part of a task definition.
 type Policy struct {
@@ -144,7 +153,8 @@ func (r *Registry) Handle(ctx context.Context, task Task) error {
 	}
 	if appErr.Retryable() {
 		if definition.FinalizeExhausted != nil && task.MaxRetry == definition.MaxRetry && task.Retry >= task.MaxRetry {
-			if finalizerErr := definition.FinalizeExhausted(ctx, payload, appErr); finalizerErr != nil {
+			attempt := Attempt{Number: task.Retry + 1, Limit: task.MaxRetry + 1}
+			if finalizerErr := definition.FinalizeExhausted(ctx, payload, appErr, attempt); finalizerErr != nil {
 				return finalizerErr
 			}
 			return errors.Join(appErr, asynq.SkipRetry)

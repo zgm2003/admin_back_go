@@ -20,6 +20,7 @@ type fakeAPI struct {
 	upserted      *qdrantapi.UpsertPoints
 	queried       *qdrantapi.QueryBatchPoints
 	queryResults  []*qdrantapi.BatchResult
+	retrieved     []*qdrantapi.RetrievedPoint
 }
 
 func (api *fakeAPI) CreateCollection(_ context.Context, request *qdrantapi.CreateCollection) error {
@@ -42,6 +43,10 @@ func (api *fakeAPI) Upsert(_ context.Context, request *qdrantapi.UpsertPoints) (
 func (api *fakeAPI) QueryBatch(_ context.Context, request *qdrantapi.QueryBatchPoints) ([]*qdrantapi.BatchResult, error) {
 	api.queried = request
 	return api.queryResults, nil
+}
+
+func (api *fakeAPI) Get(context.Context, *qdrantapi.GetPoints) ([]*qdrantapi.RetrievedPoint, error) {
+	return api.retrieved, nil
 }
 
 func (api *fakeAPI) Close() error { return nil }
@@ -100,6 +105,30 @@ func TestUpsertSerializesClosedPayloadAndOmitsEmptySparse(t *testing.T) {
 	}
 	if got := sortedKeys(encoded.GetPayload()); !reflect.DeepEqual(got, wantPayloadKeys) {
 		t.Fatalf("payload keys=%v", got)
+	}
+}
+
+func TestVerifyPointsRequiresExactIdentityHashAndDenseDimension(t *testing.T) {
+	point := testDocumentPoint(t, contextindex.SparseVector{})
+	encoded := encodePoint(point)
+	api := &fakeAPI{retrieved: []*qdrantapi.RetrievedPoint{{
+		Id: encoded.Id, Payload: encoded.Payload,
+		Vectors: &qdrantapi.VectorsOutput{VectorsOptions: &qdrantapi.VectorsOutput_Vectors{
+			Vectors: &qdrantapi.NamedVectorsOutput{Vectors: map[string]*qdrantapi.VectorOutput{
+				denseVectorName: {Vector: &qdrantapi.VectorOutput_Dense{Dense: &qdrantapi.DenseVector{Data: point.Dense}}},
+			}},
+		}},
+	}}}
+	client := newClient(api)
+	if err := client.VerifyPoints(context.Background(), "admin_context_profile_7_g3", []contextindex.PointRef{point.Metadata.Ref}, 4); err != nil {
+		t.Fatal(err)
+	}
+
+	api.retrieved[0].Vectors.GetVectors().Vectors[denseVectorName] = &qdrantapi.VectorOutput{
+		Vector: &qdrantapi.VectorOutput_Dense{Dense: &qdrantapi.DenseVector{Data: []float32{1}}},
+	}
+	if err := client.VerifyPoints(context.Background(), "admin_context_profile_7_g3", []contextindex.PointRef{point.Metadata.Ref}, 4); err == nil {
+		t.Fatal("dimension mismatch accepted")
 	}
 }
 

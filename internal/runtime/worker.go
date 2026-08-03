@@ -405,7 +405,7 @@ func registerWorkerHandlers(
 		replycommand.NewReconciler(replycommand.ReconcilerOptions{Repository: replyRepository, Finalizer: paidChatExecutor}),
 		aitext.NewReconciler(aiTextTasks, textWaker, max(25, cfg.Queue.Concurrency)),
 		aiimage.NewReconciler(imageRepository, imageWaker, max(25, cfg.Queue.Concurrency)),
-		contextengine.NewDocumentIndexReconciler(contextRepository, contextEnqueuer, max(25, cfg.Queue.Concurrency), uint32(jobs.ContextDocumentIndexMaxRetry)),
+		contextengine.NewDocumentIndexReconciler(contextRepository, contextEnqueuer, max(25, cfg.Queue.Concurrency), uint32(jobs.ContextDocumentIndexMaxRetry+1)),
 		nil
 }
 
