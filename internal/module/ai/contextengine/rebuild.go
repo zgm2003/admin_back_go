@@ -149,6 +149,9 @@ func (service *ProfileRebuildService) RebuildProfile(ctx context.Context, profil
 }
 
 func (service *ProfileRebuildService) populate(ctx context.Context, profile ContextProfile, generation uint64, collection string, documents []RebuildDocument) error {
+	if len(documents) == 0 {
+		return nil
+	}
 	client, err := service.deps.Embeddings.ResolveEmbedding(ctx, profile)
 	if err != nil {
 		return err

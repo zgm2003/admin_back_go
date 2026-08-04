@@ -43,6 +43,25 @@ func TestProfileCreateValidatesModelKindsAndExplicitPolicy(t *testing.T) {
 	}
 }
 
+func TestProfileCreateEnqueuesCommittedProfileRebuild(t *testing.T) {
+	repository := &fakeAdminRepository{models: map[uint64]ProviderModelCapability{
+		11: {ID: 11, Kind: aiprovider.ModelKindEmbedding, Enabled: true, ProviderEnabled: true},
+	}}
+	enqueuer := &recordingProfileRebuildEnqueuer{}
+	service := NewAdminService(repository, nil, nil, WithProfileRebuildEnqueuer(enqueuer))
+	profile, appErr := service.CreateProfile(context.Background(), 7, CreateProfileInput{
+		Name: "default", EmbeddingProviderModelID: 11, EmbeddingDimensions: 1536,
+		EmbeddingMaxInputTokens: 8191, EmbeddingTokenCounterID: "utf8_bytes_v1",
+		DenseDistance: "cosine", DenseMinScore: "0.200000",
+	})
+	if appErr != nil || profile == nil {
+		t.Fatalf("profile=%#v error=%#v", profile, appErr)
+	}
+	if len(enqueuer.profiles) != 1 || enqueuer.profiles[0].ID != profile.ID {
+		t.Fatalf("profiles=%+v", enqueuer.profiles)
+	}
+}
+
 func TestSpaceProfileChangeRequiresUnreferencedSpace(t *testing.T) {
 	repository := &fakeAdminRepository{
 		profiles:        map[uint64]ContextProfile{1: readyProfile(1), 2: readyProfile(2)},
@@ -271,6 +290,13 @@ type failingVersionEnqueuer struct{}
 
 func (failingVersionEnqueuer) EnqueueDocumentVersion(context.Context, uint64) error {
 	return errors.New("queue down")
+}
+
+type recordingProfileRebuildEnqueuer struct{ profiles []ContextProfile }
+
+func (enqueuer *recordingProfileRebuildEnqueuer) EnqueueProfileRebuild(_ context.Context, profile ContextProfile) error {
+	enqueuer.profiles = append(enqueuer.profiles, profile)
+	return nil
 }
 
 func readyProfile(id uint64) ContextProfile {

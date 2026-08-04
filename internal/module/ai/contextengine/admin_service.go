@@ -51,6 +51,10 @@ type DocumentVersionEnqueuer interface {
 	EnqueueDocumentVersion(context.Context, uint64) error
 }
 
+type ProfileRebuildEnqueuer interface {
+	EnqueueProfileRebuild(context.Context, ContextProfile) error
+}
+
 type AgentBackfillEnqueuer interface {
 	EnqueueAgentBackfill(context.Context, uint64, uint64) error
 }
@@ -59,6 +63,7 @@ type AdminService struct {
 	repository AdminRepository
 	objects    storage.ConditionalObjectReader
 	enqueuer   DocumentVersionEnqueuer
+	rebuild    ProfileRebuildEnqueuer
 	models     officialmodel.Resolver
 	backfill   AgentBackfillEnqueuer
 	evaluator  EvaluationRunner
@@ -68,6 +73,10 @@ type AdminOption func(*AdminService)
 
 func WithOfficialModelResolver(resolver officialmodel.Resolver) AdminOption {
 	return func(service *AdminService) { service.models = resolver }
+}
+
+func WithProfileRebuildEnqueuer(enqueuer ProfileRebuildEnqueuer) AdminOption {
+	return func(service *AdminService) { service.rebuild = enqueuer }
 }
 
 func WithAgentBackfillEnqueuer(enqueuer AgentBackfillEnqueuer) AdminOption {
@@ -146,6 +155,9 @@ func (service *AdminService) CreateProfile(ctx context.Context, actorID uint32, 
 	created, createErr := service.repository.CreateProfile(ctx, profile)
 	if createErr != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "新增上下文配置失败", createErr)
+	}
+	if service.rebuild != nil {
+		_ = service.rebuild.EnqueueProfileRebuild(ctx, created)
 	}
 	return &created, nil
 }

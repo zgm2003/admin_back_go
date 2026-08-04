@@ -50,7 +50,7 @@ func (repository *GormMemoryRepository) memoryBuildPayload(ctx context.Context, 
 	if err != nil || budget.KnownInputBudget == 0 {
 		return ContextMemoryBuildV1{}, false, err
 	}
-	profileSHA, err := memoryProfileSHA256(profile)
+	profileSHA, err := profileConfigSHA256(profile)
 	if err != nil {
 		return ContextMemoryBuildV1{}, false, err
 	}

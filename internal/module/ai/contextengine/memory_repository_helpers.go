@@ -53,7 +53,7 @@ func memoryTurnsForRange(ctx context.Context, pager ConversationTurnPager, conve
 	return selected, nil
 }
 
-func memoryProfileSHA256(profile ContextProfile) ([sha256.Size]byte, error) {
+func profileConfigSHA256(profile ContextProfile) ([sha256.Size]byte, error) {
 	dense, err := ParseFixedScore(profile.DenseMinScore)
 	if err != nil {
 		return [sha256.Size]byte{}, err

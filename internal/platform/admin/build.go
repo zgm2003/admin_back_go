@@ -200,8 +200,9 @@ func Build(input BuildInput) (*BuildResult, error) {
 	contextService := contextengine.NewAdminService(
 		contextengine.NewAdminRepository(resources.DB),
 		storagecos.NewConditionalObjectReader(aiChatObjectConfig, storagecos.ObjectStreamerConfig{Enabled: true}),
-		nil,
+		contextengine.NewDocumentVersionEnqueuer(input.Queue, contextengine.NewIngestionRepository(resources.DB)),
 		contextengine.WithOfficialModelResolver(aiOfficialModelResolver),
+		contextengine.WithProfileRebuildEnqueuer(contextengine.NewProfileRebuildEnqueuer(input.Queue)),
 	)
 	aiAgentService := aiagent.NewService(
 		aiagent.NewGormRepository(resources.DB),

@@ -96,7 +96,7 @@ func TestRebuildSwitchesAliasBeforeMySQLGeneration(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		"mysql:rebuilding", "qdrant:ensure", "mysql:documents", "embedding:resolve",
+		"mysql:rebuilding", "qdrant:ensure", "mysql:documents",
 		"mysql:snapshot", "qdrant:verify", "qdrant:alias", "mysql:ready",
 	}
 	if !reflect.DeepEqual(events, want) {

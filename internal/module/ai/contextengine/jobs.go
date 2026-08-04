@@ -154,3 +154,33 @@ type DocumentIndexJobService interface {
 	IndexDocument(context.Context, uint64) (DocumentIndexAttempt, error)
 	FinalizeDocumentIndex(context.Context, DocumentIndexAttempt, string, int) error
 }
+
+type QueueProfileRebuildEnqueuer struct{ queue taskqueue.Enqueuer }
+
+func NewProfileRebuildEnqueuer(queue taskqueue.Enqueuer) *QueueProfileRebuildEnqueuer {
+	return &QueueProfileRebuildEnqueuer{queue: queue}
+}
+
+func (enqueuer *QueueProfileRebuildEnqueuer) EnqueueProfileRebuild(ctx context.Context, profile ContextProfile) error {
+	if enqueuer == nil || enqueuer.queue == nil || profile.ID == 0 || profile.TargetIndexGeneration == nil {
+		return errors.New("profile rebuild enqueuer is not configured")
+	}
+	profileSHA256, err := profileConfigSHA256(profile)
+	if err != nil {
+		return fmt.Errorf("hash profile rebuild facts: %w", err)
+	}
+	preimage := fmt.Sprintf("%s\x00%d\x00%s\x00%d", TaskContextProfileRebuildV1,
+		profile.ID, hex.EncodeToString(profileSHA256[:]), *profile.TargetIndexGeneration)
+	taskID := sha256.Sum256([]byte(preimage))
+	payload, err := json.Marshal(ContextProfileRebuildV1{ProfileID: profile.ID})
+	if err != nil {
+		return fmt.Errorf("encode profile rebuild task: %w", err)
+	}
+	_, err = enqueuer.queue.Enqueue(ctx, taskqueue.Task{
+		ID: hex.EncodeToString(taskID[:]), Type: TaskContextProfileRebuildV1, Payload: payload,
+	})
+	if taskqueue.IsDuplicateTask(err) {
+		return nil
+	}
+	return err
+}

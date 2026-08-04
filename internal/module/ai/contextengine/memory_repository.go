@@ -81,7 +81,7 @@ func (repository *GormMemoryRepository) LoadMemoryBuild(ctx context.Context, pay
 	if err := repository.db.WithContext(ctx).Where("id = ? AND status = ? AND memory_provider_model_id IS NOT NULL", payload.ProfileID, ProfileEnabled).Take(&profile).Error; err != nil {
 		return MemoryBuildSnapshot{}, err
 	}
-	profileSHA, err := memoryProfileSHA256(profile)
+	profileSHA, err := profileConfigSHA256(profile)
 	if err != nil || profileSHA != payload.ProfileSHA256 || profile.MemoryProviderModelID == nil {
 		return MemoryBuildSnapshot{}, ErrMemorySnapshotStale
 	}
@@ -159,7 +159,7 @@ func (repository *GormMemoryRepository) CommitMemory(ctx context.Context, payloa
 		if err := tx.Where("id = ? AND status = ?", payload.ProfileID, ProfileEnabled).Take(&profile).Error; err != nil {
 			return err
 		}
-		profileSHA, err := memoryProfileSHA256(profile)
+		profileSHA, err := profileConfigSHA256(profile)
 		if err != nil || profileSHA != payload.ProfileSHA256 {
 			return ErrMemorySnapshotStale
 		}
