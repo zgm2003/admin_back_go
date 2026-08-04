@@ -272,15 +272,17 @@ ALTER TABLE `ai_context_documents`
     ON UPDATE RESTRICT ON DELETE RESTRICT;
 
 ALTER TABLE `ai_conversation_memories`
-  DROP FOREIGN KEY `fk_ai_conversation_memories_previous`,
-  DROP FOREIGN KEY `fk_ai_conversation_memories_from_message`,
-  DROP FOREIGN KEY `fk_ai_conversation_memories_through_message`,
   ADD UNIQUE KEY `uk_ai_conversation_memories_owner`
     (`id`, `conversation_id`, `context_profile_id_snapshot`),
   ADD KEY `idx_ai_conversation_memories_previous_owner`
     (`previous_memory_id`, `conversation_id`, `context_profile_id_snapshot`),
   ADD KEY `idx_ai_conversation_memories_from_message_owner` (`from_message_id`, `conversation_id`),
-  ADD KEY `idx_ai_conversation_memories_through_message_owner` (`through_message_id`, `conversation_id`),
+  ADD KEY `idx_ai_conversation_memories_through_message_owner` (`through_message_id`, `conversation_id`);
+
+ALTER TABLE `ai_conversation_memories`
+  DROP FOREIGN KEY `fk_ai_conversation_memories_previous`,
+  DROP FOREIGN KEY `fk_ai_conversation_memories_from_message`,
+  DROP FOREIGN KEY `fk_ai_conversation_memories_through_message`,
   ADD CONSTRAINT `fk_ai_conversation_memories_previous_owner`
     FOREIGN KEY (`previous_memory_id`, `conversation_id`, `context_profile_id_snapshot`)
     REFERENCES `ai_conversation_memories` (`id`, `conversation_id`, `context_profile_id_snapshot`)

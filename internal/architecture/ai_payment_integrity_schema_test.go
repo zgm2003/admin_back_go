@@ -130,6 +130,28 @@ func TestAIPaymentIntegrityContractGuardsThenAddsCoreConstraints(t *testing.T) {
 	}
 }
 
+func TestAIPaymentIntegrityContractInstallsMemoryOwnerIndexBeforeSelfReference(t *testing.T) {
+	migration := strings.ToLower(mustReadRepoFile(t, aiPaymentIntegrityContract))
+	tableMarker := "alter table `ai_conversation_memories`"
+	firstAlter := strings.Index(migration, tableMarker)
+	if firstAlter < 0 {
+		t.Fatal("Contract is missing the ai_conversation_memories ALTER")
+	}
+	secondOffset := strings.Index(migration[firstAlter+len(tableMarker):], tableMarker)
+	if secondOffset < 0 {
+		t.Fatal("Contract must install the ai_conversation_memories owner indexes before adding the self-referencing foreign key")
+	}
+	secondAlter := firstAlter + len(tableMarker) + secondOffset
+	ownerIndex := strings.Index(migration, "add unique key `uk_ai_conversation_memories_owner`")
+	selfReference := strings.Index(migration, "add constraint `fk_ai_conversation_memories_previous_owner`")
+	if ownerIndex < firstAlter || ownerIndex > secondAlter {
+		t.Fatal("Contract must install the memory owner index in the first ALTER")
+	}
+	if selfReference < secondAlter {
+		t.Fatal("Contract must add the memory self-reference only after the owner index exists")
+	}
+}
+
 func TestAIPaymentIntegrityCanonicalSchemaCarriesIdentityAndOwnership(t *testing.T) {
 	schema := mustReadRepoFile(t, "database/schema/admin.hcl")
 	markers := map[string][]string{
