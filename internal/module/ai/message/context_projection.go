@@ -77,7 +77,12 @@ func projectMessageContext(content string, plan messageContextPlan) (MessageCont
 	if plan.ID == 0 || plan.RunID == 0 || plan.State != "ready" {
 		return MessageContext{}, errors.New("invalid message context plan")
 	}
-	result := MessageContext{PlanID: plan.ID, Outcome: plan.RetrievalOutcome, Sources: make([]CitationSource, 0)}
+	result := MessageContext{
+		PlanID:      plan.ID,
+		Outcome:     plan.RetrievalOutcome,
+		Sources:     make([]CitationSource, 0),
+		InvalidKeys: make([]string, 0),
+	}
 	sourceIndexes := make(map[string]int)
 	for _, item := range plan.Items {
 		if item.Decision != "selected" || item.Kind != "document_evidence" || item.CitationKey == nil {

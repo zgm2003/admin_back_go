@@ -77,6 +77,23 @@ func TestMessageCitationRefreshProjectsCompletedAndStoppedPersistedReplies(t *te
 	}
 }
 
+func TestMessageContextProjectionSerializesEmptyCollectionsAsArrays(t *testing.T) {
+	projection, err := projectMessageContext("", messageContextPlan{
+		ID: 2, RunID: 29, RetrievalOutcome: "skipped", State: "ready",
+	})
+	if err != nil {
+		t.Fatalf("project skipped context: %v", err)
+	}
+	payload, err := json.Marshal(projection)
+	if err != nil {
+		t.Fatalf("marshal skipped context: %v", err)
+	}
+	const want = `{"plan_id":2,"outcome":"skipped","sources":[],"invalid_keys":[]}`
+	if string(payload) != want {
+		t.Fatalf("skipped context JSON=%s, want %s", payload, want)
+	}
+}
+
 func messageProjectionPlan(id, runID uint64) contextengine.ContextPlan {
 	planHash := sha256.Sum256([]byte("plan"))
 	paragraph := uint32(3)
