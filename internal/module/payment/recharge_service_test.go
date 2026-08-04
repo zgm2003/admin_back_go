@@ -361,7 +361,10 @@ type fakeRechargeRepo struct {
 	rechargeByOrder           map[int64]*Recharge
 	batchOrders               []Order
 	callbackEvent             CallbackEvent
+	callbackEventExists       bool
+	callbackCreateCount       int
 	callbackCreateErr         error
+	callbackResolveErr        error
 	rejectInvalidCallbackJSON bool
 	creditCount               int
 	finalizeCount             int

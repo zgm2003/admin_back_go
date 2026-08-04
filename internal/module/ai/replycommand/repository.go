@@ -332,27 +332,6 @@ func (r *GormRepository) createReply(ctx context.Context, input CreateReplyInput
 		if r.idempotencyKey != nil {
 			key = r.idempotencyKey(input.UserID, input.RequestID)
 		}
-		command := Command{
-			RequestID:             input.RequestID,
-			RequestFingerprint:    append([]byte(nil), input.RequestFingerprint[:]...),
-			RequestIdentityStatus: string(input.RequestIdentityStatus),
-			RequestIdentityMarker: input.RequestIdentityMarker,
-			IdempotencyKey:        key,
-			Platform:              enum.PlatformAdmin,
-			UserID:                input.UserID,
-			ConversationID:        input.ConversationID,
-			UserMessageID:         message.ID,
-			RequestReceivedAt:     &input.RequestReceivedAt,
-			AcceptedAt:            &now,
-			State:                 StatePending,
-			MaxAttempts:           defaultMaxAttempts,
-			NextAttemptAt:         now,
-			CreatedAt:             now,
-			UpdatedAt:             now,
-		}
-		if err := tx.Create(&command).Error; err != nil {
-			return err
-		}
 		conversationID := input.ConversationID
 		userMessageID := message.ID
 		idempotency := key
@@ -364,6 +343,28 @@ func (r *GormRepository) createReply(ctx context.Context, input CreateReplyInput
 			Status: enum.AIRunStatusRunning, BillingStatus: string(billing.BillingStatusPending), BillingReason: string(billing.BillingReasonPending), StartedAt: &now, CreatedAt: now, UpdatedAt: now,
 		}
 		if err := tx.Create(&run).Error; err != nil {
+			return err
+		}
+		command := Command{
+			RequestID:             input.RequestID,
+			RequestFingerprint:    append([]byte(nil), input.RequestFingerprint[:]...),
+			RequestIdentityStatus: string(input.RequestIdentityStatus),
+			RequestIdentityMarker: input.RequestIdentityMarker,
+			IdempotencyKey:        key,
+			Platform:              enum.PlatformAdmin,
+			UserID:                input.UserID,
+			ConversationID:        input.ConversationID,
+			RunID:                 run.ID,
+			UserMessageID:         message.ID,
+			RequestReceivedAt:     &input.RequestReceivedAt,
+			AcceptedAt:            &now,
+			State:                 StatePending,
+			MaxAttempts:           defaultMaxAttempts,
+			NextAttemptAt:         now,
+			CreatedAt:             now,
+			UpdatedAt:             now,
+		}
+		if err := tx.Create(&command).Error; err != nil {
 			return err
 		}
 		if err := tx.Create(&airun.RunEvent{RunID: run.ID, Seq: 1, EventType: enum.AIRunEventStart, Message: enum.AIRunEventLabels[enum.AIRunEventStart], CreatedAt: now}).Error; err != nil {
@@ -458,7 +459,8 @@ func (r *GormRepository) claim(ctx context.Context, commandID uint64, source Cla
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		query := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
 			Where("attempt_count < max_attempts OR cancel_requested_at IS NOT NULL OR ((last_error_code = ? AND last_error_message = ?) OR (last_error_code = ? AND last_error_message = ?) OR (last_error_code = ? AND last_error_message = ?) OR (last_error_code = ? AND last_error_message = ?) OR (last_error_code = ? AND last_error_message IN ?)) OR EXISTS (SELECT 1 FROM ai_provider_attempts pa WHERE pa.command_id = ai_reply_commands.id AND pa.state = ?) OR (state IN ? AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?)", ErrCodeFinalizationRetry, FinalizationRetryMarker, "ai.provider_failed", "provider_failed", "ai.local_failed", "local_failure", "ai.provider_pre_dispatch_failed", "pre_dispatch_failed", "ai.billing.insufficient_balance", []string{"initial_insufficient", "continuation_topup_insufficient"}, AttemptPrepared, []State{StateClaimed, StateRunning}, now).
-			Where("(state = ? AND next_attempt_at <= ?) OR (state IN ? AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?)", StatePending, now, []State{StateClaimed, StateRunning}, now)
+			Where("(state = ? AND next_attempt_at <= ?) OR (state IN ? AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?)", StatePending, now, []State{StateClaimed, StateRunning}, now).
+			Where("ai_reply_commands.cancel_requested_at IS NOT NULL OR EXISTS (SELECT 1 FROM ai_conversations c WHERE c.id = ai_reply_commands.conversation_id AND c.user_id = ai_reply_commands.user_id AND c.is_del = ?)", enum.CommonNo)
 		if commandID > 0 {
 			query = query.Where("id = ?", commandID)
 		}

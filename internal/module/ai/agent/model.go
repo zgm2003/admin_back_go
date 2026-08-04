@@ -10,6 +10,7 @@ import (
 type Agent struct {
 	ID                   uint64    `gorm:"column:id;primaryKey"`
 	ProviderID           uint64    `gorm:"column:provider_id"`
+	ProviderModelID      uint64    `gorm:"column:provider_model_id"`
 	Name                 string    `gorm:"column:name"`
 	ModelID              string    `gorm:"column:model_id"`
 	ModelDisplayName     string    `gorm:"column:model_display_name"`

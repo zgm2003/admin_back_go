@@ -196,6 +196,25 @@ func TestClaimFinalizationRetryAtMaxDoesNotIncrementProviderAttempts(t *testing.
 	}
 }
 
+func TestClaimRequiresActiveConversationUnlessCancellationNeedsSettlement(t *testing.T) {
+	repository, _, mock, closeDB := newAttemptMockRepository(t)
+	defer closeDB()
+	now := time.Date(2026, 8, 4, 14, 0, 0, 0, time.UTC)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`(?s)SELECT .* FROM ` + "`ai_reply_commands`" + `.*\(ai_reply_commands\.cancel_requested_at IS NOT NULL OR EXISTS \(SELECT 1 FROM ai_conversations c WHERE c\.id = ai_reply_commands\.conversation_id AND c\.user_id = ai_reply_commands\.user_id AND c\.is_del = \?\)\).*FOR UPDATE`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	mock.ExpectCommit()
+
+	claim, err := repository.ClaimNext(context.Background(), ClaimSourcePoll, "worker-a", now, time.Minute)
+	if err != nil || claim != nil {
+		t.Fatalf("claim=%+v err=%v", claim, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestScheduleFinalizationRetryAddsStableMarkerWhenNoTriggerExists(t *testing.T) {
 	repository, _, mock, closeDB := newAttemptMockRepository(t)
 	defer closeDB()

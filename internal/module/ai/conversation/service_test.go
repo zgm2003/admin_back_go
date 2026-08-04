@@ -22,6 +22,7 @@ type fakeRepository struct {
 	created                  Conversation
 	deleteID                 int64
 	deleteUserID             int64
+	deleteResult             DeleteResult
 	updateID                 int64
 	updateUserID             int64
 	updateTitle              string
@@ -57,9 +58,18 @@ func (f *fakeRepository) UpdateTitle(ctx context.Context, id int64, userID int64
 	return nil
 }
 
-func (f *fakeRepository) Delete(ctx context.Context, id int64, userID int64) error {
+func (f *fakeRepository) Delete(ctx context.Context, id int64, userID int64) (DeleteResult, error) {
 	f.deleteID = id
 	f.deleteUserID = userID
+	return f.deleteResult, nil
+}
+
+type fakeCancelPublisher struct {
+	commandIDs []uint64
+}
+
+func (f *fakeCancelPublisher) PublishCancel(_ context.Context, commandID uint64) error {
+	f.commandIDs = append(f.commandIDs, commandID)
 	return nil
 }
 
@@ -205,12 +215,19 @@ func TestUpdateRejectsBlankTitle(t *testing.T) {
 }
 
 func TestDeleteRequiresOwnerAndSoftDeletesMessages(t *testing.T) {
-	repo := &fakeRepository{row: &Conversation{ID: 3, UserID: 7, IsDel: enum.CommonNo}}
-	if appErr := NewService(repo).Delete(context.Background(), 7, 3); appErr != nil {
+	repo := &fakeRepository{
+		row:          &Conversation{ID: 3, UserID: 7, IsDel: enum.CommonNo},
+		deleteResult: DeleteResult{CanceledCommandIDs: []uint64{41, 42}},
+	}
+	publisher := &fakeCancelPublisher{}
+	if appErr := NewService(repo, WithCancelPublisher(publisher)).Delete(context.Background(), 7, 3); appErr != nil {
 		t.Fatalf("Delete returned error: %v", appErr)
 	}
 	if repo.deleteID != 3 || repo.deleteUserID != 7 {
 		t.Fatalf("unexpected delete call: id=%d user=%d", repo.deleteID, repo.deleteUserID)
+	}
+	if len(publisher.commandIDs) != 2 || publisher.commandIDs[0] != 41 || publisher.commandIDs[1] != 42 {
+		t.Fatalf("cancel signals=%v", publisher.commandIDs)
 	}
 }
 

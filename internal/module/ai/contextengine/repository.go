@@ -418,7 +418,7 @@ func (repository *GormAdminRepository) AgentProfileChangeConflict(ctx context.Co
 	err := repository.db.WithContext(ctx).Raw(`SELECT
 EXISTS(SELECT 1 FROM ai_context_bindings WHERE agent_id = ? AND status = 'enabled') +
 EXISTS(SELECT 1 FROM ai_context_documents d JOIN ai_conversations c ON c.id=d.conversation_id WHERE c.agent_id=? AND d.active_version_id IS NOT NULL) +
-EXISTS(SELECT 1 FROM ai_conversation_memories WHERE agent_id = ?) AS ref_count`, agentID, agentID, agentID).Scan(&count).Error
+EXISTS(SELECT 1 FROM ai_conversation_memories m JOIN ai_conversations c ON c.id=m.conversation_id WHERE c.agent_id=?) AS ref_count`, agentID, agentID, agentID).Scan(&count).Error
 	return count > 0, err
 }
 

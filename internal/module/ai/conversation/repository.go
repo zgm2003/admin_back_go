@@ -10,19 +10,23 @@ import (
 	"admin_back_go/internal/shared/enum"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 var ErrRepositoryNotConfigured = errors.New("aiconversation repository not configured")
 
+var ErrDeleteStateConflict = errors.New("aiconversation delete state conflict")
+
 type GormRepository struct {
-	db *gorm.DB
+	db  *gorm.DB
+	now func() time.Time
 }
 
 func NewGormRepository(client *database.Client) *GormRepository {
 	if client == nil || client.Gorm == nil {
 		return nil
 	}
-	return &GormRepository{db: client.Gorm}
+	return &GormRepository{db: client.Gorm, now: time.Now}
 }
 
 func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]ListRow, bool, error) {
@@ -213,21 +217,119 @@ LIMIT ?`,
 	return state.LastReadMessageID, state.UnreadCount, true, nil
 }
 
-func (r *GormRepository) Delete(ctx context.Context, id int64, userID int64) error {
+func (r *GormRepository) Delete(ctx context.Context, id int64, userID int64) (DeleteResult, error) {
 	if r == nil || r.db == nil {
-		return ErrRepositoryNotConfigured
+		return DeleteResult{}, ErrRepositoryNotConfigured
 	}
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Table("ai_conversations").
-			Where("id = ? AND user_id = ? AND is_del = ?", id, userID, enum.CommonNo).
-			Update("is_del", enum.CommonYes).Error; err != nil {
+	now := time.Now()
+	if r.now != nil {
+		now = r.now()
+	}
+	result := DeleteResult{CanceledCommandIDs: []uint64{}}
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var commands []replycommand.Command
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("conversation_id = ? AND user_id = ? AND state IN ?", id, userID, []replycommand.State{
+				replycommand.StatePending,
+				replycommand.StateClaimed,
+				replycommand.StateRunning,
+			}).
+			Order("id ASC").
+			Find(&commands).Error; err != nil {
 			return err
+		}
+
+		var conversation Conversation
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND user_id = ? AND is_del = ?", id, userID, enum.CommonNo).
+			First(&conversation).Error; err != nil {
+			return err
+		}
+
+		for _, command := range commands {
+			if command.CancelRequestedAt != nil {
+				if command.AssistantMessageID == nil || command.StopDeliverySeq == nil {
+					return ErrDeleteStateConflict
+				}
+				result.CanceledCommandIDs = append(result.CanceledCommandIDs, command.ID)
+				continue
+			}
+			if command.AssistantMessageID != nil || command.StopDeliverySeq != nil {
+				return ErrDeleteStateConflict
+			}
+			prefix, err := replycommand.ReadDeliveryPrefixInTransaction(ctx, tx, command.ID, command.DeliverySeq)
+			if err != nil {
+				return err
+			}
+			stopDeliverySeq := prefix.StopDeliverySeq
+			content := prefix.Content
+			if !prefix.Consistent {
+				stopDeliverySeq = 0
+				content = ""
+			}
+			commandID := command.ID
+			deliveryState := replycommand.DeliveryStateStopped
+			message := deletedReplyMessage{
+				ConversationID: id,
+				ReplyCommandID: &commandID,
+				Role:           enum.AIMessageRoleAssistant,
+				ContentType:    "text",
+				Content:        content,
+				DeliveryState:  &deliveryState,
+				IsDel:          enum.CommonYes,
+				CreatedAt:      now,
+				UpdatedAt:      now,
+			}
+			if err := tx.Create(&message).Error; err != nil {
+				return err
+			}
+			updated := tx.Model(&replycommand.Command{}).
+				Where("id = ? AND cancel_requested_at IS NULL", command.ID).
+				Updates(map[string]any{
+					"cancel_requested_at":  now,
+					"stop_delivery_seq":    stopDeliverySeq,
+					"assistant_message_id": message.ID,
+					"updated_at":           now,
+				})
+			if updated.Error != nil {
+				return updated.Error
+			}
+			if updated.RowsAffected != 1 {
+				return ErrDeleteStateConflict
+			}
+			result.CanceledCommandIDs = append(result.CanceledCommandIDs, command.ID)
+		}
+
+		conversationUpdate := tx.Model(&Conversation{}).
+			Where("id = ? AND user_id = ? AND is_del = ?", id, userID, enum.CommonNo).
+			Updates(map[string]any{"is_del": enum.CommonYes, "updated_at": now})
+		if conversationUpdate.Error != nil {
+			return conversationUpdate.Error
+		}
+		if conversationUpdate.RowsAffected != 1 {
+			return ErrDeleteStateConflict
 		}
 		return tx.Table("ai_messages").
 			Where("conversation_id = ? AND is_del = ?", id, enum.CommonNo).
-			Update("is_del", enum.CommonYes).Error
+			Updates(map[string]any{"is_del": enum.CommonYes, "updated_at": now}).Error
 	})
+	return result, err
 }
+
+type deletedReplyMessage struct {
+	ID             int64     `gorm:"column:id;primaryKey"`
+	ConversationID int64     `gorm:"column:conversation_id"`
+	ReplyCommandID *uint64   `gorm:"column:reply_command_id"`
+	Role           int       `gorm:"column:role"`
+	ContentType    string    `gorm:"column:content_type"`
+	Content        string    `gorm:"column:content"`
+	DeliveryState  *string   `gorm:"column:delivery_state"`
+	IsDel          int       `gorm:"column:is_del"`
+	CreatedAt      time.Time `gorm:"column:created_at"`
+	UpdatedAt      time.Time `gorm:"column:updated_at"`
+}
+
+func (deletedReplyMessage) TableName() string { return "ai_messages" }
 
 type listRowFlat struct {
 	ID                int64

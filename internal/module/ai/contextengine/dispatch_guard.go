@@ -10,6 +10,7 @@ import (
 	"admin_back_go/internal/infra/database"
 	"admin_back_go/internal/module/ai/aigateway"
 	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/enum"
 
 	"gorm.io/gorm"
 )
@@ -140,6 +141,9 @@ func loadDispatchFacts(ctx context.Context, tx *gorm.DB, guard *gormDispatchGuar
 		command.CancelRequestedAt != nil {
 		return dispatchGuardFacts{}, errDispatchPlanConflict
 	}
+	if err := requireActiveDispatchConversation(ctx, tx, command); err != nil {
+		return dispatchGuardFacts{}, err
+	}
 	var run dispatchRunRow
 	if err := tx.WithContext(ctx).Table("ai_runs").Where("id = ?", input.RunID).Take(&run).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -177,6 +181,27 @@ func loadDispatchFacts(ctx context.Context, tx *gorm.DB, guard *gormDispatchGuar
 		return dispatchGuardFacts{}, errDispatchPlanConflict
 	}
 	return dispatchGuardFacts{Plan: plan, Items: items, SelectedItems: selected, Run: run}, nil
+}
+
+func requireActiveDispatchConversation(ctx context.Context, tx *gorm.DB, command lockedReplyCommand) error {
+	if tx == nil || command.ConversationID <= 0 || command.UserID <= 0 {
+		return errDispatchPlanConflict
+	}
+	var conversation struct {
+		ID int64 `gorm:"column:id"`
+	}
+	if err := tx.WithContext(ctx).Table("ai_conversations").
+		Where("id = ? AND user_id = ? AND is_del = ?", command.ConversationID, command.UserID, enum.CommonNo).
+		First(&conversation).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errDispatchPlanConflict
+		}
+		return err
+	}
+	if conversation.ID != command.ConversationID {
+		return errDispatchPlanConflict
+	}
+	return nil
 }
 
 func dispatchGuardAppError(code ErrorCode, cause error) *apperror.Error {

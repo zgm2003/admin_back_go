@@ -146,15 +146,6 @@ func (p *HistoryParticipant) CreateInTransaction(ctx context.Context, tx *gorm.D
 	if p.repository.idempotencyKey != nil {
 		key = p.repository.idempotencyKey(input.UserID, requestID)
 	}
-	command := Command{
-		RequestID: requestID, RequestFingerprint: append([]byte(nil), fingerprint[:]...),
-		RequestIdentityStatus: string(requestidentity.IdentityStatusReplayable), RequestIdentityMarker: "",
-		IdempotencyKey: key, Platform: enum.PlatformAdmin, UserID: input.UserID, ConversationID: input.ConversationID,
-		UserMessageID: message.ID, State: StatePending, MaxAttempts: defaultMaxAttempts, NextAttemptAt: now, CreatedAt: now, UpdatedAt: now,
-	}
-	if err := db.Create(&command).Error; err != nil {
-		return CreateReplyResult{}, err
-	}
 	conversationID, userMessageID, idempotency := input.ConversationID, message.ID, key
 	run := airun.Run{
 		Platform: enum.PlatformAdmin, ConversationID: &conversationID, RequestID: requestID,
@@ -167,6 +158,15 @@ func (p *HistoryParticipant) CreateInTransaction(ctx context.Context, tx *gorm.D
 		StartedAt: &now, CreatedAt: now, UpdatedAt: now,
 	}
 	if err := db.Create(&run).Error; err != nil {
+		return CreateReplyResult{}, err
+	}
+	command := Command{
+		RequestID: requestID, RequestFingerprint: append([]byte(nil), fingerprint[:]...),
+		RequestIdentityStatus: string(requestidentity.IdentityStatusReplayable), RequestIdentityMarker: "",
+		IdempotencyKey: key, Platform: enum.PlatformAdmin, UserID: input.UserID, ConversationID: input.ConversationID,
+		RunID: run.ID, UserMessageID: message.ID, State: StatePending, MaxAttempts: defaultMaxAttempts, NextAttemptAt: now, CreatedAt: now, UpdatedAt: now,
+	}
+	if err := db.Create(&command).Error; err != nil {
 		return CreateReplyResult{}, err
 	}
 	if err := db.Create(&airun.RunEvent{RunID: run.ID, Seq: 1, EventType: enum.AIRunEventStart, Message: enum.AIRunEventLabels[enum.AIRunEventStart], CreatedAt: now}).Error; err != nil {

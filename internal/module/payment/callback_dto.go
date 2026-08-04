@@ -1,6 +1,9 @@
 package payment
 
-import "net/url"
+import (
+	"net/url"
+	"time"
+)
 
 const (
 	callbackProcessPending = "pending"
@@ -17,4 +20,22 @@ type AlipayCallbackInput struct {
 
 type AlipayCallbackResult struct {
 	Text string
+}
+
+type CallbackEventResolution struct {
+	EventID        int64
+	DedupeKey      []byte
+	SignatureValid int
+	ProcessStatus  string
+	ProcessMessage string
+	ProcessedAt    time.Time
+	PaidOrderID    int64
+	AlipayTradeNo  string
+	PaidAt         time.Time
+}
+
+type CallbackEventResolutionResult struct {
+	Event     *CallbackEvent
+	PaidOrder *PaidOrderFinalization
+	Replay    bool
 }

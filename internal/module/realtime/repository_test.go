@@ -2,6 +2,7 @@ package realtime
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -15,8 +16,11 @@ import (
 	"admin_back_go/internal/infra/database"
 	infrarealtime "admin_back_go/internal/infra/realtime"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	mysqldriver "github.com/go-sql-driver/mysql"
+	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 func TestPersistedEventEnvelopeRejectsDurabilityDrift(t *testing.T) {
@@ -37,6 +41,37 @@ func TestPersistedEventEnvelopeRejectsDurabilityDrift(t *testing.T) {
 	}
 	if _, err := event.Envelope(DefaultRegistry()); !errors.Is(err, ErrEventDurabilityInvalid) {
 		t.Fatalf("persisted durability drift was accepted: %v", err)
+	}
+}
+
+func TestResumeRequiresAuthoritativeResyncWhenBacklogExceedsLimit(t *testing.T) {
+	sqlDB, mock, db := newRealtimeRepositoryMockDB(t)
+	defer sqlDB.Close()
+	repository := &GormRepository{db: db, registry: DefaultRegistry()}
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+
+	mock.ExpectQuery("SELECT COALESCE\\(MAX\\(sequence\\), 0\\) AS value FROM `realtime_events`").
+		WillReturnRows(sqlmock.NewRows([]string{"value"}).AddRow(3))
+	mock.ExpectQuery("SELECT \\* FROM `realtime_event_retention_watermarks`").
+		WillReturnError(gorm.ErrRecordNotFound)
+	mock.ExpectQuery("SELECT \\* FROM `realtime_events`.*ORDER BY sequence asc LIMIT \\?").
+		WithArgs(TargetTypeUser, "7", infrarealtime.Durable, uint64(0), 3).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"sequence", "event_id", "event_type", "target_type", "target_id", "durability", "payload_json", "occurred_at",
+		}).
+			AddRow(1, "01J00000000000000000000001", TypeNotificationCreatedV1, TargetTypeUser, "7", infrarealtime.Durable, `{}`, now).
+			AddRow(2, "01J00000000000000000000002", TypeNotificationCreatedV1, TargetTypeUser, "7", infrarealtime.Durable, `{}`, now).
+			AddRow(3, "01J00000000000000000000003", TypeNotificationCreatedV1, TargetTypeUser, "7", infrarealtime.Durable, `{}`, now))
+
+	result, err := repository.ResumeUser(context.Background(), ResumeQuery{UserID: 7, AfterSequence: 0, Limit: 2, Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.ResyncRequired || len(result.Events) != 0 || result.LatestSequence != 3 {
+		t.Fatalf("overflow resume=%#v", result)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -297,4 +332,21 @@ PRIMARY KEY (target_type,target_id)
 		_ = base.Close()
 	})
 	return NewGormRepository(client, DefaultRegistry())
+}
+
+func newRealtimeRepositoryMockDB(t *testing.T) (*sql.DB, sqlmock.Sqlmock, *gorm.DB) {
+	t.Helper()
+	sqlDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := gorm.Open(mysql.New(mysql.Config{Conn: sqlDB, SkipInitializeWithVersion: true}), &gorm.Config{
+		DisableAutomaticPing: true,
+		Logger:               logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		_ = sqlDB.Close()
+		t.Fatal(err)
+	}
+	return sqlDB, mock, db
 }

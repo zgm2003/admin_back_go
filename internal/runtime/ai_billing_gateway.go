@@ -1446,6 +1446,7 @@ func (guard gormGatewayOwnerGuard) EnsureRunnable(ctx context.Context, transacti
 	err = tx.WithContext(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).
 		Where("id = ? AND lease_owner = ? AND lease_token = ? AND state = ? AND cancel_requested_at IS NULL AND lease_expires_at > ?", guard.commandID, strings.TrimSpace(guard.owner), guard.token, replycommand.StateRunning, now).
 		Where("EXISTS (SELECT 1 FROM ai_runs r WHERE r.id = ? AND r.user_id = ai_reply_commands.user_id AND r.request_id = ai_reply_commands.request_id)", runID).
+		Where("EXISTS (SELECT 1 FROM ai_conversations c WHERE c.id = ai_reply_commands.conversation_id AND c.user_id = ai_reply_commands.user_id AND c.is_del = ?)", enum.CommonNo).
 		First(&command).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return replycommand.ErrLeaseLost

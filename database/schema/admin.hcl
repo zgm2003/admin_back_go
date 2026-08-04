@@ -141,6 +141,11 @@ table "ai_agents" {
     type     = bigint
     unsigned = true
   }
+  column "provider_model_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+  }
   column "name" {
     null = false
     type = varchar(128)
@@ -211,11 +216,20 @@ table "ai_agents" {
     on_update   = RESTRICT
     on_delete   = RESTRICT
   }
+  foreign_key "fk_ai_agents_provider_model" {
+    columns     = [column.provider_model_id, column.provider_id, column.model_id]
+    ref_columns = [table.ai_provider_models.column.id, table.ai_provider_models.column.provider_id, table.ai_provider_models.column.model_id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
   index "idx_ai_agents_context_profile" {
     columns = [column.context_profile_id]
   }
   index "idx_ai_agents_model" {
     columns = [column.provider_id, column.model_id, column.status, column.is_del]
+  }
+  index "idx_ai_agents_provider_model_identity" {
+    columns = [column.provider_model_id, column.provider_id, column.model_id]
   }
   index "idx_ai_agents_provider" {
     columns = [column.provider_id, column.status, column.is_del]
@@ -665,9 +679,9 @@ table "ai_context_documents" {
     on_update   = RESTRICT
     on_delete   = RESTRICT
   }
-  foreign_key "fk_ai_context_documents_source_message" {
-    columns     = [column.source_message_id]
-    ref_columns = [table.ai_messages.column.id]
+  foreign_key "fk_ai_context_documents_source_message_owner" {
+    columns     = [column.source_message_id, column.conversation_id]
+    ref_columns = [table.ai_messages.column.id, table.ai_messages.column.conversation_id]
     on_update   = RESTRICT
     on_delete   = RESTRICT
   }
@@ -695,6 +709,9 @@ table "ai_context_documents" {
   }
   index "idx_ai_context_documents_source_message" {
     columns = [column.source_message_id]
+  }
+  index "idx_ai_context_documents_source_message_owner" {
+    columns = [column.source_message_id, column.conversation_id]
   }
   index "idx_ai_context_documents_active_owner" {
     columns = [column.id, column.active_version_id]
@@ -1192,6 +1209,10 @@ table "ai_context_plans" {
     unique  = true
     columns = [column.run_id]
   }
+  index "uk_ai_context_plans_id_run" {
+    unique  = true
+    columns = [column.id, column.run_id]
+  }
   index "idx_ai_context_plans_profile_generation" {
     columns = [column.context_profile_id_snapshot, column.context_index_generation_snapshot, column.id]
   }
@@ -1453,23 +1474,27 @@ table "ai_conversation_memories" {
     on_update   = RESTRICT
     on_delete   = RESTRICT
   }
-  foreign_key "fk_ai_conversation_memories_previous" {
-    columns     = [column.previous_memory_id]
-    ref_columns = [table.ai_conversation_memories.column.id]
+  foreign_key "fk_ai_conversation_memories_previous_owner" {
+    columns     = [column.previous_memory_id, column.conversation_id, column.context_profile_id_snapshot]
+    ref_columns = [table.ai_conversation_memories.column.id, table.ai_conversation_memories.column.conversation_id, table.ai_conversation_memories.column.context_profile_id_snapshot]
     on_update   = RESTRICT
     on_delete   = RESTRICT
   }
-  foreign_key "fk_ai_conversation_memories_from_message" {
-    columns     = [column.from_message_id]
-    ref_columns = [table.ai_messages.column.id]
+  foreign_key "fk_ai_conversation_memories_from_message_owner" {
+    columns     = [column.from_message_id, column.conversation_id]
+    ref_columns = [table.ai_messages.column.id, table.ai_messages.column.conversation_id]
     on_update   = RESTRICT
     on_delete   = RESTRICT
   }
-  foreign_key "fk_ai_conversation_memories_through_message" {
-    columns     = [column.through_message_id]
-    ref_columns = [table.ai_messages.column.id]
+  foreign_key "fk_ai_conversation_memories_through_message_owner" {
+    columns     = [column.through_message_id, column.conversation_id]
+    ref_columns = [table.ai_messages.column.id, table.ai_messages.column.conversation_id]
     on_update   = RESTRICT
     on_delete   = RESTRICT
+  }
+  index "uk_ai_conversation_memories_owner" {
+    unique  = true
+    columns = [column.id, column.conversation_id, column.context_profile_id_snapshot]
   }
   index "uk_ai_conversation_memories_identity" {
     unique  = true
@@ -1481,11 +1506,20 @@ table "ai_conversation_memories" {
   index "idx_ai_conversation_memories_previous" {
     columns = [column.previous_memory_id]
   }
+  index "idx_ai_conversation_memories_previous_owner" {
+    columns = [column.previous_memory_id, column.conversation_id, column.context_profile_id_snapshot]
+  }
   index "idx_ai_conversation_memories_from_message" {
     columns = [column.from_message_id]
   }
+  index "idx_ai_conversation_memories_from_message_owner" {
+    columns = [column.from_message_id, column.conversation_id]
+  }
   index "idx_ai_conversation_memories_through_message" {
     columns = [column.through_message_id]
+  }
+  index "idx_ai_conversation_memories_through_message_owner" {
+    columns = [column.through_message_id, column.conversation_id]
   }
   check "chk_ai_conversation_memories_interval" {
     expr = "(`from_message_id` <= `through_message_id`)"
@@ -1518,7 +1552,7 @@ table "ai_conversations" {
   }
   column "agent_id" {
     null     = false
-    type     = int
+    type     = bigint
     unsigned = true
     comment  = "ai_agents.id"
   }
@@ -1562,6 +1596,25 @@ table "ai_conversations" {
   }
   primary_key {
     columns = [column.id]
+  }
+  foreign_key "fk_ai_conversations_user" {
+    columns     = [column.user_id]
+    ref_columns = [table.users.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  foreign_key "fk_ai_conversations_agent" {
+    columns     = [column.agent_id]
+    ref_columns = [table.ai_agents.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  index "uk_ai_conversations_id_user" {
+    unique  = true
+    columns = [column.id, column.user_id]
+  }
+  index "idx_ai_conversations_agent" {
+    columns = [column.agent_id]
   }
   index "idx_ai_conversations_user_agent_del_last_message" {
     columns = [column.user_id, column.agent_id, column.is_del, column.last_message_at, column.id]
@@ -1647,6 +1700,18 @@ table "ai_image_files" {
   }
   primary_key {
     columns = [column.id]
+  }
+  foreign_key "fk_ai_image_files_task" {
+    columns     = [column.task_id]
+    ref_columns = [table.ai_image_tasks.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  foreign_key "fk_ai_image_files_related" {
+    columns     = [column.related_file_id]
+    ref_columns = [table.ai_image_files.column.id]
+    on_update   = RESTRICT
+    on_delete   = SET_NULL
   }
   index "idx_ai_image_files_related" {
     columns = [column.related_file_id]
@@ -1847,7 +1912,8 @@ table "ai_image_tasks" {
   index "idx_ai_image_tasks_platform_user_created" {
     columns = [column.platform, column.user_id, column.created_at]
   }
-  index "idx_ai_image_tasks_run" {
+  index "uk_ai_image_tasks_run" {
+    unique  = true
     columns = [column.run_id]
   }
   index "idx_ai_image_tasks_lease" {
@@ -1952,6 +2018,10 @@ table "ai_messages" {
   index "uk_ai_messages_reply_command" {
     unique  = true
     columns = [column.reply_command_id]
+  }
+  index "uk_ai_messages_id_conversation" {
+    unique  = true
+    columns = [column.id, column.conversation_id]
   }
   check "chk_ai_messages_delivery_state" {
     expr = "(((`role` = 2) and (`delivery_state` in (_utf8mb4'completed',_utf8mb4'stopped'))) or ((`role` <> 2) and (`delivery_state` is null)))"
@@ -2282,9 +2352,15 @@ table "ai_provider_attempts" {
   primary_key {
     columns = [column.id]
   }
-  foreign_key "fk_ai_provider_attempts_context_plan" {
-    columns     = [column.context_plan_id]
-    ref_columns = [table.ai_context_plans.column.id]
+  foreign_key "fk_ai_provider_attempts_context_plan_run" {
+    columns     = [column.context_plan_id, column.run_id]
+    ref_columns = [table.ai_context_plans.column.id, table.ai_context_plans.column.run_id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  foreign_key "fk_ai_provider_attempts_command_run" {
+    columns     = [column.command_id, column.run_id]
+    ref_columns = [table.ai_reply_commands.column.id, table.ai_reply_commands.column.run_id]
     on_update   = RESTRICT
     on_delete   = RESTRICT
   }
@@ -2305,6 +2381,12 @@ table "ai_provider_attempts" {
   }
   index "idx_ai_provider_attempts_context_plan" {
     columns = [column.context_plan_id]
+  }
+  index "idx_ai_provider_attempts_context_plan_run" {
+    columns = [column.context_plan_id, column.run_id]
+  }
+  index "idx_ai_provider_attempts_command_run" {
+    columns = [column.command_id, column.run_id]
   }
   index "uk_ai_attempt_run_no" {
     unique  = true
@@ -2399,6 +2481,12 @@ table "ai_provider_models" {
   primary_key {
     columns = [column.id]
   }
+  foreign_key "fk_ai_provider_models_provider" {
+    columns     = [column.provider_id]
+    ref_columns = [table.ai_providers.column.id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
   index "idx_ai_provider_models_provider_status" {
     columns = [column.provider_id, column.status]
   }
@@ -2408,6 +2496,10 @@ table "ai_provider_models" {
   index "uk_ai_provider_models_provider_model_kind" {
     unique  = true
     columns = [column.provider_id, column.model_id, column.model_kind]
+  }
+  index "uk_ai_provider_models_id_provider_model" {
+    unique  = true
+    columns = [column.id, column.provider_id, column.model_id]
   }
   check "chk_ai_provider_models_mapping_status" {
     expr = "(`mapping_status` in (_ascii'mapped',_ascii'unmapped'))"
@@ -2557,20 +2649,29 @@ table "ai_reply_commands" {
     type = varchar(32)
   }
   column "user_id" {
-    null = false
-    type = bigint
+    null     = false
+    type     = int
+    unsigned = true
   }
   column "conversation_id" {
-    null = false
-    type = bigint
+    null     = false
+    type     = int
+    unsigned = true
+  }
+  column "run_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
   }
   column "user_message_id" {
-    null = false
-    type = bigint
+    null     = false
+    type     = bigint
+    unsigned = true
   }
   column "assistant_message_id" {
-    null = true
-    type = bigint
+    null     = true
+    type     = bigint
+    unsigned = true
   }
   column "request_received_at" {
     null = true
@@ -2676,8 +2777,52 @@ table "ai_reply_commands" {
   primary_key {
     columns = [column.id]
   }
+  foreign_key "fk_ai_reply_commands_run_owner" {
+    columns     = [column.run_id, column.user_id, column.conversation_id, column.user_message_id, column.request_id]
+    ref_columns = [table.ai_runs.column.id, table.ai_runs.column.user_id, table.ai_runs.column.conversation_id, table.ai_runs.column.user_message_id, table.ai_runs.column.request_id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  foreign_key "fk_ai_reply_commands_conversation_owner" {
+    columns     = [column.conversation_id, column.user_id]
+    ref_columns = [table.ai_conversations.column.id, table.ai_conversations.column.user_id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  foreign_key "fk_ai_reply_commands_user_message_owner" {
+    columns     = [column.user_message_id, column.conversation_id]
+    ref_columns = [table.ai_messages.column.id, table.ai_messages.column.conversation_id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
+  foreign_key "fk_ai_reply_commands_assistant_message_owner" {
+    columns     = [column.assistant_message_id, column.conversation_id]
+    ref_columns = [table.ai_messages.column.id, table.ai_messages.column.conversation_id]
+    on_update   = RESTRICT
+    on_delete   = RESTRICT
+  }
   index "idx_ai_reply_claim" {
     columns = [column.state, column.next_attempt_at, column.lease_expires_at, column.id]
+  }
+  index "idx_ai_reply_commands_run_owner" {
+    columns = [column.run_id, column.user_id, column.conversation_id, column.user_message_id, column.request_id]
+  }
+  index "idx_ai_reply_commands_conversation_owner" {
+    columns = [column.conversation_id, column.user_id]
+  }
+  index "idx_ai_reply_commands_user_message_owner" {
+    columns = [column.user_message_id, column.conversation_id]
+  }
+  index "idx_ai_reply_commands_assistant_message_owner" {
+    columns = [column.assistant_message_id, column.conversation_id]
+  }
+  index "uk_ai_reply_commands_run" {
+    unique  = true
+    columns = [column.run_id]
+  }
+  index "uk_ai_reply_commands_id_run" {
+    unique  = true
+    columns = [column.id, column.run_id]
   }
   index "uk_ai_reply_idempotency" {
     unique  = true
@@ -3049,6 +3194,10 @@ table "ai_runs" {
     unique  = true
     columns = [column.user_message_id]
   }
+  index "uk_ai_runs_command_owner" {
+    unique  = true
+    columns = [column.id, column.user_id, column.conversation_id, column.user_message_id, column.request_id]
+  }
   check "chk_ai_runs_platform" {
     expr = "((`platform` regexp _utf8mb4'^[a-z][a-z0-9_]{1,48}$') and (`platform` not in (_utf8mb4'app',_utf8mb4'canvas')) and (`platform` <> _utf8mb4'all'))"
   }
@@ -3178,7 +3327,8 @@ table "ai_text_tasks" {
     on_update   = RESTRICT
     on_delete   = RESTRICT
   }
-  index "idx_ai_text_tasks_run" {
+  index "uk_ai_text_tasks_run" {
+    unique  = true
     columns = [column.run_id]
   }
   index "idx_ai_text_tasks_status_created" {
@@ -5059,6 +5209,10 @@ table "payment_callback_events" {
     type    = varchar(32)
     default = "alipay"
   }
+  column "dedupe_key" {
+    null = false
+    type = binary(32)
+  }
   column "notify_id" {
     null    = false
     type    = varchar(128)
@@ -5143,6 +5297,10 @@ table "payment_callback_events" {
   }
   index "idx_payment_callback_events_status_time" {
     columns = [column.process_status, column.received_at]
+  }
+  index "uk_payment_callback_events_dedupe" {
+    unique  = true
+    columns = [column.dedupe_key]
   }
 }
 table "payment_configs" {
@@ -5312,6 +5470,12 @@ table "payment_orders" {
     type    = varchar(64)
     default = ""
   }
+  column "alipay_trade_no_identity" {
+    null    = true
+    type    = varchar(64)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
   column "expired_at" {
     null = false
     type = datetime
@@ -5369,6 +5533,13 @@ table "payment_orders" {
   index "uk_payment_order_no" {
     unique  = true
     columns = [column.order_no]
+  }
+  index "uk_payment_orders_alipay_trade_identity" {
+    unique  = true
+    columns = [column.alipay_trade_no_identity]
+  }
+  check "chk_payment_orders_alipay_trade_identity" {
+    expr = "(((`alipay_trade_no` = _utf8mb4'') and (`alipay_trade_no_identity` is null)) or ((`alipay_trade_no` <> _utf8mb4'') and (cast(`alipay_trade_no_identity` as binary) = cast(`alipay_trade_no` as binary))))"
   }
 }
 table "payment_recharge_packages" {

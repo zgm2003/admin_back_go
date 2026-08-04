@@ -2,6 +2,7 @@ package payment
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"strconv"
 	"strings"
@@ -16,10 +17,15 @@ func (s *Service) HandleAlipayCallback(ctx context.Context, input AlipayCallback
 	if appErr != nil {
 		return failCallbackResult(), nil
 	}
+	callbackRepo, ok := repo.(callbackRepository)
+	if !ok {
+		return failCallbackResult(), nil
+	}
 	receivedAt := s.now()
 	rawPayload := callbackAuditPayloadJSON(input.Form)
-	eventID, err := repo.CreateCallbackEvent(ctx, CallbackEvent{
+	incomingEvent := CallbackEvent{
 		Provider:         providerAlipay,
+		DedupeKey:        callbackDedupeKey(providerAlipay, input.Form),
 		NotifyID:         strings.TrimSpace(input.Form.Get("notify_id")),
 		OutTradeNo:       strings.TrimSpace(input.Form.Get("out_trade_no")),
 		TradeNo:          strings.TrimSpace(input.Form.Get("trade_no")),
@@ -31,64 +37,112 @@ func (s *Service) HandleAlipayCallback(ctx context.Context, input AlipayCallback
 		RawPayloadJSON:   rawPayload,
 		ReceivedAt:       receivedAt,
 		IsDel:            enum.CommonNo,
-	})
-	if err != nil {
-		eventID = 0
 	}
-	mark := func(signatureValid int, status string, message string) (*AlipayCallbackResult, *apperror.Error) {
-		if eventID > 0 {
-			_ = repo.UpdateCallbackEventProcessed(ctx, eventID, signatureValid, status, message, s.now())
+	event, _, err := callbackRepo.AcquireCallbackEvent(ctx, incomingEvent)
+	if err != nil {
+		return failCallbackResult(), nil
+	}
+	if !callbackEventFactsEqual(event, &incomingEvent) {
+		return failCallbackResult(), nil
+	}
+	if event.ProcessStatus == callbackProcessSuccess || event.ProcessStatus == callbackProcessIgnored {
+		return successCallbackResult(), nil
+	}
+	resolve := func(signatureValid int, status string, message string, orderID int64, tradeNo string) (*AlipayCallbackResult, *apperror.Error) {
+		processedAt := s.now()
+		resolution := CallbackEventResolution{
+			EventID:        event.ID,
+			DedupeKey:      incomingEvent.DedupeKey,
+			SignatureValid: signatureValid,
+			ProcessStatus:  status,
+			ProcessMessage: message,
+			ProcessedAt:    processedAt,
 		}
-		if status == callbackProcessFailed {
+		if orderID > 0 {
+			resolution.PaidOrderID = orderID
+			resolution.AlipayTradeNo = strings.TrimSpace(tradeNo)
+			resolution.PaidAt = processedAt
+		}
+		result, err := callbackRepo.ResolveCallbackEvent(ctx, resolution)
+		if err != nil || result == nil || result.Event == nil {
 			return failCallbackResult(), nil
 		}
-		return successCallbackResult(), nil
+		if result.Event.ProcessStatus == callbackProcessFailed {
+			return failCallbackResult(), nil
+		}
+		if result.Event.ProcessStatus == callbackProcessSuccess || result.Event.ProcessStatus == callbackProcessIgnored {
+			return successCallbackResult(), nil
+		}
+		return failCallbackResult(), nil
 	}
 
 	rawPayloadForOrder := callbackPayloadFromForm(input.Form)
 	order, err := repo.GetOrderByNo(ctx, rawPayloadForOrder.OutTradeNo)
 	if err != nil {
-		return mark(enum.CommonNo, callbackProcessFailed, "查询支付订单失败")
+		return resolve(enum.CommonNo, callbackProcessFailed, "查询支付订单失败", 0, "")
 	}
 	if order == nil {
-		return mark(enum.CommonNo, callbackProcessIgnored, "支付订单不存在")
+		return resolve(enum.CommonNo, callbackProcessIgnored, "支付订单不存在", 0, "")
 	}
 	cfg, appErr := s.configByOrder(ctx, order)
 	if appErr != nil {
-		return mark(enum.CommonNo, callbackProcessFailed, appErr.Message)
+		return resolve(enum.CommonNo, callbackProcessFailed, appErr.Message, 0, "")
 	}
 	platformCfg, appErr := s.gatewayConfigFromConfig(*cfg)
 	if appErr != nil {
-		return mark(enum.CommonNo, callbackProcessFailed, appErr.Message)
+		return resolve(enum.CommonNo, callbackProcessFailed, appErr.Message, 0, "")
 	}
 	gw, appErr := s.requireGateway()
 	if appErr != nil {
-		return mark(enum.CommonNo, callbackProcessFailed, appErr.Message)
+		return resolve(enum.CommonNo, callbackProcessFailed, appErr.Message, 0, "")
 	}
 	verified, verifyErr := gw.VerifyNotify(ctx, platformCfg, input.Form)
 	if verifyErr != nil {
-		return mark(enum.CommonNo, callbackProcessFailed, verifyErr.Error())
+		return resolve(enum.CommonNo, callbackProcessFailed, verifyErr.Error(), 0, "")
 	}
 	if verified == nil {
-		return mark(enum.CommonNo, callbackProcessFailed, "支付宝回调为空")
+		return resolve(enum.CommonNo, callbackProcessFailed, "支付宝回调为空", 0, "")
 	}
 	if strings.TrimSpace(verified.AppID) != strings.TrimSpace(cfg.AppID) {
-		return mark(enum.CommonYes, callbackProcessFailed, "支付宝应用ID不匹配")
+		return resolve(enum.CommonYes, callbackProcessFailed, "支付宝应用ID不匹配", 0, "")
 	}
 	if verified.TotalAmountCents != order.AmountCents {
-		return mark(enum.CommonYes, callbackProcessFailed, "支付宝回调金额不匹配")
+		return resolve(enum.CommonYes, callbackProcessFailed, "支付宝回调金额不匹配", 0, "")
+	}
+	if strings.TrimSpace(verified.OutTradeNo) != strings.TrimSpace(order.OrderNo) {
+		return resolve(enum.CommonYes, callbackProcessFailed, "支付宝商户订单号不匹配", 0, "")
 	}
 	switch strings.TrimSpace(verified.TradeStatus) {
 	case "TRADE_SUCCESS", "TRADE_FINISHED":
-		if _, appErr := s.FinalizeOrderPaid(ctx, order.ID, verified.TradeNo, s.now(), finalizeSourceCallback); appErr != nil {
-			return mark(enum.CommonYes, callbackProcessFailed, appErr.Message)
+		tradeNo := strings.TrimSpace(verified.TradeNo)
+		if tradeNo == "" {
+			return resolve(enum.CommonYes, callbackProcessFailed, "支付宝交易号为空", 0, "")
 		}
-		return mark(enum.CommonYes, callbackProcessSuccess, "credited")
+		return resolve(enum.CommonYes, callbackProcessSuccess, "credited", order.ID, tradeNo)
 	case "WAIT_BUYER_PAY":
-		return mark(enum.CommonYes, callbackProcessIgnored, "支付宝交易仍待支付")
+		return resolve(enum.CommonYes, callbackProcessIgnored, "支付宝交易仍待支付", 0, "")
 	default:
-		return mark(enum.CommonYes, callbackProcessIgnored, "支付宝交易状态未完成")
+		return resolve(enum.CommonYes, callbackProcessIgnored, "支付宝交易状态未完成", 0, "")
 	}
+}
+
+func callbackDedupeKey(provider string, form map[string][]string) []byte {
+	notifyID := strings.TrimSpace(firstFormValue(form, "notify_id"))
+	parts := []string{"payment_callback_v1", strings.TrimSpace(provider)}
+	if notifyID != "" {
+		parts = append(parts, "notify_id", notifyID)
+	} else {
+		parts = append(parts,
+			"callback_facts",
+			strings.TrimSpace(firstFormValue(form, "out_trade_no")),
+			strings.TrimSpace(firstFormValue(form, "trade_no")),
+			strings.TrimSpace(firstFormValue(form, "trade_status")),
+			strings.TrimSpace(firstFormValue(form, "app_id")),
+			strings.TrimSpace(firstFormValue(form, "total_amount")),
+		)
+	}
+	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
+	return sum[:]
 }
 
 func callbackPayloadFromForm(form map[string][]string) *gateway.NotifyPayload {

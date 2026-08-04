@@ -82,6 +82,7 @@ type Command struct {
 	Platform              string      `gorm:"column:platform"`
 	UserID                int64       `gorm:"column:user_id"`
 	ConversationID        int64       `gorm:"column:conversation_id"`
+	RunID                 int64       `gorm:"column:run_id"`
 	UserMessageID         int64       `gorm:"column:user_message_id"`
 	AssistantMessageID    *int64      `gorm:"column:assistant_message_id"`
 	RequestReceivedAt     *time.Time  `gorm:"column:request_received_at"`

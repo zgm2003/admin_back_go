@@ -226,8 +226,12 @@ func (r *GormRepository) ResumeUser(ctx context.Context, query ResumeQuery) (*Re
 		return result, nil
 	}
 	if err := scoped().Where("sequence > ?", query.AfterSequence).
-		Order("sequence asc").Limit(query.Limit).Find(&result.Events).Error; err != nil {
+		Order("sequence asc").Limit(query.Limit + 1).Find(&result.Events).Error; err != nil {
 		return nil, err
+	}
+	if len(result.Events) > query.Limit {
+		result.Events = []Event{}
+		result.ResyncRequired = true
 	}
 	return result, nil
 }

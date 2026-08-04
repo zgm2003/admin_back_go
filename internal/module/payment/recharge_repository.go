@@ -210,82 +210,90 @@ func (r *GormRepository) FinalizePaidOrder(ctx context.Context, orderID int64, t
 	}
 	var fact PaidOrderFinalization
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var order Order
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", orderID).First(&order).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return ErrPaymentOrderNotFound
-			}
-			return err
-		}
-		orderAlreadyPaid, err := validateOrderForPaidFinalization(&order, orderID, tradeNo)
+		var err error
+		result, err := r.finalizePaidOrderInTx(ctx, tx, orderID, tradeNo, paidAt, now)
 		if err != nil {
 			return err
 		}
-
-		var row Recharge
-		err = tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("payment_order_id = ?", order.ID).First(&row).Error
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			if !orderAlreadyPaid {
-				if err := markOrderPaidInTx(tx, &order, tradeNo, paidAt); err != nil {
-					return err
-				}
-			}
-			fact = PaidOrderFinalization{Order: &order, OrderPaid: !orderAlreadyPaid, OrderAlreadyPaid: orderAlreadyPaid, RawOrder: true}
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		rechargeAlreadyCredited, err := validateRechargeForPaidFinalization(&row, &order, orderAlreadyPaid)
-		if err != nil {
-			return err
-		}
-		units, err := money.CentsToUnits(row.AmountCents)
-		if err != nil {
-			return err
-		}
-		if !orderAlreadyPaid {
-			if err := markOrderPaidInTx(tx, &order, tradeNo, paidAt); err != nil {
-				return err
-			}
-		}
-		creditInput := walletmodule.CreditRechargeInput{UserID: row.UserID, RechargeID: row.ID, AmountUnits: units, Remark: "支付宝充值"}
-		var creditFact *walletmodule.RechargeCreditFact
-		if rechargeAlreadyCredited {
-			creditFact, err = r.walletParticipant.FindRechargeCreditInTx(ctx, tx, creditInput)
-		} else {
-			creditFact, err = r.walletParticipant.CreditRechargeInTx(ctx, tx, creditInput)
-		}
-		if err != nil {
-			return err
-		}
-		if err := validateRechargeCreditParticipantFact(creditFact, &row, units, rechargeAlreadyCredited); err != nil {
-			return err
-		}
-		if !rechargeAlreadyCredited {
-			settledAt := paidAt
-			if order.PaidAt != nil {
-				settledAt = *order.PaidAt
-			}
-			if err := markRechargeCreditedInTx(tx, &row, settledAt, now); err != nil {
-				return err
-			}
-		}
-		fact = PaidOrderFinalization{
-			Order:                   &order,
-			Recharge:                &row,
-			Wallet:                  creditFact.Wallet,
-			OrderPaid:               !orderAlreadyPaid,
-			OrderAlreadyPaid:        orderAlreadyPaid,
-			RechargeCredited:        !rechargeAlreadyCredited,
-			RechargeAlreadyCredited: rechargeAlreadyCredited,
-		}
+		fact = *result
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
 	return &fact, nil
+}
+
+func (r *GormRepository) finalizePaidOrderInTx(ctx context.Context, tx *gorm.DB, orderID int64, tradeNo string, paidAt time.Time, now time.Time) (*PaidOrderFinalization, error) {
+	var order Order
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", orderID).First(&order).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrPaymentOrderNotFound
+		}
+		return nil, err
+	}
+	orderAlreadyPaid, err := validateOrderForPaidFinalization(&order, orderID, tradeNo)
+	if err != nil {
+		return nil, err
+	}
+
+	var row Recharge
+	err = tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("payment_order_id = ?", order.ID).First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		if !orderAlreadyPaid {
+			if err := markOrderPaidInTx(tx, &order, tradeNo, paidAt); err != nil {
+				return nil, err
+			}
+		}
+		return &PaidOrderFinalization{Order: &order, OrderPaid: !orderAlreadyPaid, OrderAlreadyPaid: orderAlreadyPaid, RawOrder: true}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	rechargeAlreadyCredited, err := validateRechargeForPaidFinalization(&row, &order, orderAlreadyPaid)
+	if err != nil {
+		return nil, err
+	}
+	units, err := money.CentsToUnits(row.AmountCents)
+	if err != nil {
+		return nil, err
+	}
+	if !orderAlreadyPaid {
+		if err := markOrderPaidInTx(tx, &order, tradeNo, paidAt); err != nil {
+			return nil, err
+		}
+	}
+	creditInput := walletmodule.CreditRechargeInput{UserID: row.UserID, RechargeID: row.ID, AmountUnits: units, Remark: "支付宝充值"}
+	var creditFact *walletmodule.RechargeCreditFact
+	if rechargeAlreadyCredited {
+		creditFact, err = r.walletParticipant.FindRechargeCreditInTx(ctx, tx, creditInput)
+	} else {
+		creditFact, err = r.walletParticipant.CreditRechargeInTx(ctx, tx, creditInput)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := validateRechargeCreditParticipantFact(creditFact, &row, units, rechargeAlreadyCredited); err != nil {
+		return nil, err
+	}
+	if !rechargeAlreadyCredited {
+		settledAt := paidAt
+		if order.PaidAt != nil {
+			settledAt = *order.PaidAt
+		}
+		if err := markRechargeCreditedInTx(tx, &row, settledAt, now); err != nil {
+			return nil, err
+		}
+	}
+	return &PaidOrderFinalization{
+		Order:                   &order,
+		Recharge:                &row,
+		Wallet:                  creditFact.Wallet,
+		OrderPaid:               !orderAlreadyPaid,
+		OrderAlreadyPaid:        orderAlreadyPaid,
+		RechargeCredited:        !rechargeAlreadyCredited,
+		RechargeAlreadyCredited: rechargeAlreadyCredited,
+	}, nil
 }
 
 func validateOrderForPaidFinalization(order *Order, orderID int64, tradeNo string) (bool, error) {
@@ -341,9 +349,18 @@ func validateRechargeForPaidFinalization(recharge *Recharge, order *Order, order
 
 func markOrderPaidInTx(tx *gorm.DB, order *Order, tradeNo string, paidAt time.Time) error {
 	resolvedTradeNo := resultTradeNoFromStrings(tradeNo, order.AlipayTradeNo)
+	var tradeNoIdentity any
+	if resolvedTradeNo != "" {
+		tradeNoIdentity = resolvedTradeNo
+	}
 	result := tx.Model(&Order{}).
 		Where("id = ? AND is_del = ? AND status = ? AND paid_at IS NULL AND closed_at IS NULL", order.ID, enum.CommonNo, order.Status).
-		Updates(map[string]any{"status": orderStatusPaid, "paid_at": paidAt, "alipay_trade_no": resolvedTradeNo})
+		Updates(map[string]any{
+			"status":                   orderStatusPaid,
+			"paid_at":                  paidAt,
+			"alipay_trade_no":          resolvedTradeNo,
+			"alipay_trade_no_identity": tradeNoIdentity,
+		})
 	if result.Error != nil {
 		return result.Error
 	}

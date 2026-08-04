@@ -449,7 +449,7 @@ func TestCreateRequiresProviderModelAndDefaultScene(t *testing.T) {
 	repo := &fakeAIAgentRepository{
 		activeProviders: map[uint64]Provider{1: {ID: 1, Name: "OpenAI", EngineType: "openai", Status: enum.CommonYes, IsDel: enum.CommonNo}},
 		modelsByProvider: map[uint64][]ProviderModel{1: {
-			{ProviderID: 1, ModelID: "gpt-4.1-mini", ModelKind: aiprovider.ModelKindChat, DisplayName: "GPT-4.1 mini", Status: enum.CommonYes},
+			{ID: 17, ProviderID: 1, ModelID: "gpt-4.1-mini", ModelKind: aiprovider.ModelKindChat, DisplayName: "GPT-4.1 mini", Status: enum.CommonYes},
 		}},
 	}
 	service := newTestAgentService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
@@ -471,6 +471,10 @@ func TestCreateRequiresProviderModelAndDefaultScene(t *testing.T) {
 	}
 	if repo.created.ModelID != "gpt-4.1-mini" || repo.created.ModelDisplayName != "GPT-4.1 mini" {
 		t.Fatalf("model selection not persisted: %#v", repo.created)
+	}
+	providerModelID := reflect.ValueOf(*repo.created).FieldByName("ProviderModelID")
+	if !providerModelID.IsValid() || providerModelID.Uint() != 17 {
+		t.Fatalf("provider model identity not persisted: %#v", repo.created)
 	}
 	if repo.created.ScenesJSON != `["chat"]` {
 		t.Fatalf("blank scenes must default to chat, got %s", repo.created.ScenesJSON)
@@ -695,18 +699,18 @@ func TestOptionsExposeOfficialModelAndEffectiveChatCapabilities(t *testing.T) {
 	mappedAt := time.Date(2026, 7, 28, 0, 0, 0, 0, time.UTC)
 	repo := &fakeAIAgentRepository{
 		visibleAgents: []AgentWithProvider{{
-			Agent: Agent{ID: 7, ProviderID: 3, Name: "视觉助手", ModelID: "provider-gpt-vision",
+			Agent: Agent{ID: 7, ProviderID: 3, ProviderModelID: 31, Name: "视觉助手", ModelID: "provider-gpt-vision",
 				Status: enum.CommonYes, IsDel: enum.CommonNo},
 			EngineType: "openai", APIProtocol: aiprovider.APIProtocolResponses, ProviderStatus: enum.CommonYes,
-			ProviderModelID: 31, ProviderModelStatus: enum.CommonYes,
-			OfficialModelID: officialID, OfficialCatalogVersion: catalogVersion,
+			ProviderModelStatus: enum.CommonYes,
+			OfficialModelID:     officialID, OfficialCatalogVersion: catalogVersion,
 			MappingStatus: officialmodel.MappingStatusMapped,
 		}, {
-			Agent: Agent{ID: 8, ProviderID: 3, Name: "文档助手", ModelID: "provider-gpt-vision",
+			Agent: Agent{ID: 8, ProviderID: 3, ProviderModelID: 31, Name: "文档助手", ModelID: "provider-gpt-vision",
 				Status: enum.CommonYes, IsDel: enum.CommonNo},
 			EngineType: "openai", APIProtocol: aiprovider.APIProtocolResponses, ProviderStatus: enum.CommonYes,
-			ProviderModelID: 31, ProviderModelStatus: enum.CommonYes,
-			OfficialModelID: officialID, OfficialCatalogVersion: catalogVersion,
+			ProviderModelStatus: enum.CommonYes,
+			OfficialModelID:     officialID, OfficialCatalogVersion: catalogVersion,
 			MappingStatus: officialmodel.MappingStatusMapped,
 		}},
 		activeProviders: map[uint64]Provider{3: {
@@ -826,7 +830,7 @@ func TestUpdateOnlyPersistsMVPFields(t *testing.T) {
 	repo := &fakeAIAgentRepository{
 		rawByID:          map[uint64]Agent{5: {ID: 5, Status: enum.CommonYes, IsDel: enum.CommonNo}},
 		activeProviders:  map[uint64]Provider{1: {ID: 1, Name: "OpenAI", EngineType: "openai", Status: enum.CommonYes, IsDel: enum.CommonNo}},
-		modelsByProvider: map[uint64][]ProviderModel{1: {{ProviderID: 1, ModelID: "gpt-4.1-mini", ModelKind: aiprovider.ModelKindChat, Status: enum.CommonYes}}},
+		modelsByProvider: map[uint64][]ProviderModel{1: {{ID: 17, ProviderID: 1, ModelID: "gpt-4.1-mini", ModelKind: aiprovider.ModelKindChat, Status: enum.CommonYes}}},
 	}
 	service := newTestAgentService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 
@@ -836,6 +840,9 @@ func TestUpdateOnlyPersistsMVPFields(t *testing.T) {
 	}
 	if len(repo.updates) != 1 {
 		t.Fatalf("expected one update, got %#v", repo.updates)
+	}
+	if repo.updates[0]["provider_model_id"] != uint64(17) {
+		t.Fatalf("provider model identity not updated: %#v", repo.updates[0])
 	}
 	for _, forbidden := range []string{"code", "agent_type", "external_agent_id", "external_agent_api_key_enc", "external_agent_api_key_hint", "default_response_mode", "runtime_config_json", "model_snapshot_json", "created_by", "updated_by"} {
 		if _, ok := repo.updates[0][forbidden]; ok {

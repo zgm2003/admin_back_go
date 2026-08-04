@@ -1,12 +1,44 @@
 package payment
 
 import (
+	"bytes"
 	"context"
+	"net/url"
 	"testing"
 	"time"
 
 	"admin_back_go/internal/shared/enum"
 )
+
+func TestCallbackDedupeKeyUsesStableFactsWhenNotifyIDIsEmpty(t *testing.T) {
+	first := url.Values{
+		"out_trade_no": {"PAY20260521100000000000"},
+		"trade_no":     {"202605212200"},
+		"trade_status": {"TRADE_SUCCESS"},
+		"app_id":       {"2026000000000000"},
+		"total_amount": {"10.00"},
+	}
+	replay := url.Values{
+		"total_amount": {"10.00"},
+		"app_id":       {"2026000000000000"},
+		"trade_status": {"TRADE_SUCCESS"},
+		"trade_no":     {"202605212200"},
+		"out_trade_no": {"PAY20260521100000000000"},
+	}
+	changed := url.Values{}
+	for key, values := range replay {
+		changed[key] = append([]string(nil), values...)
+	}
+	changed.Set("trade_status", "WAIT_BUYER_PAY")
+
+	firstKey := callbackDedupeKey(providerAlipay, first)
+	if len(firstKey) != 32 || !bytes.Equal(firstKey, callbackDedupeKey(providerAlipay, replay)) {
+		t.Fatalf("equivalent callback facts must have one 32-byte key")
+	}
+	if bytes.Equal(firstKey, callbackDedupeKey(providerAlipay, changed)) {
+		t.Fatalf("different callback states must not share a fallback key")
+	}
+}
 
 func TestCallbackAuditEventRecordsPendingThenProcessed(t *testing.T) {
 	repo := newFakeCallbackRepo()

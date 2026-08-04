@@ -291,6 +291,7 @@ func (store *gormGatewayFinalizationStore) WithLockedSettlement(ctx context.Cont
 	var terminalConversationID uint64
 	var terminalUserMessageID uint64
 	var terminalState replycommand.State
+	var terminalConversationDeleted bool
 	var durableEvent *modulerealtime.Event
 	err := store.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		run, charge, wallet, hold, err := lockChatSettlementMoneyGraph(ctx, tx, runID)
@@ -347,6 +348,7 @@ func (store *gormGatewayFinalizationStore) WithLockedSettlement(ctx context.Cont
 		if err != nil {
 			return err
 		}
+		terminalConversationDeleted = commandResult.ConversationDeleted
 		if err := finalizeChatRunAndCharge(ctx, tx, run, charge, facts, decision, commandResult, now); err != nil {
 			return err
 		}
@@ -375,7 +377,7 @@ func (store *gormGatewayFinalizationStore) WithLockedSettlement(ctx context.Cont
 			slog.WarnContext(cleanupCtx, "AI reply delivery cleanup deferred to reconciler", "command_id", commandID, "error", cleanupErr)
 		}
 	}
-	if applied && (terminalState == replycommand.StateSucceeded || terminalState == replycommand.StateCanceled) {
+	if applied && !terminalConversationDeleted && (terminalState == replycommand.StateSucceeded || terminalState == replycommand.StateCanceled) {
 		store.enqueueContextEnhancements(context.WithoutCancel(ctx), terminalConversationID, terminalUserID, terminalUserMessageID)
 	}
 	return aigateway.FinalizationApplyResult{Applied: applied, Replayed: replayed}, nil
@@ -772,6 +774,9 @@ func hasCompleteFinalizationUsage(facts aigateway.FinalizationFacts) bool {
 }
 
 func appendChatRealtimeFinalization(ctx context.Context, tx *gorm.DB, sink modulerealtime.TransactionalEventSink, command replycommand.Command, result *replycommand.PaidCommandFinalizationResult, input replycommand.PaidCommandFinalizationInput, now time.Time) (*modulerealtime.Event, error) {
+	if result != nil && result.ConversationDeleted {
+		return nil, nil
+	}
 	eventInput := modulerealtime.AppendInput{RequestID: command.RequestID, UserID: command.UserID, OccurredAt: now}
 	switch input.State {
 	case replycommand.StateSucceeded:

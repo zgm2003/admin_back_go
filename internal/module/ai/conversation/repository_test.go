@@ -8,6 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"admin_back_go/internal/module/ai/replycommand"
+	"admin_back_go/internal/shared/enum"
+
 	"github.com/DATA-DOG/go-sqlmock"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -103,6 +106,41 @@ func TestRepositoryListFiltersByLastMessageTimeAndIDTuple(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("tuple cursor query was not executed: %v", err)
+	}
+}
+
+func TestRepositoryDeleteCancelsCommandsBeforeConversationTombstone(t *testing.T) {
+	sqlDB, mock, db := newConversationRepositoryTestDB(t)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	now := time.Date(2026, 8, 4, 14, 0, 0, 0, time.UTC)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`(?s)SELECT .* FROM `+"`ai_reply_commands`"+` WHERE conversation_id = \? AND user_id = \? AND state IN \(\?,\?,\?\) ORDER BY id ASC.*FOR UPDATE`).
+		WithArgs(int64(3), int64(7), replycommand.StatePending, replycommand.StateClaimed, replycommand.StateRunning).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "request_id", "user_id", "conversation_id", "state", "delivery_seq", "assistant_message_id", "cancel_requested_at", "stop_delivery_seq",
+		}).AddRow(41, "request-1", 7, 3, replycommand.StateRunning, 2, nil, nil, nil))
+	mock.ExpectQuery("SELECT .* FROM `ai_conversations`.*FOR UPDATE").
+		WithArgs(int64(3), int64(7), enum.CommonNo, 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "is_del"}).AddRow(3, 7, enum.CommonNo))
+	mock.ExpectQuery("SELECT .*delivery_seq.*delta.* FROM `ai_reply_delivery_chunks`").
+		WithArgs(uint64(41), uint32(2)).
+		WillReturnRows(sqlmock.NewRows([]string{"delivery_seq", "delta"}).AddRow(1, "A").AddRow(2, "B"))
+	mock.ExpectExec("INSERT INTO `ai_messages`").WillReturnResult(sqlmock.NewResult(97, 1))
+	mock.ExpectExec("UPDATE `ai_reply_commands` SET").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE `ai_conversations` SET").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE `ai_messages` SET").WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectCommit()
+
+	result, err := (&GormRepository{db: db, now: func() time.Time { return now }}).Delete(context.Background(), 3, 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.CanceledCommandIDs) != 1 || result.CanceledCommandIDs[0] != 41 {
+		t.Fatalf("delete result=%+v", result)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }
 

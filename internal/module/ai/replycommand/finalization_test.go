@@ -79,6 +79,43 @@ func TestCanceledFinalizationReusesStoppedAssistantMessage(t *testing.T) {
 	}
 }
 
+func TestCanceledFinalizationAcceptsHiddenStoppedMessageOnlyForDeletedConversation(t *testing.T) {
+	repository, db, mock, closeDB := newAttemptMockRepository(t)
+	defer closeDB()
+	now := time.Date(2026, 8, 4, 14, 0, 0, 0, time.UTC)
+	requestedAt := now.Add(-time.Second)
+	stopSeq := uint32(2)
+	assistantID := int64(97)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT .* FROM `ai_reply_commands`").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "request_id", "user_id", "conversation_id", "state", "cancel_requested_at", "stop_delivery_seq", "assistant_message_id",
+		}).AddRow(41, "request-1", 7, 3, StateRunning, requestedAt, stopSeq, assistantID))
+	mock.ExpectQuery("SELECT .* FROM `ai_messages`").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "conversation_id", "reply_command_id", "role", "content_type", "content", "delivery_state", "is_del", "created_at", "updated_at",
+		}).AddRow(assistantID, 3, 41, enum.AIMessageRoleAssistant, "text", "AB", DeliveryStateStopped, enum.CommonYes, requestedAt, requestedAt))
+	mock.ExpectQuery("SELECT .* FROM `ai_conversations`").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "is_del"}).AddRow(3, 7, enum.CommonYes))
+	mock.ExpectExec("UPDATE `ai_reply_commands`").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectRollback()
+
+	tx := db.Begin()
+	result, err := repository.FinalizePaidCommandInTransaction(context.Background(), tx, PaidCommandFinalizationInput{
+		CommandID: 41, UserID: 7, RequestID: "request-1", State: StateCanceled, Now: now,
+	})
+	if rollbackErr := tx.Rollback().Error; rollbackErr != nil {
+		t.Fatal(rollbackErr)
+	}
+	if err != nil || result == nil || result.AssistantMessageID != assistantID || !result.ConversationDeleted {
+		t.Fatalf("finalization result=%+v err=%v", result, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestNormalizePaidCommandFinalizationRejectsInvalidTerminalPayload(t *testing.T) {
 	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
 	for _, input := range []PaidCommandFinalizationInput{

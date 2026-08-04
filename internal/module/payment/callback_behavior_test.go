@@ -51,8 +51,11 @@ func TestHandleAlipayCallbackCreditedReplayUsesAtomicFinalizer(t *testing.T) {
 			t.Fatalf("callback attempt %d result=%#v err=%v", attempt+1, result, appErr)
 		}
 	}
-	if repo.finalizeCount != 2 || repo.creditCount != 1 || repo.wallet.BalanceUnits != 1000*1_000_000 {
+	if repo.finalizeCount != 1 || repo.creditCount != 1 || repo.wallet.BalanceUnits != 1000*1_000_000 {
 		t.Fatalf("callback replay must converge through one atomic credit, finalize=%d credit=%d wallet=%#v", repo.finalizeCount, repo.creditCount, repo.wallet)
+	}
+	if repo.callbackCreateCount != 1 {
+		t.Fatalf("callback replay must reuse one audit fact, create=%d", repo.callbackCreateCount)
 	}
 }
 
@@ -123,7 +126,7 @@ func TestHandleAlipayCallbackStoresValidAuditJSONForLongPayload(t *testing.T) {
 	}
 }
 
-func TestHandleAlipayCallbackContinuesWhenAuditCreateFails(t *testing.T) {
+func TestHandleAlipayCallbackDoesNotSettleWhenAuditCreateFails(t *testing.T) {
 	repo := newFakeRechargeRepo()
 	repo.callbackCreateErr = errors.New("audit insert failed")
 	repo.configs = []Config{enabledRechargeConfig(1, "alipay_default", 1, []string{enum.PaymentMethodWeb})}
@@ -133,11 +136,60 @@ func TestHandleAlipayCallbackContinuesWhenAuditCreateFails(t *testing.T) {
 	service := newRechargeService(repo, &fakeOrderGateway{})
 
 	result, appErr := service.HandleAlipayCallback(context.Background(), AlipayCallbackInput{Form: callbackForm(repo.order.OrderNo, "10.00")})
-	if appErr != nil || result == nil || result.Text != callbackResultSuccess {
-		t.Fatalf("audit insert failure must not block verified settlement, result=%#v err=%v", result, appErr)
+	if appErr != nil || result == nil || result.Text != callbackResultFail {
+		t.Fatalf("audit insert failure must fail closed, result=%#v err=%v", result, appErr)
 	}
-	if repo.order.Status != orderStatusPaid || repo.recharge.Status != rechargeStatusCredited {
-		t.Fatalf("expected settlement even when audit insert fails, order=%#v recharge=%#v", repo.order, repo.recharge)
+	if repo.order.Status != orderStatusPaying || repo.recharge.Status != rechargeStatusPaying {
+		t.Fatalf("audit insert failure must not settle, order=%#v recharge=%#v", repo.order, repo.recharge)
+	}
+}
+
+func TestHandleAlipayCallbackRejectsDedupeIdentityCollision(t *testing.T) {
+	repo := newFakeRechargeRepo()
+	repo.configs = []Config{enabledRechargeConfig(1, "alipay_default", 1, []string{enum.PaymentMethodWeb})}
+	repo.order = &Order{ID: 1, OrderNo: "PAY20260521100000000000", ConfigID: 1, ConfigCode: "alipay_default", Provider: providerAlipay, AmountCents: 1000, Status: orderStatusPaying, IsDel: enum.CommonNo}
+	repo.recharge = &Recharge{ID: 1, RechargeNo: "RCG20260521100000000000", UserID: 7, PaymentOrderID: repo.order.ID, Status: rechargeStatusPaying, AmountCents: 1000, IsDel: enum.CommonNo}
+	repo.wallet = &Wallet{ID: 1, UserID: 7, IsDel: enum.CommonNo}
+	repo.callbackEventExists = true
+	repo.callbackEvent = CallbackEvent{
+		ID:               1,
+		Provider:         providerAlipay,
+		DedupeKey:        callbackDedupeKey(providerAlipay, callbackForm("PAY20260521999999999999", "10.00")),
+		NotifyID:         "notify-1",
+		OutTradeNo:       "PAY20260521999999999999",
+		TradeNo:          "202605212200",
+		TradeStatus:      "TRADE_SUCCESS",
+		AppID:            repo.configs[0].AppID,
+		TotalAmountCents: 1000,
+		ProcessStatus:    callbackProcessPending,
+	}
+	gw := &fakeOrderGateway{notifyPayload: &gateway.NotifyPayload{NotifyID: "notify-1", OutTradeNo: repo.order.OrderNo, TradeNo: "202605212200", TradeStatus: "TRADE_SUCCESS", AppID: repo.configs[0].AppID, TotalAmountCents: 1000}}
+	service := newRechargeService(repo, gw)
+
+	result, appErr := service.HandleAlipayCallback(context.Background(), AlipayCallbackInput{Form: callbackForm(repo.order.OrderNo, "10.00")})
+	if appErr != nil || result == nil || result.Text != callbackResultFail {
+		t.Fatalf("notify identity collision must fail closed, result=%#v err=%v", result, appErr)
+	}
+	if repo.finalizeCount != 0 || repo.creditCount != 0 {
+		t.Fatalf("identity collision must not settle, finalize=%d credit=%d", repo.finalizeCount, repo.creditCount)
+	}
+}
+
+func TestHandleAlipayCallbackDoesNotCommitSettlementWhenAuditFinalizationFails(t *testing.T) {
+	repo := newFakeRechargeRepo()
+	repo.callbackResolveErr = errors.New("callback audit commit failed")
+	repo.configs = []Config{enabledRechargeConfig(1, "alipay_default", 1, []string{enum.PaymentMethodWeb})}
+	repo.order = &Order{ID: 1, OrderNo: "PAY20260521100000000000", ConfigID: 1, ConfigCode: "alipay_default", Provider: providerAlipay, AmountCents: 1000, Status: orderStatusPaying, IsDel: enum.CommonNo}
+	repo.recharge = &Recharge{ID: 1, RechargeNo: "RCG20260521100000000000", UserID: 7, PaymentOrderID: repo.order.ID, Status: rechargeStatusPaying, AmountCents: 1000, IsDel: enum.CommonNo}
+	repo.wallet = &Wallet{ID: 1, UserID: 7, IsDel: enum.CommonNo}
+	service := newRechargeService(repo, &fakeOrderGateway{})
+
+	result, appErr := service.HandleAlipayCallback(context.Background(), AlipayCallbackInput{Form: callbackForm(repo.order.OrderNo, "10.00")})
+	if appErr != nil || result == nil || result.Text != callbackResultFail {
+		t.Fatalf("audit finalization failure must fail closed, result=%#v err=%v", result, appErr)
+	}
+	if repo.order.Status != orderStatusPaying || repo.recharge.Status != rechargeStatusPaying || repo.creditCount != 0 {
+		t.Fatalf("audit finalization failure must leave settlement untouched, order=%#v recharge=%#v credit=%d", repo.order, repo.recharge, repo.creditCount)
 	}
 }
 

@@ -1,8 +1,11 @@
 package contextengine
 
 import (
+	"context"
 	"errors"
 	"testing"
+
+	"github.com/DATA-DOG/go-sqlmock"
 )
 
 func TestDispatchGuardMemoryRejectsChangedSummaryAndBrokenParent(t *testing.T) {
@@ -27,4 +30,20 @@ func TestDispatchGuardMemoryRejectsChangedSummaryAndBrokenParent(t *testing.T) {
 	if err := validateDispatchMemory(row, nil, 3, 5, profileHash, source); !errors.Is(err, errDispatchPermission) {
 		t.Fatalf("missing parent error=%v", err)
 	}
+}
+
+func TestDispatchGuardRejectsDeletedConversationBeforeProviderDispatch(t *testing.T) {
+	planRepository, mock, closeDB := newPlanRepositoryFixture(t)
+	defer closeDB()
+	command := lockedReplyCommand{ID: 77, UserID: 7, ConversationID: 3}
+
+	mock.ExpectQuery("SELECT .* FROM `ai_conversations` WHERE id = \\? AND user_id = \\? AND is_del = \\? ORDER BY `ai_conversations`.`id` LIMIT \\?").
+		WithArgs(int64(3), int64(7), 2, 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+
+	err := requireActiveDispatchConversation(context.Background(), planRepository.db, command)
+	if !errors.Is(err, errDispatchPlanConflict) {
+		t.Fatalf("deleted conversation dispatch error=%v", err)
+	}
+	assertPlanMockExpectations(t, mock)
 }

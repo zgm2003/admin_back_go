@@ -66,6 +66,10 @@ type ReadCursorResponse struct {
 	UnreadCount       uint64 `json:"unread_count"`
 }
 
+type DeleteResult struct {
+	CanceledCommandIDs []uint64
+}
+
 type Repository interface {
 	List(ctx context.Context, query ListQuery) ([]ListRow, bool, error)
 	UnreadCounts(ctx context.Context, conversationIDs []int64) (map[int64]uint64, error)
@@ -74,7 +78,7 @@ type Repository interface {
 	Create(ctx context.Context, row Conversation) (int64, error)
 	UpdateTitle(ctx context.Context, id int64, userID int64, title string) error
 	AdvanceReadCursor(ctx context.Context, conversationID int64, userID int64, messageID int64) (int64, uint64, bool, error)
-	Delete(ctx context.Context, id int64, userID int64) error
+	Delete(ctx context.Context, id int64, userID int64) (DeleteResult, error)
 }
 
 type HTTPService interface {

@@ -227,7 +227,10 @@ func Build(input BuildInput) (*BuildResult, error) {
 		aitool.WithDraftTaskService(aiTextService),
 		aitool.WithPricingResolver(aiOfficialModelResolver),
 	)
-	aiConversationService := aiconversation.NewService(aiconversation.NewGormRepository(resources.DB))
+	aiConversationService := aiconversation.NewService(
+		aiconversation.NewGormRepository(resources.DB),
+		aiconversation.WithCancelPublisher(replycommand.NewRedisCancelPublisher(resources.Redis)),
+	)
 	aiRunService := airun.NewService(aiRunRepository, airun.WithLogger(logger))
 	paymentService := paymentmodule.NewService(paymentmodule.Dependencies{
 		Repository:   paymentmodule.NewGormRepository(resources.DB, walletRepository),

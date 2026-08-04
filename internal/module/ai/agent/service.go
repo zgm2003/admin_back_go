@@ -216,6 +216,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (uint64, *apper
 	if appErr != nil {
 		return 0, appErr
 	}
+	row.ProviderModelID = model.ID
 	row.ModelDisplayName = model.DisplayName
 	if appErr := s.ensureOfficialModelSelectable(ctx, *model); appErr != nil {
 		return 0, appErr
@@ -273,6 +274,7 @@ func (s *Service) Update(ctx context.Context, id uint64, input UpdateInput) *app
 	if appErr != nil {
 		return appErr
 	}
+	fields.providerModelID = model.ID
 	fields.modelDisplayName = model.DisplayName
 	if row.ProviderID != fields.providerID || strings.TrimSpace(row.ModelID) != fields.modelID {
 		if appErr := s.ensureOfficialModelSelectable(ctx, *model); appErr != nil {
@@ -554,6 +556,7 @@ func normalizeCreateInput(input CreateInput) (Agent, *apperror.Error) {
 func updateFieldsMap(fields normalizedFields) map[string]any {
 	out := map[string]any{
 		"provider_id":            fields.providerID,
+		"provider_model_id":      fields.providerModelID,
 		"name":                   fields.name,
 		"model_id":               fields.modelID,
 		"scenes_json":            fields.scenesJSON,
@@ -575,6 +578,7 @@ func updateFieldsMap(fields normalizedFields) map[string]any {
 
 type normalizedFields struct {
 	providerID           uint64
+	providerModelID      uint64
 	name                 string
 	modelID              string
 	modelDisplayName     string

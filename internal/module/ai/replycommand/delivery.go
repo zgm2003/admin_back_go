@@ -123,6 +123,10 @@ func (r *GormRepository) ReadDeliveryPrefixTx(ctx context.Context, tx *gorm.DB, 
 	if r == nil || r.db == nil {
 		return DeliveryPrefix{}, ErrRepositoryNotConfigured
 	}
+	return ReadDeliveryPrefixInTransaction(ctx, tx, commandID, deliveredSeq)
+}
+
+func ReadDeliveryPrefixInTransaction(ctx context.Context, tx *gorm.DB, commandID uint64, deliveredSeq uint32) (DeliveryPrefix, error) {
 	if tx == nil {
 		return DeliveryPrefix{}, ErrDeliveryTransactionRequired
 	}

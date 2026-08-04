@@ -87,8 +87,8 @@ func TestHistoryParticipantCreatesExactlyOnePaidReplyIdentityInCallerTransaction
 	mock.ExpectBegin()
 	tx := root.Begin()
 	mock.ExpectExec("INSERT INTO `ai_messages`").WillReturnResult(sqlmock.NewResult(71, 1))
-	mock.ExpectExec("INSERT INTO `ai_reply_commands`").WillReturnResult(sqlmock.NewResult(81, 1))
 	mock.ExpectExec("INSERT INTO `ai_runs`").WillReturnResult(sqlmock.NewResult(91, 1))
+	mock.ExpectExec("INSERT INTO `ai_reply_commands`.*`run_id`").WillReturnResult(sqlmock.NewResult(81, 1))
 	mock.ExpectExec("INSERT INTO `ai_run_events`").WillReturnResult(sqlmock.NewResult(92, 1))
 	mock.ExpectExec("INSERT INTO `ai_usage_charges`").WillReturnResult(sqlmock.NewResult(101, 1))
 

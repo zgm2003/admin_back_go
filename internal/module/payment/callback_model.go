@@ -5,6 +5,7 @@ import "time"
 type CallbackEvent struct {
 	ID               int64      `gorm:"column:id;primaryKey"`
 	Provider         string     `gorm:"column:provider"`
+	DedupeKey        []byte     `gorm:"column:dedupe_key"`
 	NotifyID         string     `gorm:"column:notify_id"`
 	OutTradeNo       string     `gorm:"column:out_trade_no"`
 	TradeNo          string     `gorm:"column:trade_no"`

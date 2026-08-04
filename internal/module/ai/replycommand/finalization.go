@@ -26,7 +26,8 @@ type PaidCommandFinalizationInput struct {
 }
 
 type PaidCommandFinalizationResult struct {
-	AssistantMessageID int64
+	AssistantMessageID  int64
+	ConversationDeleted bool
 }
 
 func normalizePaidCommandFinalization(input *PaidCommandFinalizationInput) error {
@@ -127,12 +128,29 @@ func (r *GormRepository) FinalizePaidCommandInTransaction(ctx context.Context, t
 		if command.CancelRequestedAt == nil || command.StopDeliverySeq == nil || command.AssistantMessageID == nil ||
 			errors.Is(messageErr, gorm.ErrRecordNotFound) || existing.ID != *command.AssistantMessageID ||
 			existing.ConversationID != command.ConversationID || existing.Role != enum.AIMessageRoleAssistant ||
-			existing.DeliveryState == nil || *existing.DeliveryState != DeliveryStateStopped || existing.IsDel != enum.CommonNo {
+			existing.DeliveryState == nil || *existing.DeliveryState != DeliveryStateStopped {
+			return nil, ErrPaidCommandFinalizationConflict
+		}
+		switch existing.IsDel {
+		case enum.CommonNo:
+		case enum.CommonYes:
+			deleted, err := paidCommandConversationDeleted(tx, command)
+			if err != nil || !deleted {
+				return nil, ErrPaidCommandFinalizationConflict
+			}
+			result.ConversationDeleted = true
+		default:
 			return nil, ErrPaidCommandFinalizationConflict
 		}
 		result.AssistantMessageID = existing.ID
 	} else if !errors.Is(messageErr, gorm.ErrRecordNotFound) || command.AssistantMessageID != nil {
 		return nil, ErrPaidCommandFinalizationConflict
+	} else {
+		deleted, err := paidCommandConversationDeleted(tx, command)
+		if err != nil {
+			return nil, err
+		}
+		result.ConversationDeleted = deleted
 	}
 
 	updates := map[string]any{
@@ -171,6 +189,21 @@ func (r *GormRepository) FinalizePaidCommandInTransaction(ctx context.Context, t
 		return nil, ErrPaidCommandFinalizationConflict
 	}
 	return result, nil
+}
+
+func paidCommandConversationDeleted(tx *gorm.DB, command Command) (bool, error) {
+	var conversation replyConversation
+	if err := tx.Where("id = ? AND user_id = ?", command.ConversationID, command.UserID).First(&conversation).Error; err != nil {
+		return false, err
+	}
+	switch conversation.IsDel {
+	case enum.CommonNo:
+		return false, nil
+	case enum.CommonYes:
+		return true, nil
+	default:
+		return false, ErrPaidCommandFinalizationConflict
+	}
 }
 
 func paidCommandFinalizationSourceStates(current State, target State) ([]State, error) {

@@ -1,4 +1,4 @@
-h1:tgi8iheco7fG9VrGRs+2PV/2ysKhCZRAMApjql6RkN8=
+h1:C/W3aHYCc9GeRZAm2DmG8QYexX/nLdkbkxRlf5j1B9E=
 202607150001_baseline.sql h1:elg7qkyR6lLW3sqj22zwsIPT5lz+rWrGmoOMH8qg45c=
 202607150101_ai_reply_durability.sql h1:C9rD6IYDKzwJmBFlSWWDQJwNqYBgcqqg+qq0hGCK8C0=
 202607150102_realtime_retention.sql h1:waqtQw3UdFKVuFeGZsttQi8rz4M/r5KaO/mK/q3ahRc=
@@ -29,3 +29,6 @@ h1:tgi8iheco7fG9VrGRs+2PV/2ysKhCZRAMApjql6RkN8=
 202608020101_ai_context_expand.sql h1:vQIN+PgYbLd3AQihj7w1JaSRWoVNZB8QRFQ+1KYFqLs=
 202608020102_ai_context_permissions.sql h1:wvT9X5UuAozsrDaYD16kQBLSiEvf88YP5RFV9EH0UcQ=
 202608020103_ai_context_contract.sql h1:g9QmWVPCWrGUkWwdi7XZILBqNhskJ8ccdYKh6SiKrHE=
+202608040101_ai_payment_integrity_expand.sql h1:dBbfybheOg3swyEjnXmoT+IhCwGOnbUxIODNN96V7rk=
+202608040102_ai_payment_integrity_backfill.sql h1:YQdyWszS3+VQ4Xci5NqqJEq7tttkeg+vvhR0o8a4PUc=
+202608040103_ai_payment_integrity_contract.sql h1:WocQ43elk6Hx0yl6CoKOrMPT/dGdfGNZfoU6cSCWfP8=

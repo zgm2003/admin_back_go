@@ -21,6 +21,8 @@ import (
 	"admin_back_go/internal/module/ai/pricing"
 	"admin_back_go/internal/module/ai/replycommand"
 	"admin_back_go/internal/shared/apperror"
+
+	"github.com/DATA-DOG/go-sqlmock"
 )
 
 func TestPaidChatAssemblerConvergesPreparedRequestAndSafeOutputBound(t *testing.T) {
@@ -242,6 +244,24 @@ func TestMustFinalizePreDispatchErrorAtCommandAttemptBoundary(t *testing.T) {
 	}
 	if !mustFinalizePreDispatchError(aichat.PaidChatAttemptInput{CommandAttempt: 1, CommandMaxAttempts: 3}, infraai.ErrInvalidConfig) {
 		t.Fatal("permanent pre-dispatch error remained retryable")
+	}
+}
+
+func TestGatewayOwnerGuardRejectsDeletedConversationAtDispatchBoundary(t *testing.T) {
+	db, mock, closeDB := newFinalizerMockDB(t)
+	defer closeDB()
+	now := time.Date(2026, 8, 4, 14, 0, 0, 0, time.UTC)
+
+	mock.ExpectQuery(`(?s)SELECT .* FROM ` + "`ai_reply_commands`" + `.*EXISTS \(SELECT 1 FROM ai_conversations c WHERE c\.id = ai_reply_commands\.conversation_id AND c\.user_id = ai_reply_commands\.user_id AND c\.is_del = \?\).*FOR UPDATE`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+
+	err := (gormGatewayOwnerGuard{commandID: 41, owner: "worker-a", token: 7, now: func() time.Time { return now }}).
+		EnsureRunnable(context.Background(), gormBillingTransaction{db: db}, 51)
+	if !errors.Is(err, replycommand.ErrLeaseLost) {
+		t.Fatalf("deleted conversation owner guard error=%v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"admin_back_go/internal/module/ai/replycommand"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
 )
@@ -18,11 +19,24 @@ const (
 )
 
 type Service struct {
-	repository Repository
+	repository      Repository
+	cancelPublisher replycommand.CancelPublisher
 }
 
-func NewService(repository Repository) *Service {
-	return &Service{repository: repository}
+type Option func(*Service)
+
+func WithCancelPublisher(publisher replycommand.CancelPublisher) Option {
+	return func(service *Service) { service.cancelPublisher = publisher }
+}
+
+func NewService(repository Repository, options ...Option) *Service {
+	service := &Service{repository: repository}
+	for _, option := range options {
+		if option != nil {
+			option(service)
+		}
+	}
+	return service
 }
 
 func (s *Service) List(ctx context.Context, userID int64, query ListQuery) (*ListResponse, *apperror.Error) {
@@ -157,8 +171,14 @@ func (s *Service) Delete(ctx context.Context, userID int64, id int64) *apperror.
 		return appErr
 	}
 	repo, _ := s.requireRepository()
-	if err := repo.Delete(ctx, id, userID); err != nil {
+	result, err := repo.Delete(ctx, id, userID)
+	if err != nil {
 		return apperror.LegacyWrap(apperror.CodeInternal, 500, "删除AI会话失败", err)
+	}
+	if s.cancelPublisher != nil {
+		for _, commandID := range result.CanceledCommandIDs {
+			_ = s.cancelPublisher.PublishCancel(context.WithoutCancel(ctx), commandID)
+		}
 	}
 	return nil
 }

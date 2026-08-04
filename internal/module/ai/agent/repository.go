@@ -21,7 +21,6 @@ type AgentWithProvider struct {
 	EngineType             string                      `gorm:"column:engine_type"`
 	APIProtocol            string                      `gorm:"column:api_protocol"`
 	ProviderStatus         int                         `gorm:"column:provider_status"`
-	ProviderModelID        uint64                      `gorm:"column:provider_model_id"`
 	ProviderModelStatus    int                         `gorm:"column:provider_model_status"`
 	OfficialModelID        string                      `gorm:"column:official_model_id"`
 	OfficialCatalogVersion string                      `gorm:"column:official_catalog_version"`
@@ -222,12 +221,12 @@ func (r *GormRepository) agentSelectDB(ctx context.Context) *gorm.DB {
 	return r.db.WithContext(ctx).Table("ai_agents AS a").Select(`
 		a.*, e.name AS provider_name, e.engine_type AS engine_type,
 		e.api_protocol AS api_protocol, e.status AS provider_status,
-		pm.id AS provider_model_id, pm.status AS provider_model_status,
+		pm.status AS provider_model_status,
 		pm.official_model_id AS official_model_id,
 		pm.official_catalog_version AS official_catalog_version,
 		pm.mapping_status AS mapping_status`).
 		Joins("LEFT JOIN ai_providers e ON e.id = a.provider_id AND e.is_del = ?", enum.CommonNo).
-		Joins("LEFT JOIN ai_provider_models pm ON pm.provider_id = a.provider_id AND pm.model_id = a.model_id AND pm.model_kind = ?", aiprovider.ModelKindChat).
+		Joins("LEFT JOIN ai_provider_models pm ON pm.id = a.provider_model_id AND pm.provider_id = a.provider_id AND pm.model_id = a.model_id AND pm.model_kind = ?", aiprovider.ModelKindChat).
 		Where("a.is_del = ?", enum.CommonNo)
 }
 
