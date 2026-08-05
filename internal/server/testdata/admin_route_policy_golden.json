@@ -880,6 +880,19 @@
     },
     {
       "method": "GET",
+      "path": "/api/admin/v1/ai-runs/:id/input-attachments/:ordinal/preview",
+      "operation_id": "get_api_admin_v1_ai_runs_id_input_attachments_ordinal_preview",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_run_list"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only short-lived image preview"
+      }
+    },
+    {
+      "method": "GET",
       "path": "/api/admin/v1/ai-runs/dashboard",
       "operation_id": "get_api_admin_v1_ai_runs_dashboard",
       "access": {

@@ -57,6 +57,28 @@ func TestRunDetailReadsErrorCodeFromSameFinalAttemptAsList(t *testing.T) {
 	}
 }
 
+func TestInputSnapshotReadsOnlyPersistedRunEvidence(t *testing.T) {
+	db, mock, closeDB := newRunRepositorySQLMock(t)
+	defer closeDB()
+	repository := &GormRepository{db: db}
+	const snapshot = `{"content":"describe","attachments":[]}`
+
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id AS run_id, input_snapshot FROM `ai_runs` WHERE id = ?")).
+		WithArgs(int64(44)).
+		WillReturnRows(sqlmock.NewRows([]string{"run_id", "input_snapshot"}).AddRow(44, snapshot))
+
+	row, err := repository.InputSnapshot(context.Background(), 44)
+	if err != nil {
+		t.Fatalf("InputSnapshot returned error: %v", err)
+	}
+	if row == nil || row.RunID != 44 || row.InputSnapshot != snapshot {
+		t.Fatalf("input snapshot row=%+v", row)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("input snapshot query must remain bounded: %v", err)
+	}
+}
+
 func TestBillingDetailUsesThreeBoundedQueries(t *testing.T) {
 	sqlDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	if err != nil {

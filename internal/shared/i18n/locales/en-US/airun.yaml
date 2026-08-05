@@ -20,3 +20,11 @@ airun.feedback.unavailable: This AI run does not support feedback
 airun.feedback.update_failed: Failed to update AI run feedback
 airun.feedback.repository_missing: AI run feedback repository is not configured
 airun.feedback.request_invalid: Invalid AI run feedback request
+airun.input_attachment.query_failed: Failed to query the AI run input attachment
+airun.input_attachment.run_not_found: AI run was not found
+airun.input_attachment.evidence_invalid: AI run input attachment evidence is invalid
+airun.input_attachment.previewer_missing: AI run input attachment preview service is not configured
+airun.input_attachment.preview_failed: Failed to generate the AI run input attachment preview
+airun.input_attachment.preview_invalid: AI run input attachment preview result is invalid
+airun.input_attachment.selection_invalid: Invalid AI run input attachment
+airun.input_attachment.preview_unavailable: AI run input attachment preview is unavailable

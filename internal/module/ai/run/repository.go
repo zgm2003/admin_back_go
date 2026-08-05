@@ -151,6 +151,23 @@ func (r *GormRepository) Detail(ctx context.Context, id int64) (*RunDetailRow, e
 	return &row, nil
 }
 
+func (r *GormRepository) InputSnapshot(ctx context.Context, id int64) (*InputSnapshotRow, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	var row InputSnapshotRow
+	if err := r.db.WithContext(ctx).Table("ai_runs").
+		Select("id AS run_id, input_snapshot").
+		Where("id = ?", id).
+		Scan(&row).Error; err != nil {
+		return nil, err
+	}
+	if row.RunID == 0 {
+		return nil, nil
+	}
+	return &row, nil
+}
+
 func (r *GormRepository) ContextPlan(ctx context.Context, runID int64) (*contextengine.ContextPlan, error) {
 	if r == nil || r.db == nil {
 		return nil, ErrRepositoryNotConfigured

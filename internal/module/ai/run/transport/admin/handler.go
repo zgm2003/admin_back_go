@@ -56,6 +56,19 @@ func (h *Handler) Detail(c *gin.Context) {
 	writeResult(c, res, appErr)
 }
 
+func (h *Handler) InputAttachmentPreview(c *gin.Context) {
+	id, ok := routeID(c, "id", "无效的AI运行ID")
+	if !ok {
+		return
+	}
+	ordinal, ok := routeID(c, "ordinal", "无效的AI运行输入附件序号")
+	if !ok {
+		return
+	}
+	res, appErr := h.requireService().InputAttachmentPreview(c.Request.Context(), id, ordinal)
+	writeResult(c, res, appErr)
+}
+
 func (h *Handler) SetUserFeedback(c *gin.Context) {
 	identity := middleware.GetAuthIdentity(c)
 	if identity == nil || identity.UserID <= 0 {
@@ -131,6 +144,9 @@ func (nilHTTPService) List(ctx context.Context, query airunmodule.ListQuery) (*a
 	return nil, apperror.Internal("AI运行服务未配置")
 }
 func (nilHTTPService) Detail(ctx context.Context, id int64) (*airunmodule.DetailResponse, *apperror.Error) {
+	return nil, apperror.Internal("AI运行服务未配置")
+}
+func (nilHTTPService) InputAttachmentPreview(ctx context.Context, id int64, ordinal int64) (*airunmodule.InputAttachmentPreviewResponse, *apperror.Error) {
 	return nil, apperror.Internal("AI运行服务未配置")
 }
 func (nilHTTPService) Dashboard(ctx context.Context, filter airunmodule.DashboardFilter) (*airunmodule.DashboardResponse, *apperror.Error) {

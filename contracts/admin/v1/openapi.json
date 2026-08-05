@@ -2663,6 +2663,47 @@
         ],
         "type": "object"
       },
+      "AIRunInputAttachmentPreview": {
+        "additionalProperties": false,
+        "properties": {
+          "expires_in": {
+            "format": "int64",
+            "maximum": 300,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "url": {
+            "format": "uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expires_in",
+          "url"
+        ],
+        "type": "object"
+      },
+      "AIRunInputAttachmentPreviewSuccessEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": 0,
+            "type": "integer"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AIRunInputAttachmentPreview"
+          },
+          "msg": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "data",
+          "msg"
+        ],
+        "type": "object"
+      },
       "AIRunLatencyBreakdown": {
         "additionalProperties": false,
         "properties": {
@@ -22723,6 +22764,73 @@
           "reason": "read-only"
         },
         "x-runtime-path": "/api/admin/v1/ai-runs/:id"
+      }
+    },
+    "/api/admin/v1/ai-runs/{id}/input-attachments/{ordinal}/preview": {
+      "get": {
+        "operationId": "get_api_admin_v1_ai_runs_id_input_attachments_ordinal_preview",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "ordinal",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIRunInputAttachmentPreviewSuccessEnvelope"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Classified safe error response"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "GET /api/admin/v1/ai-runs/:id/input-attachments/:ordinal/preview",
+        "tags": [
+          "ai-runs"
+        ],
+        "x-admin-access": {
+          "kind": "permission",
+          "permission_code": "ai_run_list"
+        },
+        "x-admin-audit": {
+          "enabled": false,
+          "reason": "read-only short-lived image preview"
+        },
+        "x-runtime-path": "/api/admin/v1/ai-runs/:id/input-attachments/:ordinal/preview"
       }
     },
     "/api/admin/v1/ai-runs/{id}/user-feedback": {

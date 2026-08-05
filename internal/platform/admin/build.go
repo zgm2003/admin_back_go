@@ -231,7 +231,14 @@ func Build(input BuildInput) (*BuildResult, error) {
 		aiconversation.NewGormRepository(resources.DB),
 		aiconversation.WithCancelPublisher(replycommand.NewRedisCancelPublisher(resources.Redis)),
 	)
-	aiRunService := airun.NewService(aiRunRepository, airun.WithLogger(logger))
+	aiRunService := airun.NewService(
+		aiRunRepository,
+		airun.WithLogger(logger),
+		airun.WithInputAttachmentPreviewer(storagecos.NewImagePreviewer(
+			aiChatObjectConfig,
+			storagecos.ImagePreviewerConfig{Enabled: true},
+		)),
+	)
 	paymentService := paymentmodule.NewService(paymentmodule.Dependencies{
 		Repository:   paymentmodule.NewGormRepository(resources.DB, walletRepository),
 		Gateway:      providers.PaymentGateway,

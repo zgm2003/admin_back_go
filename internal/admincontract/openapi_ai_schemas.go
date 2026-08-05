@@ -194,6 +194,11 @@ func aiWorkflowSchemas() map[string]any {
 		"AIRunRequestSummary":        aiRunRequestSummarySchema(),
 		"AIRunDetail":                aiRunDetailSchema(),
 		"AIRunDetailSuccessEnvelope": successEnvelopeWithData(schemaReference("AIRunDetail")),
+		"AIRunInputAttachmentPreview": closedObjectAllProperties(map[string]any{
+			"url":        schemaWith(stringSchema(), "format", "uri"),
+			"expires_in": integerRangeSchema(1, 300),
+		}),
+		"AIRunInputAttachmentPreviewSuccessEnvelope": successEnvelopeWithData(schemaReference("AIRunInputAttachmentPreview")),
 		"AIRunUserFeedbackRequest": closedObjectAllProperties(map[string]any{
 			"liked": booleanSchema(),
 		}),

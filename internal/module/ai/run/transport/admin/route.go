@@ -39,6 +39,12 @@ func Register(router *gin.Engine, service airunmodule.HTTPService, routeRegistri
 		Audit:  adminroute.NoAudit("read-only"),
 	}, handler.Detail)
 	routes.Handle(adminroute.Definition{
+		Method: http.MethodGet,
+		Path:   "/api/admin/v1/ai-runs/:id/input-attachments/:ordinal/preview",
+		Access: adminroute.Permission("ai_run_list"),
+		Audit:  adminroute.NoAudit("read-only short-lived image preview"),
+	}, handler.InputAttachmentPreview)
+	routes.Handle(adminroute.Definition{
 		Method: http.MethodPut,
 		Path:   "/api/admin/v1/ai-runs/:id/user-feedback",
 		Access: adminroute.Authenticated(),

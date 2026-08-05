@@ -159,6 +159,10 @@ func (fakeRouterAIRunService) Detail(ctx context.Context, id int64) (*airun.Deta
 	return &airun.DetailResponse{ID: id}, nil
 }
 
+func (fakeRouterAIRunService) InputAttachmentPreview(ctx context.Context, id int64, ordinal int64) (*airun.InputAttachmentPreviewResponse, *apperror.Error) {
+	return &airun.InputAttachmentPreviewResponse{}, nil
+}
+
 func (fakeRouterAIRunService) Dashboard(ctx context.Context, filter airun.DashboardFilter) (*airun.DashboardResponse, *apperror.Error) {
 	return &airun.DashboardResponse{}, nil
 }
@@ -3222,6 +3226,7 @@ func aiRunReadRouteCases() []aiRunReadRouteCase {
 		{requestPath: "/api/admin/v1/ai-runs/page-init", registeredPath: "/api/admin/v1/ai-runs/page-init"},
 		{requestPath: "/api/admin/v1/ai-runs", registeredPath: "/api/admin/v1/ai-runs"},
 		{requestPath: "/api/admin/v1/ai-runs/1", registeredPath: "/api/admin/v1/ai-runs/:id"},
+		{requestPath: "/api/admin/v1/ai-runs/1/input-attachments/1/preview", registeredPath: "/api/admin/v1/ai-runs/:id/input-attachments/:ordinal/preview"},
 		{requestPath: "/api/admin/v1/ai-runs/dashboard", registeredPath: "/api/admin/v1/ai-runs/dashboard"},
 	}
 }

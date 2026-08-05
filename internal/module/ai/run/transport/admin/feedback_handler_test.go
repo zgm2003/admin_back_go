@@ -94,6 +94,9 @@ func (managementRunHTTPService) List(context.Context, airunmodule.ListQuery) (*a
 func (managementRunHTTPService) Detail(context.Context, int64) (*airunmodule.DetailResponse, *apperror.Error) {
 	return &airunmodule.DetailResponse{}, nil
 }
+func (managementRunHTTPService) InputAttachmentPreview(context.Context, int64, int64) (*airunmodule.InputAttachmentPreviewResponse, *apperror.Error) {
+	return &airunmodule.InputAttachmentPreviewResponse{}, nil
+}
 func (managementRunHTTPService) Dashboard(context.Context, airunmodule.DashboardFilter) (*airunmodule.DashboardResponse, *apperror.Error) {
 	return &airunmodule.DashboardResponse{}, nil
 }

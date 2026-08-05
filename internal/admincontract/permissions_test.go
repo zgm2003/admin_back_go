@@ -126,6 +126,7 @@ func TestAIRunDashboardUsesAIRunListPermission(t *testing.T) {
 		"/api/admin/v1/ai-runs/page-init",
 		"/api/admin/v1/ai-runs",
 		"/api/admin/v1/ai-runs/:id",
+		"/api/admin/v1/ai-runs/:id/input-attachments/:ordinal/preview",
 		"/api/admin/v1/ai-runs/dashboard",
 	} {
 		operation, exists := findOperationPolicy(document.Operations, "GET", path)

@@ -41,6 +41,9 @@ type fakeRepository struct {
 	contextPlan      *contextengine.ContextPlan
 	contextPlanRuns  []int64
 	contextPlanErr   error
+	inputSnapshot    *InputSnapshotRow
+	inputSnapshotErr error
+	inputSnapshotIDs []int64
 }
 
 func (f *fakeRepository) AgentOptions(ctx context.Context) ([]OptionRow, error) {
@@ -60,6 +63,10 @@ func (f *fakeRepository) List(ctx context.Context, query ListQuery) ([]ListRow, 
 }
 func (f *fakeRepository) Detail(ctx context.Context, id int64) (*RunDetailRow, error) {
 	return f.run, nil
+}
+func (f *fakeRepository) InputSnapshot(_ context.Context, id int64) (*InputSnapshotRow, error) {
+	f.inputSnapshotIDs = append(f.inputSnapshotIDs, id)
+	return f.inputSnapshot, f.inputSnapshotErr
 }
 func (f *fakeRepository) BillingDetail(ctx context.Context, runID int64) (*ChargeRow, []UsageChargeItemRow, []ProviderAttemptRow, error) {
 	f.billingRuns = append(f.billingRuns, runID)

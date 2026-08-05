@@ -63,7 +63,11 @@ func (streamer *COSObjectStreamer) headObject(ctx context.Context, objectKey, et
 	if err != nil {
 		return infraai.PreparedFileObjectMetadata{}, err
 	}
-	reqCtx, cancel := context.WithTimeout(ctx, streamer.timeout)
+	return conditionalHead(ctx, streamer.timeout, client, objectKey, etag, size)
+}
+
+func conditionalHead(ctx context.Context, timeout time.Duration, client *tencentcos.Client, objectKey, etag string, size int64) (infraai.PreparedFileObjectMetadata, error) {
+	reqCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	headers := make(http.Header)
 	headers.Set("If-Match", etag)

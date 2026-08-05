@@ -188,6 +188,11 @@ type DetailResponse struct {
 	UpdatedAt         string                  `json:"updated_at"`
 }
 
+type InputAttachmentPreviewResponse struct {
+	URL       string `json:"url"`
+	ExpiresIn int64  `json:"expires_in"`
+}
+
 type LatencyBreakdown struct {
 	AcceptMS        *int64 `json:"accept_ms"`
 	QueueMS         *int64 `json:"queue_ms"`
@@ -329,6 +334,11 @@ type RunDetailRow struct {
 	UpdatedAt           time.Time
 }
 
+type InputSnapshotRow struct {
+	RunID         int64
+	InputSnapshot string
+}
+
 type ChargeRow struct {
 	ID          int64
 	HeldUnits   int64
@@ -392,6 +402,7 @@ type Repository interface {
 	HistoricalModelOptions(ctx context.Context, startAt, endExclusive time.Time) ([]HistoricalModelRow, error)
 	List(ctx context.Context, query ListQuery) ([]ListRow, int64, error)
 	Detail(ctx context.Context, id int64) (*RunDetailRow, error)
+	InputSnapshot(ctx context.Context, id int64) (*InputSnapshotRow, error)
 	BillingDetail(ctx context.Context, runID int64) (*ChargeRow, []UsageChargeItemRow, []ProviderAttemptRow, error)
 	Events(ctx context.Context, runID int64) ([]EventRow, error)
 	ToolCalls(ctx context.Context, runID int64) ([]ToolCallRow, error)
@@ -403,6 +414,7 @@ type HTTPService interface {
 	PageInit(ctx context.Context, filter PageInitFilter) (*InitResponse, *apperror.Error)
 	List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error)
 	Detail(ctx context.Context, id int64) (*DetailResponse, *apperror.Error)
+	InputAttachmentPreview(ctx context.Context, id int64, ordinal int64) (*InputAttachmentPreviewResponse, *apperror.Error)
 	Dashboard(ctx context.Context, filter DashboardFilter) (*DashboardResponse, *apperror.Error)
 }
 

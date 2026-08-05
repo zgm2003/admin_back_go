@@ -120,10 +120,13 @@ func buildWorkflowOperationContracts() map[workflowOperationKey]workflowOperatio
 		workflowKey(http.MethodDelete, "/api/admin/v1/ai-conversations/:id/messages"): workflowContract("AIMessageDeleteSuccessEnvelope", requiredBody("AIMessageDeleteRequest"), nil, positiveID),
 		workflowKey(http.MethodPut, "/api/admin/v1/ai-conversations/:id/read-cursor"): workflowContract("AIConversationReadCursorSuccessEnvelope", requiredBody("AIConversationReadCursorRequest"), nil, positiveID),
 
-		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/page-init"):         workflowContract("AIRunPageInitSuccessEnvelope", nil, aiRunPageInitQueryParameters(), noID),
-		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs"):                   workflowContract("AIRunListSuccessEnvelope", nil, aiRunListQueryParameters(), noID),
-		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/dashboard"):         workflowContract("AIRunDashboardSuccessEnvelope", nil, aiRunDashboardQueryParameters(), noID),
-		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/:id"):               workflowContract("AIRunDetailSuccessEnvelope", nil, nil, positiveID),
+		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/page-init"): workflowContract("AIRunPageInitSuccessEnvelope", nil, aiRunPageInitQueryParameters(), noID),
+		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs"):           workflowContract("AIRunListSuccessEnvelope", nil, aiRunListQueryParameters(), noID),
+		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/dashboard"): workflowContract("AIRunDashboardSuccessEnvelope", nil, aiRunDashboardQueryParameters(), noID),
+		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/:id"):       workflowContract("AIRunDetailSuccessEnvelope", nil, nil, positiveID),
+		workflowKey(http.MethodGet, "/api/admin/v1/ai-runs/:id/input-attachments/:ordinal/preview"): withPositivePathIDs(
+			workflowContract("AIRunInputAttachmentPreviewSuccessEnvelope", nil, nil, noID), "id", "ordinal",
+		),
 		workflowKey(http.MethodPut, "/api/admin/v1/ai-runs/:id/user-feedback"): workflowContract("AIRunUserFeedbackSuccessEnvelope", requiredBody("AIRunUserFeedbackRequest"), nil, positiveID),
 	}
 }

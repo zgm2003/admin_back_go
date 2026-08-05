@@ -16,6 +16,7 @@ import (
 
 	"admin_back_go/internal/config"
 	infraai "admin_back_go/internal/infra/ai"
+	"admin_back_go/internal/infra/storage"
 	"admin_back_go/internal/module/ai/aigateway"
 	"admin_back_go/internal/module/ai/billing"
 	"admin_back_go/internal/module/ai/contextengine"
@@ -33,10 +34,11 @@ const timeLayout = "2006-01-02 15:04:05"
 var emptyJSONObject = json.RawMessage("{}")
 
 type Service struct {
-	repository         Repository
-	feedbackRepository FeedbackRepository
-	clock              clock.Clock
-	logger             *slog.Logger
+	repository          Repository
+	feedbackRepository  FeedbackRepository
+	attachmentPreviewer storage.ImagePreviewer
+	clock               clock.Clock
+	logger              *slog.Logger
 }
 
 type Option func(*Service)

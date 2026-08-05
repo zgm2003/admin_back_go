@@ -20,3 +20,11 @@ airun.feedback.unavailable: 该AI运行不支持反馈
 airun.feedback.update_failed: 更新AI运行反馈失败
 airun.feedback.repository_missing: AI运行反馈仓储未配置
 airun.feedback.request_invalid: AI运行反馈参数错误
+airun.input_attachment.query_failed: 查询AI运行输入附件失败
+airun.input_attachment.run_not_found: AI运行记录不存在
+airun.input_attachment.evidence_invalid: AI运行输入附件证据无效
+airun.input_attachment.previewer_missing: AI运行输入附件预览服务未配置
+airun.input_attachment.preview_failed: 生成AI运行输入附件预览失败
+airun.input_attachment.preview_invalid: AI运行输入附件预览结果无效
+airun.input_attachment.selection_invalid: 无效的AI运行输入附件
+airun.input_attachment.preview_unavailable: AI运行输入附件预览不可用

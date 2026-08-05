@@ -228,6 +228,7 @@ func TestWorkflowOperationsUseFieldCompleteContracts(t *testing.T) {
 		{method: "get", path: "/api/admin/v1/ai-runs", responseStatus: "200", responseSchema: "AIRunListSuccessEnvelope", queryParameters: []string{"agent_id", "anomaly_as_of", "billing_anomaly", "billing_reason", "billing_status", "current_page", "date_end", "date_start", "error_code", "model_id", "page_size", "platform", "provider_id", "request_id", "run_anomaly", "status", "tool_code", "user_feedback", "user_id"}},
 		{method: "get", path: "/api/admin/v1/ai-runs/dashboard", responseStatus: "200", responseSchema: "AIRunDashboardSuccessEnvelope", queryParameters: []string{"agent_id", "date_end", "date_start", "model_id", "platform", "provider_id", "user_id"}},
 		{method: "get", path: "/api/admin/v1/ai-runs/{id}", responseStatus: "200", responseSchema: "AIRunDetailSuccessEnvelope", positivePathIDs: []string{"id"}},
+		{method: "get", path: "/api/admin/v1/ai-runs/{id}/input-attachments/{ordinal}/preview", operationID: "get_api_admin_v1_ai_runs_id_input_attachments_ordinal_preview", responseStatus: "200", responseSchema: "AIRunInputAttachmentPreviewSuccessEnvelope", positivePathIDs: []string{"id", "ordinal"}},
 		{method: "put", path: "/api/admin/v1/ai-runs/{id}/user-feedback", operationID: "put_api_admin_v1_ai_runs_id_user_feedback", responseStatus: "200", responseSchema: "AIRunUserFeedbackSuccessEnvelope", requestSchema: "AIRunUserFeedbackRequest", requestRequired: true, positivePathIDs: []string{"id"}},
 	}
 
@@ -267,7 +268,7 @@ func TestWorkflowSchemasCloseBusinessFieldsAndDeclareNullability(t *testing.T) {
 		"ExportTaskListSuccessEnvelope", "ExportTaskStatusCountSuccessEnvelope",
 		"AIConversationListSuccessEnvelope", "AIMessageSendRequest", "AIMessageSendSuccessEnvelope",
 		"AIMessageRevisionRequest", "AIMessageRegenerationRequest", "AIMessageDeleteSuccessEnvelope",
-		"AIConversationReadCursorSuccessEnvelope", "AIRunUserFeedbackSuccessEnvelope",
+		"AIConversationReadCursorSuccessEnvelope", "AIRunInputAttachmentPreviewSuccessEnvelope", "AIRunUserFeedbackSuccessEnvelope",
 		"AIRunPageInitSuccessEnvelope", "AIRunListSuccessEnvelope", "AIRunDetailSuccessEnvelope",
 		"AIRunDashboardSuccessEnvelope",
 	} {
@@ -305,6 +306,7 @@ func TestWorkflowSchemasCloseBusinessFieldsAndDeclareNullability(t *testing.T) {
 		"AIMessageDeleteResult":           {"deleted_ids"},
 		"AIConversationReadCursorRequest": {"message_id"},
 		"AIConversationReadCursorResult":  {"conversation_id", "last_read_message_id", "unread_count"},
+		"AIRunInputAttachmentPreview":     {"expires_in", "url"},
 		"AIRunUserFeedbackRequest":        {"liked"},
 		"AIRunUserFeedbackResult":         {"id", "liked", "liked_at"},
 	} {

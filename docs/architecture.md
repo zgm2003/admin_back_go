@@ -1910,6 +1910,15 @@ Message delivery and Run settlement are separate state machines: a stopped messa
 There is no daily aggregate table, billing amount, provider task id, execution-step timeline, usage dump, or snapshot JSON in the run-monitor MVP.
 admin-worker fan-out still depends on REALTIME_PUBLISHER=redis for cross-process realtime.
 ```
+
+Run Detail input snapshots are sanitized projections. Image preview uses the
+protected `GET /api/admin/v1/ai-runs/:id/input-attachments/:ordinal/preview`
+route with `ai_run_list` access. The service reloads the original
+`ai_runs.input_snapshot`, validates the immutable object key, ETag, size, and
+MIME evidence, performs a conditional COS HEAD, and returns a presigned GET
+URL valid for at most 300 seconds. Missing or changed objects return 409;
+Run Detail never embeds storage keys, source URLs, or signed URLs.
+
 `internal/infra/storage/cos` 是唯一 COS STS 供应商边界：
 
 ```text
