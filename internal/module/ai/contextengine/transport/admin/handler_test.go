@@ -45,6 +45,33 @@ func TestContextAdminContractSensitiveAuditsDoNotCapturePayloads(t *testing.T) {
 	t.Fatal("evaluation route definition missing")
 }
 
+func TestContextPageInitRouteIsReadOnlyAndTyped(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	registry := adminroute.NewRegistry()
+	RegisterRoutes(gin.New(), "admin", &fakeContextHTTPService{}, registry)
+
+	definitions := registry.Definitions()
+	for _, definition := range definitions {
+		if definition.Path != "/api/admin/v1/ai/context/page-init" {
+			continue
+		}
+		if definition.Method != http.MethodGet || definition.OperationID != "ai_context_page_init" {
+			t.Fatalf("page-init route = %#v", definition)
+		}
+		if definition.Access.Kind != adminroute.AccessPermission || definition.Access.PermissionCode != "ai_context_view" {
+			t.Fatalf("page-init access = %#v", definition.Access)
+		}
+		if definition.Audit.Enabled || definition.Audit.Reason != "read-only" {
+			t.Fatalf("page-init audit = %#v", definition.Audit)
+		}
+		if definition.Contract == nil || reflect.TypeOf(definition.Contract.Response) != reflect.TypeOf(contextengine.ContextPageInitResponse{}) {
+			t.Fatalf("page-init contract = %#v", definition.Contract)
+		}
+		return
+	}
+	t.Fatal("context page-init route definition missing")
+}
+
 func TestContextRoutesUseTrustedPlatformAndIgnoreOverrides(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	service := &fakeContextHTTPService{}

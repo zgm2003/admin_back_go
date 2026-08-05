@@ -143,8 +143,46 @@ func TestAdminContractMissingDocumentIsNotAnEmptyVersionList(t *testing.T) {
 	}
 }
 
+func TestContextPageInitPartitionsProviderModelOptions(t *testing.T) {
+	repository := &fakeAdminRepository{modelOptions: []ProviderModelOption{
+		{ID: 11, ProviderName: "Alpha", ModelID: "embed-v1", ModelKind: aiprovider.ModelKindEmbedding, DisplayName: "Embedding One"},
+		{ID: 12, ProviderName: "Alpha", ModelID: "rerank-v1", ModelKind: aiprovider.ModelKindRerank},
+		{ID: 13, ProviderName: "Beta", ModelID: "chat-v1", ModelKind: aiprovider.ModelKindChat, DisplayName: "Memory Chat"},
+	}}
+
+	result, appErr := NewAdminService(repository, nil, nil).PageInit(context.Background())
+	if appErr != nil {
+		t.Fatalf("PageInit error = %#v", appErr)
+	}
+	if len(result.EmbeddingModelOptions) != 1 || result.EmbeddingModelOptions[0] != (ProviderModelOptionDTO{
+		Value: 11, Label: "Alpha / Embedding One", ProviderName: "Alpha", ModelID: "embed-v1",
+	}) {
+		t.Fatalf("embedding options = %#v", result.EmbeddingModelOptions)
+	}
+	if len(result.RerankerModelOptions) != 1 || result.RerankerModelOptions[0].Label != "Alpha / rerank-v1" {
+		t.Fatalf("reranker options = %#v", result.RerankerModelOptions)
+	}
+	if len(result.MemoryModelOptions) != 1 || result.MemoryModelOptions[0].Value != 13 {
+		t.Fatalf("memory options = %#v", result.MemoryModelOptions)
+	}
+}
+
+func TestContextPageInitReturnsEmptyArraysWithoutFabricatedOptions(t *testing.T) {
+	result, appErr := NewAdminService(&fakeAdminRepository{}, nil, nil).PageInit(context.Background())
+	if appErr != nil {
+		t.Fatalf("PageInit error = %#v", appErr)
+	}
+	if result.EmbeddingModelOptions == nil || result.RerankerModelOptions == nil || result.MemoryModelOptions == nil {
+		t.Fatalf("empty options must be arrays: %#v", result)
+	}
+	if len(result.EmbeddingModelOptions)+len(result.RerankerModelOptions)+len(result.MemoryModelOptions) != 0 {
+		t.Fatalf("PageInit fabricated options: %#v", result)
+	}
+}
+
 type fakeAdminRepository struct {
 	models          map[uint64]ProviderModelCapability
+	modelOptions    []ProviderModelOption
 	profiles        map[uint64]ContextProfile
 	spaces          map[uint64]ContextSpace
 	documents       map[uint64]DocumentAdminDTO
@@ -152,6 +190,10 @@ type fakeAdminRepository struct {
 	createdDocument *DocumentAdminDTO
 	spaceReferenced bool
 	agentConflict   bool
+}
+
+func (repository *fakeAdminRepository) ListProviderModelOptions(context.Context) ([]ProviderModelOption, error) {
+	return repository.modelOptions, nil
 }
 
 func (repository *fakeAdminRepository) FindProviderModelCapability(_ context.Context, id uint64) (*ProviderModelCapability, error) {

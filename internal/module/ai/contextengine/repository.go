@@ -102,6 +102,20 @@ func (repository *GormAdminRepository) FindProviderModelCapability(ctx context.C
 	return &ProviderModelCapability{ID: row.ID, Kind: aiprovider.ModelKind(row.Kind), Enabled: row.ModelStatus == enum.CommonYes, ProviderEnabled: row.ProviderStatus == enum.CommonYes && row.ProviderDeleted == enum.CommonNo, OfficialModelID: officialID}, nil
 }
 
+func (repository *GormAdminRepository) ListProviderModelOptions(ctx context.Context) ([]ProviderModelOption, error) {
+	if repository == nil || repository.db == nil {
+		return nil, ErrPlanRepositoryNotConfigured
+	}
+	items := make([]ProviderModelOption, 0)
+	err := repository.db.WithContext(ctx).Table("ai_provider_models AS pm").
+		Select("pm.id, p.name AS provider_name, pm.model_id, pm.model_kind, pm.display_name").
+		Joins("JOIN ai_providers AS p ON p.id = pm.provider_id").
+		Where("pm.status = ? AND p.status = ? AND p.is_del = ?", enum.CommonYes, enum.CommonYes, enum.CommonNo).
+		Order("p.name ASC, pm.model_id ASC, pm.id ASC").
+		Scan(&items).Error
+	return items, err
+}
+
 func (repository *GormAdminRepository) CreateProfile(ctx context.Context, profile ContextProfile) (ContextProfile, error) {
 	if repository == nil || repository.db == nil {
 		return ContextProfile{}, ErrPlanRepositoryNotConfigured

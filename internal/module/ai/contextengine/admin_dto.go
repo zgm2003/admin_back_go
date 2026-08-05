@@ -167,6 +167,27 @@ type DocumentVersionListResponse struct {
 	Items []DocumentVersionDTO `json:"items"`
 }
 
+type ProviderModelOption struct {
+	ID           uint64               `gorm:"column:id"`
+	ProviderName string               `gorm:"column:provider_name"`
+	ModelID      string               `gorm:"column:model_id"`
+	ModelKind    aiprovider.ModelKind `gorm:"column:model_kind"`
+	DisplayName  string               `gorm:"column:display_name"`
+}
+
+type ProviderModelOptionDTO struct {
+	Value        uint64 `json:"value"`
+	Label        string `json:"label"`
+	ProviderName string `json:"provider_name"`
+	ModelID      string `json:"model_id"`
+}
+
+type ContextPageInitResponse struct {
+	EmbeddingModelOptions []ProviderModelOptionDTO `json:"embedding_model_options"`
+	RerankerModelOptions  []ProviderModelOptionDTO `json:"reranker_model_options"`
+	MemoryModelOptions    []ProviderModelOptionDTO `json:"memory_model_options"`
+}
+
 type ContextProfileStatusInput struct {
 	Status ProfileStatus `json:"status" binding:"required"`
 }

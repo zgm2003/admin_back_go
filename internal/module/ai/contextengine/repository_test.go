@@ -11,6 +11,8 @@ import (
 
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/infra/database"
+	aiprovider "admin_back_go/internal/module/ai/provider"
+	"admin_back_go/internal/shared/enum"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	mysqldriver "github.com/go-sql-driver/mysql"
@@ -18,6 +20,28 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
+
+func TestProviderModelOptionsQueryFiltersEnabledRowsAndKeepsStableOrder(t *testing.T) {
+	planRepository, mock, closeDB := newPlanRepositoryFixture(t)
+	defer closeDB()
+	repository := &GormAdminRepository{db: planRepository.db}
+
+	mock.ExpectQuery(`(?s)SELECT .*pm\.id.*p\.name AS provider_name.*pm\.model_id.*pm\.model_kind.*pm\.display_name.*FROM .*ai_provider_models.*pm.*JOIN ai_providers AS p ON p\.id = pm\.provider_id.*WHERE pm\.status = \? AND p\.status = \? AND p\.is_del = \?.*ORDER BY p\.name ASC, pm\.model_id ASC, pm\.id ASC`).
+		WithArgs(enum.CommonYes, enum.CommonYes, enum.CommonNo).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "provider_name", "model_id", "model_kind", "display_name"}).
+			AddRow(uint64(11), "Alpha", "chat-v1", aiprovider.ModelKindChat, "Chat").
+			AddRow(uint64(12), "Alpha", "embed-v1", aiprovider.ModelKindEmbedding, "Embedding").
+			AddRow(uint64(13), "Beta", "rerank-v1", aiprovider.ModelKindRerank, ""))
+
+	items, err := repository.ListProviderModelOptions(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 3 || items[0].ID != 11 || items[1].ModelKind != aiprovider.ModelKindEmbedding || items[2].ProviderName != "Beta" {
+		t.Fatalf("provider model options = %#v", items)
+	}
+	assertPlanMockExpectations(t, mock)
+}
 
 func TestContextPlanItemRowsRoundTripConversationTurnBoundaries(t *testing.T) {
 	counter, err := infraai.ResolveTokenCounter(infraai.TokenCounterUTF8BytesV1)

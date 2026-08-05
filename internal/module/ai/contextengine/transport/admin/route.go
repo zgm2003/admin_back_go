@@ -28,6 +28,7 @@ func RegisterRoutes(router gin.IRoutes, trustedPlatform string, service HTTPServ
 		}
 		registry.Handle(definition, handlerFunc)
 	}
+	register(adminroute.Definition{Method: http.MethodGet, Path: "/api/admin/v1/ai/context/page-init", OperationID: "ai_context_page_init", Access: adminroute.Permission("ai_context_view"), Audit: adminroute.NoAudit("read-only"), Contract: &adminroute.HTTPContract{Response: contextengine.ContextPageInitResponse{}}}, handler.PageInit)
 	register(adminroute.Definition{Method: http.MethodGet, Path: "/api/admin/v1/ai/context-profiles", OperationID: "ai_context_profiles_list", Access: adminroute.Permission("ai_context_view"), Audit: adminroute.NoAudit("read-only"), Contract: &adminroute.HTTPContract{Query: profileListRequest{}, Response: contextengine.ProfileListResponse{}}}, handler.ListProfiles)
 	register(adminroute.Definition{Method: http.MethodGet, Path: "/api/admin/v1/ai/context-profiles/:id", OperationID: "ai_context_profile_get", Access: adminroute.Permission("ai_context_view"), Audit: adminroute.NoAudit("read-only"), Contract: &adminroute.HTTPContract{Response: contextengine.ProfileDTO{}}}, handler.GetProfile)
 	register(adminroute.Definition{Method: http.MethodPost, Path: "/api/admin/v1/ai/context-profiles", OperationID: "ai_context_profile_create", Access: adminroute.Permission("ai_context_profile_manage"), Audit: adminroute.Audit("ai_context_profile", "create", "新增上下文配置"), Contract: &adminroute.HTTPContract{Request: profileCreateRequest{}, Response: contextengine.ProfileDTO{}}}, handler.CreateProfile)

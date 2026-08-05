@@ -23,6 +23,7 @@ type HTTPService interface {
 }
 
 type adminReadService interface {
+	PageInit(context.Context) (*contextengine.ContextPageInitResponse, *apperror.Error)
 	ListProfiles(context.Context, contextengine.ProfileStatus) (*contextengine.ProfileListResponse, *apperror.Error)
 	GetProfile(context.Context, uint64) (*contextengine.ProfileDTO, *apperror.Error)
 	UpdateProfileMetadata(context.Context, uint64, string) (*contextengine.ProfileDTO, *apperror.Error)
@@ -53,6 +54,16 @@ type Handler struct {
 
 func NewHandler(platform string, service HTTPService) *Handler {
 	return &Handler{platform: platform, service: service}
+}
+
+func (handler *Handler) PageInit(c *gin.Context) {
+	service, ok := handler.service.(adminReadService)
+	if !ok {
+		unsupported(c)
+		return
+	}
+	result, appErr := service.PageInit(c.Request.Context())
+	write(c, result, appErr)
 }
 
 func (handler *Handler) CreateProfile(c *gin.Context) {

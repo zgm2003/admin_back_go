@@ -778,3 +778,27 @@ func TestAIContextOpenAPIPublishesDegradedOutcome(t *testing.T) {
 	assertSchemaPropertyStringEnum(t, document.Components.Schemas, "AIMessageContext", "outcome", []string{"skipped", "no_hit", "hit", "degraded", "failed"})
 	assertSchemaPropertyStringEnum(t, document.Components.Schemas, "AIContextPlan", "retrieval_outcome", []string{"skipped", "no_hit", "hit", "degraded", "failed"})
 }
+
+func TestAIContextPageInitPublishesTypedModelOptions(t *testing.T) {
+	bundle := mustBuildBundle(t)
+	var document struct {
+		Paths      map[string]map[string]map[string]any `json:"paths"`
+		Components struct {
+			Schemas map[string]map[string]any `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(bundle.Artifacts["openapi.json"], &document); err != nil {
+		t.Fatal(err)
+	}
+	operation := document.Paths["/api/admin/v1/ai/context/page-init"]["get"]
+	if operation == nil || operation["operationId"] != "ai_context_page_init" {
+		t.Fatalf("context page-init operation = %#v", operation)
+	}
+	assertOperationResponseRef(t, operation, "200", "ai_context_page_init_ResponseEnvelope")
+	assertClosedSchemaWithRequired(t, document.Components.Schemas,
+		"Go_internal_module_ai_contextengine_ContextPageInitResponse_Output",
+		"embedding_model_options", "memory_model_options", "reranker_model_options")
+	assertClosedSchemaWithRequired(t, document.Components.Schemas,
+		"Go_internal_module_ai_contextengine_ProviderModelOptionDTO_Output",
+		"label", "model_id", "provider_name", "value")
+}

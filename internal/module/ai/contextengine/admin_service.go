@@ -18,6 +18,7 @@ import (
 
 type AdminRepository interface {
 	FindProviderModelCapability(context.Context, uint64) (*ProviderModelCapability, error)
+	ListProviderModelOptions(context.Context) ([]ProviderModelOption, error)
 	CreateProfile(context.Context, ContextProfile) (ContextProfile, error)
 	FindProfile(context.Context, uint64) (*ContextProfile, error)
 	UpdateProfileMetadata(context.Context, uint64, string, ProfileStatus) (ContextProfile, error)
@@ -95,6 +96,47 @@ func NewAdminService(repository AdminRepository, objects storage.ConditionalObje
 		}
 	}
 	return service
+}
+
+func (service *AdminService) PageInit(ctx context.Context) (*ContextPageInitResponse, *apperror.Error) {
+	if service == nil || service.repository == nil {
+		return nil, apperror.Internal("上下文仓储未配置")
+	}
+	models, err := service.repository.ListProviderModelOptions(ctx)
+	if err != nil {
+		return nil, internalAdminError("查询上下文模型选项失败", err)
+	}
+	result := &ContextPageInitResponse{
+		EmbeddingModelOptions: make([]ProviderModelOptionDTO, 0),
+		RerankerModelOptions:  make([]ProviderModelOptionDTO, 0),
+		MemoryModelOptions:    make([]ProviderModelOptionDTO, 0),
+	}
+	for _, model := range models {
+		providerName := strings.TrimSpace(model.ProviderName)
+		modelID := strings.TrimSpace(model.ModelID)
+		if model.ID == 0 || providerName == "" || modelID == "" {
+			return nil, internalAdminError("查询上下文模型选项失败", errors.New("provider model option identity is invalid"))
+		}
+		displayName := strings.TrimSpace(model.DisplayName)
+		if displayName == "" {
+			displayName = modelID
+		}
+		option := ProviderModelOptionDTO{
+			Value: model.ID, Label: providerName + " / " + displayName,
+			ProviderName: providerName, ModelID: modelID,
+		}
+		switch model.ModelKind {
+		case aiprovider.ModelKindEmbedding:
+			result.EmbeddingModelOptions = append(result.EmbeddingModelOptions, option)
+		case aiprovider.ModelKindRerank:
+			result.RerankerModelOptions = append(result.RerankerModelOptions, option)
+		case aiprovider.ModelKindChat:
+			result.MemoryModelOptions = append(result.MemoryModelOptions, option)
+		default:
+			return nil, internalAdminError("查询上下文模型选项失败", errors.New("provider model option kind is invalid"))
+		}
+	}
+	return result, nil
 }
 
 func (service *AdminService) CreateProfile(ctx context.Context, actorID uint32, input CreateProfileInput) (*ProfileDTO, *apperror.Error) {
