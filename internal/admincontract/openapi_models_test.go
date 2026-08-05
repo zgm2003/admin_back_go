@@ -683,8 +683,11 @@ func TestAIAdministrationRoutesPublishRuntimeModelContracts(t *testing.T) {
 	}
 	prefixes := []string{
 		"/api/admin/v1/ai-agents",
-		"/api/admin/v1/ai-knowledge-bases",
-		"/api/admin/v1/ai-knowledge-documents",
+		"/api/admin/v1/ai/context-profiles",
+		"/api/admin/v1/ai/context-spaces",
+		"/api/admin/v1/ai/context-documents",
+		"/api/admin/v1/ai/context-evaluations",
+		"/api/admin/v1/ai/context/page-init",
 		"/api/admin/v1/ai-providers",
 		"/api/admin/v1/ai-tools",
 	}
