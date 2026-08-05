@@ -270,7 +270,14 @@ func (s *Service) ExecuteConversationReply(ctx context.Context, input Conversati
 	if contextErr != nil {
 		if paidReply {
 			preDispatchRunID = 0
-			result, finalizationErr := s.finalizePaidFailure(context.WithoutCancel(ctx), runID, input, true)
+			var appErr *apperror.Error
+			var result *ConversationReplyResult
+			var finalizationErr error
+			if errors.As(contextErr, &appErr) && appErr != nil && strings.HasPrefix(appErr.Code, "ai.context.") {
+				result, finalizationErr = s.finalizePaidContextFailure(context.WithoutCancel(ctx), runID, input, appErr.Code)
+			} else {
+				result, finalizationErr = s.finalizePaidFailure(context.WithoutCancel(ctx), runID, input, true)
+			}
 			if finalizationErr != nil {
 				return nil, errors.Join(contextErr, finalizationErr)
 			}

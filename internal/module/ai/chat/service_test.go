@@ -15,6 +15,7 @@ import (
 	infrarealtime "admin_back_go/internal/infra/realtime"
 	"admin_back_go/internal/infra/secretbox"
 	"admin_back_go/internal/module/ai/aigateway"
+	"admin_back_go/internal/module/ai/contextengine"
 	"admin_back_go/internal/module/ai/officialmodel"
 	"admin_back_go/internal/module/ai/pricing"
 	"admin_back_go/internal/module/ai/requestidentity"
@@ -355,6 +356,12 @@ type finalizingPaidFailureExecutor struct {
 	preDispatchInputs []PaidChatAttemptInput
 }
 
+type finalizingPaidContextFailureExecutor struct {
+	executeCalls int
+	inputs       []PaidChatAttemptInput
+	codes        []string
+}
+
 func (f *sequencePaidAttemptExecutor) ExecutePaidChatAttempt(_ context.Context, input PaidChatAttemptInput) (*PaidChatAttemptResult, error) {
 	f.inputs = append(f.inputs, input)
 	if len(f.results) == 0 {
@@ -381,6 +388,17 @@ func (f *finalizingPaidFailureExecutor) FinalizePaidChatPreDispatchFailure(_ con
 
 func (f *finalizingPaidFailureExecutor) FinalizePaidChatLocalFailure(context.Context, PaidChatAttemptInput) (*PaidChatAttemptResult, error) {
 	return nil, errors.New("unexpected local failure finalization")
+}
+
+func (f *finalizingPaidContextFailureExecutor) ExecutePaidChatAttempt(context.Context, PaidChatAttemptInput) (*PaidChatAttemptResult, error) {
+	f.executeCalls++
+	return nil, errors.New("unexpected paid attempt")
+}
+
+func (f *finalizingPaidContextFailureExecutor) FinalizePaidChatContextFailure(_ context.Context, input PaidChatAttemptInput, code string) (*PaidChatAttemptResult, error) {
+	f.inputs = append(f.inputs, input)
+	f.codes = append(f.codes, code)
+	return &PaidChatAttemptResult{Finalized: true}, nil
 }
 
 func (f *fakeProviderAttemptRecorder) PrepareProviderAttempt(_ context.Context, input ProviderAttemptPrepareInput) (*ProviderAttemptRef, error) {
@@ -1305,6 +1323,42 @@ func TestPaidConversationReplyFinalizesEngineSecretFailureBeforeDispatch(t *test
 	}
 	if len(paid.preDispatchInputs) != 1 || paid.preDispatchInputs[0].RunID != 100 || paid.executeCalls != 0 {
 		t.Fatalf("unexpected paid failure finalization: %+v execute_calls=%d", paid.preDispatchInputs, paid.executeCalls)
+	}
+}
+
+func TestPaidConversationReplyFinalizesContextBuildFailureWithContextCode(t *testing.T) {
+	agent, box := validAgentConfig(t)
+	repo := &fakeRepository{
+		conversation: &Conversation{ID: 3, UserID: 7, AgentID: 5, IsDel: enum.CommonNo},
+		agent:        agent,
+		history:      []MessageHistory{{ID: 9, Role: enum.AIMessageRoleUser, Content: "继续分析附件"}},
+	}
+	contextFailure, err := contextengine.NewContextAppError(contextengine.ErrCodeAttachmentUnavailable, errors.New("historical attachment changed"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	paid := &finalizingPaidContextFailureExecutor{}
+	service := newTestChatService(Dependencies{
+		Repository: repo, PaidAttemptExecutor: paid, Publisher: &fakePublisher{},
+		EngineFactory: &fakeEngineFactory{engine: infraai.NewFakeEngine("unused")}, Secretbox: box,
+		ContextRuntime: contextRuntimeFunc(func(context.Context, ContextRuntimeInput) (ContextRuntimeResult, error) {
+			return ContextRuntimeResult{}, contextFailure
+		}),
+	})
+
+	result, err := service.ExecuteConversationReply(context.Background(), ConversationReplyInput{
+		CommandID: 41, LeaseOwner: "worker-a", LeaseToken: 2, ConversationID: 3, UserID: 7,
+		AgentID: 5, UserMessageID: 9, RequestID: "rid-context-failure", CommandAttempt: 1, CommandMaxAttempts: 3,
+	})
+
+	if err != nil || result == nil || !result.Finalized {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if len(paid.inputs) != 1 || paid.inputs[0].RunID != 100 || paid.executeCalls != 0 {
+		t.Fatalf("unexpected context finalization: inputs=%+v execute_calls=%d", paid.inputs, paid.executeCalls)
+	}
+	if len(paid.codes) != 1 || paid.codes[0] != string(contextengine.ErrCodeAttachmentUnavailable) {
+		t.Fatalf("context failure codes=%v", paid.codes)
 	}
 }
 

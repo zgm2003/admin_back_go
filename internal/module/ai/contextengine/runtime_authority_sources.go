@@ -18,6 +18,8 @@ func verifySelectedSource(ctx context.Context, tx *gorm.DB, platform string, fin
 		return err
 	}
 	switch source.SourceType {
+	case "attachment":
+		return verifyHistoricalAttachmentSource(ctx, tx, fingerprint, source)
 	case "document_chunk":
 		if fingerprint.Profile == nil || fingerprint.Profile.IndexGeneration == nil {
 			return ErrInvalidContextPlan
@@ -145,6 +147,63 @@ func loadFingerprintAuthorityScope(ctx context.Context, tx *gorm.DB, fingerprint
 	return scope, nil
 }
 
+type authorizedUserMessageRow struct {
+	ID             uint64  `gorm:"column:id"`
+	ConversationID uint64  `gorm:"column:conversation_id"`
+	UserID         uint64  `gorm:"column:user_id"`
+	Content        string  `gorm:"column:content"`
+	MetaJSON       *string `gorm:"column:meta_json"`
+	Role           int     `gorm:"column:role"`
+	IsDel          int     `gorm:"column:is_del"`
+}
+
+func loadAuthorizedUserMessage(ctx context.Context, tx *gorm.DB, conversationID, userID, messageID uint64) (authorizedUserMessageRow, error) {
+	if tx == nil || conversationID == 0 || userID == 0 || messageID == 0 {
+		return authorizedUserMessageRow{}, ErrInvalidContextPlan
+	}
+	var row authorizedUserMessageRow
+	err := tx.WithContext(ctx).Table("ai_messages AS message").
+		Select("message.id, message.conversation_id, conversation.user_id, message.content, message.meta_json, message.role, message.is_del").
+		Joins("JOIN ai_conversations AS conversation ON conversation.id = message.conversation_id").
+		Where("message.id = ?", messageID).Take(&row).Error
+	if err != nil {
+		return authorizedUserMessageRow{}, err
+	}
+	if row.ID != messageID || row.ConversationID != conversationID || row.UserID != userID ||
+		row.Role != enum.AIMessageRoleUser || row.IsDel != enum.CommonNo {
+		return authorizedUserMessageRow{}, ErrInvalidContextPlan
+	}
+	return row, nil
+}
+
+func verifyHistoricalAttachmentSource(ctx context.Context, tx *gorm.DB, fingerprint InputFingerprintHashInput, source AuthoritySource) error {
+	messageID, ordinal, err := parseAttachmentAuthorityRef(source.SourceRef)
+	if err != nil || len(fingerprint.Messages) == 0 || messageID >= fingerprint.Messages[0].ID {
+		return ErrInvalidContextPlan
+	}
+	scope, err := loadFingerprintAuthorityScope(ctx, tx, fingerprint)
+	if err != nil {
+		return err
+	}
+	row, err := loadAuthorizedUserMessage(ctx, tx, scope.ConversationID, scope.UserID, messageID)
+	if err != nil {
+		return err
+	}
+	return verifyAttachmentSourceFacts(row.MetaJSON, ordinal, source.SourceSHA256)
+}
+
+func verifyAttachmentSourceFacts(raw *string, ordinal uint64, expected [sha256.Size]byte) error {
+	attachments, err := runtimeAttachments(raw)
+	if err != nil || ordinal >= uint64(len(attachments)) {
+		return ErrInvalidContextPlan
+	}
+	hash, err := hashRuntimeFacts(attachments[ordinal])
+	if err != nil || hash != expected {
+		return ErrInvalidContextPlan
+	}
+	return nil
+}
+
 func verifySelectedFingerprintSource(fingerprint InputFingerprintHashInput, source AuthoritySource) (bool, error) {
 	switch source.SourceType {
 	case "agent":
@@ -181,8 +240,11 @@ func verifySelectedFingerprintSource(fingerprint InputFingerprintHashInput, sour
 			return true, ErrInvalidContextPlan
 		}
 		for _, message := range fingerprint.Messages {
-			if message.ID != messageID || ordinal >= uint64(len(message.Attachments)) {
+			if message.ID != messageID {
 				continue
+			}
+			if ordinal >= uint64(len(message.Attachments)) {
+				return true, ErrInvalidContextPlan
 			}
 			attachment := message.Attachments[ordinal]
 			if attachment.Ordinal != uint32(ordinal) {
@@ -197,7 +259,7 @@ func verifySelectedFingerprintSource(fingerprint InputFingerprintHashInput, sour
 			}
 			return true, nil
 		}
-		return true, ErrInvalidContextPlan
+		return false, nil
 	default:
 		return false, nil
 	}

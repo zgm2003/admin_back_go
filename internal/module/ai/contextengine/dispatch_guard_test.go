@@ -5,6 +5,9 @@ import (
 	"errors"
 	"testing"
 
+	infraai "admin_back_go/internal/infra/ai"
+	"admin_back_go/internal/shared/enum"
+
 	"github.com/DATA-DOG/go-sqlmock"
 )
 
@@ -44,6 +47,34 @@ func TestDispatchGuardRejectsDeletedConversationBeforeProviderDispatch(t *testin
 	err := requireActiveDispatchConversation(context.Background(), planRepository.db, command)
 	if !errors.Is(err, errDispatchPlanConflict) {
 		t.Fatalf("deleted conversation dispatch error=%v", err)
+	}
+	assertPlanMockExpectations(t, mock)
+}
+
+func TestDispatchGuardAllowsHistoricalCOSAttachmentFromRunConversation(t *testing.T) {
+	repository, mock, closeDB := newPlanRepositoryFixture(t)
+	defer closeDB()
+
+	attachment := runtimeAttachment{
+		Kind: infraai.AttachmentFile, ObjectKey: "ai_chat_attachments/2026/08/report.md", ETag: `"etag-1"`,
+		Size: 90523, MIMEType: "text/markdown", Filename: "report.md",
+	}
+	attachmentHash, err := hashRuntimeFacts(attachment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metaJSON := `{"attachments":[{"type":"file","object_key":"ai_chat_attachments/2026/08/report.md","etag":"\"etag-1\"","size":90523,"mime_type":"text/markdown","name":"report.md"}]}`
+	mock.ExpectQuery(`SELECT message\.id, message\.conversation_id, conversation\.user_id, message\.content, message\.meta_json, message\.role, message\.is_del FROM ai_messages AS message .*message\.id = \?.*LIMIT \?`).
+		WithArgs(uint64(53), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "conversation_id", "user_id", "content", "meta_json", "role", "is_del"}).
+			AddRow(uint64(53), uint64(10), uint64(1), "read this", metaJSON, enum.AIMessageRoleUser, enum.CommonNo))
+
+	run := dispatchRunRow{ID: 36, UserID: 1, ConversationID: uint64Pointer(10), UserMessageID: uint64Pointer(55)}
+	err = verifyDispatchAttachment(t.Context(), repository.db, run, AuthoritySource{
+		SourceType: "attachment", SourceRef: "message:53/attachment:0", SourceSHA256: attachmentHash,
+	})
+	if err != nil {
+		t.Errorf("historical COS attachment was rejected before dispatch: %v", err)
 	}
 	assertPlanMockExpectations(t, mock)
 }

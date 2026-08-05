@@ -8,7 +8,9 @@ import (
 	"testing"
 
 	infraai "admin_back_go/internal/infra/ai"
+	"admin_back_go/internal/shared/enum"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"gorm.io/gorm"
 )
 
@@ -70,6 +72,40 @@ func TestSelectedFingerprintSourcesRequireExactFacts(t *testing.T) {
 			t.Fatalf("source=%+v handled=%v err=%v", source, handled, verifyErr)
 		}
 	}
+}
+
+func TestSelectedHistoricalAttachmentReloadsDurableCOSFacts(t *testing.T) {
+	repository, mock, closeDB := newPlanRepositoryFixture(t)
+	defer closeDB()
+
+	attachment := runtimeAttachment{
+		Kind: infraai.AttachmentFile, ObjectKey: "ai_chat_attachments/2026/08/report.md", ETag: `"etag-1"`,
+		Size: 90523, MIMEType: "text/markdown", Filename: "report.md",
+	}
+	attachmentHash, err := hashRuntimeFacts(attachment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fingerprint := InputFingerprintHashInput{
+		Messages: []FingerprintMessage{{ID: 55, Role: infraai.MessageRoleUser, ContentSHA256: testSHA256("current")}},
+	}
+	metaJSON := `{"attachments":[{"type":"file","object_key":"ai_chat_attachments/2026/08/report.md","etag":"\"etag-1\"","size":90523,"mime_type":"text/markdown","name":"report.md"}]}`
+
+	mock.ExpectQuery(`SELECT message\.conversation_id, conversation\.user_id FROM ai_messages AS message .*message\.id = \?.*message\.is_del = \?.*LIMIT \?`).
+		WithArgs(enum.CommonNo, uint64(55), enum.CommonNo, 1).
+		WillReturnRows(sqlmock.NewRows([]string{"conversation_id", "user_id"}).AddRow(uint64(10), uint64(1)))
+	mock.ExpectQuery(`SELECT message\.id, message\.conversation_id, conversation\.user_id, message\.content, message\.meta_json, message\.role, message\.is_del FROM ai_messages AS message .*message\.id = \?.*LIMIT \?`).
+		WithArgs(uint64(53), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "conversation_id", "user_id", "content", "meta_json", "role", "is_del"}).
+			AddRow(uint64(53), uint64(10), uint64(1), "read this", metaJSON, enum.AIMessageRoleUser, enum.CommonNo))
+
+	err = verifySelectedSource(t.Context(), repository.db, "admin", fingerprint, AuthoritySource{
+		SourceType: "attachment", SourceRef: "message:53/attachment:0", SourceSHA256: attachmentHash,
+	})
+	if err != nil {
+		t.Errorf("historical COS attachment was rejected: %v", err)
+	}
+	assertPlanMockExpectations(t, mock)
 }
 
 func TestAuthorityConflictClassificationDoesNotHideDatabaseErrors(t *testing.T) {

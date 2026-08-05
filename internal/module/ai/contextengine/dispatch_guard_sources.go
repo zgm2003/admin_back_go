@@ -78,32 +78,23 @@ func verifyDispatchAgent(ctx context.Context, tx *gorm.DB, run dispatchRunRow, s
 	return nil
 }
 
-type dispatchMessageRow struct {
-	ID             uint64  `gorm:"column:id"`
-	ConversationID uint64  `gorm:"column:conversation_id"`
-	Content        string  `gorm:"column:content"`
-	MetaJSON       *string `gorm:"column:meta_json"`
-	Role           int     `gorm:"column:role"`
-	IsDel          int     `gorm:"column:is_del"`
-}
-
-func loadDispatchMessage(ctx context.Context, tx *gorm.DB, run dispatchRunRow, messageID uint64) (dispatchMessageRow, error) {
-	if run.ConversationID == nil || run.UserMessageID == nil || messageID != *run.UserMessageID {
-		return dispatchMessageRow{}, errDispatchPermission
+func loadDispatchMessage(ctx context.Context, tx *gorm.DB, run dispatchRunRow, messageID uint64) (authorizedUserMessageRow, error) {
+	if run.ConversationID == nil || run.UserMessageID == nil || messageID > *run.UserMessageID {
+		return authorizedUserMessageRow{}, errDispatchPermission
 	}
-	var row dispatchMessageRow
-	if err := tx.WithContext(ctx).Table("ai_messages").Where("id = ?", messageID).Take(&row).Error; err != nil {
-		return dispatchMessageRow{}, err
+	row, err := loadAuthorizedUserMessage(ctx, tx, *run.ConversationID, run.UserID, messageID)
+	if errors.Is(err, ErrInvalidContextPlan) {
+		return authorizedUserMessageRow{}, errDispatchPermission
 	}
-	if row.ConversationID != *run.ConversationID || row.Role != enum.AIMessageRoleUser || row.IsDel != enum.CommonNo {
-		return dispatchMessageRow{}, errDispatchPermission
+	if err != nil {
+		return authorizedUserMessageRow{}, err
 	}
 	return row, nil
 }
 
 func verifyDispatchMessage(ctx context.Context, tx *gorm.DB, run dispatchRunRow, source AuthoritySource) error {
 	id, err := parseAuthorityID(source.SourceRef, "message:")
-	if err != nil {
+	if err != nil || run.UserMessageID == nil || id != *run.UserMessageID {
 		return errDispatchPermission
 	}
 	row, err := loadDispatchMessage(ctx, tx, run, id)
@@ -125,15 +116,7 @@ func verifyDispatchAttachment(ctx context.Context, tx *gorm.DB, run dispatchRunR
 	if err != nil {
 		return err
 	}
-	attachments, err := runtimeAttachments(row.MetaJSON)
-	if err != nil || ordinal >= uint64(len(attachments)) {
-		return errDispatchPermission
-	}
-	hash, err := hashRuntimeFacts(attachments[ordinal])
-	if err != nil {
-		return err
-	}
-	if hash != source.SourceSHA256 {
+	if err := verifyAttachmentSourceFacts(row.MetaJSON, ordinal, source.SourceSHA256); err != nil {
 		return errDispatchPermission
 	}
 	return nil
