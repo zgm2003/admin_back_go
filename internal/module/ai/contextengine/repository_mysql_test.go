@@ -77,6 +77,29 @@ func TestPersistTerminalMySQLConcurrentLoserReloadsWinner(t *testing.T) {
 	}
 }
 
+func TestPersistTerminalMySQLRoundTripsDegradedPlan(t *testing.T) {
+	repository, sqlDB := openPlanRepositoryIntegrationDB(t)
+	runID := uint64(time.Now().UnixNano())
+	defer deletePlanIntegrationFixture(t, sqlDB, runID)
+
+	candidate := degradedReadyPlan(t)
+	candidate.RunID = runID
+	got, disposition, err := repository.PersistTerminal(t.Context(), candidate, &recordingPlanGuard{}, validPlanCommitToken(candidate))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if disposition != PersistCreated || got.ID == 0 || got.State != PlanReady || got.RetrievalOutcome != RetrievalDegraded || got.PlanSHA256 == nil {
+		t.Fatalf("persisted degraded plan = %#v, disposition = %q", got, disposition)
+	}
+	loaded, err := repository.FindTerminalByRunID(t.Context(), runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded == nil || loaded.Error == nil || loaded.Error.Stage != candidate.Error.Stage || loaded.Error.Code != candidate.Error.Code {
+		t.Fatalf("loaded degraded plan = %#v", loaded)
+	}
+}
+
 type planCommitBarrier struct {
 	arrived chan struct{}
 	release chan struct{}

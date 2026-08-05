@@ -29,15 +29,16 @@ const (
 type RetrievalOutcome string
 
 const (
-	RetrievalSkipped RetrievalOutcome = "skipped"
-	RetrievalNoHit   RetrievalOutcome = "no_hit"
-	RetrievalHit     RetrievalOutcome = "hit"
-	RetrievalFailed  RetrievalOutcome = "failed"
+	RetrievalSkipped  RetrievalOutcome = "skipped"
+	RetrievalNoHit    RetrievalOutcome = "no_hit"
+	RetrievalHit      RetrievalOutcome = "hit"
+	RetrievalDegraded RetrievalOutcome = "degraded"
+	RetrievalFailed   RetrievalOutcome = "failed"
 )
 
 func (outcome RetrievalOutcome) Validate() error {
 	switch outcome {
-	case RetrievalSkipped, RetrievalNoHit, RetrievalHit, RetrievalFailed:
+	case RetrievalSkipped, RetrievalNoHit, RetrievalHit, RetrievalDegraded, RetrievalFailed:
 		return nil
 	}
 	return invalidValue("retrieval outcome", string(outcome))
@@ -373,7 +374,14 @@ func (plan ContextPlan) Validate() error {
 
 	switch plan.State {
 	case PlanReady:
-		if plan.PlanSHA256 == nil || isZeroSHA256(*plan.PlanSHA256) || plan.Error != nil || plan.RetrievalOutcome == RetrievalFailed || len(plan.Items) == 0 {
+		if plan.PlanSHA256 == nil || isZeroSHA256(*plan.PlanSHA256) || plan.RetrievalOutcome == RetrievalFailed || len(plan.Items) == 0 {
+			return ErrInvalidContextPlan
+		}
+		if plan.RetrievalOutcome == RetrievalDegraded {
+			if plan.Error == nil || plan.Error.Validate() != nil || degradedPlanCarriesRetrievalEvidence(plan.Items) {
+				return ErrInvalidContextPlan
+			}
+		} else if plan.Error != nil {
 			return ErrInvalidContextPlan
 		}
 		return validatePlanItems(plan.Items, plan.Budget.KnownInputUpperBound)
@@ -384,6 +392,22 @@ func (plan ContextPlan) Validate() error {
 		return plan.Error.Validate()
 	}
 	return ErrInvalidContextPlan
+}
+
+func degradedPlanCarriesRetrievalEvidence(items []ContextPlanItem) bool {
+	for _, item := range items {
+		if item.CitationKey != nil || item.Block.Metadata.Retrieval != nil {
+			return true
+		}
+		if item.Decision != DecisionSelected {
+			continue
+		}
+		switch item.Block.Kind {
+		case BlockHistoryAttachment, BlockRecalledTurn, BlockDocumentEvidence:
+			return true
+		}
+	}
+	return false
 }
 
 func (plan ContextPlan) validateBudgetProof() error {

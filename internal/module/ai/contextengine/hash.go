@@ -465,6 +465,8 @@ type contextPlanCanonicalV1 struct {
 	TokenCounterID         string                       `json:"token_counter_id"`
 	Budget                 Budget                       `json:"budget"`
 	RetrievalOutcome       RetrievalOutcome             `json:"retrieval_outcome"`
+	ErrorStage             *string                      `json:"error_stage,omitempty"`
+	ErrorCode              *ErrorCode                   `json:"error_code,omitempty"`
 	Items                  []contextPlanItemCanonical   `json:"items"`
 }
 
@@ -533,6 +535,12 @@ func HashPlan(plan ContextPlan) ([sha256.Size]byte, error) {
 			CitationKey:     clonePointer(item.CitationKey),
 		})
 	}
+	var errorStage *string
+	var errorCode *ErrorCode
+	if plan.Error != nil {
+		errorStage = clonePointer(&plan.Error.Stage)
+		errorCode = clonePointer(&plan.Error.Code)
+	}
 	return canonicalSHA256(contextPlanCanonicalV1{
 		Schema:                 "context_plan_v1",
 		PolicyVersion:          plan.PolicyVersion,
@@ -543,6 +551,8 @@ func HashPlan(plan ContextPlan) ([sha256.Size]byte, error) {
 		TokenCounterID:         plan.TokenCounterID,
 		Budget:                 plan.Budget,
 		RetrievalOutcome:       plan.RetrievalOutcome,
+		ErrorStage:             errorStage,
+		ErrorCode:              errorCode,
 		Items:                  items,
 	})
 }

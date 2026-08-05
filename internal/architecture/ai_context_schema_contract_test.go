@@ -172,3 +172,35 @@ func TestAIContextExpandCanonicalHCLMatchesExactInventory(t *testing.T) {
 		}
 	}
 }
+
+func TestAIContextSchemaOptionalEnhancementWidensOnlyPlanChecks(t *testing.T) {
+	migration := mustReadRepoFile(t, "database/migrations/202608050101_ai_context_optional_enhancement.sql")
+	upper := strings.ToUpper(migration)
+	for _, forbidden := range []string{"CREATE TABLE", "DROP TABLE", "ADD COLUMN", "DROP COLUMN", "UPDATE ", "INSERT ", "DELETE "} {
+		if strings.Contains(upper, forbidden) {
+			t.Fatalf("optional enhancement migration contains %q", forbidden)
+		}
+	}
+	for _, fragment := range []string{
+		"DROP CHECK `chk_ai_context_plans_retrieval_outcome`",
+		"DROP CHECK `chk_ai_context_plans_terminal_shape`",
+		"'skipped', 'no_hit', 'hit', 'degraded', 'failed'",
+		"`retrieval_outcome` = 'degraded'",
+	} {
+		if !strings.Contains(migration, fragment) {
+			t.Fatalf("optional enhancement migration missing %q", fragment)
+		}
+	}
+
+	planBlock := hclTableBlock(t, mustReadRepoFile(t, "database/schema/admin.hcl"), "ai_context_plans")
+	for _, fragment := range []string{
+		"_ascii'degraded'",
+		"(`retrieval_outcome` in (_ascii'skipped',_ascii'no_hit',_ascii'hit'))",
+		"(`retrieval_outcome` = _ascii'degraded')",
+		"(`retrieval_outcome` = _ascii'failed')",
+	} {
+		if !strings.Contains(planBlock, fragment) {
+			t.Fatalf("canonical context plan checks missing %q", fragment)
+		}
+	}
+}

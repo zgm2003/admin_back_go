@@ -78,6 +78,32 @@ func TestContextPlanItemsFromRowsAcceptLegacyMetadataWithoutTurnBoundaries(t *te
 	}
 }
 
+func TestContextPlanRowsRoundTripDegradedPlan(t *testing.T) {
+	want := degradedReadyPlan(t)
+	want.ID = 77
+	row, err := contextPlanRowFromDomain(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row.ID = want.ID
+	items, err := contextPlanItemRowsFromDomain(want.ID, want.Items)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := contextPlanFromRows(row, items)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != want.ID || got.State != PlanReady || got.RetrievalOutcome != RetrievalDegraded || got.PlanSHA256 == nil || *got.PlanSHA256 != *want.PlanSHA256 {
+		t.Fatalf("round-tripped degraded plan = %#v", got)
+	}
+	if got.Error == nil || got.Error.Stage != want.Error.Stage || got.Error.Code != want.Error.Code ||
+		got.Error.Message == nil || want.Error.Message == nil || *got.Error.Message != *want.Error.Message {
+		t.Fatalf("round-tripped degraded diagnostic = %#v, want %#v", got.Error, want.Error)
+	}
+}
+
 func TestPersistTerminalRejectsInvalidInputBeforeTransaction(t *testing.T) {
 	repository, mock, closeDB := newPlanRepositoryFixture(t)
 	defer closeDB()

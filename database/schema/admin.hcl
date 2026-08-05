@@ -1226,13 +1226,13 @@ table "ai_context_plans" {
     expr = "(`budget_proof` in (_ascii'exact',_ascii'conservative',_ascii'opaque_attachment'))"
   }
   check "chk_ai_context_plans_retrieval_outcome" {
-    expr = "(`retrieval_outcome` in (_ascii'skipped',_ascii'no_hit',_ascii'hit',_ascii'failed'))"
+    expr = "(`retrieval_outcome` in (_ascii'skipped',_ascii'no_hit',_ascii'hit',_ascii'degraded',_ascii'failed'))"
   }
   check "chk_ai_context_plans_state" {
     expr = "(`state` in (_ascii'ready',_ascii'failed'))"
   }
   check "chk_ai_context_plans_terminal_shape" {
-    expr = "(((`state` = _ascii'ready') and (`plan_sha256` is not null) and (`retrieval_outcome` in (_ascii'skipped',_ascii'no_hit',_ascii'hit')) and (`error_stage` is null) and (`error_code` is null) and (`error_message` is null)) or ((`state` = _ascii'failed') and (`plan_sha256` is null) and (`retrieval_outcome` = _ascii'failed') and (`error_stage` is not null) and (char_length(`error_stage`) > 0) and (`error_code` is not null) and (char_length(`error_code`) > 0) and ((`error_message` is null) or (char_length(`error_message`) > 0))))"
+    expr = "(((`state` = _ascii'ready') and (`plan_sha256` is not null) and (((`retrieval_outcome` in (_ascii'skipped',_ascii'no_hit',_ascii'hit')) and (`error_stage` is null) and (`error_code` is null) and (`error_message` is null)) or ((`retrieval_outcome` = _ascii'degraded') and (`error_stage` is not null) and (char_length(`error_stage`) > 0) and (`error_code` is not null) and (char_length(`error_code`) > 0) and ((`error_message` is null) or (char_length(`error_message`) > 0))))) or ((`state` = _ascii'failed') and (`plan_sha256` is null) and (`retrieval_outcome` = _ascii'failed') and (`error_stage` is not null) and (char_length(`error_stage`) > 0) and (`error_code` is not null) and (char_length(`error_code`) > 0) and ((`error_message` is null) or (char_length(`error_message`) > 0))))"
   }
   check "chk_ai_context_plans_budget" {
     expr = "((`context_window_tokens` > 0) and (`effective_output_tokens` > 0) and ((((`known_input_budget` + `effective_output_tokens`) + `provider_protocol_upper_bound`) + `policy_safety_margin`) = `context_window_tokens`) and (`tool_continuation_input_reserve` <= `provider_protocol_upper_bound`) and (`known_input_upper_bound` <= `known_input_budget`))"

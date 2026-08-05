@@ -38,6 +38,92 @@ func TestContextPlanValidateTerminalShape(t *testing.T) {
 	}
 }
 
+func TestContextPlanValidateDegradedTerminalShape(t *testing.T) {
+	degraded := degradedReadyPlan(t)
+	if err := degraded.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	withoutError := degraded
+	withoutError.Error = nil
+	if err := withoutError.Validate(); err == nil {
+		t.Fatal("degraded plan without a diagnostic was accepted")
+	}
+
+	withoutHash := degraded
+	withoutHash.PlanSHA256 = nil
+	if err := withoutHash.Validate(); err == nil {
+		t.Fatal("degraded plan without a hash was accepted")
+	}
+
+	normalWithError := validReadyPlan()
+	normalWithError.Error = degraded.Error
+	if err := normalWithError.Validate(); err == nil {
+		t.Fatal("normal ready plan with a diagnostic was accepted")
+	}
+}
+
+func TestContextPlanValidateDegradedRejectsRetrievalEvidence(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*ContextPlan)
+	}{
+		{name: "history attachment", mutate: func(plan *ContextPlan) {
+			plan.Budget.Proof = BudgetOpaqueAttachment
+			plan.Items[0].Block.Kind = BlockHistoryAttachment
+			plan.Items[0].Block.ContentSnapshot = nil
+			plan.Items[0].Block.Metadata.Attachment = &ContextAttachmentV1{
+				Kind: AttachmentImage, URL: "https://example.test/history.png",
+			}
+		}},
+		{name: "document evidence", mutate: func(plan *ContextPlan) {
+			plan.Items[0].Block.Kind = BlockDocumentEvidence
+			plan.Items[0].CitationKey = stringPointer("C1")
+		}},
+		{name: "recalled turn", mutate: func(plan *ContextPlan) {
+			plan.Items[0].Block.Kind = BlockRecalledTurn
+		}},
+		{name: "retrieval metadata", mutate: func(plan *ContextPlan) {
+			plan.Items[0].Block.Metadata.Retrieval = &RetrievalBranchesV1{
+				Schema: RetrievalBranchesSchemaV1,
+				Branches: []RetrievalBranchV1{{
+					VariantID: "current", Modality: "dense", Rank: 1, Score: *fixedScorePointer("0.8"),
+				}},
+			}
+		}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			plan := degradedReadyPlan(t)
+			test.mutate(&plan)
+			if err := plan.Validate(); err == nil {
+				t.Fatal("degraded plan retained retrieval evidence")
+			}
+		})
+	}
+}
+
+func TestContextPlanValidateDegradedAllowsCurrentAttachment(t *testing.T) {
+	plan := degradedReadyPlan(t)
+	plan.Budget.Proof = BudgetOpaqueAttachment
+	plan.Items[0].Block.Kind = BlockCurrentAttachment
+	plan.Items[0].Block.ContentSnapshot = nil
+	plan.Items[0].Block.Metadata.Attachment = &ContextAttachmentV1{
+		Kind: AttachmentFile, ObjectKey: "ai_chat_attachments/current.pdf", ETag: "etag-current",
+		Size: 3, MIMEType: "application/pdf", Filename: "current.pdf",
+	}
+	plan.PlanSHA256 = nil
+	hash, err := HashPlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.PlanSHA256 = &hash
+	if err := plan.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestContextPlanValidateRejectsInvalidAggregateFacts(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -400,6 +486,24 @@ func validReadyPlan() ContextPlan {
 			Decision: DecisionSelected,
 		}},
 	}
+}
+
+func degradedReadyPlan(t *testing.T) ContextPlan {
+	t.Helper()
+	plan := validReadyPlan()
+	diagnostic, err := NewPlanError("embedding", ErrCodeEmbeddingFailed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.RetrievalOutcome = RetrievalDegraded
+	plan.Error = &diagnostic
+	plan.PlanSHA256 = nil
+	hash, err := HashPlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.PlanSHA256 = &hash
+	return plan
 }
 
 func stringPointer(value string) *string { return &value }

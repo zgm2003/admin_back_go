@@ -201,6 +201,44 @@ func TestPlanHashIncludesDecisionsScoresAndSourceOrderButNotAuditRuntime(t *test
 	}
 }
 
+func TestPlanHashIncludesDegradedStageAndCodeButNotMessageOrMetrics(t *testing.T) {
+	plan := degradedReadyPlan(t)
+	base, err := HashPlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mutations := []struct {
+		name   string
+		mutate func(*ContextPlan)
+	}{
+		{name: "stage", mutate: func(value *ContextPlan) { value.Error.Stage = "retrieval" }},
+		{name: "code", mutate: func(value *ContextPlan) { value.Error.Code = ErrCodeRetrievalFailed }},
+	}
+	for _, test := range mutations {
+		t.Run(test.name, func(t *testing.T) {
+			changed := plan
+			diagnostic := *plan.Error
+			changed.Error = &diagnostic
+			test.mutate(&changed)
+			hash, err := HashPlan(changed)
+			if err != nil || hash == base {
+				t.Fatalf("diagnostic mutation did not change plan hash: %x, %v", hash, err)
+			}
+		})
+	}
+
+	runtimeOnly := plan
+	diagnostic := *plan.Error
+	diagnostic.Message = nil
+	runtimeOnly.Error = &diagnostic
+	runtimeOnly.Metrics.PackingMS = 999
+	hash, err := HashPlan(runtimeOnly)
+	if err != nil || hash != base {
+		t.Fatalf("runtime diagnostic details changed plan hash: %x, %v; want %x", hash, err, base)
+	}
+}
+
 func TestPlanHashIncludesTypedAttachmentFacts(t *testing.T) {
 	plan := validReadyPlan()
 	plan.Budget.Proof = BudgetOpaqueAttachment
