@@ -76,6 +76,7 @@ func TestResponsesChatMessagesPreserveTypedRoleAndPartOrder(t *testing.T) {
 				{Kind: infraai.ContentPartText, Text: "after"},
 			}},
 			{Role: infraai.MessageRoleAssistant, Parts: []infraai.ContentPart{{Kind: infraai.ContentPartText, Text: "answer"}}},
+			{Role: infraai.MessageRoleUser, Parts: []infraai.ContentPart{{Kind: infraai.ContentPartText, Text: "next"}}},
 		},
 	})
 	if err != nil {
@@ -89,20 +90,23 @@ func TestResponsesChatMessagesPreserveTypedRoleAndPartOrder(t *testing.T) {
 		Model        string `json:"model"`
 		Instructions string `json:"instructions"`
 		Input        []struct {
-			Role    string           `json:"role"`
-			Content []map[string]any `json:"content"`
+			Role    string          `json:"role"`
+			Content json.RawMessage `json:"content"`
 		} `json:"input"`
 	}
 	if err := json.Unmarshal(manifest.Request, &request); err != nil {
 		t.Fatal(err)
 	}
-	if request.Model != "gpt-test" || request.Instructions != "system" || len(request.Input) != 2 {
+	if request.Model != "gpt-test" || request.Instructions != "system" || len(request.Input) != 3 {
 		t.Fatalf("request = %#v", request)
 	}
-	if request.Input[0].Role != "user" || request.Input[1].Role != "assistant" {
+	if request.Input[0].Role != "user" || request.Input[1].Role != "assistant" || request.Input[2].Role != "user" {
 		t.Fatalf("roles = %#v", request.Input)
 	}
-	parts := request.Input[0].Content
+	var parts []map[string]any
+	if err := json.Unmarshal(request.Input[0].Content, &parts); err != nil {
+		t.Fatalf("decode user content: %v", err)
+	}
 	if len(parts) != 4 || parts[0]["type"] != "input_text" || parts[0]["text"] != "before" ||
 		parts[1]["type"] != "input_image" || parts[1]["image_url"] != "https://example.test/a.png" ||
 		parts[2]["type"] != "file_ref" || parts[2]["ref"] != "file-1" ||
@@ -112,9 +116,19 @@ func TestResponsesChatMessagesPreserveTypedRoleAndPartOrder(t *testing.T) {
 	if len(manifest.Files) != 1 || manifest.Files[0].Ref != "file-1" || manifest.Files[0].ObjectKey != "ai_chat_attachments/a.txt" {
 		t.Fatalf("manifest files = %#v", manifest.Files)
 	}
-	assistantParts := request.Input[1].Content
-	if len(assistantParts) != 1 || assistantParts[0]["type"] != "input_text" || assistantParts[0]["text"] != "answer" {
-		t.Fatalf("assistant content = %#v", assistantParts)
+	var assistantContent string
+	if err := json.Unmarshal(request.Input[1].Content, &assistantContent); err != nil {
+		t.Fatalf("decode assistant content: %v", err)
+	}
+	if assistantContent != "answer" {
+		t.Fatalf("assistant content = %q", assistantContent)
+	}
+	var nextUserParts []map[string]any
+	if err := json.Unmarshal(request.Input[2].Content, &nextUserParts); err != nil {
+		t.Fatalf("decode next user content: %v", err)
+	}
+	if len(nextUserParts) != 1 || nextUserParts[0]["type"] != "input_text" || nextUserParts[0]["text"] != "next" {
+		t.Fatalf("next user content = %#v", nextUserParts)
 	}
 }
 

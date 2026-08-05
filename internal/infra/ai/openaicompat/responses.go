@@ -222,7 +222,7 @@ func responsesInput(messages []chatMessage) ([]any, string, error) {
 				}
 				continue
 			}
-			content, err := responsesMessageContent(message.Content)
+			content, err := responsesMessageContent(message.Role, message.Content)
 			if err != nil {
 				return nil, "", err
 			}
@@ -232,8 +232,11 @@ func responsesInput(messages []chatMessage) ([]any, string, error) {
 	return items, instructions, nil
 }
 
-func responsesMessageContent(content any) (any, error) {
+func responsesMessageContent(role string, content any) (any, error) {
 	if text, ok := content.(string); ok {
+		if role == "assistant" {
+			return text, nil
+		}
 		return []any{map[string]any{"type": "input_text", "text": text}}, nil
 	}
 	parts, ok := content.([]any)
