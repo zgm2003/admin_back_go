@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/infra/database"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -17,6 +18,65 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
+
+func TestContextPlanItemRowsRoundTripConversationTurnBoundaries(t *testing.T) {
+	counter, err := infraai.ResolveTokenCounter(infraai.TokenCounterUTF8BytesV1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn := testConversationTurn()
+	snapshot, err := BuildConversationTurnText(turn, counter, 4096)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := ContextConversationTurnV1{
+		UserMessageID: turn.UserMessage.ID, AssistantMessageID: turn.AssistantMessage.ID,
+		AttachmentContextByteOffset: snapshot.AttachmentContextByteOffset, ToolContextByteOffset: snapshot.ToolContextByteOffset,
+		AssistantContextByteOffset: snapshot.AssistantContextByteOffset, AssistantDelivery: turn.AssistantDelivery,
+	}
+	item := ContextPlanItem{
+		Ordinal: 1,
+		Block: ContextBlock{
+			Kind: BlockRecentTurn, SourceType: "conversation_turn", SourceRef: "conversation_turn:41",
+			SourceSHA256: turn.SourceSHA256, AtomicGroupKey: "conversation_turn:41", Priority: 4,
+			TokenUpperBound: snapshot.TokenUpperBound, ContentSnapshot: &snapshot.Text,
+			Metadata: ContextBlockMetadataV1{Schema: ContextBlockMetadataSchemaV1, ConversationTurn: &want},
+		},
+		Decision: DecisionSelected,
+	}
+
+	rows, err := contextPlanItemRowsFromDomain(77, []ContextPlanItem{item})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := contextPlanItemsFromRows(rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Block.Metadata.ConversationTurn == nil {
+		t.Fatalf("round-tripped items = %#v", got)
+	}
+	if *got[0].Block.Metadata.ConversationTurn != want || got[0].Block.ContentSnapshot == nil || *got[0].Block.ContentSnapshot != snapshot.Text {
+		t.Fatalf("round-tripped turn = %#v snapshot = %#v", got[0].Block.Metadata.ConversationTurn, got[0].Block.ContentSnapshot)
+	}
+}
+
+func TestContextPlanItemsFromRowsAcceptLegacyMetadataWithoutTurnBoundaries(t *testing.T) {
+	item := validReadyPlan().Items[0]
+	rows, err := contextPlanItemRowsFromDomain(77, []ContextPlanItem{item})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows[0].MetadataJSON = `{"schema":"context_block_metadata_v1"}`
+
+	got, err := contextPlanItemsFromRows(rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Block.Metadata.ConversationTurn != nil {
+		t.Fatalf("legacy metadata changed = %#v", got)
+	}
+}
 
 func TestPersistTerminalRejectsInvalidInputBeforeTransaction(t *testing.T) {
 	repository, mock, closeDB := newPlanRepositoryFixture(t)

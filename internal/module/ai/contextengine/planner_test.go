@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"strings"
 	"testing"
 
 	infraai "admin_back_go/internal/infra/ai"
@@ -188,6 +189,228 @@ func TestCompileChatInputKeepsCurrentUserTextByteStable(t *testing.T) {
 	}
 	if len(compiled.Messages) != 1 || compiled.Messages[0].Role != infraai.MessageRoleUser || compiled.Messages[0].Parts[0].Text != "hello" {
 		t.Fatalf("compiled=%+v", compiled)
+	}
+}
+
+func TestCompileChatInputKeepsLegacyConversationTurnPlansReadable(t *testing.T) {
+	plan := validReadyPlan()
+	legacyTurn := "User: previous question\nAssistant[delivery=completed]: previous answer\n"
+	plan.Items = append(plan.Items,
+		ContextPlanItem{
+			Ordinal: 2,
+			Block: ContextBlock{
+				Kind: BlockRecentTurn, SourceType: "conversation_turn", SourceRef: "conversation_turn:8",
+				SourceSHA256: testSHA256("conversation_turn:8"), AtomicGroupKey: "conversation_turn:8",
+				Priority: 4, TokenUpperBound: 20, ContentSnapshot: &legacyTurn, Metadata: emptyBlockMetadata(),
+			},
+			Decision: DecisionSelected,
+		},
+		ContextPlanItem{
+			Ordinal: 3,
+			Block: ContextBlock{
+				Kind: BlockHistoryAttachment, SourceType: "attachment", SourceRef: "message:8/attachment:0",
+				SourceSHA256: testSHA256("message:8/attachment:0"), AtomicGroupKey: "conversation_turn:8",
+				Priority: 4, Metadata: ContextBlockMetadataV1{
+					Schema: ContextBlockMetadataSchemaV1,
+					Attachment: &ContextAttachmentV1{
+						Kind: AttachmentImage, URL: "https://example.test/legacy.png", Size: 10,
+						MIMEType: "image/png", Filename: "legacy.png",
+					},
+				},
+			},
+			Decision: DecisionSelected,
+		},
+	)
+	plan.Budget.KnownInputUpperBound += 20
+	plan.Budget.Proof = BudgetOpaqueAttachment
+	hash, err := HashPlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.PlanSHA256 = &hash
+
+	compiled, err := CompileChatInput(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(compiled.Messages) != 3 || compiled.Messages[0].Role != infraai.MessageRoleUser ||
+		compiled.Messages[1].Role != infraai.MessageRoleSystem || compiled.Messages[1].Parts[0].Text != legacyTurn ||
+		compiled.Messages[2].Role != infraai.MessageRoleUser || len(compiled.Messages[2].Parts) != 1 ||
+		compiled.Messages[2].Parts[0].Attachment == nil || compiled.Messages[2].Parts[0].Attachment.Filename != "legacy.png" {
+		t.Fatalf("compiled legacy plan=%+v", compiled.Messages)
+	}
+}
+
+func TestCompileChatInputPreservesHistoricalTurnRolesBeforeCurrentUser(t *testing.T) {
+	older := ConversationTurn{
+		ConversationID: 3,
+		UserID:         7,
+		AgentID:        5,
+		UserMessage:    TurnMessage{ID: 4, Role: "user", Content: "older question"},
+		AssistantMessage: TurnMessage{
+			ID: 104, Role: "assistant", Content: "older answer",
+		},
+		AssistantDelivery: "completed",
+	}
+	newer := ConversationTurn{
+		ConversationID: 3,
+		UserID:         7,
+		AgentID:        5,
+		UserMessage: TurnMessage{ID: 8, Role: "user", Content: "previous upload", Attachments: []TurnAttachment{{
+			Index: 0, Type: "image", URL: "https://example.test/history.png", StorageProvider: "cos",
+			ObjectKey: "ai_chat_attachments/history.png", ETag: "v1", Size: 10, MIMEType: "image/png", Name: "history.png",
+		}}},
+		ToolGroups:        []ToolGroup{{CallID: "call-1", Name: "lookup", Arguments: `{"id":1}`, Result: `{"ok":true}`}},
+		AssistantMessage:  TurnMessage{ID: 108, Role: "assistant", Content: "previous answer"},
+		AssistantDelivery: "completed",
+	}
+	for _, turn := range []*ConversationTurn{&older, &newer} {
+		if err := turn.ComputeSourceSHA256(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	input := validBuildPlanInput()
+	currentAttachment := ContextAttachmentV1{
+		Kind: AttachmentImage, URL: "https://example.test/current.png", ObjectKey: "ai_chat_attachments/current.png",
+		ETag: "v2", Size: 11, MIMEType: "image/png", Filename: "current.png",
+	}
+	currentMetadata := emptyBlockMetadata()
+	currentMetadata.Attachment = &currentAttachment
+	currentGroupKey := input.PackGroups[0].Blocks[0].Block.AtomicGroupKey
+	input.PackGroups[0].Blocks = append(input.PackGroups[0].Blocks, PackBlock{Block: ContextBlock{
+		Kind: BlockCurrentAttachment, SourceType: "attachment", SourceRef: "message:9/attachment:0",
+		SourceSHA256: testSHA256("message:9/attachment:0"), AtomicGroupKey: currentGroupKey,
+		Required: true, Priority: 1, Metadata: currentMetadata,
+	}})
+	input.Fingerprint.Messages[0].Attachments = []FingerprintAttachment{{
+		Ordinal: 0, Kind: currentAttachment.Kind, URL: currentAttachment.URL, ObjectKey: currentAttachment.ObjectKey,
+		ETag: currentAttachment.ETag, Size: currentAttachment.Size, MIMEType: currentAttachment.MIMEType,
+		Filename: currentAttachment.Filename,
+	}}
+	input.ModelCapability.InputModalities = []string{"text", "image"}
+	input.Budget.Proof = BudgetOpaqueAttachment
+	history, err := runtimeHistoryGroups(t.Context(), &historyPagerFixture{turns: []ConversationTurn{newer, older}}, nil, RuntimeInput{
+		CurrentMessageID: input.CurrentMessageID,
+		ConversationID:   input.ConversationID,
+		UserID:           input.UserID,
+	}, RuntimeFacts{
+		ModelCapability: input.ModelCapability,
+		Budget:          input.Budget,
+		CoreGroups:      input.PackGroups,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input.PackGroups = append(input.PackGroups, history...)
+
+	repository := &fakePlannerRepository{}
+	plan, err := NewPlanner(PlannerDependencies{
+		Repository: repository,
+		GuardFactory: fixedGuardFactory{
+			hash: testSHA256("authority"),
+		},
+	}).BuildPlan(t.Context(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileChatInput(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(compiled.Messages) != 5 {
+		t.Fatalf("compiled messages=%+v", compiled.Messages)
+	}
+	wantRoles := []infraai.MessageRole{
+		infraai.MessageRoleUser,
+		infraai.MessageRoleAssistant,
+		infraai.MessageRoleUser,
+		infraai.MessageRoleAssistant,
+		infraai.MessageRoleUser,
+	}
+	wantText := []string{"older question", "older answer", "", "", "hello"}
+	for index := range wantRoles {
+		message := compiled.Messages[index]
+		if message.Role != wantRoles[index] || len(message.Parts) == 0 || message.Parts[0].Kind != infraai.ContentPartText ||
+			(wantText[index] != "" && message.Parts[0].Text != wantText[index]) {
+			t.Fatalf("message[%d]=%+v", index, message)
+		}
+	}
+	if assistant := compiled.Messages[3].Parts[0].Text; !strings.Contains(assistant, "Tool[0] Call: id=call-1 name=lookup") ||
+		!strings.Contains(assistant, "Tool[0] Result: id=call-1 result=") || !strings.HasSuffix(assistant, "previous answer") {
+		t.Fatalf("historical assistant context=%q", assistant)
+	}
+	historyUser := compiled.Messages[2]
+	if len(historyUser.Parts) != 2 || historyUser.Parts[1].Kind != infraai.ContentPartAttachment ||
+		historyUser.Parts[1].Attachment == nil || historyUser.Parts[1].Attachment.Filename != "history.png" ||
+		historyUser.Parts[0].Text != "previous upload" {
+		t.Fatalf("historical user message=%+v", historyUser)
+	}
+	currentUser := compiled.Messages[len(compiled.Messages)-1]
+	if currentUser.Role != infraai.MessageRoleUser || len(currentUser.Parts) != 2 ||
+		currentUser.Parts[0].Kind != infraai.ContentPartText || currentUser.Parts[0].Text != "hello" ||
+		currentUser.Parts[1].Kind != infraai.ContentPartAttachment || currentUser.Parts[1].Attachment == nil ||
+		currentUser.Parts[1].Attachment.Filename != "current.png" {
+		t.Fatalf("current user message=%+v", currentUser)
+	}
+}
+
+func TestCompileChatInputKeepsOlderAttachmentOnlyTurnAsUserContext(t *testing.T) {
+	turns := make([]ConversationTurn, 0, runtimeHistoryPageSize+1)
+	for id := uint64(runtimeHistoryPageSize + 1); id > 0; id-- {
+		turn := ConversationTurn{
+			ConversationID: 3, UserID: 7, AgentID: 5,
+			UserMessage:       TurnMessage{ID: id, Role: "user", Content: "question"},
+			AssistantMessage:  TurnMessage{ID: id + 100, Role: "assistant", Content: "answer"},
+			AssistantDelivery: "completed",
+		}
+		if id == 1 {
+			turn.UserMessage.Content = ""
+			turn.UserMessage.Attachments = []TurnAttachment{{
+				Index: 0, Type: "file", StorageProvider: "cos", ObjectKey: "ai_chat_attachments/report.pdf",
+				ETag: "v1", Size: 10, MIMEType: "application/pdf", Name: "report.pdf",
+			}}
+		}
+		if err := turn.ComputeSourceSHA256(); err != nil {
+			t.Fatal(err)
+		}
+		turns = append(turns, turn)
+	}
+
+	input := validBuildPlanInput()
+	input.CurrentMessageID = 100
+	input.Fingerprint.Messages[0].ID = 100
+	input.PackGroups[0].SourceOrder = 100
+	input.PackGroups[0].StableSourceID = "message:100"
+	input.PackGroups[0].Blocks[0].Block.SourceRef = "message:100"
+	input.PackGroups[0].Blocks[0].Block.SourceSHA256 = testSHA256("message:100")
+	input.PackGroups[0].Blocks[0].Block.AtomicGroupKey = "message:100"
+	input.ModelCapability.ContextWindowTokens = 100000
+	input.Budget.ContextWindowTokens = 100000
+	input.Budget.KnownInputBudget = 99800
+	history, err := runtimeHistoryGroups(t.Context(), &historyPagerFixture{turns: turns}, historyAttachmentAvailabilityStub{ready: true}, RuntimeInput{
+		CurrentMessageID: input.CurrentMessageID, ConversationID: input.ConversationID, UserID: input.UserID,
+	}, RuntimeFacts{ModelCapability: input.ModelCapability, Budget: input.Budget, CoreGroups: input.PackGroups})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input.PackGroups = append(input.PackGroups, history...)
+	plan, err := NewPlanner(PlannerDependencies{
+		Repository: &fakePlannerRepository{}, GuardFactory: fixedGuardFactory{hash: testSHA256("authority")},
+	}).BuildPlan(t.Context(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileChatInput(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(compiled.Messages) == 0 || compiled.Messages[0].Role != infraai.MessageRoleUser ||
+		len(compiled.Messages[0].Parts) != 1 || compiled.Messages[0].Parts[0].Kind != infraai.ContentPartText ||
+		!strings.Contains(compiled.Messages[0].Parts[0].Text, "Attachment[0]") ||
+		!strings.Contains(compiled.Messages[0].Parts[0].Text, "report.pdf") {
+		t.Fatalf("oldest attachment-only turn=%+v", compiled.Messages)
 	}
 }
 

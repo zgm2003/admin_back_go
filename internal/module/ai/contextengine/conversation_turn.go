@@ -57,8 +57,11 @@ type ToolGroup struct {
 }
 
 type ConversationTurnText struct {
-	Text            string
-	TokenUpperBound int64
+	Text                        string
+	TokenUpperBound             int64
+	AttachmentContextByteOffset uint64
+	ToolContextByteOffset       uint64
+	AssistantContextByteOffset  uint64
 }
 
 type ConversationTurnReader interface {
@@ -258,10 +261,11 @@ func BuildConversationTurnText(turn ConversationTurn, counter TokenCounter, maxT
 		return best, nil
 	}
 
-	userLine, err := boundedLine("User: ", turn.UserMessage.Content, maxTokens)
+	userLine, err := boundedLine(conversationTurnUserPrefix, turn.UserMessage.Content, maxTokens)
 	if err != nil || !appendLine(userLine) {
 		return ConversationTurnText{}, errTurnTextTooSmall
 	}
+	attachmentContextByteOffset := uint64(out.Len())
 	stopped := false
 	for i, attachment := range turn.UserMessage.Attachments {
 		used, countErr := counter.UpperBoundText(out.String())
@@ -287,6 +291,7 @@ func BuildConversationTurnText(turn ConversationTurn, counter TokenCounter, maxT
 			break
 		}
 	}
+	toolContextByteOffset := uint64(out.Len())
 	for i, group := range turn.ToolGroups {
 		if stopped {
 			break
@@ -308,6 +313,7 @@ func BuildConversationTurnText(turn ConversationTurn, counter TokenCounter, maxT
 			break
 		}
 	}
+	assistantContextByteOffset := uint64(out.Len())
 	remaining := maxTokens
 	used, err := counter.UpperBoundText(out.String())
 	if err != nil {
@@ -315,7 +321,7 @@ func BuildConversationTurnText(turn ConversationTurn, counter TokenCounter, maxT
 	}
 	remaining -= used
 	if !stopped && remaining > 0 {
-		assistant, lineErr := boundedLine("Assistant[delivery="+turn.AssistantDelivery+"]: ", turn.AssistantMessage.Content, remaining)
+		assistant, lineErr := boundedLine(conversationTurnAssistantPrefix(turn.AssistantDelivery), turn.AssistantMessage.Content, remaining)
 		if lineErr == nil {
 			_ = appendLine(assistant)
 		}
@@ -325,7 +331,11 @@ func BuildConversationTurnText(turn ConversationTurn, counter TokenCounter, maxT
 	if err != nil {
 		return ConversationTurnText{}, err
 	}
-	return ConversationTurnText{Text: text, TokenUpperBound: count}, nil
+	return ConversationTurnText{
+		Text: text, TokenUpperBound: count,
+		AttachmentContextByteOffset: attachmentContextByteOffset, ToolContextByteOffset: toolContextByteOffset,
+		AssistantContextByteOffset: assistantContextByteOffset,
+	}, nil
 }
 
 func boundedToolPair(callPrefix, arguments, resultPrefix, result string, budget int64, counter TokenCounter) (string, error) {

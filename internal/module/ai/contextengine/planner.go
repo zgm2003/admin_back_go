@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 
 	infraai "admin_back_go/internal/infra/ai"
 )
@@ -213,7 +215,44 @@ func CompileChatInput(plan ContextPlan) (infraai.ChatInput, error) {
 	if err != nil || hash != *plan.PlanSHA256 {
 		return infraai.ChatInput{}, fmt.Errorf("%w: plan hash mismatch", ErrInvalidContextPlan)
 	}
+	rolePreserving, err := usesRolePreservingConversationTurns(plan.Items)
+	if err != nil {
+		return infraai.ChatInput{}, err
+	}
+	var compiled infraai.ChatInput
+	if rolePreserving {
+		compiled, err = compileRolePreservingChatInput(plan)
+	} else {
+		compiled, err = compileLegacyChatInput(plan)
+	}
+	if err != nil {
+		return infraai.ChatInput{}, err
+	}
+	if err := validateCompiledMessages(compiled.Messages); err != nil {
+		return infraai.ChatInput{}, err
+	}
+	return compiled, nil
+}
 
+func usesRolePreservingConversationTurns(items []ContextPlanItem) (bool, error) {
+	structured, legacy := false, false
+	for _, item := range items {
+		if item.Decision != DecisionSelected || item.Block.Kind != BlockRecentTurn {
+			continue
+		}
+		if item.Block.Metadata.ConversationTurn == nil {
+			legacy = true
+		} else {
+			structured = true
+		}
+	}
+	if structured && legacy {
+		return false, ErrInvalidContextPlan
+	}
+	return structured, nil
+}
+
+func compileLegacyChatInput(plan ContextPlan) (infraai.ChatInput, error) {
 	compiled := infraai.ChatInput{RunID: plan.RunID}
 	userGroups := make(map[string]int)
 	for _, item := range plan.Items {
@@ -237,15 +276,11 @@ func CompileChatInput(plan ContextPlan) (infraai.ChatInput, error) {
 				index = len(compiled.Messages) - 1
 				userGroups[block.AtomicGroupKey] = index
 			}
-			attachment := block.Metadata.Attachment
-			if attachment == nil {
+			part, err := attachmentContentPart(block.Metadata.Attachment)
+			if err != nil {
 				return infraai.ChatInput{}, ErrInvalidContextPlan
 			}
-			ref := infraai.AttachmentRef{
-				Kind: attachment.Kind, URL: attachment.URL, ObjectKey: attachment.ObjectKey, ETag: attachment.ETag,
-				Size: attachment.Size, MIMEType: attachment.MIMEType, Filename: attachment.Filename,
-			}
-			compiled.Messages[index].Parts = append(compiled.Messages[index].Parts, infraai.ContentPart{Kind: infraai.ContentPartAttachment, Attachment: &ref})
+			compiled.Messages[index].Parts = append(compiled.Messages[index].Parts, part)
 		case BlockDocumentEvidence:
 			envelope, err := compileDocumentEvidence(item)
 			if err != nil {
@@ -260,10 +295,150 @@ func CompileChatInput(plan ContextPlan) (infraai.ChatInput, error) {
 			return infraai.ChatInput{}, ErrInvalidContextPlan
 		}
 	}
-	if err := validateCompiledMessages(compiled.Messages); err != nil {
-		return infraai.ChatInput{}, err
-	}
 	return compiled, nil
+}
+
+type compiledHistoryTurn struct {
+	groupKey    string
+	turn        ContextConversationTurnV1
+	snapshot    string
+	attachments []infraai.ContentPart
+}
+
+func compileRolePreservingChatInput(plan ContextPlan) (infraai.ChatInput, error) {
+	historyByGroup := make(map[string]*compiledHistoryTurn)
+	history := make([]*compiledHistoryTurn, 0)
+	seenHistoryMessageIDs := make(map[uint64]struct{})
+	for _, item := range plan.Items {
+		if item.Decision != DecisionSelected || item.Block.Kind != BlockRecentTurn {
+			continue
+		}
+		turn := item.Block.Metadata.ConversationTurn
+		if turn == nil {
+			return infraai.ChatInput{}, ErrInvalidContextPlan
+		}
+		if _, exists := historyByGroup[item.Block.AtomicGroupKey]; exists {
+			return infraai.ChatInput{}, ErrInvalidContextPlan
+		}
+		if _, exists := seenHistoryMessageIDs[turn.UserMessageID]; exists {
+			return infraai.ChatInput{}, ErrInvalidContextPlan
+		}
+		seenHistoryMessageIDs[turn.UserMessageID] = struct{}{}
+		group := &compiledHistoryTurn{groupKey: item.Block.AtomicGroupKey, turn: *turn, snapshot: *item.Block.ContentSnapshot}
+		historyByGroup[group.groupKey] = group
+		history = append(history, group)
+	}
+
+	systemMessages := make([]infraai.Message, 0)
+	currentMessages := make([]infraai.Message, 0, 1)
+	currentGroups := make(map[string]int)
+	currentMessage := func(groupKey string) int {
+		if index, exists := currentGroups[groupKey]; exists {
+			return index
+		}
+		currentMessages = append(currentMessages, infraai.Message{Role: infraai.MessageRoleUser})
+		index := len(currentMessages) - 1
+		currentGroups[groupKey] = index
+		return index
+	}
+
+	for _, item := range plan.Items {
+		if item.Decision != DecisionSelected {
+			continue
+		}
+		block := item.Block
+		switch block.Kind {
+		case BlockCurrentUserMessage:
+			index := currentMessage(block.AtomicGroupKey)
+			currentMessages[index].Parts = append(currentMessages[index].Parts, infraai.ContentPart{Kind: infraai.ContentPartText, Text: *block.ContentSnapshot})
+		case BlockCurrentAttachment:
+			part, err := attachmentContentPart(block.Metadata.Attachment)
+			if err != nil {
+				return infraai.ChatInput{}, err
+			}
+			index := currentMessage(block.AtomicGroupKey)
+			currentMessages[index].Parts = append(currentMessages[index].Parts, part)
+		case BlockHistoryAttachment:
+			group := historyByGroup[block.AtomicGroupKey]
+			if group == nil {
+				return infraai.ChatInput{}, ErrInvalidContextPlan
+			}
+			part, err := attachmentContentPart(block.Metadata.Attachment)
+			if err != nil {
+				return infraai.ChatInput{}, err
+			}
+			group.attachments = append(group.attachments, part)
+		case BlockRecentTurn:
+			continue
+		case BlockDocumentEvidence:
+			envelope, err := compileDocumentEvidence(item)
+			if err != nil {
+				return infraai.ChatInput{}, err
+			}
+			systemMessages = append(systemMessages, textMessage(infraai.MessageRoleSystem, envelope))
+		case BlockSystemInstruction, BlockRecalledTurn, BlockConversationMemory, BlockToolDefinition, BlockToolCall, BlockToolResult:
+			systemMessages = append(systemMessages, textMessage(infraai.MessageRoleSystem, *block.ContentSnapshot))
+		default:
+			return infraai.ChatInput{}, ErrInvalidContextPlan
+		}
+	}
+	if len(currentMessages) != 1 {
+		return infraai.ChatInput{}, ErrInvalidContextPlan
+	}
+
+	sort.Slice(history, func(left, right int) bool {
+		return history[left].turn.UserMessageID < history[right].turn.UserMessageID
+	})
+	compiled := infraai.ChatInput{RunID: plan.RunID, Messages: systemMessages}
+	for _, group := range history {
+		userContent, attachmentContext, toolContext, assistantContent, err := group.turn.splitSnapshot(group.snapshot)
+		if err != nil {
+			return infraai.ChatInput{}, err
+		}
+		userContent = historicalUserText(userContent, attachmentContext, len(group.attachments) > 0)
+		parts := make([]infraai.ContentPart, 0, 1+len(group.attachments))
+		if strings.TrimSpace(userContent) != "" {
+			parts = append(parts, infraai.ContentPart{Kind: infraai.ContentPartText, Text: userContent})
+		}
+		parts = append(parts, group.attachments...)
+		if len(parts) == 0 {
+			return infraai.ChatInput{}, ErrInvalidContextPlan
+		}
+		compiled.Messages = append(compiled.Messages, infraai.Message{Role: infraai.MessageRoleUser, Parts: parts})
+
+		assistantMessage := toolContext
+		if group.turn.AssistantDelivery == "stopped" && strings.TrimSpace(assistantContent) != "" {
+			assistantMessage += conversationTurnAssistantPrefix(group.turn.AssistantDelivery)
+		}
+		assistantMessage += assistantContent
+		if strings.TrimSpace(assistantMessage) != "" {
+			compiled.Messages = append(compiled.Messages, textMessage(infraai.MessageRoleAssistant, assistantMessage))
+		}
+	}
+	compiled.Messages = append(compiled.Messages, currentMessages[0])
+	return compiled, nil
+}
+
+func historicalUserText(userContent, attachmentContext string, nativeAttachments bool) string {
+	if nativeAttachments || attachmentContext == "" {
+		return userContent
+	}
+	attachmentContext = strings.TrimSuffix(attachmentContext, "\n")
+	if userContent == "" || strings.HasSuffix(userContent, "\n") {
+		return userContent + attachmentContext
+	}
+	return userContent + "\n" + attachmentContext
+}
+
+func attachmentContentPart(attachment *ContextAttachmentV1) (infraai.ContentPart, error) {
+	if attachment == nil {
+		return infraai.ContentPart{}, ErrInvalidContextPlan
+	}
+	ref := infraai.AttachmentRef{
+		Kind: attachment.Kind, URL: attachment.URL, ObjectKey: attachment.ObjectKey, ETag: attachment.ETag,
+		Size: attachment.Size, MIMEType: attachment.MIMEType, Filename: attachment.Filename,
+	}
+	return infraai.ContentPart{Kind: infraai.ContentPartAttachment, Attachment: &ref}, nil
 }
 
 func compileDocumentEvidence(item ContextPlanItem) (string, error) {

@@ -37,7 +37,8 @@ func TestTurnTextKeepsToolGroupAtomicAndExactBound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := BuildConversationTurnText(testConversationTurn(), counter, 4096)
+	turn := testConversationTurn()
+	result, err := BuildConversationTurnText(turn, counter, 4096)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,6 +48,16 @@ func TestTurnTextKeepsToolGroupAtomicAndExactBound(t *testing.T) {
 	bound, err := counter.UpperBoundText(result.Text)
 	if err != nil || bound != result.TokenUpperBound {
 		t.Fatalf("bound=%d want=%d err=%v", result.TokenUpperBound, bound, err)
+	}
+	metadata := ContextConversationTurnV1{
+		UserMessageID: turn.UserMessage.ID, AssistantMessageID: turn.AssistantMessage.ID,
+		AttachmentContextByteOffset: result.AttachmentContextByteOffset, ToolContextByteOffset: result.ToolContextByteOffset,
+		AssistantContextByteOffset: result.AssistantContextByteOffset, AssistantDelivery: turn.AssistantDelivery,
+	}
+	userContent, attachmentContext, toolContext, assistantContent, err := metadata.splitSnapshot(result.Text)
+	if err != nil || userContent != "read this" || !strings.Contains(attachmentContext, "name=report.pdf") ||
+		!strings.Contains(toolContext, "Tool[0] Call:") || assistantContent != "done" {
+		t.Fatalf("split turn user=%q attachment=%q tool=%q assistant=%q err=%v", userContent, attachmentContext, toolContext, assistantContent, err)
 	}
 }
 

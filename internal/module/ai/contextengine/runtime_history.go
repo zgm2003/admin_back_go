@@ -56,10 +56,17 @@ func runtimeHistoryGroups(ctx context.Context, pager ConversationTurnPager, avai
 			if len(groups) == 0 {
 				priority = 4
 			}
+			metadata := emptyBlockMetadata()
+			metadata.ConversationTurn = &ContextConversationTurnV1{
+				UserMessageID: turn.UserMessage.ID, AssistantMessageID: turn.AssistantMessage.ID,
+				AttachmentContextByteOffset: text.AttachmentContextByteOffset, ToolContextByteOffset: text.ToolContextByteOffset,
+				AssistantContextByteOffset: text.AssistantContextByteOffset,
+				AssistantDelivery:          turn.AssistantDelivery,
+			}
 			blocks := []PackBlock{{Block: ContextBlock{
 				Kind: BlockRecentTurn, SourceType: "conversation_turn", SourceRef: ref, SourceSHA256: turn.SourceSHA256,
 				AtomicGroupKey: ref, Required: false, Priority: priority, TokenUpperBound: text.TokenUpperBound,
-				ContentSnapshot: &content, Metadata: emptyBlockMetadata(),
+				ContentSnapshot: &content, Metadata: metadata,
 			}}}
 			for _, attachment := range turn.UserMessage.Attachments {
 				if pageNumber > 0 {

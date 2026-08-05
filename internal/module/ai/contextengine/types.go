@@ -457,11 +457,12 @@ func (metrics ContextPlanMetricsV1) Validate() error {
 }
 
 type ContextBlockMetadataV1 struct {
-	Schema     string                     `json:"schema"`
-	Locator    *ContextLocatorV1          `json:"locator,omitempty"`
-	Retrieval  *RetrievalBranchesV1       `json:"retrieval,omitempty"`
-	Attachment *ContextAttachmentV1       `json:"attachment,omitempty"`
-	Document   *ContextDocumentEvidenceV1 `json:"document,omitempty"`
+	Schema           string                     `json:"schema"`
+	Locator          *ContextLocatorV1          `json:"locator,omitempty"`
+	Retrieval        *RetrievalBranchesV1       `json:"retrieval,omitempty"`
+	Attachment       *ContextAttachmentV1       `json:"attachment,omitempty"`
+	Document         *ContextDocumentEvidenceV1 `json:"document,omitempty"`
+	ConversationTurn *ContextConversationTurnV1 `json:"conversation_turn,omitempty"`
 }
 
 func (metadata ContextBlockMetadataV1) Validate() error {
@@ -487,6 +488,100 @@ func (metadata ContextBlockMetadataV1) Validate() error {
 		if err := metadata.Document.Validate(); err != nil {
 			return err
 		}
+	}
+	if metadata.ConversationTurn != nil {
+		if err := metadata.ConversationTurn.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+const conversationTurnUserPrefix = "User: "
+
+func conversationTurnAssistantPrefix(delivery string) string {
+	return "Assistant[delivery=" + delivery + "]: "
+}
+
+// ContextConversationTurnV1 records role boundaries inside the existing
+// bounded snapshot without duplicating that snapshot in metadata.
+type ContextConversationTurnV1 struct {
+	UserMessageID               uint64 `json:"user_message_id"`
+	AssistantMessageID          uint64 `json:"assistant_message_id"`
+	AttachmentContextByteOffset uint64 `json:"attachment_context_byte_offset"`
+	ToolContextByteOffset       uint64 `json:"tool_context_byte_offset"`
+	AssistantContextByteOffset  uint64 `json:"assistant_context_byte_offset"`
+	AssistantDelivery           string `json:"assistant_delivery"`
+}
+
+func (turn ContextConversationTurnV1) Validate() error {
+	if turn.UserMessageID == 0 || turn.AssistantMessageID <= turn.UserMessageID ||
+		turn.AttachmentContextByteOffset < uint64(len(conversationTurnUserPrefix)+1) ||
+		turn.ToolContextByteOffset < turn.AttachmentContextByteOffset ||
+		turn.AssistantContextByteOffset < turn.ToolContextByteOffset ||
+		(turn.AssistantDelivery != "completed" && turn.AssistantDelivery != "stopped") {
+		return ErrInvalidContextPlan
+	}
+	return nil
+}
+
+func (turn ContextConversationTurnV1) splitSnapshot(snapshot string) (string, string, string, string, error) {
+	if err := turn.Validate(); err != nil || !utf8.ValidString(snapshot) ||
+		turn.AssistantContextByteOffset > uint64(len(snapshot)) {
+		return "", "", "", "", ErrInvalidContextPlan
+	}
+	attachmentOffset := int(turn.AttachmentContextByteOffset)
+	toolOffset := int(turn.ToolContextByteOffset)
+	assistantOffset := int(turn.AssistantContextByteOffset)
+	userEnvelope := snapshot[:attachmentOffset]
+	if !strings.HasPrefix(userEnvelope, conversationTurnUserPrefix) || !strings.HasSuffix(userEnvelope, "\n") {
+		return "", "", "", "", ErrInvalidContextPlan
+	}
+	userContent := strings.TrimSuffix(strings.TrimPrefix(userEnvelope, conversationTurnUserPrefix), "\n")
+	attachmentContext := snapshot[attachmentOffset:toolOffset]
+	if attachmentContext != "" && !strings.HasSuffix(attachmentContext, "\n") {
+		return "", "", "", "", ErrInvalidContextPlan
+	}
+	toolContext := snapshot[toolOffset:assistantOffset]
+	if toolContext != "" && !strings.HasSuffix(toolContext, "\n") {
+		return "", "", "", "", ErrInvalidContextPlan
+	}
+	assistantEnvelope := snapshot[assistantOffset:]
+	if assistantEnvelope == "" {
+		return userContent, attachmentContext, toolContext, "", nil
+	}
+	prefix := conversationTurnAssistantPrefix(turn.AssistantDelivery)
+	if !strings.HasPrefix(assistantEnvelope, prefix) || !strings.HasSuffix(assistantEnvelope, "\n") {
+		return "", "", "", "", ErrInvalidContextPlan
+	}
+	assistantContent := strings.TrimSuffix(strings.TrimPrefix(assistantEnvelope, prefix), "\n")
+	return userContent, attachmentContext, toolContext, assistantContent, nil
+}
+
+func validateConversationTurnBlock(block ContextBlock) error {
+	if err := validateConversationTurnBlockIdentity(block); err != nil {
+		return err
+	}
+	turn := block.Metadata.ConversationTurn
+	if turn == nil {
+		return nil
+	}
+	if block.ContentSnapshot == nil {
+		return ErrInvalidContextPlan
+	}
+	_, _, _, _, err := turn.splitSnapshot(*block.ContentSnapshot)
+	return err
+}
+
+func validateConversationTurnBlockIdentity(block ContextBlock) error {
+	turn := block.Metadata.ConversationTurn
+	if turn == nil {
+		return nil
+	}
+	wantRef := fmt.Sprintf("conversation_turn:%d", turn.UserMessageID)
+	if block.Kind != BlockRecentTurn || block.SourceType != "conversation_turn" || block.SourceRef != wantRef ||
+		block.AtomicGroupKey != wantRef {
+		return ErrInvalidContextPlan
 	}
 	return nil
 }
@@ -801,6 +896,13 @@ func validatePlanItem(item ContextPlanItem) error {
 		if item.ExclusionReason == nil || item.ExclusionReason.Validate() != nil || item.Block.ContentSnapshot != nil {
 			return ErrInvalidContextPlan
 		}
+	}
+	if item.Decision == DecisionSelected {
+		if err := validateConversationTurnBlock(item.Block); err != nil {
+			return err
+		}
+	} else if err := validateConversationTurnBlockIdentity(item.Block); err != nil {
+		return err
 	}
 
 	if item.CitationKey != nil {

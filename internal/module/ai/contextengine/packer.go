@@ -218,6 +218,9 @@ func validatePackBlock(candidate PackBlock) error {
 	} else if block.ContentSnapshot == nil || strings.TrimSpace(*block.ContentSnapshot) == "" {
 		return ErrInvalidContextPlan
 	}
+	if err := validateConversationTurnBlock(block); err != nil {
+		return err
+	}
 	for _, score := range []*FixedScore{candidate.FusionScore, candidate.RerankScore} {
 		if score != nil {
 			if err := score.Validate(); err != nil {
@@ -287,6 +290,10 @@ func cloneContextBlockMetadata(metadata ContextBlockMetadataV1) ContextBlockMeta
 			document.Locators[index] = locator
 		}
 		cloned.Document = &document
+	}
+	if metadata.ConversationTurn != nil {
+		turn := *metadata.ConversationTurn
+		cloned.ConversationTurn = &turn
 	}
 	return cloned
 }
