@@ -45,6 +45,23 @@ func TestMemoryWatermarkBuildsOnlyAboveHighWatermark(t *testing.T) {
 	}
 }
 
+func TestMemoryWindowUsesMeasuredCompleteTurnTokens(t *testing.T) {
+	counter, err := infraai.ResolveTokenCounter(infraai.TokenCounterUTF8BytesV1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turns := []ConversationTurn{runtimeMemoryTurn(t, 1, "short")}
+	tokens, total, err := memoryTurnTokens(turns, counter)
+	if err != nil || len(tokens) != 1 || tokens[0] == 0 || total != tokens[0] {
+		t.Fatalf("tokens=%v total=%d err=%v", tokens, total, err)
+	}
+	_, expected := MemoryWindow(total, total*2)
+	_, build, err := selectMemoryPrefix(turns, counter, total*2)
+	if err != nil || build != expected {
+		t.Fatalf("build=%v expected=%v err=%v", build, expected, err)
+	}
+}
+
 func TestMemorySourceHashIncludesParentAndOrderedTurns(t *testing.T) {
 	profile := sha256.Sum256([]byte("profile"))
 	turn := testConversationTurn()

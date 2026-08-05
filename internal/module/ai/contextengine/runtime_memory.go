@@ -14,26 +14,51 @@ type MemoryContextReader interface {
 	LatestReadyMemory(context.Context, uint64, uint64, [sha256.Size]byte) (*MemoryRecord, error)
 }
 
-func (materializer *PlanMaterializer) latestMemory(ctx context.Context, input RuntimeInput, facts RuntimeFacts) (*MemoryRecord, error) {
-	if materializer == nil || materializer.memory == nil || facts.Profile == nil {
-		return nil, nil
+type RuntimeMemoryContext struct {
+	Record   *MemoryRecord
+	Expected bool
+}
+
+func (materializer *PlanMaterializer) runtimeMemory(ctx context.Context, input RuntimeInput, facts RuntimeFacts) (RuntimeMemoryContext, error) {
+	if facts.Profile == nil {
+		return RuntimeMemoryContext{}, nil
+	}
+	if materializer == nil || facts.Retrieval == nil || facts.Retrieval.Profile.ID != facts.Profile.ID {
+		return RuntimeMemoryContext{}, ErrInvalidContextPlan
+	}
+	if facts.Retrieval.Profile.MemoryProviderModelID == nil {
+		return RuntimeMemoryContext{}, nil
+	}
+	if *facts.Retrieval.Profile.MemoryProviderModelID == 0 || materializer.memory == nil || materializer.history == nil {
+		return RuntimeMemoryContext{}, ErrMemoryInvalid
 	}
 	memory, err := materializer.memory.LatestReadyMemory(ctx, input.ConversationID, facts.Profile.ID, facts.Profile.SHA256)
-	if err != nil || memory == nil {
-		return nil, err
+	if err != nil {
+		return RuntimeMemoryContext{}, err
 	}
-	if memory.ConversationID != input.ConversationID || memory.ProfileID != facts.Profile.ID || memory.State != MemoryStateReady ||
-		memory.Summary == nil || strings.TrimSpace(*memory.Summary) == "" || memory.ThroughMessageID < memory.FromMessageID {
-		return nil, nil
+	if memory != nil {
+		if memory.ConversationID != input.ConversationID || memory.ProfileID != facts.Profile.ID || !readyMemoryRowValid(*memory, facts.Profile.SHA256) {
+			return RuntimeMemoryContext{Expected: true}, nil
+		}
+		return RuntimeMemoryContext{Record: memory, Expected: true}, nil
 	}
-	profileHash, profileErr := SHA256FromBytes(memory.ProfileSHA256)
-	sourceHash, sourceErr := SHA256FromBytes(memory.SourceSHA256)
-	summaryHash, summaryErr := SHA256FromBytes(memory.SummarySHA256)
-	if profileErr != nil || sourceErr != nil || summaryErr != nil || profileHash != facts.Profile.SHA256 ||
-		summaryHash != sha256.Sum256([]byte(*memory.Summary)) || sourceHash == ([sha256.Size]byte{}) {
-		return nil, nil
+	if facts.Budget.KnownInputBudget < 0 {
+		return RuntimeMemoryContext{}, ErrInvalidBudget
 	}
-	return memory, nil
+	counter, err := infraai.ResolveTokenCounter(facts.ModelCapability.TokenCounterID)
+	if err != nil {
+		return RuntimeMemoryContext{}, err
+	}
+	turns, err := memoryTurnsAfterParent(ctx, materializer.history, input.ConversationID, input.UserID, nil)
+	if err != nil {
+		return RuntimeMemoryContext{}, err
+	}
+	_, total, err := memoryTurnTokens(turns, counter)
+	if err != nil {
+		return RuntimeMemoryContext{}, err
+	}
+	_, expected := MemoryWindow(total, uint64(facts.Budget.KnownInputBudget))
+	return RuntimeMemoryContext{Expected: expected}, nil
 }
 
 func memoryPackGroup(memory MemoryRecord, counterID string) (PackGroup, error) {

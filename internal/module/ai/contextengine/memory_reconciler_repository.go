@@ -119,18 +119,9 @@ func (repository *GormMemoryRepository) latestReadyMemory(ctx context.Context, c
 }
 
 func selectMemoryPrefix(turns []ConversationTurn, counter TokenCounter, knownInputBudget uint64) ([]ConversationTurn, bool, error) {
-	tokens := make([]uint64, len(turns))
-	var total uint64
-	for index, turn := range turns {
-		text, err := BuildConversationTurnText(turn, counter, 1<<62)
-		if err != nil || text.TokenUpperBound < 0 {
-			return nil, false, err
-		}
-		tokens[index] = uint64(text.TokenUpperBound)
-		if ^uint64(0)-total < tokens[index] {
-			return nil, false, ErrMemoryInvalid
-		}
-		total += tokens[index]
+	tokens, total, err := memoryTurnTokens(turns, counter)
+	if err != nil {
+		return nil, false, err
 	}
 	window, build := MemoryWindow(total, knownInputBudget)
 	if !build {
@@ -142,6 +133,26 @@ func selectMemoryPrefix(turns []ConversationTurn, counter TokenCounter, knownInp
 		through++
 	}
 	return turns[:through], true, nil
+}
+
+func memoryTurnTokens(turns []ConversationTurn, counter TokenCounter) ([]uint64, uint64, error) {
+	tokens := make([]uint64, len(turns))
+	var total uint64
+	for index, turn := range turns {
+		text, err := BuildConversationTurnText(turn, counter, 1<<62)
+		if err != nil {
+			return nil, 0, err
+		}
+		if text.TokenUpperBound < 0 {
+			return nil, 0, ErrMemoryInvalid
+		}
+		tokens[index] = uint64(text.TokenUpperBound)
+		if ^uint64(0)-total < tokens[index] {
+			return nil, 0, ErrMemoryInvalid
+		}
+		total += tokens[index]
+	}
+	return tokens, total, nil
 }
 
 func memoryTurnsAfterParent(ctx context.Context, pager ConversationTurnPager, conversationID, userID uint64, parent *MemoryRecord) ([]ConversationTurn, error) {

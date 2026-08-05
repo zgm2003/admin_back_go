@@ -75,9 +75,13 @@ func (materializer *PlanMaterializer) Materialize(ctx context.Context, input Run
 		Profile: cloneProfileSnapshot(facts.Profile), RetrievalOutcome: RetrievalSkipped,
 		PackGroups: clonePackGroups(facts.CoreGroups),
 	}
-	memory, memoryErr := materializer.latestMemory(ctx, input, facts)
-	if memoryErr != nil {
-		memory = nil
+	memoryContext, err := materializer.runtimeMemory(ctx, input, facts)
+	if err != nil {
+		return BuildPlanInput{}, err
+	}
+	memory := memoryContext.Record
+	if memoryContext.Expected && memory == nil {
+		return materializer.degradedInput(output, EnhancementStageMemory, ErrCodeMemoryUnavailable)
 	}
 	memoryBoundary := uint64(0)
 	if memory != nil {
@@ -119,6 +123,16 @@ func (materializer *PlanMaterializer) Materialize(ctx context.Context, input Run
 	if evidence.Failure == nil {
 		output.PackGroups = append(output.PackGroups, composeEvidenceGroups(historyGroups, evidence.Groups, memoryBoundary)...)
 	}
+	return output, nil
+}
+
+func (materializer *PlanMaterializer) degradedInput(output BuildPlanInput, stage EnhancementStage, code ErrorCode) (BuildPlanInput, error) {
+	failure, err := NewPlanError(string(stage), code)
+	if err != nil {
+		return BuildPlanInput{}, err
+	}
+	output.RetrievalOutcome = RetrievalFailed
+	output.Failure = &failure
 	return output, nil
 }
 

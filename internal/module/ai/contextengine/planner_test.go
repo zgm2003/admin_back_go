@@ -89,19 +89,54 @@ func TestContextPrecedenceComposesMemoryDirectAndRecalledTurnsOnce(t *testing.T)
 	}
 }
 
-func TestMemoryDiagnosticDoesNotFailCurrentPlanMaterialization(t *testing.T) {
+func TestMemoryRepositoryErrorStopsPlanMaterialization(t *testing.T) {
 	input := validBuildPlanInput()
+	memoryModelID := uint64(33)
 	profile := &ProfileSnapshot{ID: 7, SHA256: testSHA256("profile")}
+	cause := errors.New("failed memory repository")
 	materializer := NewPlanMaterializer(runtimeFactsFixture{facts: RuntimeFacts{
 		Fingerprint: input.Fingerprint, ModelCapability: input.ModelCapability, Budget: input.Budget, Profile: profile,
-		CoreGroups: input.PackGroups, Retrieval: &RuntimeRetrievalFacts{HasSources: false},
+		CoreGroups: input.PackGroups, Retrieval: &RuntimeRetrievalFacts{Profile: ContextProfile{ID: 7, MemoryProviderModelID: &memoryModelID}, HasSources: false},
 	}}, runtimeEvidenceFixture{evidence: RuntimeEvidence{Outcome: RetrievalSkipped}}, &historyPagerFixture{}).
-		WithMemoryReader(memoryContextFixture{err: errors.New("failed memory diagnostic")})
+		WithMemoryReader(memoryContextFixture{err: cause})
 	_, err := materializer.Materialize(t.Context(), RuntimeInput{RunID: input.RunID, ReplyCommandID: input.ReplyCommandID,
 		LeaseOwner: input.LeaseOwner, LeaseToken: input.LeaseToken, CurrentMessageID: input.CurrentMessageID, AgentID: input.AgentID,
 		UserID: input.UserID, ConversationID: input.ConversationID, ProviderID: input.ProviderID, ModelID: input.ModelID, APIProtocol: input.APIProtocol})
+	if !errors.Is(err, cause) {
+		t.Fatalf("memory repository error was replaced: %v", err)
+	}
+}
+
+func TestMemoryExpectedStopsEnhancementBeforeEmbedding(t *testing.T) {
+	input := validBuildPlanInput()
+	memoryModelID := uint64(33)
+	generation := uint64(1)
+	profile := &ProfileSnapshot{ID: 7, SHA256: testSHA256("profile"), IndexGeneration: &generation}
+	embeddings := &countingRuntimeEmbeddingResolver{}
+	evidence := newRuntimeEvidenceTestResolver(embeddings, nil)
+	turn := runtimeMemoryTurn(t, 1, strings.Repeat("x", 256))
+	materializer := NewPlanMaterializer(runtimeFactsFixture{facts: RuntimeFacts{
+		Fingerprint: input.Fingerprint, ModelCapability: input.ModelCapability, Budget: input.Budget, Profile: profile,
+		CoreGroups: input.PackGroups, Retrieval: &RuntimeRetrievalFacts{Profile: ContextProfile{
+			ID: 7, Status: ProfileEnabled, IndexState: ProfileIndexReady, ActiveIndexGeneration: &generation,
+			MemoryProviderModelID: &memoryModelID, EmbeddingTokenCounterID: infraai.TokenCounterUTF8BytesV1,
+			EmbeddingMaxInputTokens: 4096, DenseMinScore: "0.100000",
+		}, CurrentText: "query", HasSources: true},
+	}}, evidence, &historyPagerFixture{turns: []ConversationTurn{turn}}).WithMemoryReader(memoryContextFixture{})
+
+	materialized, err := materializer.Materialize(t.Context(), RuntimeInput{
+		RunID: input.RunID, ReplyCommandID: input.ReplyCommandID, LeaseOwner: input.LeaseOwner, LeaseToken: input.LeaseToken,
+		CurrentMessageID: input.CurrentMessageID, AgentID: input.AgentID, UserID: input.UserID, ConversationID: input.ConversationID,
+		ProviderID: input.ProviderID, ModelID: input.ModelID, APIProtocol: input.APIProtocol,
+	})
 	if err != nil {
-		t.Fatalf("memory diagnostic failed current plan: %v", err)
+		t.Fatal(err)
+	}
+	if embeddings.calls != 0 {
+		t.Fatalf("embedding resolver calls=%d, want 0", embeddings.calls)
+	}
+	if materialized.RetrievalOutcome != RetrievalFailed || materialized.Failure == nil || materialized.Failure.Code != ErrCodeMemoryUnavailable {
+		t.Fatalf("materialized=%+v", materialized)
 	}
 }
 
