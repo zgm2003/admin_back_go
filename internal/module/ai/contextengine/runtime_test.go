@@ -62,7 +62,7 @@ func TestTerminalPlanReuseSkipsMaterialization(t *testing.T) {
 
 func TestDegradedRuntimePersistsTypedEnhancementFailure(t *testing.T) {
 	cause := errors.New("embedding provider unavailable")
-	evidence := &runtimeEvidenceErrorFixture{err: NewEnhancementFailure(EnhancementStageEmbedding, ErrCodeEmbeddingFailed, cause)}
+	evidence := &runtimeEvidenceErrorFixture{evidence: RuntimeEvidence{Metrics: ContextPlanMetricsV1{Schema: ContextPlanMetricsSchemaV1}}, err: NewEnhancementFailure(EnhancementStageEmbedding, ErrCodeEmbeddingFailed, cause)}
 	materializer, runtimeInput := runtimeFailureMaterializer(t, evidence)
 	repository := &fakePlannerRepository{}
 	service := NewRuntimeService(materializer, NewPlanner(PlannerDependencies{
@@ -88,7 +88,7 @@ func TestDegradedRuntimePersistsTypedEnhancementFailure(t *testing.T) {
 
 func TestDegradedRuntimeRejectsUnknownErrorWithoutPlan(t *testing.T) {
 	cause := errors.New("mysql connection reset")
-	evidence := &runtimeEvidenceErrorFixture{err: cause}
+	evidence := &runtimeEvidenceErrorFixture{evidence: RuntimeEvidence{Metrics: ContextPlanMetricsV1{Schema: ContextPlanMetricsSchemaV1}}, err: cause}
 	materializer, runtimeInput := runtimeFailureMaterializer(t, evidence)
 	repository := &fakePlannerRepository{}
 	service := NewRuntimeService(materializer, NewPlanner(PlannerDependencies{
@@ -133,7 +133,7 @@ func TestDegradedPackingKeepsCoreMemoryAndCurrentAttachmentOnly(t *testing.T) {
 	evidence := &runtimeEvidenceErrorFixture{
 		evidence: RuntimeEvidence{Outcome: RetrievalHit, Groups: []PackGroup{
 			testEvidenceGroup(BlockDocumentEvidence, "document_chunks:41", testSHA256("document"), 8),
-		}},
+		}, Metrics: ContextPlanMetricsV1{Schema: ContextPlanMetricsSchemaV1, QueryEmbeddingMS: 12, QueryEmbeddingRequestCount: 1}},
 		err: NewEnhancementFailure(EnhancementStageRerank, ErrCodeRerankFailed, errors.New("rerank unavailable")),
 	}
 	materializer := NewPlanMaterializer(runtimeFactsFixture{facts: RuntimeFacts{
@@ -178,6 +178,9 @@ func TestDegradedPackingKeepsCoreMemoryAndCurrentAttachmentOnly(t *testing.T) {
 	}
 	if plan.RetrievalOutcome != RetrievalDegraded || plan.Error == nil || plan.Error.Code != ErrCodeRerankFailed {
 		t.Fatalf("plan=%+v", plan)
+	}
+	if plan.Metrics.QueryEmbeddingMS != 12 || plan.Metrics.QueryEmbeddingRequestCount != 1 {
+		t.Fatalf("degraded plan lost completed stage metrics: %+v", plan.Metrics)
 	}
 
 	compiled, err := CompileChatInput(plan)

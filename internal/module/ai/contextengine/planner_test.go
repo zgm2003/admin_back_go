@@ -42,16 +42,19 @@ func TestContextPrecedenceComposesMemoryDirectAndRecalledTurnsOnce(t *testing.T)
 		FromMessageID: 1, ThroughMessageID: 4, SourceSHA256: memorySource[:], SummarySHA256: summaryHash[:],
 		Summary: &summary, State: MemoryStateReady}
 	facts := validBuildPlanInput()
+	memoryModelID := uint64(33)
 	profile := &ProfileSnapshot{ID: 7, SHA256: testSHA256("profile")}
 	materializer := NewPlanMaterializer(runtimeFactsFixture{facts: RuntimeFacts{
 		Fingerprint: facts.Fingerprint, ModelCapability: facts.ModelCapability, Budget: facts.Budget, Profile: profile,
-		CoreGroups: facts.PackGroups, Retrieval: &RuntimeRetrievalFacts{HasSources: true},
+		CoreGroups: facts.PackGroups, Retrieval: &RuntimeRetrievalFacts{
+			Profile: ContextProfile{ID: profile.ID, MemoryProviderModelID: &memoryModelID}, HasSources: true,
+		},
 	}}, runtimeEvidenceFixture{evidence: RuntimeEvidence{Outcome: RetrievalHit, Groups: []PackGroup{
 		testEvidenceGroup(BlockDocumentEvidence, "document_chunks:41", testSHA256("document"), 8),
 		testEvidenceGroup(BlockRecalledTurn, "conversation_turn:7", direct.SourceSHA256, 8),
 		testEvidenceGroup(BlockRecalledTurn, "conversation_turn:3", covered.SourceSHA256, 8),
-	}}}, &historyPagerFixture{turns: []ConversationTurn{newest, direct, covered}}).
-		WithMemoryReader(memoryContextFixture{memory: memory})
+	}, Metrics: ContextPlanMetricsV1{Schema: ContextPlanMetricsSchemaV1}}}, &historyPagerFixture{turns: []ConversationTurn{newest, direct, covered}}).
+			WithMemoryReader(memoryContextFixture{memory: memory})
 
 	input := RuntimeInput{RunID: facts.RunID, ReplyCommandID: facts.ReplyCommandID, LeaseOwner: facts.LeaseOwner, LeaseToken: facts.LeaseToken,
 		CurrentMessageID: facts.CurrentMessageID, AgentID: facts.AgentID, UserID: facts.UserID, ConversationID: facts.ConversationID,
@@ -97,7 +100,7 @@ func TestMemoryRepositoryErrorStopsPlanMaterialization(t *testing.T) {
 	materializer := NewPlanMaterializer(runtimeFactsFixture{facts: RuntimeFacts{
 		Fingerprint: input.Fingerprint, ModelCapability: input.ModelCapability, Budget: input.Budget, Profile: profile,
 		CoreGroups: input.PackGroups, Retrieval: &RuntimeRetrievalFacts{Profile: ContextProfile{ID: 7, MemoryProviderModelID: &memoryModelID}, HasSources: false},
-	}}, runtimeEvidenceFixture{evidence: RuntimeEvidence{Outcome: RetrievalSkipped}}, &historyPagerFixture{}).
+	}}, runtimeEvidenceFixture{evidence: RuntimeEvidence{Outcome: RetrievalSkipped, Metrics: ContextPlanMetricsV1{Schema: ContextPlanMetricsSchemaV1}}}, &historyPagerFixture{}).
 		WithMemoryReader(memoryContextFixture{err: cause})
 	_, err := materializer.Materialize(t.Context(), RuntimeInput{RunID: input.RunID, ReplyCommandID: input.ReplyCommandID,
 		LeaseOwner: input.LeaseOwner, LeaseToken: input.LeaseToken, CurrentMessageID: input.CurrentMessageID, AgentID: input.AgentID,
@@ -189,8 +192,12 @@ func testEvidenceGroup(kind BlockKind, ref string, source [sha256.Size]byte, pri
 
 func TestBuildPlanPersistsOneReadyPlanWithCanonicalHash(t *testing.T) {
 	repository := &fakePlannerRepository{}
-	planner := NewPlanner(PlannerDependencies{Repository: repository, GuardFactory: fixedGuardFactory{hash: testSHA256("authority")}})
-	plan, err := planner.BuildPlan(context.Background(), validBuildPlanInput())
+	input := validBuildPlanInput()
+	input.Metrics.QueryEmbeddingMS = 13
+	planner := NewPlanner(PlannerDependencies{
+		Repository: repository, GuardFactory: fixedGuardFactory{hash: testSHA256("authority")}, Now: fiveMillisecondClock(),
+	})
+	plan, err := planner.BuildPlan(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,6 +210,9 @@ func TestBuildPlanPersistsOneReadyPlanWithCanonicalHash(t *testing.T) {
 	}
 	if repository.token.InputFingerprintSHA256 != plan.InputFingerprintSHA256 || repository.token.AuthoritySnapshotSHA256 != testSHA256("authority") {
 		t.Fatalf("token=%+v", repository.token)
+	}
+	if plan.Metrics.QueryEmbeddingMS != 13 || plan.Metrics.PackingMS != 5 {
+		t.Fatalf("persisted metrics=%+v", plan.Metrics)
 	}
 }
 
@@ -578,6 +588,7 @@ func validBuildPlanInput() BuildPlanInput {
 		},
 		Budget:           Budget{ContextWindowTokens: 1000, EffectiveOutputTokens: 100, ProviderProtocolUpperBound: 50, ToolContinuationInputReserve: 25, PolicySafetyMargin: 50, KnownInputBudget: 800, Proof: BudgetConservative},
 		RetrievalOutcome: RetrievalSkipped,
+		Metrics:          ContextPlanMetricsV1{Schema: ContextPlanMetricsSchemaV1},
 		PackGroups:       []PackGroup{{Required: true, Priority: 1, SourceOrder: 9, StableSourceID: "message:9", Blocks: []PackBlock{block}}},
 	}
 }

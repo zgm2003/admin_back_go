@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"testing"
 
+	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/module/ai/contextengine"
 )
 
@@ -45,6 +46,45 @@ func TestContextPlanProjectionKeepsHistoricalRunNullable(t *testing.T) {
 	}
 }
 
+func TestContextPlanProjectionAddsDegradedDiagnosticWithoutChangingRunTruth(t *testing.T) {
+	plan := degradedRunProjectionPlan(t)
+	row := &RunDetailRow{
+		ID: 501, Status: "success", DiagnosticCodes: []string{"ai.attachment.current_unavailable"},
+		BillingStatus: "unbilled", BillingReason: "legacy_unpriced",
+	}
+	result, appErr := NewService(&fakeRepository{run: row, contextPlan: &plan}).Detail(context.Background(), 501)
+	if appErr != nil {
+		t.Fatalf("Detail: %v", appErr)
+	}
+	if result.ContextPlan == nil || result.ContextPlan.RetrievalOutcome != contextengine.RetrievalDegraded ||
+		result.ContextPlan.State != contextengine.PlanReady || result.ContextPlan.Error == nil ||
+		result.ContextPlan.Error.Stage != string(contextengine.EnhancementStageEmbedding) ||
+		result.ContextPlan.Error.Code != contextengine.ErrCodeEmbeddingFailed {
+		t.Fatalf("degraded Context Plan=%+v", result.ContextPlan)
+	}
+	if !reflect.DeepEqual(result.DiagnosticCodes, []string{"ai.attachment.current_unavailable", string(contextengine.ErrCodeEmbeddingFailed)}) {
+		t.Fatalf("diagnostic codes=%v", result.DiagnosticCodes)
+	}
+	if result.Status != "success" || result.ErrorCode != "" || result.BillingStatus != "unbilled" || result.BillingReason != "legacy_unpriced" {
+		t.Fatalf("degradation changed Run truth: status=%q error=%q billing=%q/%q", result.Status, result.ErrorCode, result.BillingStatus, result.BillingReason)
+	}
+}
+
+func TestContextPlanProjectionDoesNotDuplicateExistingDegradedDiagnostic(t *testing.T) {
+	plan := degradedRunProjectionPlan(t)
+	row := &RunDetailRow{
+		ID: 501, DiagnosticCodes: []string{string(contextengine.ErrCodeEmbeddingFailed), "ai.attachment.current_unavailable"},
+		BillingStatus: "unbilled", BillingReason: "legacy_unpriced",
+	}
+	result, appErr := NewService(&fakeRepository{run: row, contextPlan: &plan}).Detail(context.Background(), 501)
+	if appErr != nil {
+		t.Fatalf("Detail: %v", appErr)
+	}
+	if !reflect.DeepEqual(result.DiagnosticCodes, row.DiagnosticCodes) {
+		t.Fatalf("diagnostic codes=%v want=%v", result.DiagnosticCodes, row.DiagnosticCodes)
+	}
+}
+
 func runProjectionPlan() contextengine.ContextPlan {
 	planHash := sha256.Sum256([]byte("plan"))
 	paragraph := uint32(3)
@@ -79,4 +119,38 @@ func runProjectionPlan() contextengine.ContextPlan {
 			Decision: contextengine.DecisionSelected, CitationKey: &citation,
 		}},
 	}
+}
+
+func degradedRunProjectionPlan(t *testing.T) contextengine.ContextPlan {
+	t.Helper()
+	plan := runProjectionPlan()
+	diagnostic, err := contextengine.NewPlanError(string(contextengine.EnhancementStageEmbedding), contextengine.ErrCodeEmbeddingFailed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := "hello"
+	plan.RetrievalOutcome = contextengine.RetrievalDegraded
+	plan.Error = &diagnostic
+	plan.TokenCounterID = infraai.TokenCounterUTF8BytesV1
+	plan.Budget.Proof = contextengine.BudgetConservative
+	plan.Items = []contextengine.ContextPlanItem{{
+		Ordinal: 1,
+		Block: contextengine.ContextBlock{
+			Kind: contextengine.BlockCurrentUserMessage, SourceType: "message", SourceRef: "message:15",
+			SourceSHA256: sha256.Sum256([]byte(content)), AtomicGroupKey: "turn:15", Required: true,
+			Priority: 1, TokenUpperBound: 20, ContentSnapshot: &content,
+			Metadata: contextengine.ContextBlockMetadataV1{Schema: contextengine.ContextBlockMetadataSchemaV1},
+		},
+		Decision: contextengine.DecisionSelected,
+	}}
+	plan.PlanSHA256 = nil
+	planHash, err := contextengine.HashPlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.PlanSHA256 = &planHash
+	if err := plan.Validate(); err != nil {
+		t.Fatalf("degraded fixture is invalid: %v", err)
+	}
+	return plan
 }

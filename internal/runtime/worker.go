@@ -161,7 +161,7 @@ func productionWorkerHooks(cfg config.Config, logger *slog.Logger, keys *secretk
 				return nil, errors.New("worker runtime queue graph is incomplete")
 			}
 			publisher := realtimePublisherForWorker(cfg, resources, recorder)
-			replyRunner, replyReconciler, textReconciler, imageReconciler, contextReconciler, err := registerWorkerHandlers(cfg, logger, resources, providers, publisher, queueClient, queueMux)
+			replyRunner, replyReconciler, textReconciler, imageReconciler, contextReconciler, err := registerWorkerHandlers(cfg, logger, resources, providers, publisher, queueClient, queueMux, recorder)
 			if err != nil {
 				return nil, err
 			}
@@ -264,6 +264,7 @@ func registerWorkerHandlers(
 	realtimePublisher infrarealtime.Publisher,
 	queueClient *taskqueue.Client,
 	queueMux *taskqueue.Mux,
+	recorder telemetry.Recorder,
 ) (*replycommand.Runner, *replycommand.Reconciler, *aitext.Reconciler, *aiimage.Reconciler, *contextengine.DocumentIndexReconciler, error) {
 	realtimeEventRepository := modulerealtime.NewGormRepository(resources.DB, modulerealtime.DefaultRegistry())
 	realtimeEventSink := modulerealtime.NewDurableEventSink(realtimeEventRepository, realtimePublisher, logger)
@@ -334,7 +335,7 @@ func registerWorkerHandlers(
 	contextRuntime := contextengine.BuildRuntime(contextengine.RuntimeDependencies{
 		Database: resources.DB, OfficialModels: aiOfficialModelResolver,
 		EmbeddingFactory: providers.AIEmbeddingFactory, RerankFactory: providers.AIRerankFactory,
-		Secretbox: providers.Secretbox, Index: resources.Qdrant, CollectionPrefix: cfg.Qdrant.CollectionPrefix, Platform: "admin",
+		Secretbox: providers.Secretbox, Index: resources.Qdrant, CollectionPrefix: cfg.Qdrant.CollectionPrefix, Platform: "admin", Telemetry: recorder,
 	})
 	if contextRuntime == nil {
 		return nil, nil, nil, nil, nil, errors.New("worker context runtime dependencies are incomplete")

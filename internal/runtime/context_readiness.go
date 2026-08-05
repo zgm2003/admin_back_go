@@ -56,7 +56,7 @@ func (checker *ContextReadiness) Check(ctx context.Context) readiness.Check {
 	if err := checker.index.CheckReadiness(ctx, collections); err == nil {
 		return readiness.Check{Status: readiness.StatusUp}
 	}
-	if checker.required || len(collections) > 0 {
+	if checker.required {
 		return readiness.Check{Status: readiness.StatusDown, Message: "context index is unavailable"}
 	}
 	return readiness.Check{Status: readiness.StatusDegraded, Message: "context index is unavailable"}

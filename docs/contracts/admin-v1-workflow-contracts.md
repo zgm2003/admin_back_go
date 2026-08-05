@@ -234,7 +234,15 @@ AIMessageItem = {
   content: string, meta_json?: AIMessageMeta,
   paired_message_id: positive integer | null,
   run_id: positive integer | null, liked: boolean,
+  delivery_state: "completed" | "stopped" | null,
+  settlement_pending: boolean,
+  context: AIMessageContext | null,
   created_at: string, updated_at: string
+}
+AIMessageContext = {
+  plan_id: positive integer,
+  outcome: "skipped" | "no_hit" | "hit" | "degraded" | "failed",
+  sources: AIMessageCitationSource[], invalid_keys: string[]
 }
 AIMessageMeta = {
   attachments?: { type: "image", url: string, name: string, size: integer >= 0 }[],
@@ -364,6 +372,17 @@ AIRunDetail contains every AIRunListItem field except it additionally has:
   context_plan: AIContextPlan | null,
   tool_calls: AIRunToolCall[],
   started_at: string, finished_at: string, updated_at: string
+
+AIContextPlan = {
+  id: positive integer, profile: AIContextPlanProfile | null,
+  policy_version: non-empty string,
+  api_protocol: "chat_completions" | "responses",
+  token_counter_id: non-empty string,
+  retrieval_outcome: "skipped" | "no_hit" | "hit" | "degraded" | "failed",
+  state: "ready" | "failed", error: AIContextPlanError | null,
+  budget: AIContextPlanBudget, metrics: AIContextPlanMetrics,
+  items: AIContextPlanItem[]
+}
 
 RMBAmount is the canonical non-negative decimal string emitted from integer
 RMB units (for example `0`, `2.5`, or `0.00000001`; no exponent, sign,

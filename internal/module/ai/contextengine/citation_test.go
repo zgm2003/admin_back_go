@@ -50,7 +50,7 @@ func TestDegradedPlanProjectsNoCitationSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if projection.Outcome != RetrievalDegraded || len(projection.Sources) != 0 {
+	if projection.Outcome != RetrievalDegraded || len(projection.Sources) != 0 || len(projection.InvalidKeys) != 0 {
 		t.Fatalf("projection=%+v", projection)
 	}
 }

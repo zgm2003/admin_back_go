@@ -51,8 +51,23 @@ The Context runtime is now the chat command path. One immutable terminal
 Items; Qdrant is consulted only while building the Plan and can be rebuilt.
 `BuildPlan` runs after the current message and tool definitions are known, but
 before a provider Attempt is prepared. A `ready` Plan may be `skipped`,
-`no_hit`, or `hit`; a `failed` Plan has no Items or Plan hash and must never be
-dispatched.
+`no_hit`, `hit`, or `degraded`; a `failed` Plan has no Items or Plan hash and
+must never be dispatched. Runtime looks up the terminal Plan before loading
+Profile, Memory, Embedding, or Qdrant facts, so a provider retry reuses the
+same persisted Plan and cannot replay enhancement requests or telemetry.
+
+Core Context is the current system instruction, current user message and
+attachments, eligible recent turns, tools, and their results. Enhancement
+Context is the optional Profile, independently valid ready conversation
+Memory, historical attachment/document retrieval, and Rerank output. With no
+Profile or no configured sources, enhancement is skipped without calling an
+Embedding provider. A closed Profile/Memory/Embedding/Index/Retrieval/Rerank
+failure creates `ready/degraded` only after Core facts are valid. The Plan then
+keeps Core, current attachments, and any already validated ready Memory, adds
+the fixed degraded policy instruction, and discards every partial retrieval
+group and Citation. Permission, authority-MySQL, snapshot, current attachment,
+Plan repository, packing, and unknown errors remain strict failures; they are
+never relabeled as optional degradation.
 
 The evidence chain has three independent hashes:
 
@@ -86,11 +101,22 @@ with a positive decimal number. Sources are selected `document_evidence`
 Items in Plan order; repeated valid keys mark one source, unmentioned selected
 sources remain visible, and unknown valid keys are returned without a guessed
 source. This projection is rebuilt from Message -> Run -> Plan on refresh and
-does not depend on WebSocket memory. Run Detail exposes the closed
+does not depend on WebSocket memory. A degraded projection always returns
+`sources=[]` and `invalid_keys=[]`, even if provider text contains a citation-
+shaped token. Run Detail exposes the closed
 `context_plan` DTO with budget proof, safe metrics, decisions, scores,
 locators, and bounded snapshots; it never exposes retrieval Query text,
 object keys, signed URLs, credentials, unrestricted metadata, or raw Provider
-responses.
+responses. Its stable Context diagnostic is appended to `diagnostic_codes`
+without changing the Run status, provider error, billing status/reason, or
+Finalizer truth.
+
+Qdrant failure is a degraded readiness component for `admin-api`, independent
+of how many active Context collections exist; source-state MySQL failure still
+makes readiness down. `admin-worker` keeps Qdrant required because indexing
+work cannot truthfully run without it. Context telemetry uses only closed
+outcome, error-code, and Enhancement-stage labels. Query text, filenames,
+identifiers, URLs, credentials, and raw Provider errors never become labels.
 
 The old Knowledge runtime and admin surface are retired. They are not an
 alternate runtime path and must not be reintroduced. The Qdrant state service

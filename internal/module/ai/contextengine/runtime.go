@@ -11,6 +11,7 @@ import (
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/module/ai/aigateway"
 	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/telemetry"
 )
 
 type Runtime interface {
@@ -36,15 +37,23 @@ type RuntimeService struct {
 	materializer RuntimeMaterializer
 	planner      *Planner
 	dispatch     *DispatchGuardFactory
+	telemetry    telemetry.Recorder
 }
 
 func NewRuntimeService(materializer RuntimeMaterializer, planner *Planner, dispatch ...*DispatchGuardFactory) *RuntimeService {
 	if materializer == nil || planner == nil {
 		return nil
 	}
-	service := &RuntimeService{materializer: materializer, planner: planner}
+	service := &RuntimeService{materializer: materializer, planner: planner, telemetry: telemetry.Noop()}
 	if len(dispatch) > 0 {
 		service.dispatch = dispatch[0]
+	}
+	return service
+}
+
+func (service *RuntimeService) WithTelemetry(recorder telemetry.Recorder) *RuntimeService {
+	if service != nil && recorder != nil {
+		service.telemetry = recorder
 	}
 	return service
 }
@@ -193,6 +202,7 @@ func (service *RuntimeService) BuildPlan(ctx context.Context, input RuntimeInput
 	if err != nil {
 		return RuntimeResult{}, err
 	}
+	recordContextPlanTelemetry(service.telemetry, plan)
 	return RuntimeResultFromPlan(plan)
 }
 

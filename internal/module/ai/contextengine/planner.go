@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	infraai "admin_back_go/internal/infra/ai"
 )
@@ -15,11 +16,13 @@ import (
 type PlannerDependencies struct {
 	Repository   PlanRepository
 	GuardFactory PlanCommitGuardFactory
+	Now          func() time.Time
 }
 
 type Planner struct {
 	repository   PlanRepository
 	guardFactory PlanCommitGuardFactory
+	now          func() time.Time
 }
 
 type BuildPlanInput struct {
@@ -43,10 +46,15 @@ type BuildPlanInput struct {
 	RetrievalOutcome RetrievalOutcome
 	PackGroups       []PackGroup
 	Diagnostic       *PlanError
+	Metrics          ContextPlanMetricsV1
 }
 
 func NewPlanner(dependencies PlannerDependencies) *Planner {
-	return &Planner{repository: dependencies.Repository, guardFactory: dependencies.GuardFactory}
+	now := dependencies.Now
+	if now == nil {
+		now = time.Now
+	}
+	return &Planner{repository: dependencies.Repository, guardFactory: dependencies.GuardFactory, now: now}
 }
 
 func (planner *Planner) FindTerminalByRunID(ctx context.Context, runID uint64) (*ContextPlan, error) {
@@ -86,13 +94,15 @@ func (planner *Planner) BuildPlan(ctx context.Context, input BuildPlanInput) (Co
 		InputFingerprintSHA256: inputFingerprintSHA256, ModelCapabilitySHA256: modelCapabilitySHA256,
 		APIProtocol: input.APIProtocol, TokenCounterID: input.ModelCapability.TokenCounterID,
 		Budget: budget, RetrievalOutcome: input.RetrievalOutcome, State: PlanReady, Error: clonePointer(input.Diagnostic),
-		Metrics: ContextPlanMetricsV1{Schema: ContextPlanMetricsSchemaV1},
+		Metrics: input.Metrics,
 	}
+	packingStartedAt := planner.now()
 	packed, packErr := Pack(PackInput{
 		KnownInputBudget:             input.Budget.KnownInputBudget,
 		ToolContinuationInputReserve: input.Budget.ToolContinuationInputReserve,
 		Candidates:                   input.PackGroups,
 	})
+	plan.Metrics.PackingMS += elapsedMilliseconds(packingStartedAt, planner.now())
 	if packErr != nil {
 		code := ErrorCode(packErr.Code)
 		if code.Validate() != nil {
@@ -161,6 +171,9 @@ func validateAndHashBuildPlanInput(input BuildPlanInput) ([sha256.Size]byte, [sh
 		return [sha256.Size]byte{}, [sha256.Size]byte{}, ErrInvalidContextPlan
 	}
 	if input.RetrievalOutcome.Validate() != nil || input.RetrievalOutcome == RetrievalFailed {
+		return [sha256.Size]byte{}, [sha256.Size]byte{}, ErrInvalidContextPlan
+	}
+	if input.Metrics.Validate() != nil {
 		return [sha256.Size]byte{}, [sha256.Size]byte{}, ErrInvalidContextPlan
 	}
 	if input.RetrievalOutcome == RetrievalDegraded {

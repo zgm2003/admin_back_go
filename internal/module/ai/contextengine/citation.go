@@ -75,6 +75,12 @@ func ProjectMessageContext(content string, plan ContextPlan) (MessageContext, er
 	if plan.ID == 0 || plan.Validate() != nil {
 		return MessageContext{}, ErrInvalidContextPlan
 	}
+	if plan.RetrievalOutcome == RetrievalDegraded {
+		return MessageContext{
+			PlanID: plan.ID, Outcome: RetrievalDegraded,
+			Sources: make([]CitationSource, 0), InvalidKeys: make([]string, 0),
+		}, nil
+	}
 
 	sources := make([]CitationSource, 0)
 	sourceIndexes := make(map[string]int)

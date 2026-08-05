@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/module/ai/contextengine"
 	"admin_back_go/internal/shared/enum"
 )
@@ -91,6 +92,63 @@ func TestMessageContextProjectionSerializesEmptyCollectionsAsArrays(t *testing.T
 	const want = `{"plan_id":2,"outcome":"skipped","sources":[],"invalid_keys":[]}`
 	if string(payload) != want {
 		t.Fatalf("skipped context JSON=%s, want %s", payload, want)
+	}
+}
+
+func TestMessageContextRefreshProjectsDegradedWithoutCitationArtifacts(t *testing.T) {
+	completed := DeliveryStateCompleted
+	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
+	runID := int64(505)
+	plan := messageProjectionPlan(75, uint64(runID))
+	diagnostic, err := contextengine.NewPlanError(string(contextengine.EnhancementStageEmbedding), contextengine.ErrCodeEmbeddingFailed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := "hello"
+	plan.RetrievalOutcome = contextengine.RetrievalDegraded
+	plan.Error = &diagnostic
+	plan.TokenCounterID = infraai.TokenCounterUTF8BytesV1
+	plan.Budget.Proof = contextengine.BudgetConservative
+	plan.Items = []contextengine.ContextPlanItem{{
+		Ordinal: 1,
+		Block: contextengine.ContextBlock{
+			Kind: contextengine.BlockCurrentUserMessage, SourceType: "message", SourceRef: "message:15",
+			SourceSHA256: sha256.Sum256([]byte(content)), AtomicGroupKey: "turn:15", Required: true,
+			Priority: 1, TokenUpperBound: 20, ContentSnapshot: &content,
+			Metadata: contextengine.ContextBlockMetadataV1{Schema: contextengine.ContextBlockMetadataSchemaV1},
+		},
+		Decision: contextengine.DecisionSelected,
+	}}
+	plan.PlanSHA256 = nil
+	planHash, err := contextengine.HashPlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.PlanSHA256 = &planHash
+	if err := plan.Validate(); err != nil {
+		t.Fatalf("degraded fixture is invalid: %v", err)
+	}
+
+	repository := &messageContextRepository{
+		fakeRepository: &fakeRepository{
+			conversation: &Conversation{ID: 3, UserID: 7},
+			rows: []MessageProjection{{
+				Message: Message{ID: 15, ConversationID: 3, Role: enum.AIMessageRoleAssistant, Content: "回答已完成，但模型错误输出 [C1]", DeliveryState: &completed, CreatedAt: now, UpdatedAt: now},
+				RunID:   &runID,
+			}},
+		},
+		plans: map[uint64]contextengine.ContextPlan{uint64(runID): plan},
+	}
+	result, appErr := NewService(repository).List(context.Background(), 7, ListQuery{ConversationID: 3})
+	if appErr != nil {
+		t.Fatalf("refresh degraded message: %v", appErr)
+	}
+	if len(result.List) != 1 || result.List[0].Context == nil {
+		t.Fatalf("degraded message context=%+v", result.List)
+	}
+	messageContext := result.List[0].Context
+	if messageContext.Outcome != string(contextengine.RetrievalDegraded) || len(messageContext.Sources) != 0 || len(messageContext.InvalidKeys) != 0 {
+		t.Fatalf("degraded message invented citation artifacts: %+v", messageContext)
 	}
 }
 

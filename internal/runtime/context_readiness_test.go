@@ -33,7 +33,7 @@ func (sources fakeContextSources) ActiveCollections(context.Context) ([]contexti
 	return append([]contextindex.ActiveCollection(nil), sources.profiles...), sources.err
 }
 
-func TestAPIContextReadinessRequiresQdrantOnlyWhenContextSourcesExist(t *testing.T) {
+func TestAPIContextReadinessDegradesWhenQdrantIsUnavailable(t *testing.T) {
 	index := &fakeContextIndex{err: errors.New("dial qdrant://secret@internal:6334: down")}
 	checker := NewContextReadiness(index, fakeContextSources{})
 	if got := checker.Check(t.Context()); got.Status != readiness.StatusDegraded {
@@ -45,8 +45,8 @@ func TestAPIContextReadinessRequiresQdrantOnlyWhenContextSourcesExist(t *testing
 	active := contextindex.ActiveCollection{ProfileID: 7, IndexGeneration: 3, DenseDimensions: 1536, DenseDistance: contextindex.DistanceCosine}
 	index = &fakeContextIndex{err: errors.New("down")}
 	checker = NewContextReadiness(index, fakeContextSources{profiles: []contextindex.ActiveCollection{active}})
-	if got := checker.Check(t.Context()); got.Status != readiness.StatusDown {
-		t.Fatalf("active sources require qdrant, got %#v", got)
+	if got := checker.Check(t.Context()); got.Status != readiness.StatusDegraded {
+		t.Fatalf("API availability must not depend on active context sources, got %#v", got)
 	}
 	if len(index.profiles) != 1 || index.profiles[0] != active {
 		t.Fatalf("active collection contract was not checked: %#v", index.profiles)

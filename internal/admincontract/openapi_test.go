@@ -764,3 +764,17 @@ func assertSchemaIsNotNullable(t *testing.T, name string, raw any) {
 		}
 	}
 }
+
+func TestAIContextOpenAPIPublishesDegradedOutcome(t *testing.T) {
+	bundle := mustBuildBundle(t)
+	var document struct {
+		Components struct {
+			Schemas map[string]map[string]any `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(bundle.Artifacts["openapi.json"], &document); err != nil {
+		t.Fatal(err)
+	}
+	assertSchemaPropertyStringEnum(t, document.Components.Schemas, "AIMessageContext", "outcome", []string{"skipped", "no_hit", "hit", "degraded", "failed"})
+	assertSchemaPropertyStringEnum(t, document.Components.Schemas, "AIContextPlan", "retrieval_outcome", []string{"skipped", "no_hit", "hit", "degraded", "failed"})
+}

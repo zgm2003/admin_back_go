@@ -70,7 +70,7 @@ func aiWorkflowSchemas() map[string]any {
 			"document_version_id": positiveIntegerSchema(),
 		}),
 		"AIMessageContext": closedObjectAllProperties(map[string]any{
-			"plan_id": positiveIntegerSchema(), "outcome": stringEnumSchema("skipped", "no_hit", "hit", "failed"),
+			"plan_id": positiveIntegerSchema(), "outcome": stringEnumSchema("skipped", "no_hit", "hit", "degraded", "failed"),
 			"sources": arraySchema(schemaReference("AIMessageCitationSource")), "invalid_keys": arraySchema(stringSchema()),
 		}),
 		"AIMessageItem": closedObjectSchema(
@@ -387,7 +387,7 @@ func aiContextPlanSchema() map[string]any {
 	return closedObjectAllProperties(map[string]any{
 		"id": positiveIntegerSchema(), "profile": nullableSchema(schemaReference("AIContextPlanProfile")),
 		"policy_version": nonEmptyStringSchema(), "api_protocol": stringEnumSchema("chat_completions", "responses"),
-		"token_counter_id": nonEmptyStringSchema(), "retrieval_outcome": stringEnumSchema("skipped", "no_hit", "hit", "failed"),
+		"token_counter_id": nonEmptyStringSchema(), "retrieval_outcome": stringEnumSchema("skipped", "no_hit", "hit", "degraded", "failed"),
 		"state": stringEnumSchema("ready", "failed"), "error": nullableSchema(schemaReference("AIContextPlanError")),
 		"budget": schemaReference("AIContextPlanBudget"), "metrics": schemaReference("AIContextPlanMetrics"),
 		"items": arraySchema(schemaReference("AIContextPlanItem")),

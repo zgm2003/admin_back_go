@@ -30,7 +30,7 @@ func TestPrometheusRecordsSanitizedCountersHistogramsAndSpans(t *testing.T) {
 	finish(nil)
 
 	count := testutil.ToFloat64(recorder.events.WithLabelValues(
-		"http.requests", "GET", "/api/admin/v1/users/:id", "200", "", "", "", "", "", "", "",
+		"http.requests", "GET", "/api/admin/v1/users/:id", "200", "", "", "", "", "", "", "", "",
 	))
 	if count != 1 {
 		t.Fatalf("http counter=%v", count)
@@ -52,5 +52,20 @@ func TestPrometheusRecordsSanitizedCountersHistogramsAndSpans(t *testing.T) {
 	}
 	if strings.Contains(strings.ToLower(text), "private") || strings.Contains(strings.ToLower(text), "authorization") || strings.Contains(strings.ToLower(text), "prompt") {
 		t.Fatalf("secret/high-cardinality data leaked: %s", text)
+	}
+}
+
+func TestPrometheusPublishesClosedContextStageLabel(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	recorder, err := NewPrometheus(registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder.Count("context_plan_total", 1, Attributes{"outcome": "degraded", "context.stage": "embedding"})
+	count := testutil.ToFloat64(recorder.events.WithLabelValues(
+		"context_plan_total", "", "", "", "", "", "", "degraded", "", "", "", "embedding",
+	))
+	if count != 1 {
+		t.Fatalf("context counter=%v", count)
 	}
 }

@@ -171,6 +171,9 @@ func (s *Service) Detail(ctx context.Context, id int64) (*DetailResponse, *apper
 			return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "AI运行上下文计划无效", err)
 		}
 		contextPlanProjection = &projection
+		if projection.State == contextengine.PlanReady && projection.RetrievalOutcome == contextengine.RetrievalDegraded && projection.Error != nil {
+			row.DiagnosticCodes = appendUniqueDiagnosticCode(row.DiagnosticCodes, string(projection.Error.Code))
+		}
 	}
 	charge, usageRows, attemptRows, err := repo.BillingDetail(ctx, id)
 	if err != nil {
@@ -194,6 +197,15 @@ func (s *Service) Detail(ctx context.Context, id int64) (*DetailResponse, *apper
 	}
 	result := detailItem(*row, events, toolCalls, billingView, s.buildLatencyBreakdown(ctx, *row, attemptRows, events), requestSummary, contextPlanProjection)
 	return &result, nil
+}
+
+func appendUniqueDiagnosticCode(codes []string, code string) []string {
+	for _, existing := range codes {
+		if existing == code {
+			return codes
+		}
+	}
+	return append(codes, code)
 }
 
 func (s *Service) requireRepository() (Repository, *apperror.Error) {

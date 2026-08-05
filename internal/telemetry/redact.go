@@ -19,6 +19,7 @@ var allowedAttributeKeys = map[string]struct{}{
 	"redis.operation": {},
 	"queue.type":      {}, "queue.lane": {}, "queue.outcome": {}, "queue.retry": {}, "queue.lease_expired": {}, "queue.exhausted": {},
 	"provider.name": {}, "provider.modality": {}, "provider.status": {},
+	"context.stage":      {},
 	"realtime.operation": {}, "realtime.transport": {}, "realtime.outcome": {},
 	"scheduler.operation": {}, "scheduler.outcome": {}, "scheduler.lease_owned": {},
 }
@@ -115,6 +116,11 @@ func boundedAttributeValue(key string, value any) (string, bool) {
 		text = sanitizeRoute(text)
 	case "db.slow_digest":
 		text = SlowDigest(text)
+	case "context.stage":
+		text = strings.ToLower(text)
+		if !validContextStage(text) {
+			return "", false
+		}
 	default:
 		text = strings.ToLower(text)
 	}
@@ -122,6 +128,14 @@ func boundedAttributeValue(key string, value any) (string, bool) {
 		text = text[:maxAttributeValueLength]
 	}
 	return text, text != ""
+}
+
+func validContextStage(stage string) bool {
+	switch stage {
+	case "profile", "memory", "embedding", "index", "retrieval", "rerank":
+		return true
+	}
+	return false
 }
 
 func sanitizeRoute(route string) string {

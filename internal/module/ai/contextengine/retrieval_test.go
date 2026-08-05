@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/infra/contextindex"
@@ -123,8 +124,19 @@ func TestRetrievalClassificationAtOwningBoundaries(t *testing.T) {
 		current.Reranker = &fakeRerankClient{err: cause}
 		inputWithRerank := input
 		inputWithRerank.RerankMinScore = &threshold
-		_, err = Retrieve(t.Context(), inputWithRerank, current)
+		current.Now = fiveMillisecondClock()
+		result, retrieveErr := Retrieve(t.Context(), inputWithRerank, current)
+		err = retrieveErr
 		assertEnhancementFailure(t, err, EnhancementStageRerank, ErrCodeRerankFailed)
+		if len(result.Candidates) != 0 || len(result.Excluded) != 0 || len(result.Cleanup) != 0 {
+			t.Fatalf("failed retrieval retained partial evidence: %+v", result)
+		}
+		metrics := result.Metrics
+		if metrics.Schema != ContextPlanMetricsSchemaV1 || metrics.QueryEmbeddingMS != 5 || metrics.RetrievalMS != 5 ||
+			metrics.AuthorizationMS != 5 || metrics.RerankMS != 5 || metrics.QueryEmbeddingRequestCount != 1 ||
+			metrics.RerankRequestCount != 1 || metrics.CandidateCount != 1 || metrics.QueryInputTokens == nil || *metrics.QueryInputTokens != 7 {
+			t.Fatalf("partial metrics=%+v", metrics)
+		}
 	})
 }
 
@@ -157,13 +169,22 @@ func retrievalClassificationFixture(t *testing.T) (RetrievalInput, RetrievalDepe
 			TopN:     20, Authority: CandidateAuthoritySnapshot{ProfileID: 1, IndexGeneration: 1, AgentID: 3, UserID: 4, ConversationID: 5, Platform: "admin"},
 			MaxMergedTokens: 100, TokenCounter: counter,
 		}, RetrievalDependencies{
-			Embedding: fakeEmbeddingClient{result: infraai.EmbeddingResult{ModelID: "embed-v1", Vectors: [][]float32{{1, 0}}}},
+			Embedding: fakeEmbeddingClient{result: infraai.EmbeddingResult{ModelID: "embed-v1", Vectors: [][]float32{{1, 0}}, Usage: infraai.EmbeddingUsage{PromptTokens: 7, TotalTokens: 7}}},
 			Querier: fakeQuerier{result: contextindex.QueryBatchResult{
 				Fusion:   []contextindex.QueryFusionHit{{Point: verified.Point, Rank: 1, Score: 0.9}},
 				Branches: []contextindex.QueryBranchHit{{Point: verified.Point, VariantID: "current", Modality: contextindex.QueryModalityDense, Rank: 1, Score: 0.8}},
 			}},
 			Authority: fakeCandidateAuthority{result: CandidateVerification{Authorized: []VerifiedCandidate{verified}}},
 		}
+}
+
+func fiveMillisecondClock() func() time.Time {
+	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
+	return func() time.Time {
+		current := now
+		now = now.Add(5 * time.Millisecond)
+		return current
+	}
 }
 
 func assertEnhancementFailure(t *testing.T, err error, stage EnhancementStage, code ErrorCode) {

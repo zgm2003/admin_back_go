@@ -3,6 +3,7 @@ package contextengine
 import (
 	"context"
 	"crypto/sha256"
+	"fmt"
 
 	infraai "admin_back_go/internal/infra/ai"
 )
@@ -37,6 +38,7 @@ type RuntimeEvidence struct {
 	Outcome    RetrievalOutcome
 	Groups     []PackGroup
 	Diagnostic *PlanError
+	Metrics    ContextPlanMetricsV1
 }
 
 type RuntimeEvidenceResolver interface {
@@ -84,11 +86,11 @@ func (materializer *PlanMaterializer) Materialize(ctx context.Context, input Run
 		APIProtocol: input.APIProtocol, PolicyVersion: facts.Fingerprint.PolicyVersion,
 		Fingerprint: facts.Fingerprint, ModelCapability: facts.ModelCapability, Budget: facts.Budget,
 		Profile: cloneProfileSnapshot(facts.Profile), RetrievalOutcome: RetrievalSkipped,
-		PackGroups: clonePackGroups(facts.CoreGroups),
+		PackGroups: clonePackGroups(facts.CoreGroups), Metrics: ContextPlanMetricsV1{Schema: ContextPlanMetricsSchemaV1},
 	}
 	memoryContext, err := materializer.runtimeMemory(ctx, input, facts)
 	if err != nil {
-		return BuildPlanInput{}, err
+		return BuildPlanInput{}, fmt.Errorf("load runtime memory: %w", err)
 	}
 	memory := memoryContext.Record
 	memoryBoundary := uint64(0)
@@ -96,13 +98,13 @@ func (materializer *PlanMaterializer) Materialize(ctx context.Context, input Run
 		memoryBoundary = memory.ThroughMessageID
 		group, err := memoryPackGroup(*memory, facts.ModelCapability.TokenCounterID)
 		if err != nil {
-			return BuildPlanInput{}, err
+			return BuildPlanInput{}, fmt.Errorf("build runtime memory group: %w", err)
 		}
 		output.PackGroups = append(output.PackGroups, group)
 	}
 	historyGroups, err := runtimeHistoryGroups(ctx, materializer.history, materializer.attachments, input, facts, memoryBoundary)
 	if err != nil {
-		return BuildPlanInput{}, err
+		return BuildPlanInput{}, fmt.Errorf("build runtime history groups: %w", err)
 	}
 	output.PackGroups = append(output.PackGroups, historyGroups...)
 	if memoryContext.Expected && memory == nil {
@@ -115,6 +117,10 @@ func (materializer *PlanMaterializer) Materialize(ctx context.Context, input Run
 		return materializer.degradedInput(output, EnhancementStageProfile, ErrCodeProfileUnavailable)
 	}
 	evidence, err := materializer.evidence.ResolveRuntimeEvidence(ctx, input, facts)
+	if metricsErr := evidence.Metrics.Validate(); metricsErr != nil {
+		return BuildPlanInput{}, fmt.Errorf("validate runtime evidence metrics: %w", metricsErr)
+	}
+	output.Metrics = evidence.Metrics
 	if err != nil {
 		failure, ok := AsEnhancementFailure(err)
 		if !ok {
@@ -123,7 +129,7 @@ func (materializer *PlanMaterializer) Materialize(ctx context.Context, input Run
 		return materializer.degradedInput(output, failure.Stage, failure.Code)
 	}
 	if err := validateRuntimeEvidence(evidence); err != nil {
-		return BuildPlanInput{}, err
+		return BuildPlanInput{}, fmt.Errorf("validate runtime evidence: %w", err)
 	}
 	if evidence.Diagnostic != nil {
 		return materializer.degradedInput(output, EnhancementStage(evidence.Diagnostic.Stage), evidence.Diagnostic.Code)
@@ -208,6 +214,9 @@ func degradedBlockKindAllowed(kind BlockKind) bool {
 }
 
 func validateRuntimeEvidence(evidence RuntimeEvidence) error {
+	if err := evidence.Metrics.Validate(); err != nil {
+		return err
+	}
 	if evidence.Outcome.Validate() != nil || evidence.Outcome == RetrievalFailed {
 		return ErrInvalidContextPlan
 	}

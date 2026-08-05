@@ -318,7 +318,7 @@ func Build(input BuildInput) (*BuildResult, error) {
 	contextRuntime := contextengine.BuildRuntime(contextengine.RuntimeDependencies{
 		Database: resources.DB, OfficialModels: aiOfficialModelResolver,
 		EmbeddingFactory: providers.AIEmbeddingFactory, RerankFactory: providers.AIRerankFactory,
-		Secretbox: providers.Secretbox, Index: resources.ContextIndex, CollectionPrefix: cfg.Qdrant.CollectionPrefix, Platform: "admin",
+		Secretbox: providers.Secretbox, Index: resources.ContextIndex, CollectionPrefix: cfg.Qdrant.CollectionPrefix, Platform: "admin", Telemetry: recorder,
 	})
 	if contextRuntime == nil {
 		return nil, errors.New("build admin context runtime")

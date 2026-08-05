@@ -21,6 +21,7 @@ var prometheusLabelNames = []string{
 	"lane",
 	"modality",
 	"retryable",
+	"context_stage",
 }
 
 type Prometheus struct {
@@ -113,6 +114,7 @@ func prometheusLabels(name string, attributes Attributes) []string {
 		attributeString(safe, "queue.lane"),
 		attributeString(safe, "provider.modality"),
 		attributeString(safe, "retryable"),
+		attributeString(safe, "context.stage"),
 	}
 }
 

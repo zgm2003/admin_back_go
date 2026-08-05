@@ -77,11 +77,19 @@ func projectMessageContext(content string, plan messageContextPlan) (MessageCont
 	if plan.ID == 0 || plan.RunID == 0 || plan.State != "ready" {
 		return MessageContext{}, errors.New("invalid message context plan")
 	}
+	switch plan.RetrievalOutcome {
+	case "skipped", "no_hit", "hit", "degraded":
+	default:
+		return MessageContext{}, errors.New("invalid message context outcome")
+	}
 	result := MessageContext{
 		PlanID:      plan.ID,
 		Outcome:     plan.RetrievalOutcome,
 		Sources:     make([]CitationSource, 0),
 		InvalidKeys: make([]string, 0),
+	}
+	if plan.RetrievalOutcome == "degraded" {
+		return result, nil
 	}
 	sourceIndexes := make(map[string]int)
 	for _, item := range plan.Items {

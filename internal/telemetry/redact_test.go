@@ -44,3 +44,22 @@ func TestSanitizeAttributesBoundsValuesAndHashesSlowDigest(t *testing.T) {
 		t.Fatalf("bounded scalar values missing: %#v", got)
 	}
 }
+
+func TestContextStageSanitizationIsClosedAndDropsSensitiveContextFacts(t *testing.T) {
+	got := SanitizeAttributes(Attributes{
+		"context.stage":   "embedding",
+		"query":           "private question",
+		"filename":        "private.pdf",
+		"user_id":         17,
+		"run_id":          19,
+		"conversation_id": 23,
+		"provider_error":  "api-key leaked",
+	})
+	if got["context.stage"] != "embedding" || len(got) != 1 {
+		t.Fatalf("context attributes=%#v", got)
+	}
+	unknown := SanitizeAttributes(Attributes{"context.stage": "packing"})
+	if _, exists := unknown["context.stage"]; exists {
+		t.Fatalf("unknown context stage survived: %#v", unknown)
+	}
+}

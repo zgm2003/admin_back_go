@@ -6,6 +6,7 @@ import (
 	"admin_back_go/internal/infra/database"
 	"admin_back_go/internal/infra/secretbox"
 	"admin_back_go/internal/module/ai/officialmodel"
+	"admin_back_go/internal/telemetry"
 )
 
 type RuntimeDependencies struct {
@@ -17,6 +18,7 @@ type RuntimeDependencies struct {
 	Index            contextindex.Querier
 	CollectionPrefix string
 	Platform         string
+	Telemetry        telemetry.Recorder
 }
 
 func BuildRuntime(dependencies RuntimeDependencies) *RuntimeService {
@@ -33,5 +35,5 @@ func BuildRuntime(dependencies RuntimeDependencies) *RuntimeService {
 	materializer.WithMemoryReader(NewMemoryRepository(dependencies.Database))
 	planner := NewPlanner(PlannerDependencies{Repository: NewPlanRepository(dependencies.Database),
 		GuardFactory: NewAuthorizationGuardFactory(NewAuthoritySnapshotLoader(dependencies.Platform), nil)})
-	return NewRuntimeService(materializer, planner, NewDispatchGuardFactory(dependencies.Database, dependencies.Platform, nil))
+	return NewRuntimeService(materializer, planner, NewDispatchGuardFactory(dependencies.Database, dependencies.Platform, nil)).WithTelemetry(dependencies.Telemetry)
 }

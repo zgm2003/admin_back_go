@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	infraai "admin_back_go/internal/infra/ai"
 	"admin_back_go/internal/infra/contextindex"
@@ -66,6 +67,7 @@ type RetrievalDependencies struct {
 	Querier   contextindex.Querier
 	Authority CandidateAuthorityReader
 	Reranker  infraai.RerankClient
+	Now       func() time.Time
 }
 
 type RetrievalResult struct {
@@ -73,75 +75,131 @@ type RetrievalResult struct {
 	Candidates []VerifiedCandidate
 	Excluded   []CandidateExclusion
 	Cleanup    []contextindex.PointRef
+	Metrics    ContextPlanMetricsV1
 }
 
 func Retrieve(ctx context.Context, input RetrievalInput, dependencies RetrievalDependencies) (RetrievalResult, error) {
+	result := RetrievalResult{Metrics: ContextPlanMetricsV1{Schema: ContextPlanMetricsSchemaV1}}
 	if input.TopN == 0 || input.MaxMergedTokens <= 0 || input.TokenCounter == nil || dependencies.Embedding == nil ||
 		dependencies.Querier == nil || dependencies.Authority == nil {
-		return RetrievalResult{}, ErrInvalidContextPlan
+		return result, ErrInvalidContextPlan
 	}
 	if len(input.Variants) == 0 {
-		return RetrievalResult{Outcome: RetrievalNoHit}, nil
+		result.Outcome = RetrievalNoHit
+		return result, nil
+	}
+	now := dependencies.Now
+	if now == nil {
+		now = time.Now
 	}
 	texts := make([]string, len(input.Variants))
 	for i, variant := range input.Variants {
 		texts[i] = variant.Text
 	}
+	embeddingStartedAt := now()
+	result.Metrics.QueryEmbeddingRequestCount = 1
 	embedding, err := dependencies.Embedding.Embed(ctx, texts)
+	result.Metrics.QueryEmbeddingMS = elapsedMilliseconds(embeddingStartedAt, now())
 	if err != nil {
-		return RetrievalResult{Outcome: RetrievalFailed}, NewEnhancementFailure(EnhancementStageEmbedding, ErrCodeEmbeddingFailed, err)
+		result.Outcome = RetrievalFailed
+		return result, NewEnhancementFailure(EnhancementStageEmbedding, ErrCodeEmbeddingFailed, err)
 	}
 	if len(embedding.Vectors) != len(input.Variants) {
 		cause := fmt.Errorf("%w: embedding vector count disagrees", infraai.ErrEmbeddingFailed)
-		return RetrievalResult{Outcome: RetrievalFailed}, NewEnhancementFailure(EnhancementStageEmbedding, ErrCodeEmbeddingFailed, cause)
+		result.Outcome = RetrievalFailed
+		return result, NewEnhancementFailure(EnhancementStageEmbedding, ErrCodeEmbeddingFailed, cause)
+	}
+	if embedding.Usage.PromptTokens >= 0 && embedding.Usage.TotalTokens >= embedding.Usage.PromptTokens {
+		tokens := uint64(embedding.Usage.PromptTokens)
+		result.Metrics.QueryInputTokens = &tokens
 	}
 	denseMin, err := fixedScoreFloat64(input.DenseMinScore)
 	if err != nil {
-		return RetrievalResult{Outcome: RetrievalFailed}, err
+		result.Outcome = RetrievalFailed
+		return result, err
 	}
 	vectors, err := BuildQueryVariantVectors(input.Variants, embedding.Vectors)
 	if err != nil {
-		return RetrievalResult{Outcome: RetrievalFailed}, err
+		result.Outcome = RetrievalFailed
+		return result, err
 	}
+	retrievalStartedAt := now()
 	batch, err := dependencies.Querier.QueryBatch(ctx, contextindex.QueryBatchInput{
 		Collection: input.Collection, Filter: input.Filter, Variants: vectors, DenseMinScore: denseMin, TopN: input.TopN,
 	})
+	result.Metrics.RetrievalMS = elapsedMilliseconds(retrievalStartedAt, now())
 	if err != nil {
-		return RetrievalResult{Outcome: RetrievalFailed}, NewEnhancementFailure(EnhancementStageRetrieval, ErrCodeRetrievalFailed, err)
+		result.Outcome = RetrievalFailed
+		return result, NewEnhancementFailure(EnhancementStageRetrieval, ErrCodeRetrievalFailed, err)
 	}
+	if uint64(len(batch.Fusion)) > uint64(^uint32(0)) {
+		result.Outcome = RetrievalFailed
+		return result, ErrInvalidContextPlan
+	}
+	result.Metrics.CandidateCount = uint32(len(batch.Fusion))
 	if len(batch.Fusion) == 0 {
-		return RetrievalResult{Outcome: RetrievalNoHit}, nil
+		result.Outcome = RetrievalNoHit
+		return result, nil
 	}
 	candidates, err := CandidatesFromQueryBatch(batch, nil)
 	if err != nil {
-		return RetrievalResult{Outcome: RetrievalFailed}, NewEnhancementFailure(EnhancementStageIndex, ErrCodeIndexInconsistent, err)
+		result.Outcome = RetrievalFailed
+		return result, NewEnhancementFailure(EnhancementStageIndex, ErrCodeIndexInconsistent, err)
 	}
+	authorizationStartedAt := now()
 	verification, err := dependencies.Authority.VerifyCandidates(ctx, input.Authority, candidates)
+	result.Metrics.AuthorizationMS = elapsedMilliseconds(authorizationStartedAt, now())
 	if err != nil {
-		return RetrievalResult{Outcome: RetrievalFailed}, err
+		result.Outcome = RetrievalFailed
+		return result, err
 	}
 	normalized, excluded, err := NormalizeVerifiedCandidates(verification.Authorized, input.MaxMergedTokens, input.TokenCounter)
 	if err != nil {
+		result.Outcome = RetrievalFailed
 		if errors.Is(err, ErrInvalidContextPlan) {
-			return RetrievalResult{Outcome: RetrievalFailed}, NewEnhancementFailure(EnhancementStageIndex, ErrCodeIndexInconsistent, err)
+			return result, NewEnhancementFailure(EnhancementStageIndex, ErrCodeIndexInconsistent, err)
 		}
-		return RetrievalResult{Outcome: RetrievalFailed}, err
+		return result, err
 	}
 	verification.Excluded = append(verification.Excluded, excluded...)
 	if len(normalized) == 0 {
-		return RetrievalResult{Outcome: RetrievalNoHit, Excluded: verification.Excluded, Cleanup: verification.Cleanup}, nil
+		result.Outcome = RetrievalNoHit
+		result.Excluded = verification.Excluded
+		result.Cleanup = verification.Cleanup
+		return result, nil
 	}
 	if input.RerankMinScore != nil || dependencies.Reranker != nil {
-		normalized, err = ApplyRerank(ctx, texts[0], normalized, dependencies.Reranker, input.RerankMinScore)
-		if err != nil {
-			return RetrievalResult{Outcome: RetrievalFailed, Excluded: verification.Excluded, Cleanup: verification.Cleanup},
-				NewEnhancementFailure(EnhancementStageRerank, ErrCodeRerankFailed, err)
+		rerankStartedAt := now()
+		if dependencies.Reranker != nil && input.RerankMinScore != nil {
+			result.Metrics.RerankRequestCount = 1
 		}
+		var rerankTokens *uint64
+		normalized, rerankTokens, err = applyRerank(ctx, texts[0], normalized, dependencies.Reranker, input.RerankMinScore)
+		result.Metrics.RerankMS = elapsedMilliseconds(rerankStartedAt, now())
+		if err != nil {
+			result.Outcome = RetrievalFailed
+			return result, NewEnhancementFailure(EnhancementStageRerank, ErrCodeRerankFailed, err)
+		}
+		result.Metrics.RerankInputTokens = rerankTokens
 	}
 	if len(normalized) == 0 {
-		return RetrievalResult{Outcome: RetrievalNoHit, Excluded: verification.Excluded, Cleanup: verification.Cleanup}, nil
+		result.Outcome = RetrievalNoHit
+		result.Excluded = verification.Excluded
+		result.Cleanup = verification.Cleanup
+		return result, nil
 	}
-	return RetrievalResult{Outcome: RetrievalHit, Candidates: normalized, Excluded: verification.Excluded, Cleanup: verification.Cleanup}, nil
+	result.Outcome = RetrievalHit
+	result.Candidates = normalized
+	result.Excluded = verification.Excluded
+	result.Cleanup = verification.Cleanup
+	return result, nil
+}
+
+func elapsedMilliseconds(start, end time.Time) uint64 {
+	if !end.After(start) {
+		return 0
+	}
+	return uint64(end.Sub(start) / time.Millisecond)
 }
 
 func fixedScoreFloat64(score *FixedScore) (*float64, error) {
@@ -210,27 +268,38 @@ func ApplyRerank(
 	client infraai.RerankClient,
 	minScore *FixedScore,
 ) ([]VerifiedCandidate, error) {
+	result, _, err := applyRerank(ctx, query, candidates, client, minScore)
+	return result, err
+}
+
+func applyRerank(
+	ctx context.Context,
+	query string,
+	candidates []VerifiedCandidate,
+	client infraai.RerankClient,
+	minScore *FixedScore,
+) ([]VerifiedCandidate, *uint64, error) {
 	if client == nil && minScore == nil {
-		return cloneVerifiedCandidates(candidates), nil
+		return cloneVerifiedCandidates(candidates), nil, nil
 	}
 	if client == nil || minScore == nil || minScore.Validate() != nil || strings.TrimSpace(query) == "" {
-		return nil, fmt.Errorf("%w: rerank policy is incomplete", infraai.ErrRerankFailed)
+		return nil, nil, fmt.Errorf("%w: rerank policy is incomplete", infraai.ErrRerankFailed)
 	}
 	if len(candidates) == 0 {
-		return []VerifiedCandidate{}, nil
+		return []VerifiedCandidate{}, nil, nil
 	}
 	documents := make([]infraai.RerankDocument, len(candidates))
 	byID := make(map[string]int, len(candidates))
 	for i, candidate := range candidates {
 		if err := validateVerifiedCandidate(candidate); err != nil {
-			return nil, fmt.Errorf("%w: candidate facts are invalid", infraai.ErrRerankFailed)
+			return nil, nil, fmt.Errorf("%w: candidate facts are invalid", infraai.ErrRerankFailed)
 		}
 		id := candidate.CandidateID()
 		if id == "document_chunks:" || strings.TrimSpace(candidate.Content) == "" {
-			return nil, fmt.Errorf("%w: candidate is not rerankable", infraai.ErrRerankFailed)
+			return nil, nil, fmt.Errorf("%w: candidate is not rerankable", infraai.ErrRerankFailed)
 		}
 		if _, duplicate := byID[id]; duplicate {
-			return nil, fmt.Errorf("%w: duplicate candidate identity", infraai.ErrRerankFailed)
+			return nil, nil, fmt.Errorf("%w: duplicate candidate identity", infraai.ErrRerankFailed)
 		}
 		byID[id] = i
 		documents[i] = infraai.RerankDocument{CandidateID: id, Text: candidate.Content}
@@ -238,12 +307,12 @@ func ApplyRerank(
 	result, err := client.Rerank(ctx, query, documents)
 	if err != nil {
 		if errors.Is(err, infraai.ErrRerankFailed) {
-			return nil, err
+			return nil, nil, err
 		}
-		return nil, fmt.Errorf("%w: provider request failed", infraai.ErrRerankFailed)
+		return nil, nil, fmt.Errorf("%w: provider request failed", infraai.ErrRerankFailed)
 	}
 	if len(result.Scores) != len(candidates) {
-		return nil, fmt.Errorf("%w: provider result count disagrees", infraai.ErrRerankFailed)
+		return nil, nil, fmt.Errorf("%w: provider result count disagrees", infraai.ErrRerankFailed)
 	}
 	type rankedCandidate struct {
 		candidate VerifiedCandidate
@@ -255,19 +324,19 @@ func ApplyRerank(
 	for _, item := range result.Scores {
 		original, ok := byID[item.CandidateID]
 		if !ok || item.Score < 0 || item.Score > 1 {
-			return nil, fmt.Errorf("%w: provider returned an unknown candidate", infraai.ErrRerankFailed)
+			return nil, nil, fmt.Errorf("%w: provider returned an unknown candidate", infraai.ErrRerankFailed)
 		}
 		if _, duplicate := seen[item.CandidateID]; duplicate {
-			return nil, fmt.Errorf("%w: provider duplicated a candidate", infraai.ErrRerankFailed)
+			return nil, nil, fmt.Errorf("%w: provider duplicated a candidate", infraai.ErrRerankFailed)
 		}
 		seen[item.CandidateID] = struct{}{}
 		score, scoreErr := FixedScoreFromFloat64(item.Score)
 		if scoreErr != nil {
-			return nil, fmt.Errorf("%w: provider score is invalid", infraai.ErrRerankFailed)
+			return nil, nil, fmt.Errorf("%w: provider score is invalid", infraai.ErrRerankFailed)
 		}
 		comparison, compareErr := score.Compare(*minScore)
 		if compareErr != nil {
-			return nil, fmt.Errorf("%w: compare provider score", infraai.ErrRerankFailed)
+			return nil, nil, fmt.Errorf("%w: compare provider score", infraai.ErrRerankFailed)
 		}
 		if comparison < 0 {
 			continue
@@ -287,7 +356,12 @@ func ApplyRerank(
 	for i := range ranked {
 		output[i] = ranked[i].candidate
 	}
-	return output, nil
+	var inputTokens *uint64
+	if result.Usage.TotalTokens >= 0 {
+		tokens := uint64(result.Usage.TotalTokens)
+		inputTokens = &tokens
+	}
+	return output, inputTokens, nil
 }
 
 func validateVerifiedCandidate(candidate VerifiedCandidate) error {
