@@ -231,6 +231,7 @@
               "skipped",
               "no_hit",
               "hit",
+              "degraded",
               "failed"
             ],
             "type": "string"
@@ -1026,6 +1027,7 @@
               "skipped",
               "no_hit",
               "hit",
+              "degraded",
               "failed"
             ],
             "type": "string"
@@ -5004,6 +5006,16 @@
               }
             ]
           },
+          "conversation_turn": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Go_internal_module_ai_contextengine_ContextConversationTurnV1_Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "document": {
             "anyOf": [
               {
@@ -5040,6 +5052,38 @@
         },
         "required": [
           "schema"
+        ],
+        "type": "object"
+      },
+      "Go_internal_module_ai_contextengine_ContextConversationTurnV1_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "assistant_context_byte_offset": {
+            "type": "integer"
+          },
+          "assistant_delivery": {
+            "type": "string"
+          },
+          "assistant_message_id": {
+            "type": "integer"
+          },
+          "attachment_context_byte_offset": {
+            "type": "integer"
+          },
+          "tool_context_byte_offset": {
+            "type": "integer"
+          },
+          "user_message_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "assistant_context_byte_offset",
+          "assistant_delivery",
+          "assistant_message_id",
+          "attachment_context_byte_offset",
+          "tool_context_byte_offset",
+          "user_message_id"
         ],
         "type": "object"
       },
@@ -5220,6 +5264,35 @@
         "required": [
           "kind",
           "schema"
+        ],
+        "type": "object"
+      },
+      "Go_internal_module_ai_contextengine_ContextPageInitResponse_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "embedding_model_options": {
+            "items": {
+              "$ref": "#/components/schemas/Go_internal_module_ai_contextengine_ProviderModelOptionDTO_Output"
+            },
+            "type": "array"
+          },
+          "memory_model_options": {
+            "items": {
+              "$ref": "#/components/schemas/Go_internal_module_ai_contextengine_ProviderModelOptionDTO_Output"
+            },
+            "type": "array"
+          },
+          "reranker_model_options": {
+            "items": {
+              "$ref": "#/components/schemas/Go_internal_module_ai_contextengine_ProviderModelOptionDTO_Output"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "embedding_model_options",
+          "memory_model_options",
+          "reranker_model_options"
         ],
         "type": "object"
       },
@@ -5733,6 +5806,30 @@
         },
         "required": [
           "items"
+        ],
+        "type": "object"
+      },
+      "Go_internal_module_ai_contextengine_ProviderModelOptionDTO_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "provider_name": {
+            "type": "string"
+          },
+          "value": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "label",
+          "model_id",
+          "provider_name",
+          "value"
         ],
         "type": "object"
       },
@@ -12549,6 +12646,27 @@
         ],
         "type": "object"
       },
+      "ai_context_page_init_ResponseEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": 0,
+            "type": "integer"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Go_internal_module_ai_contextengine_ContextPageInitResponse_Output"
+          },
+          "msg": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "data",
+          "msg"
+        ],
+        "type": "object"
+      },
       "ai_context_profile_change_status_Request": {
         "additionalProperties": false,
         "properties": {
@@ -16026,12 +16144,17 @@
               2
             ],
             "type": "integer"
+          },
+          "statuses": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object"
           }
         },
         "required": [
           "api_protocol",
           "engine_type",
-          "model_ids",
           "name",
           "status"
         ],
@@ -18156,12 +18279,17 @@
               2
             ],
             "type": "integer"
+          },
+          "statuses": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object"
           }
         },
         "required": [
           "api_protocol",
           "engine_type",
-          "model_ids",
           "name",
           "status"
         ],
@@ -18219,9 +18347,6 @@
             "type": "object"
           }
         },
-        "required": [
-          "model_ids"
-        ],
         "type": "object"
       },
       "put_api_admin_v1_ai_providers_id_models_ResponseEnvelope": {
@@ -24894,6 +25019,51 @@
           "title": "修改上下文空间状态"
         },
         "x-runtime-path": "/api/admin/v1/ai/context-spaces/:id/status"
+      }
+    },
+    "/api/admin/v1/ai/context/page-init": {
+      "get": {
+        "operationId": "ai_context_page_init",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ai_context_page_init_ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Classified safe error response"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "GET /api/admin/v1/ai/context/page-init",
+        "tags": [
+          "ai"
+        ],
+        "x-admin-access": {
+          "kind": "permission",
+          "permission_code": "ai_context_view"
+        },
+        "x-admin-audit": {
+          "enabled": false,
+          "reason": "read-only"
+        },
+        "x-runtime-path": "/api/admin/v1/ai/context/page-init"
       }
     },
     "/api/admin/v1/auth-platforms": {
