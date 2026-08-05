@@ -38,6 +38,17 @@ type modeledResponse struct {
 	List []modeledItem `json:"list"`
 }
 
+type modeledDiveRequest struct {
+	Values []string `json:"values" binding:"omitempty,min=1,dive,required,max=32"`
+}
+
+func TestModelFieldRequiredStopsAtDive(t *testing.T) {
+	field := reflect.TypeOf(modeledDiveRequest{}).Field(0)
+	if modelFieldRequired(modelSchemaInput, field, false, modelValidationTokens(field)) {
+		t.Fatal("element-level required made the parent array required")
+	}
+}
+
 func TestUploadRuleResponsePublishesClosedExtensionEnums(t *testing.T) {
 	bundle := mustBuildBundle(t)
 	var document struct {

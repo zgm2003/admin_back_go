@@ -19,6 +19,7 @@ type mutationRequest struct {
 	ModelIDs          []string                              `json:"model_ids" binding:"omitempty,min=1,dive,required,max=191"`
 	Models            []aiprovidermodule.ProviderModelInput `json:"models" binding:"omitempty,min=1,dive"`
 	ModelDisplayNames map[string]string                     `json:"model_display_names" binding:"omitempty"`
+	Statuses          map[string]int                        `json:"statuses" binding:"omitempty"`
 	Status            int                                   `json:"status" binding:"required,oneof=1 2"`
 }
 

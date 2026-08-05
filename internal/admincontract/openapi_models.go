@@ -379,6 +379,9 @@ func modelFieldRequired(mode modelSchemaMode, field reflect.StructField, omitEmp
 		return !omitEmpty
 	}
 	for _, token := range validation {
+		if token == "dive" {
+			break
+		}
 		if token == "required" {
 			return true
 		}

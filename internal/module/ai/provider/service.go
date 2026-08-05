@@ -503,7 +503,7 @@ func normalizeCreateInput(input CreateInput) (Provider, normalizedModelCatalog, 
 	if appErr != nil {
 		return Provider{}, normalizedModelCatalog{}, appErr
 	}
-	catalog, appErr := buildModelCatalog(input.ModelIDs, input.Models, input.ModelDisplayNames, nil)
+	catalog, appErr := buildModelCatalog(input.ModelIDs, input.Models, input.ModelDisplayNames, input.Statuses)
 	if appErr != nil {
 		return Provider{}, normalizedModelCatalog{}, appErr
 	}
@@ -515,7 +515,7 @@ func normalizeUpdateFields(input UpdateInput) (map[string]any, normalizedModelCa
 	if appErr != nil {
 		return nil, normalizedModelCatalog{}, appErr
 	}
-	catalog, appErr := buildModelCatalog(input.ModelIDs, input.Models, input.ModelDisplayNames, nil)
+	catalog, appErr := buildModelCatalog(input.ModelIDs, input.Models, input.ModelDisplayNames, input.Statuses)
 	if appErr != nil {
 		return nil, normalizedModelCatalog{}, appErr
 	}

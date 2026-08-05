@@ -802,3 +802,27 @@ func TestAIContextPageInitPublishesTypedModelOptions(t *testing.T) {
 		"Go_internal_module_ai_contextengine_ProviderModelOptionDTO_Output",
 		"label", "model_id", "provider_name", "value")
 }
+
+func TestAIProviderModelCatalogPublishesAlternativeInputsWithoutParentRequirement(t *testing.T) {
+	bundle := mustBuildBundle(t)
+	var document struct {
+		Components struct {
+			Schemas map[string]map[string]any `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(bundle.Artifacts["openapi.json"], &document); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{
+		"post_api_admin_v1_ai_providers_Request",
+		"put_api_admin_v1_ai_providers_id_Request",
+		"put_api_admin_v1_ai_providers_id_models_Request",
+	} {
+		required := anyStrings(document.Components.Schemas[name]["required"])
+		if containsString(required, "model_ids") || containsString(required, "models") {
+			t.Fatalf("%s requires one branch before cross-field validation: %v", name, required)
+		}
+	}
+	assertClosedSchemaWithRequired(t, document.Components.Schemas,
+		"Go_internal_module_ai_provider_ProviderModelInput_Input", "model_id", "model_kind")
+}

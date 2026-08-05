@@ -485,6 +485,50 @@ func TestCreateTypedModelsReconcilesCompleteCatalog(t *testing.T) {
 	}
 }
 
+func TestTypedProviderModelsPreserveExactStatusesOnCreateAndUpdate(t *testing.T) {
+	box := secretbox.New([]byte("12345678901234567890123456789012"))
+	models := []ProviderModelInput{
+		{ModelID: "gpt-5.6", ModelKind: ModelKindChat},
+		{ModelID: "embed-v1", ModelKind: ModelKindEmbedding},
+		{ModelID: "rerank-v1", ModelKind: ModelKindRerank},
+	}
+	statuses := map[string]int{"gpt-5.6": 1, "embed-v1": 2, "rerank-v1": 1}
+
+	createRepository := &fakeRepository{}
+	createService := NewService(createRepository, box, nil)
+	_, appErr := createService.Create(context.Background(), CreateInput{
+		Name: "OpenAI", EngineType: "openai", APIKey: "sk-test", APIProtocol: APIProtocolResponses,
+		Models: models, Statuses: statuses, Status: 1,
+	})
+	if appErr != nil {
+		t.Fatal(appErr)
+	}
+	assertProviderModelStatuses(t, createRepository.reconciledModels, statuses)
+
+	updateRepository := &fakeRepository{rowByID: map[uint64]Provider{7: {ID: 7, Name: "OpenAI", EngineType: "openai", APIProtocol: APIProtocolResponses, Status: 1}}}
+	updateService := NewService(updateRepository, box, nil)
+	appErr = updateService.Update(context.Background(), 7, UpdateInput{
+		Name: "OpenAI", EngineType: "openai", APIProtocol: APIProtocolResponses,
+		Models: models, Statuses: statuses, Status: 1,
+	})
+	if appErr != nil {
+		t.Fatal(appErr)
+	}
+	assertProviderModelStatuses(t, updateRepository.reconciledModels, statuses)
+}
+
+func assertProviderModelStatuses(t *testing.T, models []ProviderModel, want map[string]int) {
+	t.Helper()
+	if len(models) != len(want) {
+		t.Fatalf("models = %#v", models)
+	}
+	for _, model := range models {
+		if model.Status != want[model.ModelID] {
+			t.Fatalf("model %q status=%d want=%d", model.ModelID, model.Status, want[model.ModelID])
+		}
+	}
+}
+
 func TestCreateRejectsAmbiguousOrUnknownModelKinds(t *testing.T) {
 	service := NewService(&fakeRepository{}, secretbox.New([]byte("12345678901234567890123456789012")), nil)
 	base := CreateInput{Name: "OpenAI", EngineType: "openai", APIKey: "sk-test", APIProtocol: APIProtocolResponses, Status: 1}

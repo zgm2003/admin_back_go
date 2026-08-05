@@ -116,6 +116,7 @@ type CreateInput struct {
 	ModelIDs          []string
 	Models            []ProviderModelInput
 	ModelDisplayNames map[string]string
+	Statuses          map[string]int
 	Status            int
 }
 

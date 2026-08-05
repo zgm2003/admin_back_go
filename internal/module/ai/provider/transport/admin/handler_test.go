@@ -57,13 +57,16 @@ func TestProviderMutationPassesClosedAPIProtocol(t *testing.T) {
 
 func TestProviderMutationPassesTypedModelCatalog(t *testing.T) {
 	service := &fileModeHTTPService{}
-	recorder := providerHandlerRecorder(t, service, http.MethodPost, "/api/admin/v1/ai-providers", `{"name":"OpenAI","engine_type":"openai","api_key":"sk-test","api_protocol":"responses","models":[{"model_id":"gpt-5.6","model_kind":"chat"},{"model_id":"embed-v1","model_kind":"embedding"}],"status":1}`)
+	recorder := providerHandlerRecorder(t, service, http.MethodPost, "/api/admin/v1/ai-providers", `{"name":"OpenAI","engine_type":"openai","api_key":"sk-test","api_protocol":"responses","models":[{"model_id":"gpt-5.6","model_kind":"chat"},{"model_id":"embed-v1","model_kind":"embedding"}],"model_display_names":{"embed-v1":"Embedding"},"statuses":{"gpt-5.6":1,"embed-v1":2},"status":1}`)
 
 	if recorder.Code != http.StatusOK || service.createCalls != 1 || len(service.createInput.Models) != 2 {
 		t.Fatalf("status=%d calls=%d input=%#v body=%s", recorder.Code, service.createCalls, service.createInput, recorder.Body.String())
 	}
 	if service.createInput.Models[0].ModelKind != aiprovider.ModelKindChat || service.createInput.Models[1].ModelKind != aiprovider.ModelKindEmbedding {
 		t.Fatalf("typed models=%#v", service.createInput.Models)
+	}
+	if service.createInput.Statuses["gpt-5.6"] != 1 || service.createInput.Statuses["embed-v1"] != 2 {
+		t.Fatalf("model statuses=%#v", service.createInput.Statuses)
 	}
 }
 
