@@ -2361,6 +2361,12 @@
           "created_at": {
             "type": "string"
           },
+          "diagnostic_codes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "duration_ms": {
             "anyOf": [
               {
@@ -2534,6 +2540,7 @@
           "conversation_id",
           "conversation_title",
           "created_at",
+          "diagnostic_codes",
           "duration_ms",
           "duration_text",
           "error_code",

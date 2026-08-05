@@ -409,6 +409,7 @@ func aiRunDetailSchema() map[string]any {
 	properties["provider_attempts"] = arraySchema(schemaReference("AIRunProviderAttempt"))
 	properties["latency"] = schemaReference("AIRunLatencyBreakdown")
 	properties["request_summary"] = schemaReference("AIRunRequestSummary")
+	properties["diagnostic_codes"] = arraySchema(stringSchema())
 	properties["liked"] = booleanSchema()
 	properties["liked_at"] = nullableSchema(stringSchema())
 	properties["started_at"] = stringSchema()

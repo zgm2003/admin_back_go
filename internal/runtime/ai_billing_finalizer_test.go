@@ -151,6 +151,40 @@ func TestFinalizationWritesSettledAtInTerminalTransaction(t *testing.T) {
 	}
 }
 
+func TestFailedChatFinalizationRetainsInterruptedAssistantMessageID(t *testing.T) {
+	db, mock, closeDB := newFinalizerMockDB(t)
+	defer closeDB()
+	now := time.Date(2026, 8, 5, 9, 22, 57, 0, time.UTC)
+	startedAt := now.Add(-time.Second)
+	mock.ExpectExec("UPDATE `ai_runs` SET").
+		WithArgs(
+			int64(97), billing.BillingReasonReleasedProviderFailed, billing.BillingStatusReleased,
+			uint(0), uint(1000), "AI生成失败，本次未扣费", now, uint(0), now, enum.AIRunStatusFailed, uint(0), now,
+			int64(41), enum.AIRunStatusRunning, billing.BillingStatusPending, billing.BillingStatusHeld,
+		).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE `ai_usage_charges` SET").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("(?is)SELECT EXISTS .* FROM ai_run_dashboard_facts").WillReturnRows(sqlmock.NewRows([]string{"fact_exists"}).AddRow(true))
+
+	err := finalizeChatRunAndCharge(context.Background(), db,
+		airun.Run{ID: 41, StartedAt: &startedAt},
+		billing.UsageCharge{ID: 51},
+		aigateway.FinalizationFacts{},
+		aigateway.SettlementDecision{
+			RunStatus: enum.AIRunStatusFailed, BillingStatus: billing.BillingStatusReleased,
+			BillingReason: billing.BillingReasonReleasedProviderFailed, ChargeStatus: billing.ChargeStatusReleased,
+		},
+		&replycommand.PaidCommandFinalizationResult{AssistantMessageID: 97},
+		now,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCanceledChatFinalizationWritesStoppedAssistantMessageID(t *testing.T) {
 	db, mock, closeDB := newFinalizerMockDB(t)
 	defer closeDB()
@@ -203,6 +237,27 @@ func TestChatCommandMatchesCanceledRunRequiresSameStoppedMessage(t *testing.T) {
 	runMessageID = 98
 	if chatCommandMatchesRunTerminal(command, run) {
 		t.Fatal("mismatched stopped assistant message was accepted")
+	}
+}
+
+func TestChatCommandMatchesFailedRunWithInterruptedAssistant(t *testing.T) {
+	finishedAt := time.Date(2026, 8, 5, 9, 22, 57, 0, time.UTC)
+	commandMessageID := int64(97)
+	runMessageID := int64(97)
+	command := replycommand.Command{
+		UserID: 9, RequestID: "request-1", State: replycommand.StateFailed,
+		AssistantMessageID: &commandMessageID, FinishedAt: &finishedAt,
+	}
+	run := airun.Run{
+		UserID: 9, RequestID: "request-1", Status: enum.AIRunStatusFailed,
+		AssistantMessageID: &runMessageID,
+	}
+	if !chatCommandMatchesRunTerminal(command, run) {
+		t.Fatal("matching interrupted assistant message was rejected")
+	}
+	runMessageID = 98
+	if chatCommandMatchesRunTerminal(command, run) {
+		t.Fatal("mismatched interrupted assistant message was accepted")
 	}
 }
 

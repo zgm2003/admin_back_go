@@ -520,12 +520,19 @@ func chatCommandMatchesRunTerminal(command replycommand.Command, run airun.Run) 
 	case enum.AIRunStatusCanceled:
 		return command.State == replycommand.StateCanceled && command.AssistantMessageID != nil && run.AssistantMessageID != nil && *command.AssistantMessageID == *run.AssistantMessageID
 	case enum.AIRunStatusOutcomeUnknown:
-		return command.State == replycommand.StateOutcomeUnknown && command.AssistantMessageID == nil && run.AssistantMessageID == nil
+		return command.State == replycommand.StateOutcomeUnknown && optionalAssistantMessageIDsMatch(command.AssistantMessageID, run.AssistantMessageID)
 	case enum.AIRunStatusFailed:
-		return command.State == replycommand.StateFailed && command.AssistantMessageID == nil && run.AssistantMessageID == nil
+		return command.State == replycommand.StateFailed && optionalAssistantMessageIDsMatch(command.AssistantMessageID, run.AssistantMessageID)
 	default:
 		return false
 	}
+}
+
+func optionalAssistantMessageIDsMatch(commandID, runID *int64) bool {
+	if commandID == nil || runID == nil {
+		return commandID == nil && runID == nil
+	}
+	return *commandID == *runID
 }
 
 func applyChatMoneyDecision(ctx context.Context, tx *gorm.DB, wallets *walletmodule.GormRepository, facts aigateway.FinalizationFacts, decision aigateway.SettlementDecision) error {
@@ -637,6 +644,8 @@ func finalizeChatRunAndCharge(ctx context.Context, tx *gorm.DB, run airun.Run, c
 			if commandResult == nil || commandResult.AssistantMessageID <= 0 {
 				return errors.New("canceled AI settlement has no assistant message")
 			}
+			updates["assistant_message_id"] = commandResult.AssistantMessageID
+		} else if commandResult != nil && commandResult.AssistantMessageID > 0 {
 			updates["assistant_message_id"] = commandResult.AssistantMessageID
 		} else {
 			updates["assistant_message_id"] = nil

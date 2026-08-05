@@ -79,6 +79,45 @@ func TestCanceledFinalizationReusesStoppedAssistantMessage(t *testing.T) {
 	}
 }
 
+func TestFailedFinalizationPersistsDeliveredPrefixAsStoppedAssistant(t *testing.T) {
+	repository, db, mock, closeDB := newAttemptMockRepository(t)
+	defer closeDB()
+	now := time.Date(2026, 8, 5, 9, 22, 57, 0, time.UTC)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT .* FROM `ai_reply_commands`").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "request_id", "user_id", "conversation_id", "state", "delivery_seq", "assistant_message_id",
+		}).AddRow(41, "request-1", 7, 3, StateRunning, 2, nil))
+	mock.ExpectQuery("SELECT .* FROM `ai_messages`").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	mock.ExpectQuery("SELECT `delivery_seq`,`delta` FROM `ai_reply_delivery_chunks` WHERE command_id = \\? AND delivery_seq <= \\? ORDER BY delivery_seq ASC").
+		WithArgs(uint64(41), uint32(2)).
+		WillReturnRows(sqlmock.NewRows([]string{"delivery_seq", "delta"}).
+			AddRow(1, "partial ").AddRow(2, "answer"))
+	mock.ExpectExec("INSERT INTO `ai_messages`").
+		WithArgs(int64(3), uint64(41), enum.AIMessageRoleAssistant, "text", "partial answer", nil, DeliveryStateStopped, enum.CommonNo, now, now).
+		WillReturnResult(sqlmock.NewResult(22, 1))
+	mock.ExpectExec("UPDATE `ai_conversations`").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE `ai_reply_commands`").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectRollback()
+
+	tx := db.Begin()
+	result, err := repository.FinalizePaidCommandInTransaction(context.Background(), tx, PaidCommandFinalizationInput{
+		CommandID: 41, UserID: 7, RequestID: "request-1", State: StateFailed,
+		ErrorCode: "ai.provider_failed", ErrorMessage: "AI生成失败，本次未扣费", Now: now,
+	})
+	if rollbackErr := tx.Rollback().Error; rollbackErr != nil {
+		t.Fatal(rollbackErr)
+	}
+	if err != nil || result == nil || result.AssistantMessageID != 22 {
+		t.Fatalf("finalization result=%+v err=%v", result, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCanceledFinalizationAcceptsHiddenStoppedMessageOnlyForDeletedConversation(t *testing.T) {
 	repository, db, mock, closeDB := newAttemptMockRepository(t)
 	defer closeDB()

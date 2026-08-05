@@ -329,6 +329,20 @@ func TestDetailResponsePublishesContractRequiredErrorCode(t *testing.T) {
 	}
 }
 
+func TestDetailResponsePublishesDiagnosticCodesAsArray(t *testing.T) {
+	response, appErr := NewService(&fakeRepository{run: &RunDetailRow{ID: 1}}).Detail(context.Background(), 1)
+	if appErr != nil {
+		t.Fatalf("Detail returned error: %v", appErr)
+	}
+	encoded, err := json.Marshal(response)
+	if err != nil {
+		t.Fatalf("marshal detail response: %v", err)
+	}
+	if !bytes.Contains(encoded, []byte(`"diagnostic_codes":[]`)) {
+		t.Fatalf("detail response must publish diagnostic_codes as an array: %s", encoded)
+	}
+}
+
 func TestRunDetailBuildsLatencyBreakdownFromDurableTimeline(t *testing.T) {
 	received := time.Date(2026, 7, 28, 12, 0, 0, 0, time.UTC)
 	accepted := received.Add(20 * time.Millisecond)

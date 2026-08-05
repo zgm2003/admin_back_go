@@ -326,7 +326,7 @@ func TestWorkflowSchemasCloseBusinessFieldsAndDeclareNullability(t *testing.T) {
 		t.Fatal("AIMessageRevisionRequest.attachments must remain optional so omission preserves existing attachments")
 	}
 	assertNullableProperty(t, document.Components.Schemas["AIRunUserFeedbackResult"], "liked_at")
-	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIRunDetail", "id", "user_message", "assistant_message", "events", "context_plan", "tool_calls")
+	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIRunDetail", "id", "user_message", "assistant_message", "events", "context_plan", "tool_calls", "diagnostic_codes")
 	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIRunDetail", "liked", "liked_at")
 	assertNullableProperty(t, document.Components.Schemas["AIRunDetail"], "liked_at")
 	assertNullableProperty(t, document.Components.Schemas["AIRunDetail"], "user_message")
@@ -334,6 +334,10 @@ func TestWorkflowSchemasCloseBusinessFieldsAndDeclareNullability(t *testing.T) {
 	assertNullableProperty(t, document.Components.Schemas["AIRunDetail"], "context_plan")
 	assertClosedSchemaWithRequired(t, document.Components.Schemas, "AIRunDetail", "billing_status", "billing_reason", "held_amount", "actual_amount", "pricing", "usage_items", "provider_attempts", "latency", "request_summary")
 	assertNullableProperty(t, document.Components.Schemas["AIRunDetail"], "pricing")
+	diagnosticCodes := document.Components.Schemas["AIRunDetail"]["properties"].(map[string]any)["diagnostic_codes"].(map[string]any)
+	if diagnosticCodes["type"] != "array" || diagnosticCodes["items"].(map[string]any)["type"] != "string" {
+		t.Fatalf("AIRunDetail.diagnostic_codes=%#v", diagnosticCodes)
+	}
 	for _, name := range []string{"AIRunPricing", "AIRunPricingRate", "AIRunUsageItem", "AIRunProviderAttempt", "AIRunLatencyBreakdown", "AIRunRequestSummary"} {
 		assertClosedSchemaWithRequired(t, document.Components.Schemas, name)
 	}

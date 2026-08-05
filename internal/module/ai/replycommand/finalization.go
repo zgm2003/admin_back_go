@@ -145,6 +145,40 @@ func (r *GormRepository) FinalizePaidCommandInTransaction(ctx context.Context, t
 		result.AssistantMessageID = existing.ID
 	} else if !errors.Is(messageErr, gorm.ErrRecordNotFound) || command.AssistantMessageID != nil {
 		return nil, ErrPaidCommandFinalizationConflict
+	} else if command.DeliverySeq > 0 {
+		prefix, err := r.ReadDeliveryPrefixTx(ctx, tx, command.ID, command.DeliverySeq)
+		if err != nil {
+			return nil, err
+		}
+		if !prefix.Consistent {
+			return nil, ErrPaidCommandFinalizationConflict
+		}
+		commandID := command.ID
+		deliveryState := DeliveryStateStopped
+		existing = replyMessage{
+			ConversationID: command.ConversationID,
+			ReplyCommandID: &commandID,
+			Role:           enum.AIMessageRoleAssistant,
+			ContentType:    "text",
+			Content:        prefix.Content,
+			DeliveryState:  &deliveryState,
+			IsDel:          enum.CommonNo,
+			CreatedAt:      input.Now,
+			UpdatedAt:      input.Now,
+		}
+		if err := tx.Create(&existing).Error; err != nil {
+			return nil, err
+		}
+		conversationUpdate := tx.Model(&replyConversation{}).
+			Where("id = ? AND user_id = ? AND is_del = ?", command.ConversationID, command.UserID, enum.CommonNo).
+			Updates(map[string]any{"last_message_at": input.Now, "updated_at": input.Now})
+		if conversationUpdate.Error != nil {
+			return nil, conversationUpdate.Error
+		}
+		if conversationUpdate.RowsAffected != 1 {
+			return nil, ErrPaidCommandFinalizationConflict
+		}
+		result.AssistantMessageID = existing.ID
 	} else {
 		deleted, err := paidCommandConversationDeleted(tx, command)
 		if err != nil {
@@ -171,6 +205,9 @@ func (r *GormRepository) FinalizePaidCommandInTransaction(ctx context.Context, t
 		updates["last_error_message"] = ""
 		updates["outcome_unknown_at"] = nil
 	} else {
+		if result.AssistantMessageID > 0 {
+			updates["assistant_message_id"] = result.AssistantMessageID
+		}
 		updates["last_error_code"] = input.ErrorCode
 		updates["last_error_message"] = input.ErrorMessage
 		if input.State == StateOutcomeUnknown {

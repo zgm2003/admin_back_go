@@ -669,7 +669,7 @@ func detailItem(row RunDetailRow, events []EventRow, toolCalls []ToolCallRow, bi
 		ModelID: row.ModelID, ModelDisplayName: row.ModelDisplayName,
 		PromptTokens: row.PromptTokens, CompletionTokens: row.CompletionTokens, TotalTokens: row.TotalTokens,
 		DurationMS: row.DurationMS, DurationText: durationString(row.DurationMS), ErrorCode: row.ErrorCode, ErrorMessage: row.ErrorMessage,
-		DiagnosticCodes: append([]string(nil), row.DiagnosticCodes...),
+		DiagnosticCodes: append([]string{}, row.DiagnosticCodes...),
 		BillingStatus:   billingView.status, BillingReason: billingView.reason,
 		HeldAmount: billingView.held, ActualAmount: billingView.actual,
 		Pricing: billingView.pricing, UsageItems: billingView.usage, ProviderAttempts: billingView.attempts,
