@@ -43,6 +43,18 @@ func TestCitationProjectionKeepsSelectedUnmentionedSources(t *testing.T) {
 	}
 }
 
+func TestDegradedPlanProjectsNoCitationSource(t *testing.T) {
+	plan := degradedReadyPlan(t)
+	plan.ID = 71
+	projection, err := ProjectMessageContext("provider violated the instruction [C1]", plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projection.Outcome != RetrievalDegraded || len(projection.Sources) != 0 {
+		t.Fatalf("projection=%+v", projection)
+	}
+}
+
 func TestContextPlanProjectionIsClosedOrderedAndBoundsSnapshots(t *testing.T) {
 	plan := citationTestPlan(t)
 	longSnapshot := strings.Repeat("界", ContextPlanSnapshotRuneLimit+10)

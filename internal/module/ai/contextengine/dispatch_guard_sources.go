@@ -18,6 +18,10 @@ func verifyDispatchSources(ctx context.Context, tx *gorm.DB, platform string, fa
 		}
 		source := AuthoritySource{SourceType: item.SourceType, SourceRef: item.SourceRef, SourceSHA256: hash}
 		switch source.SourceType {
+		case degradedContextPolicySourceType:
+			if source != degradedContextPolicySource() {
+				err = errDispatchPermission
+			}
 		case "agent":
 			err = verifyDispatchAgent(ctx, tx, facts.Run, source)
 		case "message":

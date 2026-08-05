@@ -1,6 +1,17 @@
 package contextengine
 
-import "context"
+import (
+	"context"
+	"crypto/sha256"
+
+	infraai "admin_back_go/internal/infra/ai"
+)
+
+const degradedContextInstruction = "Context enhancement is unavailable for this request. Use only the supplied core context and any explicitly supplied ready conversation memory. Do not claim that space documents or historical attachment retrieval was consulted. Do not emit [C<number>] citations."
+
+const degradedContextStableSourceID = "context_policy:degraded:v1"
+
+const degradedContextPolicySourceType = "context_policy"
 
 type RuntimeFacts struct {
 	Fingerprint     InputFingerprintHashInput
@@ -23,9 +34,9 @@ type RuntimeFactsReader interface {
 }
 
 type RuntimeEvidence struct {
-	Outcome RetrievalOutcome
-	Groups  []PackGroup
-	Failure *PlanError
+	Outcome    RetrievalOutcome
+	Groups     []PackGroup
+	Diagnostic *PlanError
 }
 
 type RuntimeEvidenceResolver interface {
@@ -80,71 +91,135 @@ func (materializer *PlanMaterializer) Materialize(ctx context.Context, input Run
 		return BuildPlanInput{}, err
 	}
 	memory := memoryContext.Record
-	if memoryContext.Expected && memory == nil {
-		return materializer.degradedInput(output, EnhancementStageMemory, ErrCodeMemoryUnavailable)
-	}
 	memoryBoundary := uint64(0)
 	if memory != nil {
 		memoryBoundary = memory.ThroughMessageID
-	}
-	historyGroups, err := runtimeHistoryGroups(ctx, materializer.history, materializer.attachments, input, facts, memoryBoundary)
-	if err != nil {
-		return BuildPlanInput{}, err
-	}
-	output.PackGroups = append(output.PackGroups, historyGroups...)
-	if memory != nil {
 		group, err := memoryPackGroup(*memory, facts.ModelCapability.TokenCounterID)
 		if err != nil {
 			return BuildPlanInput{}, err
 		}
 		output.PackGroups = append(output.PackGroups, group)
 	}
+	historyGroups, err := runtimeHistoryGroups(ctx, materializer.history, materializer.attachments, input, facts, memoryBoundary)
+	if err != nil {
+		return BuildPlanInput{}, err
+	}
+	output.PackGroups = append(output.PackGroups, historyGroups...)
+	if memoryContext.Expected && memory == nil {
+		return materializer.degradedInput(output, EnhancementStageMemory, ErrCodeMemoryUnavailable)
+	}
 	if facts.Profile == nil {
 		return output, nil
 	}
 	if materializer.evidence == nil {
-		failure, failureErr := NewPlanError("profile", ErrCodeProfileUnavailable)
-		if failureErr != nil {
-			return BuildPlanInput{}, failureErr
-		}
-		output.RetrievalOutcome = RetrievalFailed
-		output.Failure = &failure
-		return output, nil
+		return materializer.degradedInput(output, EnhancementStageProfile, ErrCodeProfileUnavailable)
 	}
 	evidence, err := materializer.evidence.ResolveRuntimeEvidence(ctx, input, facts)
 	if err != nil {
-		return BuildPlanInput{}, err
+		failure, ok := AsEnhancementFailure(err)
+		if !ok {
+			return BuildPlanInput{}, err
+		}
+		return materializer.degradedInput(output, failure.Stage, failure.Code)
 	}
 	if err := validateRuntimeEvidence(evidence); err != nil {
 		return BuildPlanInput{}, err
 	}
-	output.RetrievalOutcome = evidence.Outcome
-	output.Failure = clonePointer(evidence.Failure)
-	if evidence.Failure == nil {
-		output.PackGroups = append(output.PackGroups, composeEvidenceGroups(historyGroups, evidence.Groups, memoryBoundary)...)
+	if evidence.Diagnostic != nil {
+		return materializer.degradedInput(output, EnhancementStage(evidence.Diagnostic.Stage), evidence.Diagnostic.Code)
 	}
+	output.RetrievalOutcome = evidence.Outcome
+	output.PackGroups = append(output.PackGroups, composeEvidenceGroups(historyGroups, evidence.Groups, memoryBoundary)...)
 	return output, nil
 }
 
 func (materializer *PlanMaterializer) degradedInput(output BuildPlanInput, stage EnhancementStage, code ErrorCode) (BuildPlanInput, error) {
-	failure, err := NewPlanError(string(stage), code)
+	if !validEnhancementFailurePair(stage, code) {
+		return BuildPlanInput{}, ErrInvalidContextPlan
+	}
+	diagnostic, err := NewPlanError(string(stage), code)
 	if err != nil {
 		return BuildPlanInput{}, err
 	}
-	output.RetrievalOutcome = RetrievalFailed
-	output.Failure = &failure
+	instruction, err := degradedInstructionGroup(output)
+	if err != nil {
+		return BuildPlanInput{}, err
+	}
+	output.PackGroups = append(degradedPackGroups(output.PackGroups), instruction)
+	output.RetrievalOutcome = RetrievalDegraded
+	output.Diagnostic = &diagnostic
 	return output, nil
 }
 
+func degradedInstructionGroup(output BuildPlanInput) (PackGroup, error) {
+	counter, err := infraai.ResolveTokenCounter(output.ModelCapability.TokenCounterID)
+	if err != nil {
+		return PackGroup{}, err
+	}
+	bound, err := counter.UpperBoundText(degradedContextInstruction)
+	if err != nil || bound <= 0 {
+		return PackGroup{}, ErrInvalidContextPlan
+	}
+	source := degradedContextPolicySource()
+	content := degradedContextInstruction
+	return PackGroup{
+		Required: true, Priority: 1, StableSourceID: degradedContextStableSourceID,
+		Blocks: []PackBlock{{Block: ContextBlock{
+			Kind: BlockSystemInstruction, SourceType: source.SourceType, SourceRef: source.SourceRef, SourceSHA256: source.SourceSHA256,
+			AtomicGroupKey: degradedContextStableSourceID, Required: true, Priority: 1, TokenUpperBound: bound,
+			ContentSnapshot: &content, Metadata: emptyBlockMetadata(),
+		}}},
+	}, nil
+}
+
+func degradedContextPolicySource() AuthoritySource {
+	return AuthoritySource{
+		SourceType:   degradedContextPolicySourceType,
+		SourceRef:    degradedContextStableSourceID,
+		SourceSHA256: sha256.Sum256([]byte(degradedContextInstruction)),
+	}
+}
+
+func degradedPackGroups(groups []PackGroup) []PackGroup {
+	kept := make([]PackGroup, 0, len(groups))
+	for _, group := range groups {
+		allowed := true
+		for _, block := range group.Blocks {
+			if block.FusionScore != nil || block.RerankScore != nil || block.Block.Metadata.Retrieval != nil || !degradedBlockKindAllowed(block.Block.Kind) {
+				allowed = false
+				break
+			}
+		}
+		if allowed {
+			kept = append(kept, group)
+		}
+	}
+	return clonePackGroups(kept)
+}
+
+func degradedBlockKindAllowed(kind BlockKind) bool {
+	switch kind {
+	case BlockSystemInstruction, BlockCurrentUserMessage, BlockCurrentAttachment, BlockRecentTurn,
+		BlockConversationMemory, BlockToolDefinition, BlockToolCall, BlockToolResult:
+		return true
+	default:
+		return false
+	}
+}
+
 func validateRuntimeEvidence(evidence RuntimeEvidence) error {
-	if evidence.Outcome.Validate() != nil || (evidence.Outcome == RetrievalFailed) != (evidence.Failure != nil) {
+	if evidence.Outcome.Validate() != nil || evidence.Outcome == RetrievalFailed {
 		return ErrInvalidContextPlan
 	}
-	if evidence.Failure != nil {
-		if evidence.Failure.Validate() != nil || len(evidence.Groups) != 0 {
+	if evidence.Outcome == RetrievalDegraded {
+		if evidence.Diagnostic == nil || evidence.Diagnostic.Validate() != nil || len(evidence.Groups) != 0 ||
+			!validEnhancementFailurePair(EnhancementStage(evidence.Diagnostic.Stage), evidence.Diagnostic.Code) {
 			return ErrInvalidContextPlan
 		}
 		return nil
+	}
+	if evidence.Diagnostic != nil {
+		return ErrInvalidContextPlan
 	}
 	if evidence.Outcome == RetrievalHit && len(evidence.Groups) == 0 {
 		return ErrInvalidContextPlan

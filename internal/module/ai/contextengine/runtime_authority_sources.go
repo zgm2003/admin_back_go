@@ -206,6 +206,11 @@ func verifyAttachmentSourceFacts(raw *string, ordinal uint64, expected [sha256.S
 
 func verifySelectedFingerprintSource(fingerprint InputFingerprintHashInput, source AuthoritySource) (bool, error) {
 	switch source.SourceType {
+	case degradedContextPolicySourceType:
+		if source != degradedContextPolicySource() {
+			return true, ErrInvalidContextPlan
+		}
+		return true, nil
 	case "agent":
 		id, err := parseAuthorityID(source.SourceRef, "agent:")
 		if err != nil || id != fingerprint.AgentID || source.SourceSHA256 != fingerprint.AgentSHA256 {

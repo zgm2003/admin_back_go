@@ -175,6 +175,13 @@ func (service *RuntimeService) BuildPlan(ctx context.Context, input RuntimeInput
 	if service == nil || service.materializer == nil || service.planner == nil {
 		return RuntimeResult{}, ErrPlanRepositoryNotConfigured
 	}
+	existing, err := service.planner.FindTerminalByRunID(ctx, input.RunID)
+	if err != nil {
+		return RuntimeResult{}, err
+	}
+	if existing != nil {
+		return RuntimeResultFromPlan(*existing)
+	}
 	materialized, err := service.materializer.Materialize(ctx, input)
 	if err != nil {
 		return RuntimeResult{}, err

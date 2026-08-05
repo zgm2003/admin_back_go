@@ -135,8 +135,29 @@ func TestMemoryExpectedStopsEnhancementBeforeEmbedding(t *testing.T) {
 	if embeddings.calls != 0 {
 		t.Fatalf("embedding resolver calls=%d, want 0", embeddings.calls)
 	}
-	if materialized.RetrievalOutcome != RetrievalFailed || materialized.Failure == nil || materialized.Failure.Code != ErrCodeMemoryUnavailable {
+	if materialized.RetrievalOutcome != RetrievalDegraded || materialized.Diagnostic == nil || materialized.Diagnostic.Code != ErrCodeMemoryUnavailable {
 		t.Fatalf("materialized=%+v", materialized)
+	}
+}
+
+func TestDegradedPackingPersistsReadyPlanWithDiagnostic(t *testing.T) {
+	repository := &fakePlannerRepository{}
+	input := validBuildPlanInput()
+	diagnostic, err := NewPlanError(string(EnhancementStageEmbedding), ErrCodeEmbeddingFailed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input.RetrievalOutcome = RetrievalDegraded
+	input.Diagnostic = &diagnostic
+	plan, err := NewPlanner(PlannerDependencies{
+		Repository: repository, GuardFactory: fixedGuardFactory{hash: testSHA256("authority")},
+	}).BuildPlan(t.Context(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.State != PlanReady || plan.RetrievalOutcome != RetrievalDegraded || plan.Error == nil ||
+		plan.Error.Code != ErrCodeEmbeddingFailed || plan.PlanSHA256 == nil {
+		t.Fatalf("plan=%+v", plan)
 	}
 }
 
@@ -502,21 +523,24 @@ type fakePlannerRepository struct {
 	existing     *ContextPlan
 	persisted    ContextPlan
 	token        PlanCommitToken
+	findCalls    int
 	persistCalls int
 }
 
 func (repository *fakePlannerRepository) FindTerminalByRunID(context.Context, uint64) (*ContextPlan, error) {
+	repository.findCalls++
 	return repository.existing, nil
 }
 
 func (repository *fakePlannerRepository) PersistTerminal(_ context.Context, plan ContextPlan, _ PlanCommitTransactionGuard, token PlanCommitToken) (ContextPlan, PersistDisposition, error) {
 	repository.persistCalls++
-	repository.persisted = plan
 	repository.token = token
 	if err := plan.Validate(); err != nil {
 		return ContextPlan{}, "", err
 	}
 	plan.ID = 91
+	repository.persisted = plan
+	repository.existing = &plan
 	return plan, PersistCreated, nil
 }
 

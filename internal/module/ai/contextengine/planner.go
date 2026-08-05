@@ -42,11 +42,18 @@ type BuildPlanInput struct {
 	Profile          *ProfileSnapshot
 	RetrievalOutcome RetrievalOutcome
 	PackGroups       []PackGroup
-	Failure          *PlanError
+	Diagnostic       *PlanError
 }
 
 func NewPlanner(dependencies PlannerDependencies) *Planner {
 	return &Planner{repository: dependencies.Repository, guardFactory: dependencies.GuardFactory}
+}
+
+func (planner *Planner) FindTerminalByRunID(ctx context.Context, runID uint64) (*ContextPlan, error) {
+	if planner == nil || planner.repository == nil || runID == 0 {
+		return nil, ErrPlanRepositoryNotConfigured
+	}
+	return planner.repository.FindTerminalByRunID(ctx, runID)
 }
 
 func (planner *Planner) BuildPlan(ctx context.Context, input BuildPlanInput) (ContextPlan, error) {
@@ -78,42 +85,37 @@ func (planner *Planner) BuildPlan(ctx context.Context, input BuildPlanInput) (Co
 		RunID: input.RunID, Profile: cloneProfileSnapshot(input.Profile), PolicyVersion: input.PolicyVersion,
 		InputFingerprintSHA256: inputFingerprintSHA256, ModelCapabilitySHA256: modelCapabilitySHA256,
 		APIProtocol: input.APIProtocol, TokenCounterID: input.ModelCapability.TokenCounterID,
-		Budget: budget, RetrievalOutcome: input.RetrievalOutcome, State: PlanReady,
+		Budget: budget, RetrievalOutcome: input.RetrievalOutcome, State: PlanReady, Error: clonePointer(input.Diagnostic),
 		Metrics: ContextPlanMetricsV1{Schema: ContextPlanMetricsSchemaV1},
 	}
-	if input.Failure != nil {
-		plan.State = PlanFailed
-		plan.Error = clonePointer(input.Failure)
-	} else {
-		packed, packErr := Pack(PackInput{
-			KnownInputBudget:             input.Budget.KnownInputBudget,
-			ToolContinuationInputReserve: input.Budget.ToolContinuationInputReserve,
-			Candidates:                   input.PackGroups,
-		})
-		if packErr != nil {
-			code := ErrorCode(packErr.Code)
-			if code.Validate() != nil {
-				return ContextPlan{}, packErr
-			}
-			planError, err := NewPlanError("packing", code)
-			if err != nil {
-				return ContextPlan{}, err
-			}
-			plan.State = PlanFailed
-			plan.RetrievalOutcome = RetrievalFailed
-			plan.Error = &planError
-		} else {
-			plan.Budget.KnownInputUpperBound = packed.KnownInputUpperBound
-			plan.Items = packed.Items
-			if selectedPlanAttachment(plan.Items) {
-				plan.Budget.Proof = BudgetOpaqueAttachment
-			}
-			planHash, err := HashPlan(plan)
-			if err != nil {
-				return ContextPlan{}, err
-			}
-			plan.PlanSHA256 = &planHash
+	packed, packErr := Pack(PackInput{
+		KnownInputBudget:             input.Budget.KnownInputBudget,
+		ToolContinuationInputReserve: input.Budget.ToolContinuationInputReserve,
+		Candidates:                   input.PackGroups,
+	})
+	if packErr != nil {
+		code := ErrorCode(packErr.Code)
+		if code.Validate() != nil {
+			return ContextPlan{}, packErr
 		}
+		planError, err := NewPlanError("packing", code)
+		if err != nil {
+			return ContextPlan{}, err
+		}
+		plan.State = PlanFailed
+		plan.RetrievalOutcome = RetrievalFailed
+		plan.Error = &planError
+	} else {
+		plan.Budget.KnownInputUpperBound = packed.KnownInputUpperBound
+		plan.Items = packed.Items
+		if selectedPlanAttachment(plan.Items) {
+			plan.Budget.Proof = BudgetOpaqueAttachment
+		}
+		planHash, err := HashPlan(plan)
+		if err != nil {
+			return ContextPlan{}, err
+		}
+		plan.PlanSHA256 = &planHash
 	}
 	if err := plan.Validate(); err != nil {
 		return ContextPlan{}, err
@@ -158,10 +160,15 @@ func validateAndHashBuildPlanInput(input BuildPlanInput) ([sha256.Size]byte, [sh
 	if !equalProfileSnapshot(input.Profile, input.Fingerprint.Profile) {
 		return [sha256.Size]byte{}, [sha256.Size]byte{}, ErrInvalidContextPlan
 	}
-	if input.RetrievalOutcome.Validate() != nil || (input.RetrievalOutcome == RetrievalFailed) != (input.Failure != nil) {
+	if input.RetrievalOutcome.Validate() != nil || input.RetrievalOutcome == RetrievalFailed {
 		return [sha256.Size]byte{}, [sha256.Size]byte{}, ErrInvalidContextPlan
 	}
-	if input.Failure != nil && input.Failure.Validate() != nil {
+	if input.RetrievalOutcome == RetrievalDegraded {
+		if input.Diagnostic == nil || input.Diagnostic.Validate() != nil ||
+			!validEnhancementFailurePair(EnhancementStage(input.Diagnostic.Stage), input.Diagnostic.Code) {
+			return [sha256.Size]byte{}, [sha256.Size]byte{}, ErrInvalidContextPlan
+		}
+	} else if input.Diagnostic != nil {
 		return [sha256.Size]byte{}, [sha256.Size]byte{}, ErrInvalidContextPlan
 	}
 	currentFound := false

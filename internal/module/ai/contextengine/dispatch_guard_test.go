@@ -35,6 +35,21 @@ func TestDispatchGuardMemoryRejectsChangedSummaryAndBrokenParent(t *testing.T) {
 	}
 }
 
+func TestDispatchGuardAcceptsOnlyFixedDegradedContextPolicy(t *testing.T) {
+	source := degradedContextPolicySource()
+	facts := dispatchGuardFacts{SelectedItems: []contextPlanItemRow{{
+		SourceType: source.SourceType, SourceRef: source.SourceRef, SourceSHA256: source.SourceSHA256[:],
+	}}}
+	if err := verifyDispatchSources(t.Context(), nil, "admin", facts); err != nil {
+		t.Fatalf("fixed policy was rejected: %v", err)
+	}
+
+	facts.SelectedItems[0].SourceRef = "context_policy:unknown:v1"
+	if err := verifyDispatchSources(t.Context(), nil, "admin", facts); !errors.Is(err, errDispatchPermission) {
+		t.Fatalf("unknown policy error=%v", err)
+	}
+}
+
 func TestDispatchGuardRejectsDeletedConversationBeforeProviderDispatch(t *testing.T) {
 	planRepository, mock, closeDB := newPlanRepositoryFixture(t)
 	defer closeDB()

@@ -33,7 +33,7 @@ func TestRuntimeEvidenceRejectsFailedProfileOnlyWhenSourcesExist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if evidence.Outcome != RetrievalSkipped || evidence.Failure != nil {
+	if evidence.Outcome != RetrievalSkipped || evidence.Diagnostic != nil {
 		t.Fatalf("evidence=%+v", evidence)
 	}
 	if embeddings.calls != 0 {

@@ -130,6 +130,20 @@ func TestAuthorityRepositoryErrorIsNotDegraded(t *testing.T) {
 	}
 }
 
+func TestContextPolicyAuthorityAcceptsOnlyFixedDegradedInstruction(t *testing.T) {
+	source := degradedContextPolicySource()
+	handled, err := verifySelectedFingerprintSource(InputFingerprintHashInput{}, source)
+	if !handled || err != nil {
+		t.Fatalf("fixed policy handled=%v err=%v", handled, err)
+	}
+
+	tampered := source
+	tampered.SourceSHA256 = testSHA256("tampered policy")
+	if handled, err := verifySelectedFingerprintSource(InputFingerprintHashInput{}, tampered); !handled || !errors.Is(err, ErrInvalidContextPlan) {
+		t.Fatalf("tampered policy handled=%v err=%v", handled, err)
+	}
+}
+
 func TestDocumentChunkAuthorityHashMatchesMergedRetrievalHash(t *testing.T) {
 	chunkIDs := []uint64{41, 42}
 	chunkHashes := [][sha256.Size]byte{testSHA256("chunk-41"), testSHA256("chunk-42")}
