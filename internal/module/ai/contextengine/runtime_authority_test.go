@@ -117,6 +117,19 @@ func TestAuthorityConflictClassificationDoesNotHideDatabaseErrors(t *testing.T) 
 	}
 }
 
+func TestAuthorityRepositoryErrorIsNotDegraded(t *testing.T) {
+	input, dependencies := retrievalClassificationFixture(t)
+	cause := errors.New("mysql authority query failed")
+	dependencies.Authority = fakeCandidateAuthority{err: cause}
+	_, err := Retrieve(t.Context(), input, dependencies)
+	if !errors.Is(err, cause) {
+		t.Fatalf("authority error was replaced: %v", err)
+	}
+	if _, ok := AsEnhancementFailure(err); ok {
+		t.Fatalf("authority error became degradable: %v", err)
+	}
+}
+
 func TestDocumentChunkAuthorityHashMatchesMergedRetrievalHash(t *testing.T) {
 	chunkIDs := []uint64{41, 42}
 	chunkHashes := [][sha256.Size]byte{testSHA256("chunk-41"), testSHA256("chunk-42")}

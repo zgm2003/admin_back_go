@@ -2,7 +2,6 @@ package contextengine
 
 import (
 	"context"
-	"errors"
 	"strings"
 
 	infraai "admin_back_go/internal/infra/ai"
@@ -56,28 +55,28 @@ func (resolver *RetrievalEvidenceResolver) ResolveRuntimeEvidence(ctx context.Co
 	}
 	profile := retrievalFacts.Profile
 	if profile.IndexState == ProfileIndexFailed {
-		return failedRuntimeEvidence(ErrCodeIndexFailed)
+		return RuntimeEvidence{}, NewEnhancementFailure(EnhancementStageIndex, ErrCodeIndexFailed, nil)
 	}
 	if profile.Status != ProfileEnabled ||
 		(profile.IndexState != ProfileIndexReady && profile.IndexState != ProfileIndexRebuilding) ||
 		facts.Profile == nil || facts.Profile.IndexGeneration == nil || *facts.Profile.IndexGeneration == 0 {
-		return failedRuntimeEvidence(ErrCodeProfileUnavailable)
+		return RuntimeEvidence{}, NewEnhancementFailure(EnhancementStageProfile, ErrCodeProfileUnavailable, nil)
 	}
 	embedding, err := resolver.embeddings.ResolveEmbedding(ctx, profile)
 	if err != nil {
-		return failedRuntimeEvidence(ErrCodeEmbeddingFailed)
+		return RuntimeEvidence{}, NewEnhancementFailure(EnhancementStageEmbedding, ErrCodeEmbeddingFailed, err)
 	}
 	counter, err := infraai.ResolveTokenCounter(profile.EmbeddingTokenCounterID)
 	if err != nil {
-		return failedRuntimeEvidence(ErrCodeProfileUnavailable)
+		return RuntimeEvidence{}, NewEnhancementFailure(EnhancementStageProfile, ErrCodeProfileUnavailable, err)
 	}
 	newest, err := resolver.turns.NewestComplete(ctx, input.ConversationID, input.UserID, &input.CurrentMessageID)
 	if err != nil {
-		return failedRuntimeEvidence(ErrCodeRetrievalFailed)
+		return RuntimeEvidence{}, err
 	}
 	variants, err := BuildQueryVariants(retrievalFacts.CurrentText, newest, counter, profile.EmbeddingMaxInputTokens)
 	if err != nil {
-		return failedRuntimeEvidence(ErrCodeRetrievalFailed)
+		return RuntimeEvidence{}, err
 	}
 	if len(variants) == 0 {
 		return RuntimeEvidence{Outcome: RetrievalNoHit}, nil
@@ -85,23 +84,26 @@ func (resolver *RetrievalEvidenceResolver) ResolveRuntimeEvidence(ctx context.Co
 	filter, err := contextindex.NewScopeFilter(profile.ID, *facts.Profile.IndexGeneration, resolver.platform, retrievalFacts.SpaceIDs,
 		&contextindex.ConversationScope{ConversationID: input.ConversationID, UserID: input.UserID})
 	if err != nil {
-		return failedRuntimeEvidence(ErrCodePermissionDenied)
+		return RuntimeEvidence{}, err
 	}
 	denseMin, err := ParseFixedScore(profile.DenseMinScore)
 	if err != nil {
-		return failedRuntimeEvidence(ErrCodeProfileUnavailable)
+		return RuntimeEvidence{}, NewEnhancementFailure(EnhancementStageProfile, ErrCodeProfileUnavailable, err)
 	}
 	var rerankMin *FixedScore
 	var reranker infraai.RerankClient
 	if profile.RerankerMinScore != nil {
 		rankScore, parseErr := ParseFixedScore(*profile.RerankerMinScore)
 		if parseErr != nil || profile.RerankerProviderModelID == nil || resolver.rerank == nil {
-			return failedRuntimeEvidence(ErrCodeProfileUnavailable)
+			if parseErr == nil {
+				parseErr = ErrInvalidContextPlan
+			}
+			return RuntimeEvidence{}, NewEnhancementFailure(EnhancementStageProfile, ErrCodeProfileUnavailable, parseErr)
 		}
 		rerankMin = &rankScore
 		reranker, err = resolver.rerank.ResolveRerank(ctx, profile)
 		if err != nil {
-			return failedRuntimeEvidence(ErrCodeRerankFailed)
+			return RuntimeEvidence{}, NewEnhancementFailure(EnhancementStageRerank, ErrCodeRerankFailed, err)
 		}
 	}
 	result, err := Retrieve(ctx, RetrievalInput{
@@ -112,14 +114,14 @@ func (resolver *RetrievalEvidenceResolver) ResolveRuntimeEvidence(ctx context.Co
 		MaxMergedTokens: profile.EmbeddingMaxInputTokens, TokenCounter: counter, RerankMinScore: rerankMin,
 	}, RetrievalDependencies{Embedding: embedding, Querier: resolver.querier, Authority: resolver.authority, Reranker: reranker})
 	if err != nil {
-		return failedRuntimeEvidence(retrievalErrorCode(err))
+		return RuntimeEvidence{}, err
 	}
 	if result.Outcome != RetrievalHit {
 		return RuntimeEvidence{Outcome: result.Outcome}, nil
 	}
 	groups, err := retrievalPackGroups(result.Candidates)
 	if err != nil {
-		return failedRuntimeEvidence(ErrCodeRetrievalFailed)
+		return RuntimeEvidence{}, NewEnhancementFailure(EnhancementStageIndex, ErrCodeIndexInconsistent, err)
 	}
 	return RuntimeEvidence{Outcome: RetrievalHit, Groups: groups}, nil
 }
@@ -147,27 +149,6 @@ func retrievalPackGroups(candidates []VerifiedCandidate) ([]PackGroup, error) {
 			StableSourceID: candidate.CandidateID(), Blocks: []PackBlock{{Block: block, FusionScore: clonePointer(&candidate.FusionScore), RerankScore: clonePointer(candidate.RerankScore)}}})
 	}
 	return groups, nil
-}
-
-func failedRuntimeEvidence(code ErrorCode) (RuntimeEvidence, error) {
-	failure, err := NewPlanError("retrieval", code)
-	if err != nil {
-		return RuntimeEvidence{}, err
-	}
-	return RuntimeEvidence{Outcome: RetrievalFailed, Failure: &failure}, nil
-}
-
-func retrievalErrorCode(err error) ErrorCode {
-	switch {
-	case errors.Is(err, infraai.ErrRerankFailed):
-		return ErrCodeRerankFailed
-	case errors.Is(err, infraai.ErrEmbeddingFailed):
-		return ErrCodeEmbeddingFailed
-	case errors.Is(err, ErrIndexGenerationUnavailable):
-		return ErrCodeIndexInconsistent
-	default:
-		return ErrCodeRetrievalFailed
-	}
 }
 
 var _ RuntimeEvidenceResolver = (*RetrievalEvidenceResolver)(nil)

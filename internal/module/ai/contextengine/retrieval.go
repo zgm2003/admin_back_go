@@ -89,10 +89,11 @@ func Retrieve(ctx context.Context, input RetrievalInput, dependencies RetrievalD
 	}
 	embedding, err := dependencies.Embedding.Embed(ctx, texts)
 	if err != nil {
-		return RetrievalResult{Outcome: RetrievalFailed}, err
+		return RetrievalResult{Outcome: RetrievalFailed}, NewEnhancementFailure(EnhancementStageEmbedding, ErrCodeEmbeddingFailed, err)
 	}
 	if len(embedding.Vectors) != len(input.Variants) {
-		return RetrievalResult{Outcome: RetrievalFailed}, fmt.Errorf("%w: embedding vector count disagrees", infraai.ErrEmbeddingFailed)
+		cause := fmt.Errorf("%w: embedding vector count disagrees", infraai.ErrEmbeddingFailed)
+		return RetrievalResult{Outcome: RetrievalFailed}, NewEnhancementFailure(EnhancementStageEmbedding, ErrCodeEmbeddingFailed, cause)
 	}
 	denseMin, err := fixedScoreFloat64(input.DenseMinScore)
 	if err != nil {
@@ -106,14 +107,14 @@ func Retrieve(ctx context.Context, input RetrievalInput, dependencies RetrievalD
 		Collection: input.Collection, Filter: input.Filter, Variants: vectors, DenseMinScore: denseMin, TopN: input.TopN,
 	})
 	if err != nil {
-		return RetrievalResult{Outcome: RetrievalFailed}, err
+		return RetrievalResult{Outcome: RetrievalFailed}, NewEnhancementFailure(EnhancementStageRetrieval, ErrCodeRetrievalFailed, err)
 	}
 	if len(batch.Fusion) == 0 {
 		return RetrievalResult{Outcome: RetrievalNoHit}, nil
 	}
 	candidates, err := CandidatesFromQueryBatch(batch, nil)
 	if err != nil {
-		return RetrievalResult{Outcome: RetrievalFailed}, err
+		return RetrievalResult{Outcome: RetrievalFailed}, NewEnhancementFailure(EnhancementStageIndex, ErrCodeIndexInconsistent, err)
 	}
 	verification, err := dependencies.Authority.VerifyCandidates(ctx, input.Authority, candidates)
 	if err != nil {
@@ -121,6 +122,9 @@ func Retrieve(ctx context.Context, input RetrievalInput, dependencies RetrievalD
 	}
 	normalized, excluded, err := NormalizeVerifiedCandidates(verification.Authorized, input.MaxMergedTokens, input.TokenCounter)
 	if err != nil {
+		if errors.Is(err, ErrInvalidContextPlan) {
+			return RetrievalResult{Outcome: RetrievalFailed}, NewEnhancementFailure(EnhancementStageIndex, ErrCodeIndexInconsistent, err)
+		}
 		return RetrievalResult{Outcome: RetrievalFailed}, err
 	}
 	verification.Excluded = append(verification.Excluded, excluded...)
@@ -130,7 +134,8 @@ func Retrieve(ctx context.Context, input RetrievalInput, dependencies RetrievalD
 	if input.RerankMinScore != nil || dependencies.Reranker != nil {
 		normalized, err = ApplyRerank(ctx, texts[0], normalized, dependencies.Reranker, input.RerankMinScore)
 		if err != nil {
-			return RetrievalResult{Outcome: RetrievalFailed, Excluded: verification.Excluded, Cleanup: verification.Cleanup}, err
+			return RetrievalResult{Outcome: RetrievalFailed, Excluded: verification.Excluded, Cleanup: verification.Cleanup},
+				NewEnhancementFailure(EnhancementStageRerank, ErrCodeRerankFailed, err)
 		}
 	}
 	if len(normalized) == 0 {

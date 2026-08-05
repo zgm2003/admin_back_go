@@ -17,21 +17,16 @@ func TestRuntimeEvidenceRejectsFailedProfileOnlyWhenSourcesExist(t *testing.T) {
 	embeddings := &countingRuntimeEmbeddingResolver{}
 	resolver := newRuntimeEvidenceTestResolver(embeddings, nil)
 
-	evidence, err := resolver.ResolveRuntimeEvidence(context.Background(), RuntimeInput{AgentID: 9, ConversationID: 11, UserID: 13}, RuntimeFacts{
+	_, err := resolver.ResolveRuntimeEvidence(context.Background(), RuntimeInput{AgentID: 9, ConversationID: 11, UserID: 13}, RuntimeFacts{
 		Profile:   &ProfileSnapshot{ID: profile.ID, IndexGeneration: &generation},
 		Retrieval: &RuntimeRetrievalFacts{Profile: profile, HasSources: true},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if evidence.Outcome != RetrievalFailed || evidence.Failure == nil || evidence.Failure.Code != ErrCodeIndexFailed {
-		t.Fatalf("evidence=%+v", evidence)
-	}
+	assertEnhancementFailure(t, err, EnhancementStageIndex, ErrCodeIndexFailed)
 	if embeddings.calls != 0 {
 		t.Fatalf("embedding resolver calls=%d, want 0", embeddings.calls)
 	}
 
-	evidence, err = resolver.ResolveRuntimeEvidence(context.Background(), RuntimeInput{}, RuntimeFacts{
+	evidence, err := resolver.ResolveRuntimeEvidence(context.Background(), RuntimeInput{}, RuntimeFacts{
 		Profile:   &ProfileSnapshot{ID: profile.ID, IndexGeneration: &generation},
 		Retrieval: &RuntimeRetrievalFacts{Profile: profile, HasSources: false},
 	})
@@ -46,7 +41,7 @@ func TestRuntimeEvidenceRejectsFailedProfileOnlyWhenSourcesExist(t *testing.T) {
 	}
 }
 
-func TestRuntimeEvidenceMapsRerankResolverFailure(t *testing.T) {
+func TestRuntimeEvidenceClassifiesRerankResolverFailure(t *testing.T) {
 	generation := uint64(3)
 	rerankerModelID := uint64(19)
 	rerankerMinScore := "0.200000"
@@ -59,18 +54,35 @@ func TestRuntimeEvidenceMapsRerankResolverFailure(t *testing.T) {
 	rerank := &failingRuntimeRerankResolver{err: errors.New("rerank provider unavailable")}
 	resolver := newRuntimeEvidenceTestResolver(embeddings, rerank)
 
-	evidence, err := resolver.ResolveRuntimeEvidence(context.Background(), RuntimeInput{AgentID: 9, ConversationID: 11, UserID: 13}, RuntimeFacts{
+	_, err := resolver.ResolveRuntimeEvidence(context.Background(), RuntimeInput{AgentID: 9, ConversationID: 11, UserID: 13}, RuntimeFacts{
 		Profile:   &ProfileSnapshot{ID: profile.ID, IndexGeneration: &generation},
 		Retrieval: &RuntimeRetrievalFacts{Profile: profile, CurrentText: "query", HasSources: true},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if evidence.Outcome != RetrievalFailed || evidence.Failure == nil || evidence.Failure.Code != ErrCodeRerankFailed {
-		t.Fatalf("evidence=%+v", evidence)
-	}
+	assertEnhancementFailure(t, err, EnhancementStageRerank, ErrCodeRerankFailed)
 	if rerank.calls != 1 {
 		t.Fatalf("rerank resolver calls=%d, want 1", rerank.calls)
+	}
+}
+
+func TestRuntimeEvidenceUnknownTurnRepositoryErrorIsNotDegraded(t *testing.T) {
+	generation := uint64(3)
+	profile := ContextProfile{
+		ID: 7, Status: ProfileEnabled, IndexState: ProfileIndexReady, ActiveIndexGeneration: &generation,
+		EmbeddingTokenCounterID: "utf8_bytes_v1", EmbeddingMaxInputTokens: 4096, DenseMinScore: "0.100000",
+	}
+	cause := errors.New("mysql connection reset")
+	resolver := newRuntimeEvidenceTestResolverWithTurns(
+		&countingRuntimeEmbeddingResolver{client: fakeEmbeddingClient{}}, nil, failingConversationTurnReader{err: cause},
+	)
+	_, err := resolver.ResolveRuntimeEvidence(t.Context(), RuntimeInput{CurrentMessageID: 17, AgentID: 9, ConversationID: 11, UserID: 13}, RuntimeFacts{
+		Profile:   &ProfileSnapshot{ID: profile.ID, IndexGeneration: &generation},
+		Retrieval: &RuntimeRetrievalFacts{Profile: profile, CurrentText: "query", HasSources: true},
+	})
+	if !errors.Is(err, cause) {
+		t.Fatalf("repository error was replaced: %v", err)
+	}
+	if _, ok := AsEnhancementFailure(err); ok {
+		t.Fatalf("repository error became degradable: %v", err)
 	}
 }
 
@@ -92,18 +104,32 @@ type failingRuntimeRerankResolver struct {
 	err   error
 }
 
+type failingConversationTurnReader struct{ err error }
+
+func (reader failingConversationTurnReader) NewestComplete(context.Context, uint64, uint64, *uint64) (*ConversationTurn, error) {
+	return nil, reader.err
+}
+
+func (reader failingConversationTurnReader) CompleteByAnchors(context.Context, uint64, uint64, []uint64) ([]ConversationTurn, error) {
+	return nil, reader.err
+}
+
 func (resolver *failingRuntimeRerankResolver) ResolveRerank(context.Context, ContextProfile) (infraai.RerankClient, error) {
 	resolver.calls++
 	return nil, resolver.err
 }
 
 func newRuntimeEvidenceTestResolver(embeddings RuntimeEmbeddingResolver, rerank RuntimeRerankResolver) *RetrievalEvidenceResolver {
+	return newRuntimeEvidenceTestResolverWithTurns(embeddings, rerank, emptyConversationTurnReader{})
+}
+
+func newRuntimeEvidenceTestResolverWithTurns(embeddings RuntimeEmbeddingResolver, rerank RuntimeRerankResolver, turns ConversationTurnReader) *RetrievalEvidenceResolver {
 	return NewRetrievalEvidenceResolver(RetrievalEvidenceDependencies{
 		Embeddings: embeddings,
 		Rerank:     rerank,
 		Querier:    fakeQuerier{},
 		Authority:  fakeCandidateAuthority{},
-		Turns:      emptyConversationTurnReader{},
+		Turns:      turns,
 		Platform:   "admin",
 		Prefix:     "admin_context",
 	})

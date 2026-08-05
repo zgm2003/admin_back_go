@@ -234,6 +234,64 @@ func TestClosedContextEnumsRejectUnknownValues(t *testing.T) {
 	}
 }
 
+func TestEnhancementFailureAcceptsOnlyClosedStageCodePairs(t *testing.T) {
+	cause := errors.New("provider unavailable")
+	valid := []struct {
+		stage EnhancementStage
+		code  ErrorCode
+	}{
+		{EnhancementStageProfile, ErrCodeProfileUnavailable},
+		{EnhancementStageMemory, ErrCodeMemoryUnavailable},
+		{EnhancementStageEmbedding, ErrCodeEmbeddingFailed},
+		{EnhancementStageIndex, ErrCodeIndexFailed},
+		{EnhancementStageIndex, ErrCodeIndexInconsistent},
+		{EnhancementStageRetrieval, ErrCodeRetrievalFailed},
+		{EnhancementStageRerank, ErrCodeRerankFailed},
+	}
+	for _, test := range valid {
+		err := NewEnhancementFailure(test.stage, test.code, cause)
+		failure, ok := AsEnhancementFailure(err)
+		if !ok || failure.Stage != test.stage || failure.Code != test.code || !errors.Is(err, cause) {
+			t.Fatalf("failure=%#v ok=%v err=%v", failure, ok, err)
+		}
+	}
+
+	invalid := []struct {
+		stage EnhancementStage
+		code  ErrorCode
+	}{
+		{EnhancementStage("unknown"), ErrCodeEmbeddingFailed},
+		{EnhancementStageEmbedding, ErrCodeRetrievalFailed},
+		{EnhancementStageRetrieval, ErrCodePermissionDenied},
+		{EnhancementStageIndex, ErrCodeSnapshotConflict},
+		{EnhancementStageMemory, ErrCodeRequiredOverflow},
+		{EnhancementStageProfile, ErrCodePlanConflict},
+		{EnhancementStageProfile, ErrCodeAttachmentUnavailable},
+	}
+	for _, test := range invalid {
+		if err := NewEnhancementFailure(test.stage, test.code, cause); !errors.Is(err, ErrInvalidContextValue) {
+			t.Fatalf("invalid pair %q/%q returned %v", test.stage, test.code, err)
+		}
+	}
+}
+
+func TestEnhancementFailureDoesNotExposeCauseInErrorText(t *testing.T) {
+	const secret = "provider response contains secret credential"
+	cause := errors.New(secret)
+	err := NewEnhancementFailure(EnhancementStageEmbedding, ErrCodeEmbeddingFailed, cause)
+
+	if !errors.Is(err, cause) {
+		t.Fatal("enhancement failure lost its cause")
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Fatalf("enhancement failure exposed its cause: %q", err.Error())
+	}
+	want := "context enhancement failed at embedding: ai.context.embedding_failed"
+	if err.Error() != want {
+		t.Fatalf("error text = %q, want %q", err.Error(), want)
+	}
+}
+
 func TestDocumentEvidenceCitationPlacement(t *testing.T) {
 	plan := validReadyPlan()
 	content := "bounded evidence"

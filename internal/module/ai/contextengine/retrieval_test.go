@@ -2,6 +2,7 @@ package contextengine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -74,6 +75,102 @@ func TestRetrieveUsesEmbeddingQueryBatchAuthorityAndNormalization(t *testing.T) 
 	}
 	if result.Outcome != RetrievalHit || len(result.Candidates) != 1 {
 		t.Fatalf("result=%+v", result)
+	}
+}
+
+func TestRetrievalClassificationAtOwningBoundaries(t *testing.T) {
+	input, dependencies := retrievalClassificationFixture(t)
+
+	t.Run("embedding", func(t *testing.T) {
+		cause := errors.New("embedding provider unavailable")
+		current := dependencies
+		current.Embedding = fakeEmbeddingClient{err: cause}
+		_, err := Retrieve(t.Context(), input, current)
+		assertEnhancementFailure(t, err, EnhancementStageEmbedding, ErrCodeEmbeddingFailed)
+		if !errors.Is(err, cause) {
+			t.Fatalf("embedding cause was lost: %v", err)
+		}
+	})
+
+	t.Run("retrieval", func(t *testing.T) {
+		cause := errors.New("qdrant unavailable")
+		current := dependencies
+		current.Querier = fakeQuerier{err: cause}
+		_, err := Retrieve(t.Context(), input, current)
+		assertEnhancementFailure(t, err, EnhancementStageRetrieval, ErrCodeRetrievalFailed)
+		if !errors.Is(err, cause) {
+			t.Fatalf("qdrant cause was lost: %v", err)
+		}
+	})
+
+	t.Run("index evidence", func(t *testing.T) {
+		current := dependencies
+		verified := verifiedDocumentCandidate(t, 1, 7, 0, "a", "first")
+		current.Querier = fakeQuerier{result: contextindex.QueryBatchResult{
+			Fusion: []contextindex.QueryFusionHit{{Point: verified.Point, Rank: 1, Score: 0.9}},
+		}}
+		_, err := Retrieve(t.Context(), input, current)
+		assertEnhancementFailure(t, err, EnhancementStageIndex, ErrCodeIndexInconsistent)
+	})
+
+	t.Run("rerank", func(t *testing.T) {
+		cause := errors.New("rerank provider unavailable")
+		current := dependencies
+		threshold, err := ParseFixedScore("0.500000")
+		if err != nil {
+			t.Fatal(err)
+		}
+		current.Reranker = &fakeRerankClient{err: cause}
+		inputWithRerank := input
+		inputWithRerank.RerankMinScore = &threshold
+		_, err = Retrieve(t.Context(), inputWithRerank, current)
+		assertEnhancementFailure(t, err, EnhancementStageRerank, ErrCodeRerankFailed)
+	})
+}
+
+func TestRetrievalUnknownValidationErrorIsNotDegraded(t *testing.T) {
+	input, dependencies := retrievalClassificationFixture(t)
+	input.TopN = 0
+	_, err := Retrieve(t.Context(), input, dependencies)
+	if !errors.Is(err, ErrInvalidContextPlan) {
+		t.Fatalf("validation error = %v", err)
+	}
+	if _, ok := AsEnhancementFailure(err); ok {
+		t.Fatalf("validation error became degradable: %v", err)
+	}
+}
+
+func retrievalClassificationFixture(t *testing.T) (RetrievalInput, RetrievalDependencies) {
+	t.Helper()
+	counter, err := infraai.ResolveTokenCounter(infraai.TokenCounterUTF8BytesV1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filter, err := contextindex.NewScopeFilter(1, 1, "admin", []uint64{11}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verified := verifiedDocumentCandidate(t, 1, 7, 0, "a", "first")
+	return RetrievalInput{
+			Collection: "admin_context_profile_1_g1", Filter: filter,
+			Variants: []QueryVariant{{VariantID: "current", Text: "refund", QuerySHA256: hashText("query"), Sparse: contextindex.SparseVector{Indices: []uint32{1}, Values: []float32{1}}}},
+			TopN:     20, Authority: CandidateAuthoritySnapshot{ProfileID: 1, IndexGeneration: 1, AgentID: 3, UserID: 4, ConversationID: 5, Platform: "admin"},
+			MaxMergedTokens: 100, TokenCounter: counter,
+		}, RetrievalDependencies{
+			Embedding: fakeEmbeddingClient{result: infraai.EmbeddingResult{ModelID: "embed-v1", Vectors: [][]float32{{1, 0}}}},
+			Querier: fakeQuerier{result: contextindex.QueryBatchResult{
+				Fusion:   []contextindex.QueryFusionHit{{Point: verified.Point, Rank: 1, Score: 0.9}},
+				Branches: []contextindex.QueryBranchHit{{Point: verified.Point, VariantID: "current", Modality: contextindex.QueryModalityDense, Rank: 1, Score: 0.8}},
+			}},
+			Authority: fakeCandidateAuthority{result: CandidateVerification{Authorized: []VerifiedCandidate{verified}}},
+		}
+}
+
+func assertEnhancementFailure(t *testing.T, err error, stage EnhancementStage, code ErrorCode) {
+	t.Helper()
+	failure, ok := AsEnhancementFailure(err)
+	if !ok || failure.Stage != stage || failure.Code != code {
+		t.Fatalf("failure=%#v ok=%v err=%v", failure, ok, err)
 	}
 }
 

@@ -62,6 +62,72 @@ func (code ErrorCode) Validate() error {
 	return fmt.Errorf("%w: error code %q", ErrInvalidContextValue, code)
 }
 
+type EnhancementStage string
+
+const (
+	EnhancementStageProfile   EnhancementStage = "profile"
+	EnhancementStageMemory    EnhancementStage = "memory"
+	EnhancementStageEmbedding EnhancementStage = "embedding"
+	EnhancementStageIndex     EnhancementStage = "index"
+	EnhancementStageRetrieval EnhancementStage = "retrieval"
+	EnhancementStageRerank    EnhancementStage = "rerank"
+)
+
+type EnhancementFailure struct {
+	Stage EnhancementStage
+	Code  ErrorCode
+	Cause error
+}
+
+func (failure *EnhancementFailure) Error() string {
+	if failure == nil {
+		return "context enhancement failed"
+	}
+	return fmt.Sprintf("context enhancement failed at %s: %s", failure.Stage, failure.Code)
+}
+
+func (failure *EnhancementFailure) Unwrap() error {
+	if failure == nil {
+		return nil
+	}
+	return failure.Cause
+}
+
+func NewEnhancementFailure(stage EnhancementStage, code ErrorCode, cause error) error {
+	failure := &EnhancementFailure{Stage: stage, Code: code, Cause: cause}
+	if !validEnhancementFailurePair(failure.Stage, failure.Code) {
+		return fmt.Errorf("%w: enhancement failure %q/%q", ErrInvalidContextValue, stage, code)
+	}
+	return failure
+}
+
+func AsEnhancementFailure(err error) (EnhancementFailure, bool) {
+	var failure *EnhancementFailure
+	if !errors.As(err, &failure) || failure == nil || !validEnhancementFailurePair(failure.Stage, failure.Code) {
+		return EnhancementFailure{}, false
+	}
+	return *failure, true
+}
+
+func validEnhancementFailurePair(stage EnhancementStage, code ErrorCode) bool {
+	switch stage {
+	case EnhancementStageProfile:
+		return code == ErrCodeProfileUnavailable
+	case EnhancementStageMemory:
+		return code == ErrCodeMemoryUnavailable
+	case EnhancementStageEmbedding:
+		return code == ErrCodeEmbeddingFailed
+	case EnhancementStageIndex:
+		return code == ErrCodeIndexFailed || code == ErrCodeIndexInconsistent
+	case EnhancementStageRetrieval:
+		return code == ErrCodeRetrievalFailed
+	case EnhancementStageRerank:
+		return code == ErrCodeRerankFailed
+	default:
+		return false
+	}
+}
+
 type contextErrorDefinition struct {
 	category   apperror.Category
 	httpStatus int
