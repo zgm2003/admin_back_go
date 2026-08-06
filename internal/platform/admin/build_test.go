@@ -125,6 +125,20 @@ func TestBuildWiresContextProfileResolverWithoutInstallingRoutes(t *testing.T) {
 	}
 }
 
+func TestBuildWiresReadOnlyContextEvaluationPipeline(t *testing.T) {
+	compact := compactAdminBuild(t)
+	for _, want := range []string{
+		"contextDependencies := contextengine.RuntimeDependencies{",
+		"contextEvaluation := contextengine.NewEvaluationService(contextengine.BuildEvaluationPipeline(contextDependencies))",
+		"contextengine.WithEvaluationRunner(contextEvaluation)",
+		"contextRuntime := contextengine.BuildRuntime(contextDependencies)",
+	} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("admin context evaluation composition missing %q", want)
+		}
+	}
+}
+
 func TestBuildWiresOneAuthoritativeOfficialModelResolver(t *testing.T) {
 	compact := compactAdminBuild(t)
 	for _, want := range []string{

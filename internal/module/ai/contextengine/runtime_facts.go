@@ -132,6 +132,21 @@ func (reader *GormRuntimeFactsReader) LoadRuntimeFacts(ctx context.Context, inpu
 }
 
 func (reader *GormRuntimeFactsReader) loadIdentity(ctx context.Context, input RuntimeInput) (runtimeIdentityRow, error) {
+	row, err := reader.loadActiveIdentity(ctx, input.AgentID)
+	if err != nil {
+		return runtimeIdentityRow{}, err
+	}
+	if row.AgentProviderID != input.ProviderID || row.ProviderID != input.ProviderID ||
+		row.AgentModelID != input.ModelID || row.ProviderAPIProtocol != input.APIProtocol {
+		return runtimeIdentityRow{}, ErrInvalidContextPlan
+	}
+	return row, nil
+}
+
+func (reader *GormRuntimeFactsReader) loadActiveIdentity(ctx context.Context, agentID uint64) (runtimeIdentityRow, error) {
+	if reader == nil || reader.db == nil || agentID == 0 {
+		return runtimeIdentityRow{}, ErrPlanRepositoryNotConfigured
+	}
 	var row runtimeIdentityRow
 	err := reader.db.WithContext(ctx).Table("ai_agents AS agent").
 		Select(`agent.id AS agent_id, agent.provider_id AS agent_provider_id, agent.model_id AS agent_model_id,
@@ -143,13 +158,11 @@ func (reader *GormRuntimeFactsReader) loadIdentity(ctx context.Context, input Ru
 			model.official_model_id, model.official_catalog_version, model.mapping_status`).
 		Joins("JOIN ai_providers AS provider ON provider.id = agent.provider_id").
 		Joins("JOIN ai_provider_models AS model ON model.provider_id = agent.provider_id AND model.model_id = agent.model_id").
-		Where("agent.id = ?", input.AgentID).Take(&row).Error
+		Where("agent.id = ?", agentID).Take(&row).Error
 	if err != nil {
 		return runtimeIdentityRow{}, err
 	}
-	if row.AgentID != input.AgentID || row.AgentProviderID != input.ProviderID || row.ProviderID != input.ProviderID ||
-		row.AgentModelID != input.ModelID || row.ProviderAPIProtocol != input.APIProtocol ||
-		row.AgentStatus != enum.CommonYes || row.AgentDeleted != enum.CommonNo || row.ProviderStatus != enum.CommonYes ||
+	if row.AgentID != agentID || row.AgentStatus != enum.CommonYes || row.AgentDeleted != enum.CommonNo || row.ProviderStatus != enum.CommonYes ||
 		row.ProviderDeleted != enum.CommonNo || row.ProviderModelStatus != enum.CommonYes || row.ProviderModelKind != string(aiprovider.ModelKindChat) {
 		return runtimeIdentityRow{}, ErrInvalidContextPlan
 	}

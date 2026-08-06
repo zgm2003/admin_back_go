@@ -3,6 +3,7 @@ package contextengine
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	infraai "admin_back_go/internal/infra/ai"
@@ -86,6 +87,30 @@ func TestRuntimeEvidenceUnknownTurnRepositoryErrorIsNotDegraded(t *testing.T) {
 	}
 }
 
+func TestRuntimeEvidenceResolvesEmbeddingBeforeConversationLookup(t *testing.T) {
+	events := make([]string, 0, 2)
+	generation := uint64(3)
+	profile := ContextProfile{
+		ID: 7, Status: ProfileEnabled, IndexState: ProfileIndexReady, ActiveIndexGeneration: &generation,
+		EmbeddingTokenCounterID: infraai.TokenCounterUTF8BytesV1, EmbeddingMaxInputTokens: 4096, DenseMinScore: "0.100000",
+	}
+	resolver := newRuntimeEvidenceTestResolverWithTurns(
+		&orderedEmbeddingResolver{events: &events}, nil, &orderedConversationTurnReader{events: &events},
+	)
+	evidence, err := resolver.ResolveRuntimeEvidence(t.Context(), RuntimeInput{
+		CurrentMessageID: 17, AgentID: 9, ConversationID: 11, UserID: 13,
+	}, RuntimeFacts{
+		Profile:   &ProfileSnapshot{ID: profile.ID, IndexGeneration: &generation},
+		Retrieval: &RuntimeRetrievalFacts{Profile: profile, SpaceIDs: []uint64{19}, CurrentText: "query", HasSources: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if evidence.Outcome != RetrievalNoHit || !reflect.DeepEqual(events, []string{"embedding", "turn"}) {
+		t.Fatalf("evidence=%+v events=%v", evidence, events)
+	}
+}
+
 type countingRuntimeEmbeddingResolver struct {
 	calls  int
 	client infraai.EmbeddingClient
@@ -105,6 +130,24 @@ type failingRuntimeRerankResolver struct {
 }
 
 type failingConversationTurnReader struct{ err error }
+
+type orderedEmbeddingResolver struct{ events *[]string }
+
+func (resolver *orderedEmbeddingResolver) ResolveEmbedding(context.Context, ContextProfile) (infraai.EmbeddingClient, error) {
+	*resolver.events = append(*resolver.events, "embedding")
+	return fakeEmbeddingClient{result: infraai.EmbeddingResult{ModelID: "embed-v1", Vectors: [][]float32{{1, 0}}}}, nil
+}
+
+type orderedConversationTurnReader struct{ events *[]string }
+
+func (reader *orderedConversationTurnReader) NewestComplete(context.Context, uint64, uint64, *uint64) (*ConversationTurn, error) {
+	*reader.events = append(*reader.events, "turn")
+	return nil, nil
+}
+
+func (*orderedConversationTurnReader) CompleteByAnchors(context.Context, uint64, uint64, []uint64) ([]ConversationTurn, error) {
+	return nil, nil
+}
 
 func (reader failingConversationTurnReader) NewestComplete(context.Context, uint64, uint64, *uint64) (*ConversationTurn, error) {
 	return nil, reader.err

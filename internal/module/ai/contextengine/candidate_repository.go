@@ -28,8 +28,11 @@ type CandidateAuthoritySnapshot struct {
 }
 
 func (snapshot CandidateAuthoritySnapshot) Validate() error {
-	if snapshot.ProfileID == 0 || snapshot.IndexGeneration == 0 || snapshot.AgentID == 0 || snapshot.UserID == 0 ||
-		snapshot.ConversationID == 0 || strings.TrimSpace(snapshot.Platform) == "" || strings.TrimSpace(snapshot.Platform) != snapshot.Platform {
+	conversationIdentityComplete := snapshot.UserID != 0 && snapshot.ConversationID != 0
+	conversationIdentityAbsent := snapshot.UserID == 0 && snapshot.ConversationID == 0
+	if snapshot.ProfileID == 0 || snapshot.IndexGeneration == 0 || snapshot.AgentID == 0 ||
+		(!conversationIdentityComplete && !conversationIdentityAbsent) ||
+		strings.TrimSpace(snapshot.Platform) == "" || strings.TrimSpace(snapshot.Platform) != snapshot.Platform {
 		return ErrInvalidContextPlan
 	}
 	return nil
@@ -132,8 +135,9 @@ func (repository *GormCandidateRepository) VerifyCandidates(
 	if err != nil {
 		return CandidateVerification{}, err
 	}
+	conversationScoped := snapshot.UserID != 0
 	var turns []ConversationTurn
-	if len(turnAnchors) != 0 {
+	if conversationScoped && len(turnAnchors) != 0 {
 		turns, err = repository.conversation.CompleteByAnchors(ctx, snapshot.ConversationID, snapshot.UserID, uniqueUint64(turnAnchors))
 		if err != nil {
 			return CandidateVerification{}, err
@@ -169,6 +173,10 @@ func (repository *GormCandidateRepository) VerifyCandidates(
 			}
 			result.Authorized = append(result.Authorized, verified)
 		case contextindex.SourceKindConversationTurn:
+			if !conversationScoped {
+				result.Excluded = append(result.Excluded, CandidateExclusion{Candidate: candidate, Reason: ExclusionPermissionChanged})
+				continue
+			}
 			turn, ok := turnsByAnchor[candidate.Point.SourceID]
 			if !ok || turn.SourceSHA256 != candidate.Point.SourceSHA256 {
 				result.excludeStale(candidate, ExclusionInactiveSource)
@@ -246,7 +254,7 @@ func verifyDocumentCandidate(snapshot CandidateAuthoritySnapshot, candidate Cand
 	spaceAuthorized := row.DocumentSpaceID != nil && row.SpaceProfileID != nil && *row.SpaceProfileID == snapshot.ProfileID &&
 		row.SpacePlatform != nil && *row.SpacePlatform == snapshot.Platform && row.SpaceStatus != nil && *row.SpaceStatus == SpaceEnabled &&
 		row.BindingStatus != nil && *row.BindingStatus == "enabled"
-	conversationAuthorized := row.DocumentConversationID != nil && *row.DocumentConversationID == snapshot.ConversationID &&
+	conversationAuthorized := snapshot.ConversationID != 0 && row.DocumentConversationID != nil && *row.DocumentConversationID == snapshot.ConversationID &&
 		row.ConversationUserID != nil && *row.ConversationUserID == snapshot.UserID
 	if !spaceAuthorized && !conversationAuthorized {
 		return VerifiedCandidate{}, false, nil

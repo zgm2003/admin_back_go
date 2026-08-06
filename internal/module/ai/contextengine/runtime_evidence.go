@@ -37,7 +37,7 @@ type RetrievalEvidenceResolver struct {
 }
 
 func NewRetrievalEvidenceResolver(dependencies RetrievalEvidenceDependencies) *RetrievalEvidenceResolver {
-	if dependencies.Embeddings == nil || dependencies.Querier == nil || dependencies.Authority == nil || dependencies.Turns == nil ||
+	if dependencies.Embeddings == nil || dependencies.Querier == nil || dependencies.Authority == nil ||
 		strings.TrimSpace(dependencies.Platform) == "" || strings.TrimSpace(dependencies.Prefix) == "" {
 		return nil
 	}
@@ -63,6 +63,45 @@ func (resolver *RetrievalEvidenceResolver) ResolveRuntimeEvidence(ctx context.Co
 		facts.Profile == nil || facts.Profile.IndexGeneration == nil || *facts.Profile.IndexGeneration == 0 {
 		return RuntimeEvidence{Outcome: RetrievalFailed, Metrics: metrics}, NewEnhancementFailure(EnhancementStageProfile, ErrCodeProfileUnavailable, nil)
 	}
+	if resolver.turns == nil {
+		return RuntimeEvidence{Metrics: metrics}, ErrPlanRepositoryNotConfigured
+	}
+	return resolver.resolve(ctx, retrievalRequest{
+		Profile: profile, IndexGeneration: *facts.Profile.IndexGeneration, AgentID: input.AgentID,
+		UserID: input.UserID, ConversationID: input.ConversationID, SpaceIDs: retrievalFacts.SpaceIDs,
+		CurrentText: retrievalFacts.CurrentText,
+		LoadNewest: func(ctx context.Context) (*ConversationTurn, error) {
+			return resolver.turns.NewestComplete(ctx, input.ConversationID, input.UserID, &input.CurrentMessageID)
+		},
+	})
+}
+
+type retrievalRequest struct {
+	Profile         ContextProfile
+	IndexGeneration uint64
+	AgentID         uint64
+	UserID          uint64
+	ConversationID  uint64
+	SpaceIDs        []uint64
+	CurrentText     string
+	Newest          *ConversationTurn
+	LoadNewest      func(context.Context) (*ConversationTurn, error)
+}
+
+func (resolver *RetrievalEvidenceResolver) resolve(ctx context.Context, request retrievalRequest) (RuntimeEvidence, error) {
+	metrics := ContextPlanMetricsV1{Schema: ContextPlanMetricsSchemaV1}
+	if resolver == nil || resolver.embeddings == nil || resolver.querier == nil || resolver.authority == nil ||
+		request.AgentID == 0 || request.IndexGeneration == 0 {
+		return RuntimeEvidence{Metrics: metrics}, ErrPlanRepositoryNotConfigured
+	}
+	profile := request.Profile
+	if profile.IndexState == ProfileIndexFailed {
+		return RuntimeEvidence{Outcome: RetrievalFailed, Metrics: metrics}, NewEnhancementFailure(EnhancementStageIndex, ErrCodeIndexFailed, nil)
+	}
+	if profile.Status != ProfileEnabled ||
+		(profile.IndexState != ProfileIndexReady && profile.IndexState != ProfileIndexRebuilding) {
+		return RuntimeEvidence{Outcome: RetrievalFailed, Metrics: metrics}, NewEnhancementFailure(EnhancementStageProfile, ErrCodeProfileUnavailable, nil)
+	}
 	embedding, err := resolver.embeddings.ResolveEmbedding(ctx, profile)
 	if err != nil {
 		return RuntimeEvidence{Outcome: RetrievalFailed, Metrics: metrics}, NewEnhancementFailure(EnhancementStageEmbedding, ErrCodeEmbeddingFailed, err)
@@ -71,19 +110,25 @@ func (resolver *RetrievalEvidenceResolver) ResolveRuntimeEvidence(ctx context.Co
 	if err != nil {
 		return RuntimeEvidence{Outcome: RetrievalFailed, Metrics: metrics}, NewEnhancementFailure(EnhancementStageProfile, ErrCodeProfileUnavailable, err)
 	}
-	newest, err := resolver.turns.NewestComplete(ctx, input.ConversationID, input.UserID, &input.CurrentMessageID)
-	if err != nil {
-		return RuntimeEvidence{Metrics: metrics}, err
+	newest := request.Newest
+	if request.LoadNewest != nil {
+		newest, err = request.LoadNewest(ctx)
+		if err != nil {
+			return RuntimeEvidence{Metrics: metrics}, err
+		}
 	}
-	variants, err := BuildQueryVariants(retrievalFacts.CurrentText, newest, counter, profile.EmbeddingMaxInputTokens)
+	variants, err := BuildQueryVariants(request.CurrentText, newest, counter, profile.EmbeddingMaxInputTokens)
 	if err != nil {
 		return RuntimeEvidence{Metrics: metrics}, err
 	}
 	if len(variants) == 0 {
 		return RuntimeEvidence{Outcome: RetrievalNoHit, Metrics: metrics}, nil
 	}
-	filter, err := contextindex.NewScopeFilter(profile.ID, *facts.Profile.IndexGeneration, resolver.platform, retrievalFacts.SpaceIDs,
-		&contextindex.ConversationScope{ConversationID: input.ConversationID, UserID: input.UserID})
+	var conversation *contextindex.ConversationScope
+	if request.UserID != 0 || request.ConversationID != 0 {
+		conversation = &contextindex.ConversationScope{ConversationID: request.ConversationID, UserID: request.UserID}
+	}
+	filter, err := contextindex.NewScopeFilter(profile.ID, request.IndexGeneration, resolver.platform, request.SpaceIDs, conversation)
 	if err != nil {
 		return RuntimeEvidence{Metrics: metrics}, err
 	}
@@ -108,10 +153,10 @@ func (resolver *RetrievalEvidenceResolver) ResolveRuntimeEvidence(ctx context.Co
 		}
 	}
 	result, err := Retrieve(ctx, RetrievalInput{
-		Collection: physicalCollectionName(resolver.prefix, profile.ID, *facts.Profile.IndexGeneration),
+		Collection: physicalCollectionName(resolver.prefix, profile.ID, request.IndexGeneration),
 		Filter:     filter, Variants: variants, DenseMinScore: &denseMin, TopN: 50,
-		Authority: CandidateAuthoritySnapshot{ProfileID: profile.ID, IndexGeneration: *facts.Profile.IndexGeneration,
-			AgentID: input.AgentID, UserID: input.UserID, ConversationID: input.ConversationID, Platform: resolver.platform},
+		Authority: CandidateAuthoritySnapshot{ProfileID: profile.ID, IndexGeneration: request.IndexGeneration,
+			AgentID: request.AgentID, UserID: request.UserID, ConversationID: request.ConversationID, Platform: resolver.platform},
 		MaxMergedTokens: profile.EmbeddingMaxInputTokens, TokenCounter: counter, RerankMinScore: rerankMin,
 	}, RetrievalDependencies{Embedding: embedding, Querier: resolver.querier, Authority: resolver.authority, Reranker: reranker})
 	if err != nil {

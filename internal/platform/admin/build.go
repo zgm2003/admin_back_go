@@ -197,12 +197,22 @@ func Build(input BuildInput) (*BuildResult, error) {
 	uploadTokenRepository := uploadtoken.NewGormRepository(resources.DB)
 	uploadRuleResolver := uploadtoken.NewActiveRuleResolver(uploadTokenRepository)
 	aiChatObjectConfig := uploadtoken.NewObjectConfigProvider(uploadTokenRepository, providers.Secretbox)
+	contextDependencies := contextengine.RuntimeDependencies{
+		Database: resources.DB, OfficialModels: aiOfficialModelResolver,
+		EmbeddingFactory: providers.AIEmbeddingFactory, RerankFactory: providers.AIRerankFactory,
+		Secretbox: providers.Secretbox, Index: resources.ContextIndex, CollectionPrefix: cfg.Qdrant.CollectionPrefix, Platform: "admin", Telemetry: recorder,
+	}
+	contextEvaluation := contextengine.NewEvaluationService(contextengine.BuildEvaluationPipeline(contextDependencies))
+	if contextEvaluation == nil {
+		return nil, errors.New("build admin context evaluation")
+	}
 	contextService := contextengine.NewAdminService(
 		contextengine.NewAdminRepository(resources.DB),
 		storagecos.NewConditionalObjectReader(aiChatObjectConfig, storagecos.ObjectStreamerConfig{Enabled: true}),
 		contextengine.NewDocumentVersionEnqueuer(input.Queue, contextengine.NewIngestionRepository(resources.DB)),
 		contextengine.WithOfficialModelResolver(aiOfficialModelResolver),
 		contextengine.WithProfileRebuildEnqueuer(contextengine.NewProfileRebuildEnqueuer(input.Queue)),
+		contextengine.WithEvaluationRunner(contextEvaluation),
 	)
 	aiAgentService := aiagent.NewService(
 		aiagent.NewGormRepository(resources.DB),
@@ -315,11 +325,7 @@ func Build(input BuildInput) (*BuildResult, error) {
 		resources.DB,
 		replycommand.WithDurableEventSink(realtimeEventSink),
 	)
-	contextRuntime := contextengine.BuildRuntime(contextengine.RuntimeDependencies{
-		Database: resources.DB, OfficialModels: aiOfficialModelResolver,
-		EmbeddingFactory: providers.AIEmbeddingFactory, RerankFactory: providers.AIRerankFactory,
-		Secretbox: providers.Secretbox, Index: resources.ContextIndex, CollectionPrefix: cfg.Qdrant.CollectionPrefix, Platform: "admin", Telemetry: recorder,
-	})
+	contextRuntime := contextengine.BuildRuntime(contextDependencies)
 	if contextRuntime == nil {
 		return nil, errors.New("build admin context runtime")
 	}

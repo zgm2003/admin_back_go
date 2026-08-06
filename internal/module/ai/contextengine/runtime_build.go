@@ -21,6 +21,16 @@ type RuntimeDependencies struct {
 	Telemetry        telemetry.Recorder
 }
 
+func BuildEvaluationPipeline(dependencies RuntimeDependencies) *RetrievalEvaluationPipeline {
+	return NewRetrievalEvaluationPipeline(EvaluationPipelineDependencies{
+		Facts:      NewEvaluationFactsReader(dependencies.Database, dependencies.OfficialModels),
+		Embeddings: NewEmbeddingResolver(dependencies.Database, dependencies.EmbeddingFactory, dependencies.Secretbox),
+		Rerank:     NewRerankResolver(dependencies.Database, dependencies.RerankFactory, dependencies.Secretbox),
+		Querier:    dependencies.Index, Authority: NewCandidateRepository(dependencies.Database),
+		Platform: dependencies.Platform, CollectionPrefix: dependencies.CollectionPrefix,
+	})
+}
+
 func BuildRuntime(dependencies RuntimeDependencies) *RuntimeService {
 	facts := NewRuntimeFactsReader(dependencies.Database, dependencies.OfficialModels)
 	embeddings := NewEmbeddingResolver(dependencies.Database, dependencies.EmbeddingFactory, dependencies.Secretbox)
