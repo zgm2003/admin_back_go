@@ -13,6 +13,8 @@ import (
 	infraai "admin_back_go/internal/infra/ai"
 )
 
+const maxEmbeddingJSONNumberBytes = 32
+
 type embeddingRequest struct {
 	Model string   `json:"model"`
 	Input []string `json:"input"`
@@ -75,7 +77,7 @@ func (client *Client) embed(ctx context.Context, input infraai.EmbeddingInput) (
 		return infraai.EmbeddingResult{}, fmt.Errorf("%w: OpenAI embedding request rejected", infraai.ErrEmbeddingFailed)
 	}
 	var decoded embeddingResponse
-	maxResponseBytes := int64(input.Capabilities.MaxInputs)*int64(input.Capabilities.Dimensions)*16 + 64<<10
+	maxResponseBytes := int64(input.Capabilities.MaxInputs)*int64(input.Capabilities.Dimensions)*maxEmbeddingJSONNumberBytes + 64<<10
 	limited := &io.LimitedReader{R: response.Body, N: maxResponseBytes + 1}
 	decoder := json.NewDecoder(limited)
 	if err := decoder.Decode(&decoded); err != nil {

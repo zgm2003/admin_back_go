@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"time"
 
@@ -819,7 +820,19 @@ func (repository *GormIngestionRepository) UpsertImmutableChunks(ctx context.Con
 
 func sameChunkRow(left, right contextChunkRow) bool {
 	return left.HeadingPath == right.HeadingPath && left.Content == right.Content && string(left.ContentSHA256) == string(right.ContentSHA256) &&
-		string(left.ChunkFactsSHA256) == string(right.ChunkFactsSHA256) && left.EmbeddingInputTokenUpperBound == right.EmbeddingInputTokenUpperBound && left.LocatorJSON == right.LocatorJSON
+		string(left.ChunkFactsSHA256) == string(right.ChunkFactsSHA256) && left.EmbeddingInputTokenUpperBound == right.EmbeddingInputTokenUpperBound && sameLocatorJSON(left.LocatorJSON, right.LocatorJSON)
+}
+
+func sameLocatorJSON(left, right string) bool {
+	var leftLocator ContextLocatorV1
+	if err := json.Unmarshal([]byte(left), &leftLocator); err != nil || leftLocator.Validate() != nil {
+		return false
+	}
+	var rightLocator ContextLocatorV1
+	if err := json.Unmarshal([]byte(right), &rightLocator); err != nil || rightLocator.Validate() != nil {
+		return false
+	}
+	return reflect.DeepEqual(leftLocator, rightLocator)
 }
 
 func (repository *GormIngestionRepository) ActivateVersion(ctx context.Context, input VersionActivation) error {

@@ -194,6 +194,23 @@ func TestDocumentIndexClassifiesTransientAndPermanentFailures(t *testing.T) {
 	}
 }
 
+func TestSameChunkRowAcceptsMySQLNormalizedLocatorJSON(t *testing.T) {
+	stored := contextChunkRow{
+		HeadingPath:                   `["admin_back_go Architecture"]`,
+		Content:                       "Runtime and Admin contract boundary",
+		ContentSHA256:                 []byte{1, 2, 3},
+		ChunkFactsSHA256:              []byte{4, 5, 6},
+		EmbeddingInputTokenUpperBound: 35,
+		LocatorJSON:                   `{"kind": "markdown_block", "schema": "context_locator_v1", "line_end": 3, "line_start": 3, "heading_path": ["admin_back_go Architecture"]}`,
+	}
+	retry := stored
+	retry.LocatorJSON = `{"schema":"context_locator_v1","kind":"markdown_block","line_start":3,"line_end":3,"heading_path":["admin_back_go Architecture"]}`
+
+	if !sameChunkRow(stored, retry) {
+		t.Fatal("MySQL JSON normalization changed formatting, not immutable locator facts")
+	}
+}
+
 func TestDocumentVersionPoliciesRejectMismatchedFrozenVersions(t *testing.T) {
 	parser := frozenParser{name: "txt", version: "1"}
 	version := ContextDocumentVersion{ParserName: "txt", ParserVersion: "2", ChunkerVersion: ChunkerVersionV1}

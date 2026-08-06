@@ -81,3 +81,60 @@ func TestEmbeddingRejectsResponseLargerThanDeclaredShape(t *testing.T) {
 		t.Fatal("oversized embedding response was accepted")
 	}
 }
+
+func TestEmbeddingAcceptsDeclaredLargeBatchWithJSONFloatPrecision(t *testing.T) {
+	const (
+		inputCount = 64
+		dimensions = 1024
+	)
+	type item struct {
+		Index     int       `json:"index"`
+		Embedding []float64 `json:"embedding"`
+	}
+	response := struct {
+		Model string `json:"model"`
+		Data  []item `json:"data"`
+		Usage struct {
+			PromptTokens int64 `json:"prompt_tokens"`
+			TotalTokens  int64 `json:"total_tokens"`
+		} `json:"usage"`
+	}{Model: "embed-v1", Data: make([]item, inputCount)}
+	vector := make([]float64, dimensions)
+	for index := range vector {
+		vector[index] = -0.12345678901234567
+	}
+	for index := range response.Data {
+		response.Data[index] = item{Index: index, Embedding: vector}
+	}
+	response.Usage.PromptTokens = inputCount
+	response.Usage.TotalTokens = inputCount
+	raw, err := json.Marshal(response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(raw) <= inputCount*dimensions*16+(64<<10) {
+		t.Fatalf("fixture size=%d does not exceed the old invalid response bound", len(raw))
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(raw)
+	}))
+	defer server.Close()
+
+	client, err := NewEmbeddingClient(Config{BaseURL: server.URL, APIKey: "secret", HTTPClient: server.Client()}, "embed-v1",
+		infraai.EmbeddingCapabilities{Dimensions: dimensions, MaxInputs: inputCount, MaxInputTokens: 8191, TokenCounterID: infraai.TokenCounterUTF8BytesV1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	texts := make([]string, inputCount)
+	for index := range texts {
+		texts[index] = "chunk"
+	}
+	result, err := client.Embed(context.Background(), texts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Vectors) != inputCount || len(result.Vectors[0]) != dimensions {
+		t.Fatalf("vectors=%d dimensions=%d", len(result.Vectors), len(result.Vectors[0]))
+	}
+}
