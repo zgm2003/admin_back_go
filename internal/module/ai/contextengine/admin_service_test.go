@@ -89,6 +89,9 @@ func TestProfileAssignmentRequiresReadyAndRejectsAgentConflict(t *testing.T) {
 	if err := service.RequireAgentProfileChangeAllowed(context.Background(), 9, uint64Pointer(1)); err == nil {
 		t.Fatal("agent profile conflict was accepted")
 	}
+	if err := service.RequireAgentProfileChangeAllowed(context.Background(), 9, nil); err != nil {
+		t.Fatalf("clearing an agent profile must remain available with historical context: %v", err)
+	}
 	profile := repository.profiles[1]
 	profile.Status = ProfileRetired
 	repository.profiles[1] = profile
@@ -268,7 +271,7 @@ func (repository *fakeAdminRepository) CreateDocumentVersion(_ context.Context, 
 	result.Version = documentVersionDTO(version)
 	return result, nil
 }
-func (repository *fakeAdminRepository) AgentProfileChangeConflict(context.Context, uint64) (bool, error) {
+func (repository *fakeAdminRepository) AgentProfileChangeConflict(context.Context, uint64, uint64) (bool, error) {
 	return repository.agentConflict, nil
 }
 func (repository *fakeAdminRepository) ListProfiles(_ context.Context, status ProfileStatus) ([]ContextProfile, error) {

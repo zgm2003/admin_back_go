@@ -367,7 +367,17 @@ func (repository *GormAdminRepository) GetAgentContextProfile(ctx context.Contex
 }
 
 func (repository *GormAdminRepository) SetAgentContextProfile(ctx context.Context, agentID uint64, profileID *uint64) error {
-	return repository.db.WithContext(ctx).Table("ai_agents").Where("id = ? AND is_del = ?", agentID, enum.CommonNo).Update("context_profile_id", profileID).Error
+	return repository.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if profileID == nil {
+			if err := tx.Exec("DELETE FROM ai_context_bindings WHERE agent_id = ?", agentID).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Table("ai_agents").Where("id = ? AND is_del = ?", agentID, enum.CommonNo).Update("context_profile_id", profileID).Error; err != nil {
+			return err
+		}
+		return nil
+	})
 }
 
 func (repository *GormAdminRepository) ListAgentContextSpaces(ctx context.Context, agentID uint64) ([]uint64, error) {
@@ -424,15 +434,20 @@ func (repository *GormAdminRepository) CreateDocumentVersion(ctx context.Context
 	return documentAdminDTO(document, version), nil
 }
 
-func (repository *GormAdminRepository) AgentProfileChangeConflict(ctx context.Context, agentID uint64) (bool, error) {
+func (repository *GormAdminRepository) AgentProfileChangeConflict(ctx context.Context, agentID, profileID uint64) (bool, error) {
 	if repository == nil || repository.db == nil {
 		return false, ErrPlanRepositoryNotConfigured
 	}
 	var count int64
 	err := repository.db.WithContext(ctx).Raw(`SELECT
-EXISTS(SELECT 1 FROM ai_context_bindings WHERE agent_id = ? AND status = 'enabled') +
-EXISTS(SELECT 1 FROM ai_context_documents d JOIN ai_conversations c ON c.id=d.conversation_id WHERE c.agent_id=? AND d.active_version_id IS NOT NULL) +
-EXISTS(SELECT 1 FROM ai_conversation_memories m JOIN ai_conversations c ON c.id=m.conversation_id WHERE c.agent_id=?) AS ref_count`, agentID, agentID, agentID).Scan(&count).Error
+EXISTS(SELECT 1 FROM ai_context_bindings b JOIN ai_context_spaces s ON s.id=b.space_id
+  WHERE b.agent_id = ? AND b.status = 'enabled' AND s.profile_id <> ?) +
+EXISTS(SELECT 1 FROM ai_context_documents d
+  JOIN ai_conversations c ON c.id=d.conversation_id
+  JOIN ai_context_document_versions v ON v.id=d.active_version_id
+  WHERE c.agent_id=? AND d.active_version_id IS NOT NULL AND v.profile_id <> ?) +
+EXISTS(SELECT 1 FROM ai_conversation_memories m JOIN ai_conversations c ON c.id=m.conversation_id
+  WHERE c.agent_id=? AND m.context_profile_id_snapshot <> ?) AS ref_count`, agentID, profileID, agentID, profileID, agentID, profileID).Scan(&count).Error
 	return count > 0, err
 }
 

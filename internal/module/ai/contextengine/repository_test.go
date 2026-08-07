@@ -166,18 +166,45 @@ func TestProfileIndexCASIncludesGenerationFence(t *testing.T) {
 	assertPlanMockExpectations(t, mock)
 }
 
-func TestAgentProfileChangeConflictUsesConversationOwnershipForMemories(t *testing.T) {
+func TestAgentProfileChangeConflictRejectsOnlyReferencesFromAnotherProfile(t *testing.T) {
 	planRepository, mock, closeDB := newPlanRepositoryFixture(t)
 	defer closeDB()
 	repository := &GormAdminRepository{db: planRepository.db}
 
-	mock.ExpectQuery(`(?s)SELECT\s+EXISTS\(SELECT 1 FROM ai_context_bindings.*\+\s*EXISTS\(SELECT 1 FROM ai_context_documents.*\+\s*EXISTS\(SELECT 1 FROM ai_conversation_memories m JOIN ai_conversations c ON c\.id\s*=\s*m\.conversation_id WHERE c\.agent_id\s*=\s*\?\) AS ref_count`).
-		WithArgs(uint64(7), uint64(7), uint64(7)).
+	mock.ExpectQuery(`(?s)SELECT\s+EXISTS\(SELECT 1 FROM ai_context_bindings b JOIN ai_context_spaces s.*s\.profile_id <> \?\)\s*\+\s*EXISTS\(SELECT 1 FROM ai_context_documents d JOIN ai_conversations c.*JOIN ai_context_document_versions v.*v\.profile_id <> \?\)\s*\+\s*EXISTS\(SELECT 1 FROM ai_conversation_memories m JOIN ai_conversations c.*m\.context_profile_id_snapshot <> \?\) AS ref_count`).
+		WithArgs(uint64(7), uint64(11), uint64(7), uint64(11), uint64(7), uint64(11)).
+		WillReturnRows(sqlmock.NewRows([]string{"ref_count"}).AddRow(0))
+	mock.ExpectQuery(`(?s)SELECT\s+EXISTS\(SELECT 1 FROM ai_context_bindings b JOIN ai_context_spaces s.*s\.profile_id <> \?\)\s*\+\s*EXISTS\(SELECT 1 FROM ai_context_documents d JOIN ai_conversations c.*JOIN ai_context_document_versions v.*v\.profile_id <> \?\)\s*\+\s*EXISTS\(SELECT 1 FROM ai_conversation_memories m JOIN ai_conversations c.*m\.context_profile_id_snapshot <> \?\) AS ref_count`).
+		WithArgs(uint64(7), uint64(12), uint64(7), uint64(12), uint64(7), uint64(12)).
 		WillReturnRows(sqlmock.NewRows([]string{"ref_count"}).AddRow(1))
 
-	conflict, err := repository.AgentProfileChangeConflict(context.Background(), 7)
-	if err != nil || !conflict {
+	conflict, err := repository.AgentProfileChangeConflict(context.Background(), 7, 11)
+	if err != nil || conflict {
 		t.Fatalf("conflict=%v err=%v", conflict, err)
+	}
+	conflict, err = repository.AgentProfileChangeConflict(context.Background(), 7, 12)
+	if err != nil || !conflict {
+		t.Fatalf("different profile conflict=%v err=%v", conflict, err)
+	}
+	assertPlanMockExpectations(t, mock)
+}
+
+func TestSetAgentContextProfileClearRemovesBindingsAtomicallyWhenAlreadyNull(t *testing.T) {
+	planRepository, mock, closeDB := newPlanRepositoryFixture(t)
+	defer closeDB()
+	repository := &GormAdminRepository{db: planRepository.db}
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`DELETE FROM ai_context_bindings WHERE agent_id = \?`).
+		WithArgs(uint64(7)).
+		WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectExec("UPDATE `ai_agents` SET `context_profile_id`=\\? WHERE id = \\? AND is_del = \\?").
+		WithArgs(nil, uint64(7), enum.CommonNo).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
+
+	if err := repository.SetAgentContextProfile(context.Background(), 7, nil); err != nil {
+		t.Fatal(err)
 	}
 	assertPlanMockExpectations(t, mock)
 }

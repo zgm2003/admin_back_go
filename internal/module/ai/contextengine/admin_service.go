@@ -31,7 +31,7 @@ type AdminRepository interface {
 	CreateDocumentWithVersion(context.Context, ContextDocument, ContextDocumentVersion) (DocumentAdminDTO, error)
 	FindDocument(context.Context, string, uint64) (*DocumentAdminDTO, error)
 	CreateDocumentVersion(context.Context, ContextDocumentVersion) (DocumentAdminDTO, error)
-	AgentProfileChangeConflict(context.Context, uint64) (bool, error)
+	AgentProfileChangeConflict(context.Context, uint64, uint64) (bool, error)
 	ListProfiles(context.Context, ProfileStatus) ([]ContextProfile, error)
 	ListSpaces(context.Context, string, uint64, string) ([]ContextSpace, error)
 	ListDocuments(context.Context, string, uint64, string) ([]DocumentAdminDTO, error)
@@ -533,17 +533,19 @@ func (service *AdminService) RequireAgentProfileChangeAllowed(ctx context.Contex
 	if agentID == 0 {
 		return apperror.BadRequest("无效的AI智能体ID")
 	}
-	conflictFound, err := service.repository.AgentProfileChangeConflict(ctx, agentID)
+	// Clearing the profile is a reversible feature switch. Historical documents,
+	// memories, and derived indexes remain valid and must not prevent pure chat.
+	if profileID == nil {
+		return nil
+	}
+	conflictFound, err := service.repository.AgentProfileChangeConflict(ctx, agentID, *profileID)
 	if err != nil {
 		return internalAdminError("检查AI智能体上下文引用失败", err)
 	}
 	if conflictFound {
-		return conflict("AI智能体已有上下文数据，不能修改配置")
+		return conflict("AI智能体已有其他上下文配置数据，不能切换配置")
 	}
-	if profileID != nil {
-		return service.RequireAssignable(ctx, *profileID)
-	}
-	return nil
+	return service.RequireAssignable(ctx, *profileID)
 }
 
 func (service *AdminService) ContextProfileAssignmentCommitted(ctx context.Context, agentID uint64, profileID uint64) error {
