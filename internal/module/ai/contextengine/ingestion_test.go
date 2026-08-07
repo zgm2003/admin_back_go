@@ -93,6 +93,9 @@ func (*memoryIngestionRepository) ActivateVersion(context.Context, VersionActiva
 func (repository *memoryIngestionRepository) FailVersion(_ context.Context, id, token uint64, stage, code, message string, now time.Time) error {
 	return repository.forceFailed(id, stage, code)
 }
+func (*memoryIngestionRepository) RecordVersionFailure(context.Context, uint64, uint64, string, string, string, time.Time) error {
+	return nil
+}
 func (repository *memoryIngestionRepository) FinalizeVersion(_ context.Context, attempt DocumentIndexAttempt, code string, requireExpired bool, now time.Time) error {
 	repository.mu.Lock()
 	defer repository.mu.Unlock()
@@ -191,6 +194,33 @@ func TestDocumentIndexClassifiesTransientAndPermanentFailures(t *testing.T) {
 	}
 	if got := classifyIngestionError(ErrChunkFactsConflict); got == nil || got.Retryable() {
 		t.Fatalf("chunk conflict classification=%+v", got)
+	}
+}
+
+type recordingIngestionRepository struct {
+	*memoryIngestionRepository
+	stage   string
+	code    string
+	message string
+}
+
+func (repository *recordingIngestionRepository) RecordVersionFailure(_ context.Context, _ uint64, _ uint64, stage, code, message string, _ time.Time) error {
+	repository.stage, repository.code, repository.message = stage, code, message
+	return nil
+}
+
+func TestRetryableIngestionFailureRecordsRootCause(t *testing.T) {
+	repository := &recordingIngestionRepository{memoryIngestionRepository: newMemoryIngestionRepository(memoryVersion(7, DocumentVersionProcessing))}
+	service := NewDocumentIndexService(DocumentIndexDependencies{Repository: repository})
+	work := DocumentIndexWork{Version: ContextDocumentVersion{ID: 7}, Lease: VersionLease{Token: 11}}
+
+	err := service.failAttempt(context.Background(), work, context.DeadlineExceeded)
+	classified := classifyIngestionError(err)
+	if classified == nil || !classified.Retryable() {
+		t.Fatalf("classified=%+v, want retryable error", classified)
+	}
+	if repository.stage != "index" || repository.code != "ai.context.document_index_failed" || repository.message != "context deadline exceeded" {
+		t.Fatalf("recorded stage=%q code=%q message=%q", repository.stage, repository.code, repository.message)
 	}
 }
 

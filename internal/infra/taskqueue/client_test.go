@@ -163,6 +163,12 @@ func TestNormalizePassesExplicitTaskIdentityToAsynq(t *testing.T) {
 	assertOption(t, opts, asynq.TaskID("context-version-42"))
 }
 
+func TestIsDuplicateTaskAcceptsExplicitTaskIDConflict(t *testing.T) {
+	if !IsDuplicateTask(asynq.ErrTaskIDConflict) {
+		t.Fatal("explicit task ID conflict must be treated as an idempotent duplicate")
+	}
+}
+
 func TestNormalizeTaskRejectsExplicitQueueRetryTimeoutAndUniqueTTL(t *testing.T) {
 	client := &Client{
 		registry: registeredTestTask(t, "system:no-op:v1", QueueDefault, DefaultMaxRetry, DefaultTimeout, 0),

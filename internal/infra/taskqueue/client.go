@@ -25,7 +25,7 @@ var (
 )
 
 func IsDuplicateTask(err error) bool {
-	return errors.Is(err, asynq.ErrDuplicateTask)
+	return errors.Is(err, asynq.ErrDuplicateTask) || errors.Is(err, asynq.ErrTaskIDConflict)
 }
 
 // Task is the project-owned queue contract. Business code should build this

@@ -114,6 +114,7 @@ type IngestionRepository interface {
 	UpsertImmutableChunks(context.Context, uint64, uint64, []Chunk, time.Time) ([]PersistedChunk, error)
 	ActivateVersion(context.Context, VersionActivation) error
 	FailVersion(context.Context, uint64, uint64, string, string, string, time.Time) error
+	RecordVersionFailure(context.Context, uint64, uint64, string, string, string, time.Time) error
 	FinalizeVersion(context.Context, DocumentIndexAttempt, string, bool, time.Time) error
 	ListReconcileCandidates(context.Context, time.Time, int) ([]ReconcileCandidate, error)
 }
@@ -187,13 +188,7 @@ func (service *DocumentIndexService) IndexDocument(ctx context.Context, versionI
 		return attempt, service.failAttempt(ctx, work, err)
 	}
 	if err := service.runPipeline(ctx, work); err != nil {
-		classified := classifyIngestionError(err)
-		if classified != nil && !classified.Retryable() {
-			if failErr := service.deps.Repository.FailVersion(ctx, versionID, work.Lease.Token, failureStage(err), classified.Code, classified.Message, service.deps.Now().UTC()); failErr != nil {
-				return attempt, classifyIngestionError(failErr)
-			}
-		}
-		return attempt, classified
+		return attempt, service.failAttempt(ctx, work, err)
 	}
 	return attempt, nil
 }
@@ -217,7 +212,13 @@ func (service *DocumentIndexService) FinalizeDocumentIndex(ctx context.Context, 
 
 func (service *DocumentIndexService) failAttempt(ctx context.Context, work DocumentIndexWork, cause error) error {
 	classified := classifyIngestionError(cause)
-	if classified == nil || classified.Retryable() {
+	if classified == nil {
+		return classified
+	}
+	if classified.Retryable() {
+		if err := service.deps.Repository.RecordVersionFailure(ctx, work.Version.ID, work.Lease.Token, failureStage(cause), classified.Code, retryableFailureMessage(cause, classified), service.deps.Now().UTC()); err != nil {
+			return classifyIngestionError(err)
+		}
 		return classified
 	}
 	if err := service.deps.Repository.FailVersion(ctx, work.Version.ID, work.Lease.Token, failureStage(cause), classified.Code, classified.Message, service.deps.Now().UTC()); err != nil {
@@ -437,7 +438,7 @@ func failureStage(err error) string {
 		return "chunk"
 	case errors.Is(err, ErrEmbeddingDimension), errors.Is(err, infraai.ErrEmbeddingFailed):
 		return "embedding"
-	case errors.Is(err, storage.ErrConditionalObjectVersionChanged):
+	case errors.Is(err, storage.ErrConditionalObjectVersionChanged), errors.Is(err, storage.ErrConditionalObjectUnavailable):
 		return "source"
 	default:
 		return "index"
@@ -482,6 +483,7 @@ func (repository *GormIngestionRepository) AcquireVersionLease(ctx context.Conte
 	if repository == nil || repository.db == nil || versionID == 0 || duration <= 0 {
 		return DocumentIndexWork{}, "", ErrDocumentIndexNotConfigured
 	}
+	var work DocumentIndexWork
 	var lease VersionLease
 	disposition := LeaseAcquired
 	err := repository.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -516,16 +518,18 @@ func (repository *GormIngestionRepository) AcquireVersionLease(ctx context.Conte
 			return ErrVersionLeaseLost
 		}
 		lease = VersionLease{Token: token, AttemptCount: row.AttemptCount + 1, ExpiresAt: expires}
+		loaded, err := (&GormIngestionRepository{db: tx}).loadWork(ctx, versionID)
+		if err != nil {
+			disposition = ""
+			return err
+		}
+		loaded.Lease = lease
+		work = loaded
 		return nil
 	})
 	if err != nil || disposition != LeaseAcquired {
 		return DocumentIndexWork{}, disposition, err
 	}
-	work, err := repository.loadWork(ctx, versionID)
-	if err != nil {
-		return DocumentIndexWork{}, "", err
-	}
-	work.Lease = lease
 	return work, disposition, nil
 }
 
@@ -749,14 +753,18 @@ func (repository *GormIngestionRepository) loadWork(ctx context.Context, version
 		}
 		work.Platform, work.SpaceID = space.Platform, space.ID
 	} else if document.ConversationID != nil {
-		var conversation struct {
+		if document.SourceMessageID == nil {
+			return DocumentIndexWork{}, ErrVersionLeaseLost
+		}
+		var sourceRun struct {
 			Platform string `gorm:"column:platform"`
 			UserID   uint64 `gorm:"column:user_id"`
 		}
-		if err := repository.db.WithContext(ctx).Table("ai_conversations").Select("platform, user_id").Where("id = ?", *document.ConversationID).Take(&conversation).Error; err != nil {
+		if err := repository.db.WithContext(ctx).Table("ai_runs AS source_run").Select("source_run.platform, source_run.user_id").
+			Where("source_run.conversation_id = ? AND source_run.user_message_id = ?", *document.ConversationID, *document.SourceMessageID).Take(&sourceRun).Error; err != nil {
 			return DocumentIndexWork{}, err
 		}
-		work.Platform, work.ConversationID, work.UserID = conversation.Platform, *document.ConversationID, conversation.UserID
+		work.Platform, work.ConversationID, work.UserID = sourceRun.Platform, *document.ConversationID, sourceRun.UserID
 	}
 	return work, nil
 }
@@ -893,7 +901,8 @@ func (repository *GormIngestionRepository) ActivateVersion(ctx context.Context, 
 		}
 		updates := map[string]any{"state": DocumentVersionReady, "source_sha256": input.SourceSHA256[:], "chunk_count": input.ChunkCount,
 			"embedding_input_token_upper_bound": input.EmbeddingInputTokenUpperBound, "embedding_request_count": input.EmbeddingRequestCount,
-			"embedding_input_tokens": input.EmbeddingInputTokens, "finished_at": input.FinishedAt, "lease_token": nil, "lease_expires_at": nil}
+			"embedding_input_tokens": input.EmbeddingInputTokens, "failure_stage": nil, "error_code": nil, "error_message": nil,
+			"finished_at": input.FinishedAt, "lease_token": nil, "lease_expires_at": nil}
 		if err := tx.Model(&ingestionVersionRow{}).Where("id = ?", input.VersionID).Updates(updates).Error; err != nil {
 			return err
 		}
@@ -919,6 +928,19 @@ func (repository *GormIngestionRepository) FailVersion(ctx context.Context, vers
 	return nil
 }
 
+func (repository *GormIngestionRepository) RecordVersionFailure(ctx context.Context, versionID, token uint64, stage, code, message string, now time.Time) error {
+	result := repository.db.WithContext(ctx).Model(&ingestionVersionRow{}).
+		Where("id = ? AND state = ? AND lease_token = ? AND lease_expires_at > ?", versionID, DocumentVersionProcessing, token, now).
+		Updates(map[string]any{"failure_stage": stage, "error_code": code, "error_message": sanitizeFailure(message)})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return ErrVersionLeaseLost
+	}
+	return nil
+}
+
 func (repository *GormIngestionRepository) FinalizeVersion(ctx context.Context, attempt DocumentIndexAttempt, code string, requireExpiredLease bool, now time.Time) error {
 	query := repository.db.WithContext(ctx).Model(&ingestionVersionRow{}).
 		Where("id = ? AND state = ? AND attempt_count = ? AND lease_token = ?", attempt.VersionID, DocumentVersionProcessing, attempt.AttemptCount, attempt.LeaseToken)
@@ -928,8 +950,11 @@ func (repository *GormIngestionRepository) FinalizeVersion(ctx context.Context, 
 		query = query.Where("lease_expires_at > ?", now)
 	}
 	result := query.
-		Updates(map[string]any{"state": DocumentVersionFailed, "failure_stage": "index", "error_code": code,
-			"error_message": "context document indexing retry budget exhausted", "finished_at": now, "lease_token": nil, "lease_expires_at": nil})
+		Updates(map[string]any{"state": DocumentVersionFailed,
+			"failure_stage": gorm.Expr("COALESCE(NULLIF(failure_stage, ''), ?)", "index"),
+			"error_code":    gorm.Expr("COALESCE(NULLIF(error_code, ''), ?)", code),
+			"error_message": gorm.Expr("COALESCE(NULLIF(error_message, ''), ?)", "context document indexing retry budget exhausted"),
+			"finished_at":   now, "lease_token": nil, "lease_expires_at": nil})
 	if result.Error != nil {
 		return result.Error
 	}
@@ -971,6 +996,16 @@ func sanitizeFailure(message string) string {
 		message = message[:512]
 	}
 	return message
+}
+
+func retryableFailureMessage(cause error, classified *apperror.Error) string {
+	if classified != nil && classified.Cause != nil {
+		return sanitizeFailure(classified.Cause.Error())
+	}
+	if cause != nil {
+		return sanitizeFailure(cause.Error())
+	}
+	return "context document indexing failed"
 }
 
 type GormEmbeddingResolver struct {
