@@ -5746,7 +5746,7 @@
           "fusion_score": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Go_internal_module_ai_contextengine_FixedScore_Output"
+                "type": "string"
               },
               {
                 "type": "null"
@@ -5762,7 +5762,7 @@
           "rerank_score": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Go_internal_module_ai_contextengine_FixedScore_Output"
+                "type": "string"
               },
               {
                 "type": "null"
@@ -5787,11 +5787,6 @@
           "source_type",
           "token_upper_bound"
         ],
-        "type": "object"
-      },
-      "Go_internal_module_ai_contextengine_FixedScore_Output": {
-        "additionalProperties": false,
-        "properties": {},
         "type": "object"
       },
       "Go_internal_module_ai_contextengine_ProfileListResponse_Output": {
@@ -5843,7 +5838,7 @@
             "type": "integer"
           },
           "score": {
-            "$ref": "#/components/schemas/Go_internal_module_ai_contextengine_FixedScore_Output"
+            "type": "string"
           },
           "variant_id": {
             "type": "string"

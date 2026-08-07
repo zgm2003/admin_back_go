@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"admin_back_go/internal/module/ai/contextengine"
 	aiprovider "admin_back_go/internal/module/ai/provider"
 	"admin_back_go/internal/server/adminroute"
 	"admin_back_go/internal/shared/enum"
@@ -38,6 +39,10 @@ type modeledResponse struct {
 	List []modeledItem `json:"list"`
 }
 
+type modeledFixedScoreResponse struct {
+	Score contextengine.FixedScore `json:"score"`
+}
+
 type modeledDiveRequest struct {
 	Values []string `json:"values" binding:"omitempty,min=1,dive,required,max=32"`
 }
@@ -46,6 +51,31 @@ func TestModelFieldRequiredStopsAtDive(t *testing.T) {
 	field := reflect.TypeOf(modeledDiveRequest{}).Field(0)
 	if modelFieldRequired(modelSchemaInput, field, false, modelValidationTokens(field)) {
 		t.Fatal("element-level required made the parent array required")
+	}
+}
+
+func TestOpenAPIGeneratesFixedScoreAsJSONString(t *testing.T) {
+	document, err := buildOpenAPI([]adminroute.Definition{{
+		Method:      http.MethodGet,
+		Path:        "/api/admin/v1/modeled-fixed-score",
+		OperationID: "get_api_admin_v1_modeled_fixed_score",
+		Access:      adminroute.Authenticated(),
+		Audit:       adminroute.NoAudit("contract test"),
+		Contract: &adminroute.HTTPContract{
+			Response: modeledFixedScoreResponse{},
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawComponents := document["components"].(map[string]any)["schemas"].(map[string]any)
+	components := make(map[string]map[string]any, len(rawComponents))
+	for name, raw := range rawComponents {
+		components[name] = raw.(map[string]any)
+	}
+	score := openAPIPropertySchema(t, components, "Go_internal_admincontract_modeledFixedScoreResponse_Output", "score")
+	if score["type"] != "string" {
+		t.Fatalf("FixedScore JSON schema=%#v, want string", score)
 	}
 }
 

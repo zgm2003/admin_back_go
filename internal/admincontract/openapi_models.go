@@ -9,6 +9,7 @@ import (
 	"strings"
 	"unicode"
 
+	"admin_back_go/internal/module/ai/contextengine"
 	mailmodule "admin_back_go/internal/module/mail"
 	"admin_back_go/internal/server/adminroute"
 	"admin_back_go/internal/shared/enum"
@@ -27,6 +28,7 @@ type modelSchemaKey struct {
 }
 
 var (
+	contextFixedScoreType                      = reflect.TypeOf(contextengine.FixedScore{})
 	mailDiagnosticLogDTOType                   = reflect.TypeOf(mailmodule.LogDTO{})
 	mailDiagnosticVerificationCodeStatusSchema = stringEnumSchema(
 		mailmodule.VerificationCodeStatusSending,
@@ -196,6 +198,9 @@ func (builder *modelSchemaBuilder) schemaForType(typeOf reflect.Type, mode model
 			return nil, err
 		}
 		return nullableSchema(schema), nil
+	}
+	if typeOf == contextFixedScoreType {
+		return stringSchema(), nil
 	}
 	if typeOf.Kind() == reflect.Struct && typeOf.Name() != "" && !inline {
 		return builder.componentReference(typeOf, mode)
