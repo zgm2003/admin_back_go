@@ -279,7 +279,7 @@ embedding_token_counter_id    VARCHAR(64) NULL
 
 新结构化 `models` 以 `(model_id, model_kind)` 去重；相同 model ID 的不同用途可以独立存在。显示名称、状态和 Embedding 规格都放在各自模型项内，不能继续用仅以 model ID 为键的 Map 表达新数据。
 
-旧 `model_ids`、`model_display_names` 和 `statuses` 输入保留为兼容入口，只能表达 Chat 模型；新管理端统一提交完整 `models`。旧形状与新形状不能同时提交。
+旧 `model_ids + model_display_names + statuses` 输入保留为兼容入口，只能表达 Chat 模型。当前已经上线的 `models[{model_id, model_kind}] + model_display_names + statuses` 混合形状也保留一个兼容周期：它只能按 model ID 去重，不能携带行 `id`、`display_name`、`status` 或 Embedding 规格。新管理端统一提交完整 `models`；完整行与两个旧 Map 同时出现时返回 400，`model_ids` 与 `models` 同时出现也返回 400。
 
 ### 6.4 引用保护
 
@@ -544,7 +544,8 @@ Qdrant 不参与此接口，也不能作为权限判断来源。
 
 - 现有响应字段只增不删；新增 `model_kind`/Embedding 规格后重新生成 Admin OpenAPI 和前端类型。
 - 旧 `model_ids` 输入继续只表示 Chat，保持旧调用者可用。
-- 旧 `model_display_names` / `statuses` Map 只服务旧 Chat 形状；新结构化 `models` 内联显示名称、状态和规格，避免相同 model ID 不同用途互相覆盖。
+- 当前前端使用的旧混合形状 `models + model_display_names + statuses` 继续可用一个兼容周期；服务端只在行内 `id/display_name/status/Embedding` 规格全部缺省时读取 Map，避免把新旧语义混在一起。
+- 新结构化 `models` 内联稳定行 ID、显示名称、状态和规格，不读取旧 Map，避免相同 model ID 不同用途互相覆盖。
 - 旧 Profile 创建请求中的 Embedding 三项在一个兼容周期内允许继续提交，但必须与选中 Provider Model 规格完全一致；不一致返回 409，绝不静默忽略。
 - 新前端不再提交这三项，由后端复制。
 - 历史 Agent、Run、Attempt、Task 和账单快照结构不改变。
