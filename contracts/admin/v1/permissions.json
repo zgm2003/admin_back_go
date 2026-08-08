@@ -909,6 +909,19 @@
       }
     },
     {
+      "operation_id": "ai_context_document_version_preview",
+      "method": "GET",
+      "path": "/api/admin/v1/ai/context-document-versions/:id/preview",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_context_view"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
       "operation_id": "ai_context_document_delete",
       "method": "DELETE",
       "path": "/api/admin/v1/ai/context-documents/:id",

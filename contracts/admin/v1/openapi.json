@@ -4075,6 +4075,13 @@
           "model_id": {
             "type": "string"
           },
+          "model_kind": {
+            "enum": [
+              "chat",
+              "image"
+            ],
+            "type": "string"
+          },
           "name": {
             "type": "string"
           },
@@ -4147,6 +4154,7 @@
           "id",
           "model_display_name",
           "model_id",
+          "model_kind",
           "name",
           "override_version",
           "provider_id",
@@ -4340,6 +4348,13 @@
           "model_id": {
             "type": "string"
           },
+          "model_kind": {
+            "enum": [
+              "chat",
+              "image"
+            ],
+            "type": "string"
+          },
           "name": {
             "type": "string"
           },
@@ -4412,6 +4427,7 @@
           "id",
           "model_display_name",
           "model_id",
+          "model_kind",
           "name",
           "override_version",
           "provider_id",
@@ -4629,6 +4645,13 @@
           "model_id": {
             "type": "string"
           },
+          "model_kind": {
+            "enum": [
+              "chat",
+              "image"
+            ],
+            "type": "string"
+          },
           "official_model": {
             "anyOf": [
               {
@@ -4667,6 +4690,7 @@
           "display_name",
           "label",
           "model_id",
+          "model_kind",
           "override_version",
           "provider_id",
           "value"
@@ -4731,6 +4755,13 @@
           },
           "model_id": {
             "type": "string"
+          },
+          "model_kind": {
+            "enum": [
+              "chat",
+              "image"
+            ],
+            "type": "string"
           }
         },
         "required": [
@@ -4740,7 +4771,8 @@
           "lifecycle_status",
           "max_output_tokens",
           "model_family",
-          "model_id"
+          "model_id",
+          "model_kind"
         ],
         "type": "object"
       },
@@ -4793,7 +4825,8 @@
             "enum": [
               "chat",
               "embedding",
-              "rerank"
+              "rerank",
+              "image"
             ],
             "type": "string"
           },
@@ -5717,6 +5750,44 @@
         ],
         "type": "object"
       },
+      "Go_internal_module_ai_contextengine_DocumentVersionPreviewResponse_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "expires_in": {
+            "type": "integer"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "mime_type": {
+            "type": "string"
+          },
+          "preview_kind": {
+            "enum": [
+              "text",
+              "markdown",
+              "pdf",
+              "external"
+            ],
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "expires_in",
+          "filename",
+          "mime_type",
+          "preview_kind",
+          "size_bytes",
+          "url"
+        ],
+        "type": "object"
+      },
       "Go_internal_module_ai_contextengine_EvaluationItemDTO_Output": {
         "additionalProperties": false,
         "properties": {
@@ -5807,6 +5878,36 @@
       "Go_internal_module_ai_contextengine_ProviderModelOptionDTO_Output": {
         "additionalProperties": false,
         "properties": {
+          "embedding_dimensions": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "embedding_max_input_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "embedding_token_counter_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "label": {
             "type": "string"
           },
@@ -5942,6 +6043,26 @@
         ],
         "type": "object"
       },
+      "Go_internal_module_ai_officialmodel_EmbeddingSpec_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "dimensions": {
+            "type": "integer"
+          },
+          "max_input_tokens": {
+            "type": "integer"
+          },
+          "token_counter_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "dimensions",
+          "max_input_tokens",
+          "token_counter_id"
+        ],
+        "type": "object"
+      },
       "Go_internal_module_ai_officialmodel_ImageInputCapability_Output": {
         "additionalProperties": false,
         "properties": {
@@ -6023,6 +6144,16 @@
           "effective": {
             "$ref": "#/components/schemas/Go_internal_module_ai_officialmodel_PriceDTO_Output"
           },
+          "embedding_spec": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Go_internal_module_ai_officialmodel_EmbeddingSpec_Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "lifecycle_status": {
             "type": "string"
           },
@@ -6033,6 +6164,15 @@
             "type": "string"
           },
           "model_id": {
+            "type": "string"
+          },
+          "model_kind": {
+            "enum": [
+              "chat",
+              "embedding",
+              "rerank",
+              "image"
+            ],
             "type": "string"
           },
           "model_source_url": {
@@ -6065,10 +6205,12 @@
           "context_tier_threshold_tokens",
           "context_window_tokens",
           "effective",
+          "embedding_spec",
           "lifecycle_status",
           "max_output_tokens",
           "model_family",
           "model_id",
+          "model_kind",
           "model_source_url",
           "official",
           "pricing_profile",
@@ -6356,7 +6498,62 @@
           "display_name": {
             "type": "string"
           },
+          "embedding_dimensions": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "embedding_max_input_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "embedding_token_counter_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mapping_status": {
+            "type": "string"
+          },
           "model_id": {
+            "type": "string"
+          },
+          "model_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "enum": [
+              "chat",
+              "embedding",
+              "rerank",
+              "image"
+            ]
+          },
+          "official_catalog_version": {
+            "type": "string"
+          },
+          "official_model_id": {
             "type": "string"
           },
           "owned_by": {
@@ -6365,6 +6562,7 @@
         },
         "required": [
           "display_name",
+          "mapping_status",
           "model_id",
           "owned_by"
         ],
@@ -6513,6 +6711,36 @@
           "display_name": {
             "type": "string"
           },
+          "embedding_dimensions": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "embedding_max_input_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "embedding_token_counter_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "id": {
             "type": "integer"
           },
@@ -6529,7 +6757,8 @@
             "enum": [
               "chat",
               "embedding",
-              "rerank"
+              "rerank",
+              "image"
             ],
             "type": "string"
           },
@@ -6555,6 +6784,9 @@
         "required": [
           "created_at",
           "display_name",
+          "embedding_dimensions",
+          "embedding_max_input_tokens",
+          "embedding_token_counter_id",
           "id",
           "mapped_at",
           "mapping_status",
@@ -6572,6 +6804,59 @@
       "Go_internal_module_ai_provider_ProviderModelInput_Input": {
         "additionalProperties": false,
         "properties": {
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "maxLength": 191
+          },
+          "embedding_dimensions": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "embedding_max_input_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "embedding_token_counter_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "maxLength": 64
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "minimum": 1
+          },
           "model_id": {
             "maxLength": 191,
             "type": "string"
@@ -6580,9 +6865,24 @@
             "enum": [
               "chat",
               "embedding",
-              "rerank"
+              "rerank",
+              "image"
             ],
             "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "enum": [
+              1,
+              2
+            ]
           }
         },
         "required": [
@@ -12580,6 +12880,27 @@
         ],
         "type": "object"
       },
+      "ai_context_document_version_preview_ResponseEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": 0,
+            "type": "integer"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Go_internal_module_ai_contextengine_DocumentVersionPreviewResponse_Output"
+          },
+          "msg": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "data",
+          "msg"
+        ],
+        "type": "object"
+      },
       "ai_context_document_versions_list_ResponseEnvelope": {
         "additionalProperties": false,
         "properties": {
@@ -12753,10 +13074,7 @@
         "required": [
           "dense_distance",
           "dense_min_score",
-          "embedding_dimensions",
-          "embedding_max_input_tokens",
           "embedding_provider_model_id",
-          "embedding_token_counter_id",
           "name"
         ],
         "type": "object"
@@ -21742,6 +22060,9 @@
           "action": "create",
           "title": "新增AI供应商"
         },
+        "x-admin-parameter-rules": [
+          "Submit exactly one provider model catalog shape: legacy model_ids/model_display_names/statuses or typed complete models rows."
+        ],
         "x-runtime-path": "/api/admin/v1/ai-providers"
       }
     },
@@ -21969,6 +22290,9 @@
           "action": "update",
           "title": "编辑AI供应商"
         },
+        "x-admin-parameter-rules": [
+          "Submit exactly one provider model catalog shape: legacy model_ids/model_display_names/statuses or typed complete models rows."
+        ],
         "x-runtime-path": "/api/admin/v1/ai-providers/:id"
       }
     },
@@ -22151,6 +22475,9 @@
           "action": "update_models",
           "title": "编辑AI供应商模型"
         },
+        "x-admin-parameter-rules": [
+          "Submit exactly one provider model catalog shape: legacy model_ids/model_display_names/statuses or typed complete models rows."
+        ],
         "x-runtime-path": "/api/admin/v1/ai-providers/:id/models"
       }
     },
@@ -23774,6 +24101,63 @@
           "title": "修改AI智能体上下文空间"
         },
         "x-runtime-path": "/api/admin/v1/ai/agents/:id/context-spaces"
+      }
+    },
+    "/api/admin/v1/ai/context-document-versions/{id}/preview": {
+      "get": {
+        "operationId": "ai_context_document_version_preview",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ai_context_document_version_preview_ResponseEnvelope"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Classified safe error response"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "GET /api/admin/v1/ai/context-document-versions/:id/preview",
+        "tags": [
+          "ai"
+        ],
+        "x-admin-access": {
+          "kind": "permission",
+          "permission_code": "ai_context_view"
+        },
+        "x-admin-audit": {
+          "enabled": false,
+          "reason": "read-only"
+        },
+        "x-runtime-path": "/api/admin/v1/ai/context-document-versions/:id/preview"
       }
     },
     "/api/admin/v1/ai/context-documents/{id}": {
