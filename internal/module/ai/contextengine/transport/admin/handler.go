@@ -47,6 +47,10 @@ type evaluationService interface {
 	Evaluate(context.Context, contextengine.EvaluationRequest) (*contextengine.ContextEvaluationResponse, *apperror.Error)
 }
 
+type documentPreviewService interface {
+	PreviewDocumentVersion(context.Context, string, uint64) (*contextengine.DocumentVersionPreviewResponse, *apperror.Error)
+}
+
 type Handler struct {
 	platform string
 	service  HTTPService
@@ -339,6 +343,22 @@ func (handler *Handler) ReindexDocument(c *gin.Context) {
 		return
 	}
 	result, appErr := handler.service.ReindexDocument(c.Request.Context(), handler.platform, id)
+	write(c, result, appErr)
+}
+
+func (handler *Handler) PreviewDocumentVersion(c *gin.Context) {
+	service, ok := handler.service.(documentPreviewService)
+	if !ok {
+		unsupported(c)
+		return
+	}
+	id, valid := routeID(c)
+	if !valid {
+		return
+	}
+	c.Header("Cache-Control", "no-store, private")
+	c.Header("Pragma", "no-cache")
+	result, appErr := service.PreviewDocumentVersion(c.Request.Context(), handler.platform, id)
 	write(c, result, appErr)
 }
 func (handler *Handler) Evaluate(c *gin.Context) {

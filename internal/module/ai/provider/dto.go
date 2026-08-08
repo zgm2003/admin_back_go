@@ -78,25 +78,35 @@ type ProviderDTO struct {
 }
 
 type ProviderModelDTO struct {
-	ID                     uint64                      `json:"id"`
-	ProviderID             uint64                      `json:"provider_id"`
-	ModelID                string                      `json:"model_id"`
-	ModelKind              ModelKind                   `json:"model_kind" validate:"oneof=chat embedding rerank"`
-	DisplayName            string                      `json:"display_name"`
-	OfficialModelID        string                      `json:"official_model_id"`
-	OfficialCatalogVersion string                      `json:"official_catalog_version"`
-	MappingStatus          officialmodel.MappingStatus `json:"mapping_status"`
-	MappedAt               string                      `json:"mapped_at"`
-	Status                 int                         `json:"status"`
-	StatusName             string                      `json:"status_name"`
-	CreatedAt              string                      `json:"created_at"`
-	UpdatedAt              string                      `json:"updated_at"`
+	ID                      uint64                      `json:"id"`
+	ProviderID              uint64                      `json:"provider_id"`
+	ModelID                 string                      `json:"model_id"`
+	ModelKind               ModelKind                   `json:"model_kind" validate:"oneof=chat embedding rerank image"`
+	DisplayName             string                      `json:"display_name"`
+	OfficialModelID         string                      `json:"official_model_id"`
+	OfficialCatalogVersion  string                      `json:"official_catalog_version"`
+	MappingStatus           officialmodel.MappingStatus `json:"mapping_status"`
+	MappedAt                string                      `json:"mapped_at"`
+	EmbeddingDimensions     *uint32                     `json:"embedding_dimensions"`
+	EmbeddingMaxInputTokens *int64                      `json:"embedding_max_input_tokens"`
+	EmbeddingTokenCounterID *string                     `json:"embedding_token_counter_id"`
+	Status                  int                         `json:"status"`
+	StatusName              string                      `json:"status_name"`
+	CreatedAt               string                      `json:"created_at"`
+	UpdatedAt               string                      `json:"updated_at"`
 }
 
 type ModelOptionDTO struct {
-	ModelID     string `json:"model_id"`
-	DisplayName string `json:"display_name"`
-	OwnedBy     string `json:"owned_by"`
+	ModelID                 string                      `json:"model_id"`
+	DisplayName             string                      `json:"display_name"`
+	OwnedBy                 string                      `json:"owned_by"`
+	MappingStatus           officialmodel.MappingStatus `json:"mapping_status"`
+	OfficialModelID         string                      `json:"official_model_id,omitempty"`
+	OfficialCatalogVersion  string                      `json:"official_catalog_version,omitempty"`
+	ModelKind               *ModelKind                  `json:"model_kind,omitempty" validate:"omitempty,oneof=chat embedding rerank image"`
+	EmbeddingDimensions     *uint32                     `json:"embedding_dimensions,omitempty"`
+	EmbeddingMaxInputTokens *int64                      `json:"embedding_max_input_tokens,omitempty"`
+	EmbeddingTokenCounterID *string                     `json:"embedding_token_counter_id,omitempty"`
 }
 
 type ModelOptionsResponse struct {
@@ -136,8 +146,14 @@ type UpdateModelsInput struct {
 }
 
 type ProviderModelInput struct {
-	ModelID   string    `json:"model_id" binding:"required,max=191"`
-	ModelKind ModelKind `json:"model_kind" binding:"required,oneof=chat embedding rerank"`
+	ID                      *uint64   `json:"id,omitempty" binding:"omitempty,gt=0"`
+	ModelID                 string    `json:"model_id" binding:"required,max=191"`
+	ModelKind               ModelKind `json:"model_kind"`
+	DisplayName             *string   `json:"display_name,omitempty" binding:"omitempty,max=191"`
+	Status                  *int      `json:"status,omitempty" binding:"omitempty,oneof=1 2"`
+	EmbeddingDimensions     *uint32   `json:"embedding_dimensions,omitempty"`
+	EmbeddingMaxInputTokens *int64    `json:"embedding_max_input_tokens,omitempty"`
+	EmbeddingTokenCounterID *string   `json:"embedding_token_counter_id,omitempty" binding:"omitempty,max=64"`
 }
 
 type ProviderTester interface {

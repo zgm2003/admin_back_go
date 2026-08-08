@@ -5,9 +5,9 @@ import contextengine "admin_back_go/internal/module/ai/contextengine"
 type profileCreateRequest struct {
 	Name                     string  `json:"name" binding:"required"`
 	EmbeddingProviderModelID uint64  `json:"embedding_provider_model_id" binding:"required"`
-	EmbeddingDimensions      uint32  `json:"embedding_dimensions" binding:"required"`
-	EmbeddingMaxInputTokens  int64   `json:"embedding_max_input_tokens" binding:"required"`
-	EmbeddingTokenCounterID  string  `json:"embedding_token_counter_id" binding:"required"`
+	EmbeddingDimensions      uint32  `json:"embedding_dimensions"`
+	EmbeddingMaxInputTokens  int64   `json:"embedding_max_input_tokens"`
+	EmbeddingTokenCounterID  string  `json:"embedding_token_counter_id"`
 	DenseDistance            string  `json:"dense_distance" binding:"required"`
 	DenseMinScore            string  `json:"dense_min_score" binding:"required"`
 	RerankerProviderModelID  *uint64 `json:"reranker_provider_model_id"`

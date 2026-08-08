@@ -23,6 +23,8 @@ type IdentityMapping struct {
 	RequestedModelID string
 	OfficialModelID  string
 	CatalogVersion   string
+	ModelKind        ModelKind
+	EmbeddingSpec    *EmbeddingSpec
 	Status           MappingStatus
 	MappedAt         *time.Time
 }
@@ -64,9 +66,19 @@ func matchIdentity(catalog *Catalog, requestedModelID string, mappedAt time.Time
 		RequestedModelID: requestedModelID,
 		OfficialModelID:  model.ModelID,
 		CatalogVersion:   model.CatalogVersion,
+		ModelKind:        model.ModelKind,
+		EmbeddingSpec:    cloneEmbeddingSpec(model.EmbeddingSpec),
 		Status:           MappingStatusMapped,
 		MappedAt:         &mappedAt,
 	}
+}
+
+func cloneEmbeddingSpec(spec *EmbeddingSpec) *EmbeddingSpec {
+	if spec == nil {
+		return nil
+	}
+	cloned := *spec
+	return &cloned
 }
 
 func matcherCatalog(matcher *CatalogMatcher) *Catalog {

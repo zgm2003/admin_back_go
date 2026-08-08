@@ -14,7 +14,7 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-func TestListImageAgentsRequiresMappedChatProviderRoute(t *testing.T) {
+func TestListImageAgentsRequiresMappedImageProviderRoute(t *testing.T) {
 	sqlDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	if err != nil {
 		t.Fatalf("sqlmock.New: %v", err)
@@ -28,7 +28,7 @@ func TestListImageAgentsRequiresMappedChatProviderRoute(t *testing.T) {
 		t.Fatalf("gorm.Open: %v", err)
 	}
 	mock.ExpectQuery("JOIN ai_provider_models AS m ON .*m.model_kind = \\? AND m.status = \\? AND m.mapping_status = \\?").
-		WithArgs(enum.CommonNo, enum.CommonYes, aiprovider.ModelKindChat, enum.CommonYes, officialmodel.MappingStatusMapped, enum.CommonNo, enum.CommonYes, "image_generate").
+		WithArgs(enum.CommonNo, enum.CommonYes, aiprovider.ModelKindImage, enum.CommonYes, officialmodel.MappingStatusMapped, enum.CommonNo, enum.CommonYes, "image_generate").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "avatar"}))
 
 	if _, err := (&GormRepository{db: db}).ListImageAgents(context.Background(), "image_generate"); err != nil {
@@ -39,7 +39,7 @@ func TestListImageAgentsRequiresMappedChatProviderRoute(t *testing.T) {
 	}
 }
 
-func TestLoadAgentRuntimeRequiresMappedChatProviderRoute(t *testing.T) {
+func TestLoadAgentRuntimeRequiresMappedImageProviderRoute(t *testing.T) {
 	sqlDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	if err != nil {
 		t.Fatal(err)
@@ -53,7 +53,7 @@ func TestLoadAgentRuntimeRequiresMappedChatProviderRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 	mock.ExpectQuery("JOIN ai_provider_models AS m ON .*m.model_kind = \\? AND m.status = \\? AND m.mapping_status = \\?").
-		WithArgs(enum.CommonNo, aiprovider.ModelKindChat, enum.CommonYes, officialmodel.MappingStatusMapped, uint64(5), enum.CommonNo, 1).
+		WithArgs(enum.CommonNo, aiprovider.ModelKindImage, enum.CommonYes, officialmodel.MappingStatusMapped, uint64(5), enum.CommonNo, 1).
 		WillReturnRows(sqlmock.NewRows([]string{"agent_id", "model_id"}).AddRow(uint64(5), "gpt-5.6"))
 
 	runtime, err := (&GormRepository{db: db}).LoadAgentRuntime(context.Background(), 5)
@@ -61,6 +61,6 @@ func TestLoadAgentRuntimeRequiresMappedChatProviderRoute(t *testing.T) {
 		t.Fatalf("runtime=%#v err=%v", runtime, err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("image runtime did not pin chat model: %v", err)
+		t.Fatalf("image runtime did not pin image model: %v", err)
 	}
 }

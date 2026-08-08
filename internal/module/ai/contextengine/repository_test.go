@@ -43,6 +43,27 @@ func TestProviderModelOptionsQueryFiltersEnabledRowsAndKeepsStableOrder(t *testi
 	assertPlanMockExpectations(t, mock)
 }
 
+func TestFindDocumentVersionScopesVersionThroughDocumentAndSpace(t *testing.T) {
+	planRepository, mock, closeDB := newPlanRepositoryFixture(t)
+	defer closeDB()
+	repository := &GormAdminRepository{db: planRepository.db}
+
+	mock.ExpectQuery(`(?s)SELECT v\.\* FROM ai_context_document_versions AS v JOIN ai_context_documents AS d ON d\.id = v\.document_id AND d\.deleted_at IS NULL JOIN ai_context_spaces AS s ON s\.id = d\.space_id AND s\.deleted_at IS NULL WHERE v\.id = \? AND s\.platform = \?.*LIMIT \?`).
+		WithArgs(uint64(41), "admin", 1).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "document_id", "profile_id", "source_storage_provider", "source_object_key", "source_etag", "source_size_bytes", "source_mime_type", "source_filename", "state",
+		}).AddRow(uint64(41), uint64(31), uint64(21), "cos", "ai_context_documents/31/report.md", `"etag"`, int64(1024), "text/markdown", "report.md", "ready"))
+
+	version, err := repository.FindDocumentVersion(context.Background(), "admin", 41)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if version == nil || version.ID != 41 || version.DocumentID != 31 || version.SourceObjectKey != "ai_context_documents/31/report.md" {
+		t.Fatalf("document version = %#v", version)
+	}
+	assertPlanMockExpectations(t, mock)
+}
+
 func TestContextPlanItemRowsRoundTripConversationTurnBoundaries(t *testing.T) {
 	counter, err := infraai.ResolveTokenCounter(infraai.TokenCounterUTF8BytesV1)
 	if err != nil {

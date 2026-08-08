@@ -79,15 +79,18 @@ func (repository *GormAdminRepository) FindProviderModelCapability(ctx context.C
 		return nil, ErrPlanRepositoryNotConfigured
 	}
 	var row struct {
-		ID              uint64  `gorm:"column:id"`
-		Kind            string  `gorm:"column:model_kind"`
-		ModelStatus     int     `gorm:"column:model_status"`
-		ProviderStatus  int     `gorm:"column:provider_status"`
-		ProviderDeleted int     `gorm:"column:provider_deleted"`
-		OfficialModelID *string `gorm:"column:official_model_id"`
+		ID                      uint64  `gorm:"column:id"`
+		Kind                    string  `gorm:"column:model_kind"`
+		ModelStatus             int     `gorm:"column:model_status"`
+		ProviderStatus          int     `gorm:"column:provider_status"`
+		ProviderDeleted         int     `gorm:"column:provider_deleted"`
+		OfficialModelID         *string `gorm:"column:official_model_id"`
+		EmbeddingDimensions     *uint32 `gorm:"column:embedding_dimensions"`
+		EmbeddingMaxInputTokens *int64  `gorm:"column:embedding_max_input_tokens"`
+		EmbeddingTokenCounterID *string `gorm:"column:embedding_token_counter_id"`
 	}
 	err := repository.db.WithContext(ctx).Table("ai_provider_models AS pm").
-		Select("pm.id, pm.model_kind, pm.status AS model_status, pm.official_model_id, p.status AS provider_status, p.is_del AS provider_deleted").
+		Select("pm.id, pm.model_kind, pm.status AS model_status, pm.official_model_id, pm.embedding_dimensions, pm.embedding_max_input_tokens, pm.embedding_token_counter_id, p.status AS provider_status, p.is_del AS provider_deleted").
 		Joins("JOIN ai_providers AS p ON p.id = pm.provider_id").Where("pm.id = ?", id).Take(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
@@ -99,7 +102,7 @@ func (repository *GormAdminRepository) FindProviderModelCapability(ctx context.C
 	if row.OfficialModelID != nil {
 		officialID = strings.TrimSpace(*row.OfficialModelID)
 	}
-	return &ProviderModelCapability{ID: row.ID, Kind: aiprovider.ModelKind(row.Kind), Enabled: row.ModelStatus == enum.CommonYes, ProviderEnabled: row.ProviderStatus == enum.CommonYes && row.ProviderDeleted == enum.CommonNo, OfficialModelID: officialID}, nil
+	return &ProviderModelCapability{ID: row.ID, Kind: aiprovider.ModelKind(row.Kind), Enabled: row.ModelStatus == enum.CommonYes, ProviderEnabled: row.ProviderStatus == enum.CommonYes && row.ProviderDeleted == enum.CommonNo, OfficialModelID: officialID, EmbeddingDimensions: cloneUint32(row.EmbeddingDimensions), EmbeddingMaxInputTokens: cloneInt64(row.EmbeddingMaxInputTokens), EmbeddingTokenCounterID: cloneString(row.EmbeddingTokenCounterID)}, nil
 }
 
 func (repository *GormAdminRepository) ListProviderModelOptions(ctx context.Context) ([]ProviderModelOption, error) {
@@ -108,7 +111,7 @@ func (repository *GormAdminRepository) ListProviderModelOptions(ctx context.Cont
 	}
 	items := make([]ProviderModelOption, 0)
 	err := repository.db.WithContext(ctx).Table("ai_provider_models AS pm").
-		Select("pm.id, p.name AS provider_name, pm.model_id, pm.model_kind, pm.display_name").
+		Select("pm.id, p.name AS provider_name, pm.model_id, pm.model_kind, pm.display_name, pm.embedding_dimensions, pm.embedding_max_input_tokens, pm.embedding_token_counter_id").
 		Joins("JOIN ai_providers AS p ON p.id = pm.provider_id").
 		Where("pm.status = ? AND p.status = ? AND p.is_del = ?", enum.CommonYes, enum.CommonYes, enum.CommonNo).
 		Order("p.name ASC, pm.model_id ASC, pm.id ASC").
@@ -337,6 +340,27 @@ func (repository *GormAdminRepository) ListDocumentVersions(ctx context.Context,
 		items[index] = documentVersionDTO(row)
 	}
 	return items, nil
+}
+
+func (repository *GormAdminRepository) FindDocumentVersion(ctx context.Context, platform string, id uint64) (*ContextDocumentVersion, error) {
+	if repository == nil || repository.db == nil {
+		return nil, ErrPlanRepositoryNotConfigured
+	}
+	if id == 0 || strings.TrimSpace(platform) == "" {
+		return nil, nil
+	}
+	var version ContextDocumentVersion
+	err := repository.db.WithContext(ctx).Table("ai_context_document_versions AS v").Select("v.*").
+		Joins("JOIN ai_context_documents AS d ON d.id = v.document_id AND d.deleted_at IS NULL").
+		Joins("JOIN ai_context_spaces AS s ON s.id = d.space_id AND s.deleted_at IS NULL").
+		Where("v.id = ? AND s.platform = ?", id, platform).Take(&version).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &version, nil
 }
 
 func (repository *GormAdminRepository) UpdateDocumentStatus(ctx context.Context, platform string, id uint64, status string) (DocumentAdminDTO, error) {

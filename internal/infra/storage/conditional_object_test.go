@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"io"
 	"testing"
 )
@@ -16,6 +17,20 @@ func TestConditionalObjectContractIsBusinessNeutral(t *testing.T) {
 	}
 }
 
+func TestConditionalObjectPreviewContractValidatesPersistedFacts(t *testing.T) {
+	var previewer ConditionalObjectPreviewer = conditionalObjectPreviewStub{}
+	result, err := previewer.Preview(context.Background(), ConditionalObjectPreviewInput{
+		Object:   ConditionalObjectInput{StorageProvider: "cos", ObjectKey: "ai_context_documents/report.md", ETag: `"v1"`, Size: 4},
+		MIMEType: "text/markdown",
+	})
+	if err != nil || result.URL == "" || result.ExpiresIn != 300 || result.Metadata.MIMEType != "text/markdown" {
+		t.Fatalf("preview=%#v err=%v", result, err)
+	}
+	if err := (ConditionalObjectPreviewInput{Object: ConditionalObjectInput{StorageProvider: "cos", ObjectKey: "ai_context_documents/report.md", ETag: `"v1"`, Size: 4}, MIMEType: ""}).Validate(); !errors.Is(err, ErrInvalidConditionalObjectPreview) {
+		t.Fatalf("invalid MIME error=%v", err)
+	}
+}
+
 type conditionalObjectStub struct{}
 
 func (conditionalObjectStub) Head(context.Context, ConditionalObjectInput) (ConditionalObjectMetadata, error) {
@@ -23,4 +38,10 @@ func (conditionalObjectStub) Head(context.Context, ConditionalObjectInput) (Cond
 }
 func (conditionalObjectStub) Open(context.Context, ConditionalObjectInput) (io.ReadCloser, ConditionalObjectMetadata, error) {
 	return nil, ConditionalObjectMetadata{}, nil
+}
+
+type conditionalObjectPreviewStub struct{}
+
+func (conditionalObjectPreviewStub) Preview(context.Context, ConditionalObjectPreviewInput) (ConditionalObjectPreview, error) {
+	return ConditionalObjectPreview{URL: "https://cos.example/report.md?signature=secret", ExpiresIn: 300, Metadata: ConditionalObjectMetadata{ETag: `"v1"`, Size: 4, MIMEType: "text/markdown"}}, nil
 }

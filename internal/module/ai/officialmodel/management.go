@@ -187,6 +187,7 @@ func (service *Service) managementModel(ctx context.Context, model Model) (Offic
 	capabilities := model.Capabilities
 	return OfficialModelDTO{
 		CatalogVendor: model.CatalogVendor, ModelFamily: model.ModelFamily, ModelID: model.ModelID,
+		ModelKind: model.ModelKind, EmbeddingSpec: model.EmbeddingSpec,
 		Aliases: cloneStrings(model.Aliases), LifecycleStatus: model.LifecycleStatus, CatalogVersion: model.CatalogVersion,
 		ContextWindowTokens: model.ContextWindowTokens, MaxOutputTokens: model.MaxOutputTokens,
 		TokenCounterID:             model.TokenCounterID,

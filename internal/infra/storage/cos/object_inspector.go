@@ -16,13 +16,14 @@ import (
 )
 
 const (
-	trustedAIChatImagePrefix      = "ai_chat_images/"
-	trustedAIChatAttachmentPrefix = "ai_chat_attachments/"
+	trustedAIChatImagePrefix       = "ai_chat_images/"
+	trustedAIChatAttachmentPrefix  = "ai_chat_attachments/"
+	trustedAIContextDocumentPrefix = "ai_context_documents/"
 )
 
 var (
 	ErrObjectInspectorNotConfigured = errors.New("cos object inspector is not configured")
-	ErrUntrustedObjectKey           = errors.New("cos object key is outside the trusted AI chat attachment namespace")
+	ErrUntrustedObjectKey           = errors.New("cos object key is outside a trusted namespace")
 	ErrInvalidObjectMetadata        = errors.New("cos object metadata is invalid")
 	ErrInvalidGIF                   = errors.New("cos GIF object is invalid")
 	ErrAnimatedGIF                  = errors.New("animated GIF is not supported")
@@ -165,6 +166,23 @@ func TrustedAIChatObjectKey(key, attachmentType string) (string, error) {
 		}
 	}
 	return "", ErrUntrustedObjectKey
+}
+
+func TrustedAIContextDocumentObjectKey(key string) (string, error) {
+	trimmed := strings.TrimSpace(key)
+	if key != trimmed || trimmed == "" || strings.Contains(trimmed, "\\") || path.IsAbs(trimmed) ||
+		path.Clean(trimmed) != trimmed || !strings.HasPrefix(trimmed, trustedAIContextDocumentPrefix) ||
+		trimmed == trustedAIContextDocumentPrefix {
+		return "", ErrUntrustedObjectKey
+	}
+	return trimmed, nil
+}
+
+func trustedAIContextSourceObjectKey(key string) (string, error) {
+	if contextKey, err := TrustedAIContextDocumentObjectKey(key); err == nil {
+		return contextKey, nil
+	}
+	return TrustedAIChatObjectKey(key, "file")
 }
 
 func normalizeTrustedAIChatObjectKey(key string) (string, error) {

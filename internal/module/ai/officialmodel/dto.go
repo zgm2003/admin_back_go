@@ -76,6 +76,8 @@ type OfficialModelDTO struct {
 	CatalogVendor              string          `json:"catalog_vendor"`
 	ModelFamily                string          `json:"model_family"`
 	ModelID                    string          `json:"model_id"`
+	ModelKind                  ModelKind       `json:"model_kind" validate:"oneof=chat embedding rerank image"`
+	EmbeddingSpec              *EmbeddingSpec  `json:"embedding_spec"`
 	Aliases                    []string        `json:"aliases"`
 	LifecycleStatus            LifecycleStatus `json:"lifecycle_status"`
 	CatalogVersion             string          `json:"catalog_version"`

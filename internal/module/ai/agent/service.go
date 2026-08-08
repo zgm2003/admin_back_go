@@ -25,9 +25,10 @@ import (
 )
 
 const (
-	timeLayout         = "2006-01-02 15:04:05"
-	sceneChat          = "chat"
-	sceneAgentGenerate = "agent_generate"
+	timeLayout            = "2006-01-02 15:04:05"
+	sceneChat             = "chat"
+	sceneAgentGenerate    = "agent_generate"
+	supportedImageModelID = "gpt-image-2"
 )
 
 var sceneLabels = map[string]string{
@@ -114,7 +115,7 @@ func (s *Service) PageInit(ctx context.Context) (*InitResponse, *apperror.Error)
 			if label == "" {
 				label = model.ModelID
 			}
-			option := ModelOption{Label: label, Value: model.ModelID, ProviderID: row.ID, ModelID: model.ModelID, DisplayName: model.DisplayName, BillingMultiplier: "1"}
+			option := ModelOption{Label: label, Value: model.ModelID, ProviderID: row.ID, ModelID: model.ModelID, ModelKind: model.ModelKind, DisplayName: model.DisplayName, BillingMultiplier: "1"}
 			effective, capabilityErr := s.effectiveCapabilityDTO(row.EngineType, resolved.Model.Capabilities, row.APIProtocol, true, attachmentPolicy)
 			if capabilityErr != nil {
 				continue
@@ -212,7 +213,11 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (uint64, *apper
 	if appErr := s.ensureActiveProvider(ctx, repo, row.ProviderID); appErr != nil {
 		return 0, appErr
 	}
-	model, appErr := s.ensureProviderModel(ctx, repo, row.ProviderID, row.ModelID)
+	requiredKind, kindErr := requiredModelKind(decodeScenes(row.ScenesJSON))
+	if kindErr != nil {
+		return 0, agentModelSceneMismatch(kindErr)
+	}
+	model, appErr := s.ensureProviderModel(ctx, repo, row.ProviderID, row.ModelID, requiredKind)
 	if appErr != nil {
 		return 0, appErr
 	}
@@ -270,7 +275,7 @@ func (s *Service) Update(ctx context.Context, id uint64, input UpdateInput) *app
 	if appErr := s.ensureActiveProvider(ctx, repo, input.ProviderID); appErr != nil {
 		return appErr
 	}
-	model, appErr := s.ensureProviderModel(ctx, repo, input.ProviderID, fields.modelID)
+	model, appErr := s.ensureProviderModel(ctx, repo, input.ProviderID, fields.modelID, fields.requiredModelKind)
 	if appErr != nil {
 		return appErr
 	}
@@ -337,7 +342,11 @@ func (s *Service) Test(ctx context.Context, id uint64) (*infraai.TestConnectionR
 	if row.Status != enum.CommonYes {
 		return nil, apperror.BadRequest("AI智能体已禁用")
 	}
-	model, appErr := s.ensureProviderModel(ctx, repo, row.ProviderID, row.ModelID)
+	requiredKind, kindErr := requiredModelKind(decodeScenes(row.ScenesJSON))
+	if kindErr != nil {
+		return nil, agentModelSceneMismatch(kindErr)
+	}
+	model, appErr := s.ensureProviderModel(ctx, repo, row.ProviderID, row.ModelID, requiredKind)
 	if appErr != nil {
 		return nil, appErr
 	}
@@ -499,7 +508,7 @@ func sameOptionalUint64(left, right *uint64) bool {
 	return *left == *right
 }
 
-func (s *Service) ensureProviderModel(ctx context.Context, repo Repository, providerID uint64, modelID string) (*ProviderModel, *apperror.Error) {
+func (s *Service) ensureProviderModel(ctx context.Context, repo Repository, providerID uint64, modelID string, requiredKind aiprovider.ModelKind) (*ProviderModel, *apperror.Error) {
 	modelID = strings.TrimSpace(modelID)
 	if modelID == "" {
 		return nil, apperror.BadRequest("关联模型不能为空")
@@ -508,15 +517,30 @@ func (s *Service) ensureProviderModel(ctx context.Context, repo Repository, prov
 	if err != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI供应商模型失败", err)
 	}
+	matchedID := false
 	for _, model := range models {
-		if model.Status == enum.CommonYes && model.ModelKind == aiprovider.ModelKindChat && strings.TrimSpace(model.ModelID) == modelID {
+		if strings.TrimSpace(model.ModelID) != modelID {
+			continue
+		}
+		matchedID = true
+		if model.Status == enum.CommonYes && model.ModelKind == requiredKind {
+			if requiredKind == aiprovider.ModelKindImage && modelID != supportedImageModelID {
+				return nil, agentModelSceneMismatch(errors.New("image model adapter is not implemented"))
+			}
 			if model.MappingStatus != officialmodel.MappingStatusMapped || model.OfficialModelID == nil || model.OfficialCatalogVersion == nil || model.MappedAt == nil {
 				return nil, apperror.Wrap("ai.official_model.unmapped", apperror.CategoryConflict, 409, apperror.Permanent, "", nil, "该供应商模型未映射到官方模型", nil)
 			}
 			return &model, nil
 		}
 	}
+	if matchedID {
+		return nil, agentModelSceneMismatch(errors.New("provider model kind does not match agent scenes"))
+	}
 	return nil, apperror.BadRequest("关联模型不存在或已禁用")
+}
+
+func agentModelSceneMismatch(cause error) *apperror.Error {
+	return apperror.Wrap("ai.agent.model_scene_mismatch", apperror.CategoryConflict, 409, apperror.Permanent, "", nil, "智能体场景与模型用途不匹配", cause)
 }
 
 func normalizeListQuery(query ListQuery) ListQuery {
@@ -588,6 +612,7 @@ type normalizedFields struct {
 	status               int
 	billingMultiplierPPM int64
 	contextProfileID     *uint64
+	requiredModelKind    aiprovider.ModelKind
 }
 
 func normalizeMutationFields(input CreateInput) (normalizedFields, *apperror.Error) {
@@ -614,6 +639,10 @@ func normalizeMutationFields(input CreateInput) (normalizedFields, *apperror.Err
 	if appErr != nil {
 		return normalizedFields{}, appErr
 	}
+	requiredKind, err := requiredModelKind(decodeScenes(scenesJSON))
+	if err != nil {
+		return normalizedFields{}, agentModelSceneMismatch(err)
+	}
 	if len([]rune(systemPrompt)) > 20000 {
 		return normalizedFields{}, apperror.BadRequest("系统提示词不能超过20000个字符")
 	}
@@ -631,13 +660,13 @@ func normalizeMutationFields(input CreateInput) (normalizedFields, *apperror.Err
 	if err != nil {
 		return normalizedFields{}, apperror.BadRequest("billing_multiplier必须是大于0且最多6位小数的十进制数")
 	}
-	return normalizedFields{providerID: input.ProviderID, name: name, modelID: modelID, scenesJSON: scenesJSON, systemPrompt: systemPrompt, avatar: avatar, status: status, billingMultiplierPPM: multiplier, contextProfileID: input.ContextProfileID}, nil
+	return normalizedFields{providerID: input.ProviderID, name: name, modelID: modelID, scenesJSON: scenesJSON, systemPrompt: systemPrompt, avatar: avatar, status: status, billingMultiplierPPM: multiplier, contextProfileID: input.ContextProfileID, requiredModelKind: requiredKind}, nil
 }
 
 func (s *Service) agentDTO(ctx context.Context, row AgentWithProvider, attachmentPolicy requestAttachmentPolicy) (AgentDTO, error) {
 	scenes := decodeScenes(row.ScenesJSON)
 	multiplier := defaultMultiplier(row.BillingMultiplierPPM)
-	dto := AgentDTO{ID: row.ID, ProviderID: row.ProviderID, ProviderName: row.ProviderName, EngineType: row.EngineType, Name: row.Name, ModelID: row.ModelID, ModelDisplayName: row.ModelDisplayName, Scenes: scenes, SceneNames: sceneNames(scenes), SystemPrompt: row.SystemPrompt, Avatar: row.Avatar, Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt), BillingMultiplier: formatMultiplier(multiplier), ContextProfileID: row.ContextProfileID}
+	dto := AgentDTO{ID: row.ID, ProviderID: row.ProviderID, ProviderName: row.ProviderName, EngineType: row.EngineType, Name: row.Name, ModelID: row.ModelID, ModelKind: row.ProviderModelKind, ModelDisplayName: row.ModelDisplayName, Scenes: scenes, SceneNames: sceneNames(scenes), SystemPrompt: row.SystemPrompt, Avatar: row.Avatar, Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt), BillingMultiplier: formatMultiplier(multiplier), ContextProfileID: row.ContextProfileID}
 	model, err := s.resolveModelPrice(ctx, row.ModelID)
 	if err == nil {
 		effective, capabilityErr := s.effectiveCapabilityDTO(row.EngineType, model.Model.Capabilities, row.APIProtocol, row.providerRouteEnabled(), attachmentPolicy)
@@ -674,7 +703,7 @@ func applyModelPriceToAgent(dto *AgentDTO, model officialmodel.ResolvedModel, ef
 
 func officialModelSummary(model officialmodel.Model) *OfficialModelSummaryDTO {
 	return &OfficialModelSummaryDTO{
-		ModelID: model.ModelID, CatalogVersion: model.CatalogVersion, CatalogVendor: model.CatalogVendor, ModelFamily: model.ModelFamily,
+		ModelID: model.ModelID, ModelKind: model.ModelKind, CatalogVersion: model.CatalogVersion, CatalogVendor: model.CatalogVendor, ModelFamily: model.ModelFamily,
 		LifecycleStatus: model.LifecycleStatus, ContextWindowTokens: model.ContextWindowTokens, MaxOutputTokens: model.MaxOutputTokens,
 	}
 }
@@ -831,7 +860,7 @@ func (s *Service) resolveMappedProviderModel(ctx context.Context, route Provider
 		route.OfficialCatalogVersion == nil || route.MappedAt == nil {
 		return officialmodel.ResolvedModel{}, officialmodel.ErrModelUnmapped
 	}
-	return officialmodel.ResolveMappedRoute(
+	resolved, err := officialmodel.ResolveMappedRoute(
 		ctx,
 		s.pricingResolver,
 		route.ModelID,
@@ -839,6 +868,13 @@ func (s *Service) resolveMappedProviderModel(ctx context.Context, route Provider
 		strings.TrimSpace(*route.OfficialCatalogVersion),
 		route.MappingStatus,
 	)
+	if err != nil {
+		return officialmodel.ResolvedModel{}, err
+	}
+	if resolved.Model.ModelKind != route.ModelKind {
+		return officialmodel.ResolvedModel{}, officialmodel.ErrModelMappingStale
+	}
+	return resolved, nil
 }
 
 func (s *Service) resolveModelPrice(ctx context.Context, modelID string) (officialmodel.ResolvedModel, error) {
@@ -949,6 +985,21 @@ func stringOptions(values []string, labels map[string]string) []dict.Option[stri
 }
 
 func isScene(value string) bool { _, ok := sceneLabels[value]; return ok }
+
+func requiredModelKind(scenes []string) (aiprovider.ModelKind, error) {
+	if len(scenes) == 0 {
+		return aiprovider.ModelKindChat, nil
+	}
+	for _, scene := range scenes {
+		if scene == capability.SceneImageGenerate {
+			if len(scenes) != 1 {
+				return "", errors.New("image_generate must be the only scene")
+			}
+			return aiprovider.ModelKindImage, nil
+		}
+	}
+	return aiprovider.ModelKindChat, nil
+}
 
 func encodeScenes(values []string) (string, *apperror.Error) {
 	if len(values) == 0 {

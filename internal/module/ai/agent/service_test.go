@@ -254,12 +254,16 @@ func (f *fakeAIAgentTester) TestConnection(ctx context.Context, input infraai.Te
 
 func newTestAgentService(repository Repository, box secretbox.Box, tester ConnectionTester, options ...Option) *Service {
 	resolver := officialmodel.ResolverFunc(func(_ context.Context, modelID string) (officialmodel.ResolvedModel, error) {
+		modelKind := officialmodel.ModelKindChat
+		if modelID == supportedImageModelID {
+			modelKind = officialmodel.ModelKindImage
+		}
 		rates := []pricing.Rate{
 			{Category: pricing.InputTokens, Unit: "token", PriceUnits: 1, UnitScale: 1},
 			{Category: pricing.OutputTokens, Unit: "token", PriceUnits: 1, UnitScale: 1},
 		}
 		return officialmodel.ResolvedModel{
-			Model:          officialmodel.Model{CatalogVersion: "test-catalog", CatalogVendor: "openai", ModelID: modelID, LifecycleStatus: officialmodel.LifecycleActive, MaxOutputTokens: pricing.MaxSafeOutputTokens},
+			Model:          officialmodel.Model{CatalogVersion: "test-catalog", CatalogVendor: "openai", ModelID: modelID, ModelKind: modelKind, LifecycleStatus: officialmodel.LifecycleActive, ContextWindowTokens: 128000, MaxOutputTokens: pricing.MaxSafeOutputTokens},
 			EffectivePrice: pricing.PriceBook{ModelID: modelID, Rates: rates}, PriceSource: officialmodel.PriceSourceOfficial,
 			PriceSourceURL: "https://openai.com/pricing", PriceVerifiedAt: time.Date(2026, 7, 27, 0, 0, 0, 0, time.UTC),
 		}, nil
@@ -513,7 +517,7 @@ func TestCreateAcceptsCanonicalGenerationScenes(t *testing.T) {
 	repo := &fakeAIAgentRepository{
 		activeProviders: map[uint64]Provider{1: {ID: 1, Name: "OpenAI", EngineType: "openai", Status: enum.CommonYes, IsDel: enum.CommonNo}},
 		modelsByProvider: map[uint64][]ProviderModel{1: {
-			{ProviderID: 1, ModelID: "gpt-image-2", ModelKind: aiprovider.ModelKindChat, DisplayName: "GPT Image 2", Status: enum.CommonYes},
+			{ID: 18, ProviderID: 1, ModelID: "gpt-image-2", ModelKind: aiprovider.ModelKindImage, DisplayName: "GPT Image 2", Status: enum.CommonYes},
 		}},
 	}
 	service := newTestAgentService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
@@ -522,14 +526,14 @@ func TestCreateAcceptsCanonicalGenerationScenes(t *testing.T) {
 		ProviderID: 1,
 		Name:       "图片智能体",
 		ModelID:    "gpt-image-2",
-		Scenes:     []string{"text_generate", "image_generate"},
+		Scenes:     []string{"image_generate"},
 		Status:     enum.CommonYes,
 	})
 
 	if appErr != nil {
 		t.Fatalf("expected canonical generation scenes to be accepted, got %#v", appErr)
 	}
-	if repo.created == nil || repo.created.ScenesJSON != `["text_generate","image_generate"]` {
+	if repo.created == nil || repo.created.ScenesJSON != `["image_generate"]` {
 		t.Fatalf("canonical generation scenes were not persisted: %#v", repo.created)
 	}
 }
@@ -961,5 +965,23 @@ func TestPageInitModelOptionsExposeBillingDefaults(t *testing.T) {
 	option := result.Dict.ModelOptions[0]
 	if resolverCalls != 1 || option.BillingMultiplier != "1" || option.OfficialModel == nil || option.OfficialModel.MaxOutputTokens != 8192 || option.PricingVersion != "catalog-v3:override:2" || option.CatalogVersion != "catalog-v3" || option.PriceSource != "override" || option.OverrideVersion != 2 || len(option.CatalogRates) != 1 || option.CatalogRates[0].Price != "1.25" {
 		t.Fatalf("missing billing defaults: %#v", option)
+	}
+}
+
+func TestRequiredModelKindForScenes(t *testing.T) {
+	tests := []struct {
+		scenes []string
+		want   aiprovider.ModelKind
+		valid  bool
+	}{
+		{[]string{"chat", "agent_generate", "text_generate"}, aiprovider.ModelKindChat, true},
+		{[]string{"image_generate"}, aiprovider.ModelKindImage, true},
+		{[]string{"chat", "image_generate"}, "", false},
+	}
+	for _, test := range tests {
+		got, err := requiredModelKind(test.scenes)
+		if (err == nil) != test.valid || got != test.want {
+			t.Fatalf("scenes=%v kind=%q err=%v", test.scenes, got, err)
+		}
 	}
 }

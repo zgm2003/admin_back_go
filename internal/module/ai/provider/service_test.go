@@ -85,6 +85,10 @@ func (f *fakeRepository) ReconcileModels(ctx context.Context, providerID uint64,
 	return nil
 }
 
+func (f *fakeRepository) MergeDiscoveredModels(ctx context.Context, providerID uint64, models []ProviderModel) error {
+	return f.ReconcileModels(ctx, providerID, ModelReconcileAll, models)
+}
+
 func (f *fakeRepository) ListAllModels(context.Context) ([]ProviderModel, error) {
 	return append([]ProviderModel(nil), f.allModels...), nil
 }
@@ -134,10 +138,11 @@ func TestProviderSyncStoresExactOfficialModelMapping(t *testing.T) {
 	driver := &fakeModelDriver{models: []provider.Model{{ID: "gpt-4.1-mini", OwnedBy: "openai"}}}
 	service := NewServiceWithDriver(repo, box, nil, driver)
 
-	if _, appErr := service.SyncModels(context.Background(), 7); appErr != nil {
+	_, appErr := service.SyncModels(context.Background(), 7)
+	if appErr != nil {
 		t.Fatalf("sync failed: %v", appErr)
 	}
-	if repo.reconciledProviderID != 7 || repo.reconcileScope != ModelReconcileChatOnly || len(repo.reconciledModels) != 1 {
+	if repo.reconciledProviderID != 7 || repo.reconcileScope != ModelReconcileAll || len(repo.reconciledModels) != 1 {
 		t.Fatalf("persisted models=%#v provider=%d scope=%q", repo.reconciledModels, repo.reconciledProviderID, repo.reconcileScope)
 	}
 	mapping := repo.reconciledModels[0]
@@ -159,15 +164,19 @@ func TestProviderSyncLeavesCaseMismatchAndUnknownModelUnmapped(t *testing.T) {
 	driver := &fakeModelDriver{models: []provider.Model{{ID: "GPT-4.1-mini"}, {ID: "private-model"}}}
 	service := NewServiceWithDriver(repo, box, nil, driver)
 
-	if _, appErr := service.SyncModels(context.Background(), 7); appErr != nil {
+	result, appErr := service.SyncModels(context.Background(), 7)
+	if appErr != nil {
 		t.Fatalf("sync failed: %v", appErr)
 	}
-	if len(repo.reconciledModels) != 2 {
+	if len(repo.reconciledModels) != 0 {
 		t.Fatalf("persisted models=%#v", repo.reconciledModels)
 	}
-	for _, model := range repo.reconciledModels {
-		if model.MappingStatus != "unmapped" || model.OfficialModelID != nil || model.OfficialCatalogVersion != nil || model.MappedAt != nil {
-			t.Fatalf("model %q unexpectedly mapped: %#v", model.ModelID, model)
+	if appErr != nil || result == nil || len(result.List) != 2 {
+		t.Fatalf("unknown candidates=%#v error=%#v", result, appErr)
+	}
+	for _, candidate := range result.List {
+		if candidate.ModelKind != nil || candidate.MappingStatus != officialmodel.MappingStatusUnmapped {
+			t.Fatalf("candidate %q unexpectedly trusted: %#v", candidate.ModelID, candidate)
 		}
 	}
 }
@@ -462,14 +471,19 @@ func TestCreatePersistsSelectedModels(t *testing.T) {
 func TestCreateTypedModelsReconcilesCompleteCatalog(t *testing.T) {
 	repo := &fakeRepository{}
 	service := NewService(repo, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+	enabled, disabled := 1, 2
+	dimensions := uint32(3072)
+	maxInputTokens := int64(8192)
+	tokenCounterID := infraai.TokenCounterUTF8BytesV1
 
 	_, appErr := service.Create(context.Background(), CreateInput{
 		Name: "OpenAI", EngineType: "openai", APIKey: "sk-test",
 		APIProtocol: APIProtocolResponses, Status: 1,
 		Models: []ProviderModelInput{
-			{ModelID: "gpt-5.6", ModelKind: ModelKindChat},
-			{ModelID: "text-embedding-3-large", ModelKind: ModelKindEmbedding},
-			{ModelID: "rerank-v1", ModelKind: ModelKindRerank},
+			{ModelID: "gpt-5.6", ModelKind: ModelKindChat, Status: &enabled},
+			{ModelID: "text-embedding-3-large", ModelKind: ModelKindEmbedding, Status: &disabled,
+				EmbeddingDimensions: &dimensions, EmbeddingMaxInputTokens: &maxInputTokens, EmbeddingTokenCounterID: &tokenCounterID},
+			{ModelID: "rerank-v1", ModelKind: ModelKindRerank, Status: &enabled},
 		},
 	})
 	if appErr != nil {
@@ -482,6 +496,61 @@ func TestCreateTypedModelsReconcilesCompleteCatalog(t *testing.T) {
 		if repo.reconciledModels[index].ModelKind != want {
 			t.Fatalf("model %d kind=%q want=%q", index, repo.reconciledModels[index].ModelKind, want)
 		}
+	}
+}
+
+func TestCompleteProviderModelInputCarriesEmbeddingSpec(t *testing.T) {
+	displayName := "BGE M3"
+	status := 1
+	dimensions := uint32(1024)
+	maxInputTokens := int64(8192)
+	tokenCounterID := infraai.TokenCounterUTF8BytesV1
+	catalog, appErr := buildModelCatalog(nil, []ProviderModelInput{{
+		ModelID: "BAAI/bge-m3", ModelKind: ModelKindEmbedding,
+		DisplayName: &displayName, Status: &status,
+		EmbeddingDimensions: &dimensions, EmbeddingMaxInputTokens: &maxInputTokens,
+		EmbeddingTokenCounterID: &tokenCounterID,
+	}}, nil, nil)
+	if appErr != nil {
+		t.Fatal(appErr)
+	}
+	if len(catalog.models) != 1 {
+		t.Fatalf("models=%#v", catalog.models)
+	}
+	model := catalog.models[0]
+	if model.DisplayName != displayName || model.Status != status || model.EmbeddingDimensions == nil || *model.EmbeddingDimensions != dimensions ||
+		model.EmbeddingMaxInputTokens == nil || *model.EmbeddingMaxInputTokens != maxInputTokens ||
+		model.EmbeddingTokenCounterID == nil || *model.EmbeddingTokenCounterID != tokenCounterID {
+		t.Fatalf("model=%#v", model)
+	}
+}
+
+func TestCompleteProviderModelInputRejectsInvalidEmbeddingShape(t *testing.T) {
+	status := 1
+	dimensions := uint32(1024)
+	for _, input := range []ProviderModelInput{
+		{ModelID: "embed", ModelKind: ModelKindEmbedding, Status: &status},
+		{ModelID: "chat", ModelKind: ModelKindChat, Status: &status, EmbeddingDimensions: &dimensions},
+		{ModelID: "unconfirmed", Status: &status},
+	} {
+		if _, appErr := buildModelCatalog(nil, []ProviderModelInput{input}, nil, nil); appErr == nil {
+			t.Fatalf("invalid input accepted: %#v", input)
+		}
+	}
+}
+
+func TestModelCandidatesClassifyOnlyReviewedIdentity(t *testing.T) {
+	service := NewService(&fakeRepository{}, secretbox.New([]byte("12345678901234567890123456789012")), nil)
+	result := service.modelCandidates([]provider.Model{
+		{ID: "gpt-image-2", OwnedBy: "openai"},
+		{ID: "GPT-IMAGE-2", OwnedBy: "openai"},
+		{ID: "vendor-embedding-large", OwnedBy: "trusted-looking-name"},
+	})
+	if result[0].ModelKind == nil || *result[0].ModelKind != ModelKindImage {
+		t.Fatalf("mapped candidate=%#v", result[0])
+	}
+	if result[1].ModelKind != nil || result[2].ModelKind != nil {
+		t.Fatalf("unreviewed candidates were guessed: %#v", result)
 	}
 }
 

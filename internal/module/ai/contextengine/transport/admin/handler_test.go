@@ -72,6 +72,47 @@ func TestContextPageInitRouteIsReadOnlyAndTyped(t *testing.T) {
 	t.Fatal("context page-init route definition missing")
 }
 
+func TestContextDocumentVersionPreviewRouteIsReadOnlyAndNoStore(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service := &fakeContextHTTPService{preview: &contextengine.DocumentVersionPreviewResponse{
+		URL: "https://cos.example/report.md?signature=secret", ExpiresIn: 300, Filename: "report.md",
+		MIMEType: "text/markdown", SizeBytes: 1024, PreviewKind: contextengine.DocumentPreviewMarkdown,
+	}}
+	registry := adminroute.NewRegistry()
+	router := gin.New()
+	RegisterRoutes(router, "admin", service, registry)
+
+	found := false
+	for _, definition := range registry.Definitions() {
+		if definition.OperationID != "ai_context_document_version_preview" {
+			continue
+		}
+		found = true
+		if definition.Method != http.MethodGet || definition.Path != "/api/admin/v1/ai/context-document-versions/:id/preview" {
+			t.Fatalf("preview route = %#v", definition)
+		}
+		if definition.Access.Kind != adminroute.AccessPermission || definition.Access.PermissionCode != "ai_context_view" {
+			t.Fatalf("preview access = %#v", definition.Access)
+		}
+		if definition.Audit.Enabled || definition.Audit.Reason != "read-only" {
+			t.Fatalf("preview audit = %#v", definition.Audit)
+		}
+	}
+	if !found {
+		t.Fatal("context document version preview route definition missing")
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/v1/ai/context-document-versions/41/preview", nil)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || service.platform != "admin" || service.versionID != 41 {
+		t.Fatalf("status=%d platform=%q version_id=%d body=%s", recorder.Code, service.platform, service.versionID, recorder.Body.String())
+	}
+	if recorder.Header().Get("Cache-Control") != "no-store, private" || recorder.Header().Get("Pragma") != "no-cache" {
+		t.Fatalf("preview cache headers = %#v", recorder.Header())
+	}
+}
+
 func TestContextRoutesUseTrustedPlatformAndIgnoreOverrides(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	service := &fakeContextHTTPService{}
@@ -92,7 +133,11 @@ func TestContextRoutesUseTrustedPlatformAndIgnoreOverrides(t *testing.T) {
 	}
 }
 
-type fakeContextHTTPService struct{ platform string }
+type fakeContextHTTPService struct {
+	platform  string
+	versionID uint64
+	preview   *contextengine.DocumentVersionPreviewResponse
+}
 
 func (service *fakeContextHTTPService) CreateProfile(context.Context, uint32, contextengine.CreateProfileInput) (*contextengine.ProfileDTO, *apperror.Error) {
 	return &contextengine.ProfileDTO{ID: 1}, nil
@@ -119,4 +164,9 @@ func (service *fakeContextHTTPService) CreateDocument(_ context.Context, platfor
 func (service *fakeContextHTTPService) ReindexDocument(_ context.Context, platform string, _ uint64) (*contextengine.DocumentAdminDTO, *apperror.Error) {
 	service.platform = platform
 	return &contextengine.DocumentAdminDTO{ID: 3}, nil
+}
+func (service *fakeContextHTTPService) PreviewDocumentVersion(_ context.Context, platform string, versionID uint64) (*contextengine.DocumentVersionPreviewResponse, *apperror.Error) {
+	service.platform = platform
+	service.versionID = versionID
+	return service.preview, nil
 }

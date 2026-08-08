@@ -167,19 +167,43 @@ type DocumentVersionListResponse struct {
 	Items []DocumentVersionDTO `json:"items"`
 }
 
+type DocumentPreviewKind string
+
+const (
+	DocumentPreviewText     DocumentPreviewKind = "text"
+	DocumentPreviewMarkdown DocumentPreviewKind = "markdown"
+	DocumentPreviewPDF      DocumentPreviewKind = "pdf"
+	DocumentPreviewExternal DocumentPreviewKind = "external"
+)
+
+type DocumentVersionPreviewResponse struct {
+	URL         string              `json:"url"`
+	ExpiresIn   int64               `json:"expires_in"`
+	Filename    string              `json:"filename"`
+	MIMEType    string              `json:"mime_type"`
+	SizeBytes   int64               `json:"size_bytes"`
+	PreviewKind DocumentPreviewKind `json:"preview_kind" validate:"oneof=text markdown pdf external"`
+}
+
 type ProviderModelOption struct {
-	ID           uint64               `gorm:"column:id"`
-	ProviderName string               `gorm:"column:provider_name"`
-	ModelID      string               `gorm:"column:model_id"`
-	ModelKind    aiprovider.ModelKind `gorm:"column:model_kind"`
-	DisplayName  string               `gorm:"column:display_name"`
+	ID                      uint64               `gorm:"column:id"`
+	ProviderName            string               `gorm:"column:provider_name"`
+	ModelID                 string               `gorm:"column:model_id"`
+	ModelKind               aiprovider.ModelKind `gorm:"column:model_kind"`
+	DisplayName             string               `gorm:"column:display_name"`
+	EmbeddingDimensions     *uint32              `gorm:"column:embedding_dimensions"`
+	EmbeddingMaxInputTokens *int64               `gorm:"column:embedding_max_input_tokens"`
+	EmbeddingTokenCounterID *string              `gorm:"column:embedding_token_counter_id"`
 }
 
 type ProviderModelOptionDTO struct {
-	Value        uint64 `json:"value"`
-	Label        string `json:"label"`
-	ProviderName string `json:"provider_name"`
-	ModelID      string `json:"model_id"`
+	Value                   uint64  `json:"value"`
+	Label                   string  `json:"label"`
+	ProviderName            string  `json:"provider_name"`
+	ModelID                 string  `json:"model_id"`
+	EmbeddingDimensions     *uint32 `json:"embedding_dimensions,omitempty"`
+	EmbeddingMaxInputTokens *int64  `json:"embedding_max_input_tokens,omitempty"`
+	EmbeddingTokenCounterID *string `json:"embedding_token_counter_id,omitempty"`
 }
 
 type ContextPageInitResponse struct {
@@ -272,11 +296,14 @@ type CreateDocumentInput struct {
 }
 
 type ProviderModelCapability struct {
-	ID              uint64
-	Kind            aiprovider.ModelKind
-	Enabled         bool
-	ProviderEnabled bool
-	OfficialModelID string
+	ID                      uint64
+	Kind                    aiprovider.ModelKind
+	Enabled                 bool
+	ProviderEnabled         bool
+	OfficialModelID         string
+	EmbeddingDimensions     *uint32
+	EmbeddingMaxInputTokens *int64
+	EmbeddingTokenCounterID *string
 }
 
 type ProfileIndexCAS struct {
@@ -290,6 +317,22 @@ func documentVersionDTO(version ContextDocumentVersion) DocumentVersionDTO {
 		SourceStorageProvider: version.SourceStorageProvider, SourceObjectKey: version.SourceObjectKey, SourceETag: version.SourceETag,
 		SourceSize: version.SourceSize, SourceMIMEType: version.SourceMIMEType, SourceFilename: version.SourceFilename,
 		ParserName: version.ParserName, ParserVersion: version.ParserVersion, ChunkerVersion: version.ChunkerVersion, State: version.State}
+}
+
+func cloneUint32(value *uint32) *uint32 {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
+func cloneInt64(value *int64) *int64 {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
 }
 
 func documentAdminDTO(document ContextDocument, version ContextDocumentVersion) DocumentAdminDTO {

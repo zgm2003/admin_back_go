@@ -2,7 +2,9 @@ package aiprovider
 
 import (
 	"context"
+	"errors"
 	"math"
+	"net/http"
 	"strings"
 	"time"
 
@@ -132,7 +134,10 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (uint64, *apper
 	if appErr != nil {
 		return 0, appErr
 	}
-	catalog.models = s.mapProviderModels(catalog.models)
+	catalog.models, appErr = s.mapProviderModels(catalog.models)
+	if appErr != nil {
+		return 0, appErr
+	}
 	exists, err := repo.ExistsByTypeName(ctx, row.EngineType, row.Name, 0)
 	if err != nil {
 		return 0, apperror.LegacyWrap(apperror.CodeInternal, 500, "校验AI供应商失败", err)
@@ -151,7 +156,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (uint64, *apper
 		return 0, apperror.LegacyWrap(apperror.CodeInternal, 500, "新增AI供应商失败", err)
 	}
 	if err := repo.ReconcileModels(ctx, id, catalog.scope, catalog.models); err != nil {
-		return 0, apperror.LegacyWrap(apperror.CodeInternal, 500, "保存AI供应商模型失败", err)
+		return 0, providerModelWriteError(err)
 	}
 	return id, nil
 }
@@ -175,7 +180,10 @@ func (s *Service) Update(ctx context.Context, id uint64, input UpdateInput) *app
 	if appErr != nil {
 		return appErr
 	}
-	catalog.models = s.mapProviderModels(catalog.models)
+	catalog.models, appErr = s.mapProviderModels(catalog.models)
+	if appErr != nil {
+		return appErr
+	}
 	exists, err := repo.ExistsByTypeName(ctx, strings.TrimSpace(input.EngineType), strings.TrimSpace(input.Name), id)
 	if err != nil {
 		return apperror.LegacyWrap(apperror.CodeInternal, 500, "校验AI供应商失败", err)
@@ -195,7 +203,7 @@ func (s *Service) Update(ctx context.Context, id uint64, input UpdateInput) *app
 		return apperror.LegacyWrap(apperror.CodeInternal, 500, "编辑AI供应商失败", err)
 	}
 	if err := repo.ReconcileModels(ctx, id, catalog.scope, catalog.models); err != nil {
-		return apperror.LegacyWrap(apperror.CodeInternal, 500, "保存AI供应商模型失败", err)
+		return providerModelWriteError(err)
 	}
 	return nil
 }
@@ -280,7 +288,7 @@ func (s *Service) PreviewModels(ctx context.Context, input ModelOptionsInput) (*
 	if err != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "拉取OpenAI模型失败", err)
 	}
-	return &ModelOptionsResponse{List: modelOptionsDTO(models)}, nil
+	return &ModelOptionsResponse{List: s.modelCandidates(models)}, nil
 }
 
 func (s *Service) PreviewStoredModels(ctx context.Context, id uint64) (*ModelOptionsResponse, *apperror.Error) {
@@ -309,7 +317,7 @@ func (s *Service) PreviewStoredModels(ctx context.Context, id uint64) (*ModelOpt
 	if listErr != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "拉取OpenAI模型失败", listErr)
 	}
-	return &ModelOptionsResponse{List: modelOptionsDTO(models)}, nil
+	return &ModelOptionsResponse{List: s.modelCandidates(models)}, nil
 }
 
 func (s *Service) SyncModels(ctx context.Context, id uint64) (*ModelOptionsResponse, *apperror.Error) {
@@ -345,26 +353,22 @@ func (s *Service) SyncModels(ctx context.Context, id uint64) (*ModelOptionsRespo
 	}
 	fields["last_model_sync_status"] = provider.HealthOK
 	fields["last_model_sync_error"] = ""
-	providerModels, appErr := s.providerModelsFromSync(ctx, repo, id, models)
-	if appErr != nil {
-		fields["last_model_sync_status"] = provider.HealthFailed
-		fields["last_model_sync_error"] = truncateErrorString(appErr.Message)
-		_ = repo.Update(ctx, id, fields)
-		return nil, appErr
+	candidates := s.modelCandidates(models)
+	merger, ok := repo.(discoveredModelMerger)
+	if !ok {
+		return nil, apperror.Internal("AI供应商模型同步仓储未配置")
 	}
-	for index := range providerModels {
-		providerModels[index].ModelKind = ModelKindChat
-	}
-	if err := repo.ReconcileModels(ctx, id, ModelReconcileChatOnly, providerModels); err != nil {
+	trusted := providerModelsFromCandidates(candidates, now)
+	if err := merger.MergeDiscoveredModels(ctx, id, trusted); err != nil {
 		fields["last_model_sync_status"] = provider.HealthFailed
 		fields["last_model_sync_error"] = truncateErrorString(err.Error())
 		_ = repo.Update(ctx, id, fields)
-		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "保存AI供应商模型失败", err)
+		return nil, providerModelWriteError(err)
 	}
 	if err := repo.Update(ctx, id, fields); err != nil {
 		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "更新AI供应商模型同步状态失败", err)
 	}
-	return &ModelOptionsResponse{List: modelOptionsDTO(models)}, nil
+	return &ModelOptionsResponse{List: candidates}, nil
 }
 
 func (s *Service) ListProviderModels(ctx context.Context, id uint64) (*ProviderModelsResponse, *apperror.Error) {
@@ -405,9 +409,12 @@ func (s *Service) UpdateProviderModels(ctx context.Context, id uint64, input Upd
 	if appErr != nil {
 		return appErr
 	}
-	catalog.models = s.mapProviderModels(catalog.models)
+	catalog.models, appErr = s.mapProviderModels(catalog.models)
+	if appErr != nil {
+		return appErr
+	}
 	if err := repo.ReconcileModels(ctx, id, catalog.scope, catalog.models); err != nil {
-		return apperror.LegacyWrap(apperror.CodeInternal, 500, "保存AI供应商模型失败", err)
+		return providerModelWriteError(err)
 	}
 	return nil
 }
@@ -430,6 +437,9 @@ func (s *Service) ReconcileOfficialModelMappings(ctx context.Context) error {
 	}
 	for _, row := range rows {
 		mapping := matcher.MatchIdentity(row.ModelID, now)
+		if mapping.Status == officialmodel.MappingStatusMapped && mapping.ModelKind != row.ModelKind {
+			return ErrProviderModelKindConflict
+		}
 		if providerModelMappingEqual(row, mapping) {
 			continue
 		}
@@ -609,34 +619,156 @@ func buildModelCatalog(modelIDs []string, typed []ProviderModelInput, displayNam
 		models, appErr := buildProviderModels(modelIDs, displayNames, statuses)
 		return normalizedModelCatalog{scope: ModelReconcileChatOnly, models: models}, appErr
 	}
+	legacyTyped := len(displayNames) > 0 || len(statuses) > 0
 	models := make([]ProviderModel, 0, len(typed))
 	seen := make(map[providerModelIdentity]struct{}, len(typed))
+	seenLegacyIDs := make(map[string]struct{}, len(typed))
 	for _, input := range typed {
-		modelID := strings.TrimSpace(input.ModelID)
-		if modelID == "" {
-			return normalizedModelCatalog{}, apperror.BadRequest("模型ID不能为空")
+		if legacyTyped && providerModelInputHasInlineMutation(input) {
+			return normalizedModelCatalog{}, apperror.BadRequest("旧模型字段与完整模型行不能同时提交")
 		}
-		if err := input.ModelKind.Validate(); err != nil {
-			return normalizedModelCatalog{}, apperror.BadRequest("无效的模型用途")
+		if !legacyTyped && input.Status == nil {
+			return normalizedModelCatalog{}, apperror.BadRequest("AI模型状态不能为空")
 		}
-		identity := providerModelIdentity{modelID: modelID, kind: input.ModelKind}
+		if legacyTyped {
+			modelID := strings.TrimSpace(input.ModelID)
+			if _, duplicate := seenLegacyIDs[modelID]; duplicate {
+				return normalizedModelCatalog{}, apperror.BadRequest("旧模型格式不能表达同一模型ID的多个用途")
+			}
+			seenLegacyIDs[modelID] = struct{}{}
+			status := enum.CommonYes
+			if statuses[modelID] != 0 {
+				status = statuses[modelID]
+			}
+			input.DisplayName = stringPointer(strings.TrimSpace(displayNames[modelID]))
+			input.Status = intPointer(status)
+		}
+		model, appErr := normalizeProviderModelInput(input, !legacyTyped)
+		if appErr != nil {
+			return normalizedModelCatalog{}, appErr
+		}
+		identity := providerModelIdentity{modelID: model.ModelID, kind: model.ModelKind}
 		if _, exists := seen[identity]; exists {
-			continue
+			return normalizedModelCatalog{}, apperror.BadRequest("AI模型用途重复")
 		}
 		seen[identity] = struct{}{}
-		status := enum.CommonYes
-		if statuses != nil && statuses[modelID] != 0 {
-			status = statuses[modelID]
-		}
-		if !enum.IsCommonStatus(status) {
-			return normalizedModelCatalog{}, apperror.BadRequest("无效的模型状态")
-		}
-		models = append(models, ProviderModel{ModelID: modelID, ModelKind: input.ModelKind, DisplayName: strings.TrimSpace(displayNames[modelID]), Status: status})
+		models = append(models, model)
 	}
 	if len(models) == 0 {
 		return normalizedModelCatalog{}, apperror.BadRequest("请至少选择一个模型")
 	}
 	return normalizedModelCatalog{scope: ModelReconcileAll, models: models}, nil
+}
+
+func providerModelInputHasInlineMutation(input ProviderModelInput) bool {
+	return input.ID != nil || input.DisplayName != nil || input.Status != nil || input.EmbeddingDimensions != nil ||
+		input.EmbeddingMaxInputTokens != nil || input.EmbeddingTokenCounterID != nil
+}
+
+func normalizeProviderModelInput(input ProviderModelInput, requireEmbeddingSpec bool) (ProviderModel, *apperror.Error) {
+	model := ProviderModel{
+		ModelID: strings.TrimSpace(input.ModelID), ModelKind: input.ModelKind,
+		EmbeddingDimensions:     cloneUint32(input.EmbeddingDimensions),
+		EmbeddingMaxInputTokens: cloneInt64(input.EmbeddingMaxInputTokens),
+		EmbeddingTokenCounterID: trimOptionalString(input.EmbeddingTokenCounterID),
+	}
+	if input.ID != nil {
+		model.ID = *input.ID
+	}
+	if input.DisplayName != nil {
+		model.DisplayName = strings.TrimSpace(*input.DisplayName)
+	}
+	if input.Status == nil {
+		return ProviderModel{}, apperror.BadRequest("AI模型状态不能为空")
+	}
+	model.Status = *input.Status
+	if model.ModelKind == "" {
+		return ProviderModel{}, providerValidationError("ai.provider.model_kind_confirmation_required", "请先确认AI模型用途")
+	}
+	if model.ModelID == "" {
+		return ProviderModel{}, apperror.BadRequest("AI模型ID不能为空")
+	}
+	if err := model.ModelKind.Validate(); err != nil {
+		return ProviderModel{}, providerValidationError("ai.provider.model_kind_invalid", "AI模型用途无效")
+	}
+	if !enum.IsCommonStatus(model.Status) {
+		return ProviderModel{}, apperror.BadRequest("AI模型状态无效")
+	}
+	if err := validateEmbeddingSpec(model, requireEmbeddingSpec); err != nil {
+		return ProviderModel{}, providerValidationError("ai.provider.embedding_spec_invalid", "向量模型规格不完整或无效")
+	}
+	return model, nil
+}
+
+func validateEmbeddingSpec(model ProviderModel, required bool) error {
+	allNil := model.EmbeddingDimensions == nil && model.EmbeddingMaxInputTokens == nil && model.EmbeddingTokenCounterID == nil
+	if model.ModelKind != ModelKindEmbedding {
+		if !allNil {
+			return errors.New("non-embedding model carries an embedding spec")
+		}
+		return nil
+	}
+	if allNil && (!required || model.ID > 0 && model.Status == enum.CommonNo) {
+		return nil
+	}
+	if model.EmbeddingDimensions == nil || *model.EmbeddingDimensions == 0 || model.EmbeddingMaxInputTokens == nil || *model.EmbeddingMaxInputTokens <= 0 ||
+		model.EmbeddingTokenCounterID == nil || strings.TrimSpace(*model.EmbeddingTokenCounterID) == "" {
+		return errors.New("embedding model requires a complete spec")
+	}
+	_, err := infraai.ResolveTokenCounter(*model.EmbeddingTokenCounterID)
+	return err
+}
+
+func cloneUint32(value *uint32) *uint32 {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
+func cloneInt64(value *int64) *int64 {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
+func trimOptionalString(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	return &trimmed
+}
+
+func cloneString(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
+func stringPointer(value string) *string { return &value }
+func intPointer(value int) *int          { return &value }
+
+func providerValidationError(code string, message string) *apperror.Error {
+	return apperror.New(code, apperror.CategoryValidation, http.StatusBadRequest, apperror.Permanent, "", nil, message)
+}
+
+func providerModelWriteError(err error) *apperror.Error {
+	if errors.Is(err, ErrProviderModelInUse) || errors.Is(err, ErrProviderModelKindConflict) {
+		code := "ai.provider.model_in_use"
+		message := "模型已被智能体或上下文配置引用，不能修改用途或向量规格"
+		if errors.Is(err, ErrProviderModelKindConflict) {
+			code = "ai.provider.model_kind_conflict"
+			message = "供应商模型用途与官方目录冲突"
+		}
+		return apperror.Wrap(code, apperror.CategoryConflict, http.StatusConflict, apperror.Permanent, "", nil, message, err)
+	}
+	return apperror.LegacyWrap(apperror.CodeInternal, http.StatusInternalServerError, "保存AI供应商模型失败", err)
 }
 
 func providerDTO(row Provider, models []ProviderModel) (ProviderDTO, *apperror.Error) {
@@ -688,13 +820,15 @@ func providerModelDTOs(rows []ProviderModel) ([]ProviderModelDTO, *apperror.Erro
 			ID: row.ID, ProviderID: row.ProviderID, ModelID: row.ModelID, ModelKind: row.ModelKind, DisplayName: row.DisplayName,
 			OfficialModelID: valueOrEmpty(row.OfficialModelID), OfficialCatalogVersion: valueOrEmpty(row.OfficialCatalogVersion),
 			MappingStatus: row.MappingStatus, MappedAt: formatPtrTime(row.MappedAt),
-			Status: row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt),
+			EmbeddingDimensions: cloneUint32(row.EmbeddingDimensions), EmbeddingMaxInputTokens: cloneInt64(row.EmbeddingMaxInputTokens),
+			EmbeddingTokenCounterID: cloneString(row.EmbeddingTokenCounterID),
+			Status:                  row.Status, StatusName: statusText(row.Status), CreatedAt: formatTime(row.CreatedAt), UpdatedAt: formatTime(row.UpdatedAt),
 		})
 	}
 	return list, nil
 }
 
-func (s *Service) mapProviderModels(models []ProviderModel) []ProviderModel {
+func (s *Service) mapProviderModels(models []ProviderModel) ([]ProviderModel, *apperror.Error) {
 	mapped := append([]ProviderModel(nil), models...)
 	now := time.Now()
 	if s != nil && s.now != nil {
@@ -711,38 +845,22 @@ func (s *Service) mapProviderModels(models []ProviderModel) []ProviderModel {
 		mapped[index].MappedAt = nil
 		mapped[index].MappingStatus = mapping.Status
 		if mapping.Status == officialmodel.MappingStatusMapped {
+			if mapping.ModelKind != mapped[index].ModelKind {
+				return nil, apperror.New("ai.provider.model_kind_conflict", apperror.CategoryConflict, http.StatusConflict, apperror.Permanent, "", nil, "供应商模型用途与官方目录冲突")
+			}
 			officialID, catalogVersion := mapping.OfficialModelID, mapping.CatalogVersion
 			mapped[index].OfficialModelID = &officialID
 			mapped[index].OfficialCatalogVersion = &catalogVersion
 			mapped[index].MappedAt = mapping.MappedAt
+			if mapping.EmbeddingSpec != nil {
+				dimensions, maxInputTokens, tokenCounterID := mapping.EmbeddingSpec.Dimensions, mapping.EmbeddingSpec.MaxInputTokens, mapping.EmbeddingSpec.TokenCounterID
+				mapped[index].EmbeddingDimensions = &dimensions
+				mapped[index].EmbeddingMaxInputTokens = &maxInputTokens
+				mapped[index].EmbeddingTokenCounterID = &tokenCounterID
+			}
 		}
 	}
-	return mapped
-}
-
-func (s *Service) providerModelsFromSync(ctx context.Context, repo Repository, providerID uint64, upstream []provider.Model) ([]ProviderModel, *apperror.Error) {
-	existing, err := repo.ListModels(ctx, providerID)
-	if err != nil {
-		return nil, apperror.LegacyWrap(apperror.CodeInternal, 500, "查询AI供应商模型失败", err)
-	}
-	displayNames := make(map[string]string, len(upstream))
-	statuses := make(map[string]int, len(existing))
-	for _, model := range existing {
-		displayNames[model.ModelID] = model.DisplayName
-		statuses[model.ModelID] = model.Status
-	}
-	modelIDs := make([]string, 0, len(upstream))
-	for _, model := range upstream {
-		modelIDs = append(modelIDs, model.ID)
-		if strings.TrimSpace(displayNames[model.ID]) == "" {
-			displayNames[model.ID] = model.ID
-		}
-	}
-	models, appErr := buildProviderModels(modelIDs, displayNames, statuses)
-	if appErr != nil {
-		return nil, appErr
-	}
-	return s.mapProviderModels(models), nil
+	return mapped, nil
 }
 
 func validStoredMapping(row ProviderModel) bool {
@@ -776,12 +894,55 @@ func valueOrEmpty(value *string) string {
 	return *value
 }
 
-func modelOptionsDTO(models []provider.Model) []ModelOptionDTO {
+func (s *Service) modelCandidates(models []provider.Model) []ModelOptionDTO {
+	matcher := officialmodel.IdentityMatcher(officialmodel.NewIdentityMatcher(officialmodel.Default))
+	if s != nil && s.matcher != nil {
+		matcher = s.matcher
+	}
+	now := time.Now()
+	if s != nil && s.now != nil {
+		now = s.now()
+	}
 	list := make([]ModelOptionDTO, 0, len(models))
 	for _, model := range models {
-		list = append(list, ModelOptionDTO{ModelID: model.ID, DisplayName: model.ID, OwnedBy: model.OwnedBy})
+		mapping := matcher.MatchIdentity(model.ID, now)
+		candidate := ModelOptionDTO{ModelID: model.ID, DisplayName: model.ID, OwnedBy: model.OwnedBy, MappingStatus: mapping.Status}
+		if mapping.Status == officialmodel.MappingStatusMapped {
+			kind := ModelKind(mapping.ModelKind)
+			candidate.ModelKind = &kind
+			candidate.OfficialModelID = mapping.OfficialModelID
+			candidate.OfficialCatalogVersion = mapping.CatalogVersion
+			if mapping.EmbeddingSpec != nil {
+				dimensions, maxInputTokens, tokenCounterID := mapping.EmbeddingSpec.Dimensions, mapping.EmbeddingSpec.MaxInputTokens, mapping.EmbeddingSpec.TokenCounterID
+				candidate.EmbeddingDimensions = &dimensions
+				candidate.EmbeddingMaxInputTokens = &maxInputTokens
+				candidate.EmbeddingTokenCounterID = &tokenCounterID
+			}
+		}
+		list = append(list, candidate)
 	}
 	return list
+}
+
+func providerModelsFromCandidates(candidates []ModelOptionDTO, mappedAt time.Time) []ProviderModel {
+	models := make([]ProviderModel, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.ModelKind == nil || candidate.MappingStatus != officialmodel.MappingStatusMapped {
+			continue
+		}
+		officialID, catalogVersion := candidate.OfficialModelID, candidate.OfficialCatalogVersion
+		at := mappedAt.UTC()
+		models = append(models, ProviderModel{
+			ModelID: candidate.ModelID, ModelKind: *candidate.ModelKind, DisplayName: candidate.DisplayName,
+			OfficialModelID: &officialID, OfficialCatalogVersion: &catalogVersion,
+			MappingStatus: candidate.MappingStatus, MappedAt: &at,
+			EmbeddingDimensions:     cloneUint32(candidate.EmbeddingDimensions),
+			EmbeddingMaxInputTokens: cloneInt64(candidate.EmbeddingMaxInputTokens),
+			EmbeddingTokenCounterID: cloneString(candidate.EmbeddingTokenCounterID),
+			Status:                  enum.CommonYes,
+		})
+	}
+	return models
 }
 
 func engineTypeOptions() []dict.Option[string] {

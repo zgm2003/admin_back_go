@@ -36,6 +36,7 @@ type AdminRepository interface {
 	ListSpaces(context.Context, string, uint64, string) ([]ContextSpace, error)
 	ListDocuments(context.Context, string, uint64, string) ([]DocumentAdminDTO, error)
 	ListDocumentVersions(context.Context, string, uint64) ([]DocumentVersionDTO, error)
+	FindDocumentVersion(context.Context, string, uint64) (*ContextDocumentVersion, error)
 	UpdateDocumentStatus(context.Context, string, uint64, string) (DocumentAdminDTO, error)
 	SoftDeleteDocument(context.Context, string, uint64) error
 	GetAgentContextProfile(context.Context, uint64) (*uint64, error)
@@ -63,6 +64,7 @@ type AgentBackfillEnqueuer interface {
 type AdminService struct {
 	repository AdminRepository
 	objects    storage.ConditionalObjectReader
+	previewer  storage.ConditionalObjectPreviewer
 	enqueuer   DocumentVersionEnqueuer
 	rebuild    ProfileRebuildEnqueuer
 	models     officialmodel.Resolver
@@ -86,6 +88,10 @@ func WithAgentBackfillEnqueuer(enqueuer AgentBackfillEnqueuer) AdminOption {
 
 func WithEvaluationRunner(runner EvaluationRunner) AdminOption {
 	return func(service *AdminService) { service.evaluator = runner }
+}
+
+func WithDocumentPreviewer(previewer storage.ConditionalObjectPreviewer) AdminOption {
+	return func(service *AdminService) { service.previewer = previewer }
 }
 
 func NewAdminService(repository AdminRepository, objects storage.ConditionalObjectReader, enqueuer DocumentVersionEnqueuer, options ...AdminOption) *AdminService {
@@ -124,14 +130,21 @@ func (service *AdminService) PageInit(ctx context.Context) (*ContextPageInitResp
 		option := ProviderModelOptionDTO{
 			Value: model.ID, Label: providerName + " / " + displayName,
 			ProviderName: providerName, ModelID: modelID,
+			EmbeddingDimensions: cloneUint32(model.EmbeddingDimensions), EmbeddingMaxInputTokens: cloneInt64(model.EmbeddingMaxInputTokens),
+			EmbeddingTokenCounterID: cloneString(model.EmbeddingTokenCounterID),
 		}
 		switch model.ModelKind {
 		case aiprovider.ModelKindEmbedding:
+			if model.EmbeddingDimensions == nil || model.EmbeddingMaxInputTokens == nil || model.EmbeddingTokenCounterID == nil || *model.EmbeddingDimensions == 0 || *model.EmbeddingMaxInputTokens <= 0 || strings.TrimSpace(*model.EmbeddingTokenCounterID) == "" {
+				continue
+			}
 			result.EmbeddingModelOptions = append(result.EmbeddingModelOptions, option)
 		case aiprovider.ModelKindRerank:
 			result.RerankerModelOptions = append(result.RerankerModelOptions, option)
 		case aiprovider.ModelKindChat:
 			result.MemoryModelOptions = append(result.MemoryModelOptions, option)
+		case aiprovider.ModelKindImage:
+			continue
 		default:
 			return nil, internalAdminError("查询上下文模型选项失败", errors.New("provider model option kind is invalid"))
 		}
@@ -144,12 +157,11 @@ func (service *AdminService) CreateProfile(ctx context.Context, actorID uint32, 
 		return nil, apperror.Internal("上下文仓储未配置")
 	}
 	input.Name = strings.TrimSpace(input.Name)
-	if actorID == 0 || input.Name == "" || input.EmbeddingDimensions == 0 || input.EmbeddingMaxInputTokens <= 0 {
+	if actorID == 0 || input.Name == "" {
 		return nil, apperror.BadRequest("上下文配置参数错误")
 	}
-	if _, err := infraai.ResolveTokenCounter(input.EmbeddingTokenCounterID); err != nil {
-		return nil, apperror.BadRequest("Embedding Token Counter 无效")
-	}
+	// The selected Provider Model owns the embedding specification. Legacy callers
+	// may still send the three fields; they are checked against that snapshot below.
 	distance := DenseDistance(input.DenseDistance)
 	if distance.Validate() != nil {
 		return nil, apperror.BadRequest("向量距离无效")
@@ -161,8 +173,26 @@ func (service *AdminService) CreateProfile(ctx context.Context, actorID uint32, 
 	if (input.RerankerProviderModelID == nil) != (input.RerankerMinScore == nil) {
 		return nil, apperror.BadRequest("Reranker 模型与阈值必须成对配置")
 	}
-	if appErr := service.requireModel(ctx, input.EmbeddingProviderModelID, aiprovider.ModelKindEmbedding); appErr != nil {
+	embeddingModel, appErr := service.requireModelCapability(ctx, input.EmbeddingProviderModelID, aiprovider.ModelKindEmbedding)
+	if appErr != nil {
 		return nil, appErr
+	}
+	if embeddingModel.EmbeddingDimensions != nil || embeddingModel.EmbeddingMaxInputTokens != nil || embeddingModel.EmbeddingTokenCounterID != nil {
+		if embeddingModel.EmbeddingDimensions == nil || embeddingModel.EmbeddingMaxInputTokens == nil || embeddingModel.EmbeddingTokenCounterID == nil || *embeddingModel.EmbeddingDimensions == 0 || *embeddingModel.EmbeddingMaxInputTokens <= 0 || strings.TrimSpace(*embeddingModel.EmbeddingTokenCounterID) == "" {
+			return nil, apperror.BadRequest("Embedding 模型规格不完整")
+		}
+		if input.EmbeddingDimensions != 0 && input.EmbeddingDimensions != *embeddingModel.EmbeddingDimensions || input.EmbeddingMaxInputTokens != 0 && input.EmbeddingMaxInputTokens != *embeddingModel.EmbeddingMaxInputTokens || input.EmbeddingTokenCounterID != "" && strings.TrimSpace(input.EmbeddingTokenCounterID) != *embeddingModel.EmbeddingTokenCounterID {
+			return nil, apperror.New("ai.context.embedding_spec_conflict", apperror.CategoryConflict, 409, apperror.Permanent, "", nil, "Embedding 规格与供应商模型不一致")
+		}
+		input.EmbeddingDimensions = *embeddingModel.EmbeddingDimensions
+		input.EmbeddingMaxInputTokens = *embeddingModel.EmbeddingMaxInputTokens
+		input.EmbeddingTokenCounterID = *embeddingModel.EmbeddingTokenCounterID
+	}
+	if input.EmbeddingDimensions == 0 || input.EmbeddingMaxInputTokens <= 0 {
+		return nil, apperror.BadRequest("Embedding 模型规格不完整")
+	}
+	if _, err := infraai.ResolveTokenCounter(input.EmbeddingTokenCounterID); err != nil {
+		return nil, apperror.BadRequest("Embedding Token Counter 无效")
 	}
 	if input.RerankerProviderModelID != nil {
 		if _, err := ParseFixedScore(*input.RerankerMinScore); err != nil {
@@ -442,6 +472,39 @@ func (service *AdminService) ListDocumentVersions(ctx context.Context, platform 
 	return &DocumentVersionListResponse{Items: items}, nil
 }
 
+func (service *AdminService) PreviewDocumentVersion(ctx context.Context, platform string, id uint64) (*DocumentVersionPreviewResponse, *apperror.Error) {
+	if id == 0 {
+		return nil, apperror.New("ai.context.document_version.invalid_id", apperror.CategoryValidation, 400, apperror.Permanent, "", nil, "上下文文档版本ID无效")
+	}
+	if strings.TrimSpace(platform) != "admin" {
+		return nil, apperror.New("ai.context.document_version.not_found", apperror.CategoryNotFound, 404, apperror.Permanent, "", nil, "上下文文档版本不存在")
+	}
+	if service == nil || service.repository == nil {
+		return nil, apperror.New("ai.context.document_version.preview_unavailable", apperror.CategoryDependency, 503, apperror.Retryable, "", nil, "上下文文档预览暂不可用")
+	}
+	version, err := service.repository.FindDocumentVersion(ctx, platform, id)
+	if err != nil {
+		return nil, documentPreviewUnavailable(err)
+	}
+	if version == nil {
+		return nil, apperror.New("ai.context.document_version.not_found", apperror.CategoryNotFound, 404, apperror.Permanent, "", nil, "上下文文档版本不存在")
+	}
+	if service.previewer == nil {
+		return nil, documentPreviewUnavailable(errors.New("context document previewer is not configured"))
+	}
+	preview, err := service.previewer.Preview(ctx, storage.ConditionalObjectPreviewInput{
+		Object:   storage.ConditionalObjectInput{StorageProvider: version.SourceStorageProvider, ObjectKey: version.SourceObjectKey, ETag: version.SourceETag, Size: version.SourceSize},
+		MIMEType: version.SourceMIMEType,
+	})
+	if err != nil {
+		return nil, documentPreviewAppError(err)
+	}
+	if !sameObjectMetadata(preview.Metadata, *version) || strings.TrimSpace(preview.URL) == "" || preview.ExpiresIn <= 0 || preview.ExpiresIn > 300 {
+		return nil, apperror.New("ai.context.document_version.source_changed", apperror.CategoryConflict, 409, apperror.Permanent, "", nil, "文档对象不存在或已变化")
+	}
+	return &DocumentVersionPreviewResponse{URL: preview.URL, ExpiresIn: preview.ExpiresIn, Filename: version.SourceFilename, MIMEType: preview.Metadata.MIMEType, SizeBytes: preview.Metadata.Size, PreviewKind: documentPreviewKind(preview.Metadata.MIMEType, preview.Metadata.Size)}, nil
+}
+
 func (service *AdminService) CreateDocumentVersion(ctx context.Context, platform string, id uint64, input CreateDocumentVersionInput) (*DocumentAdminDTO, *apperror.Error) {
 	document, appErr := service.GetDocument(ctx, platform, id)
 	if appErr != nil {
@@ -690,4 +753,36 @@ func conditionalObjectAppError(err error) *apperror.Error {
 		return apperror.New("ai.context.document_object_changed", apperror.CategoryConflict, 409, apperror.Permanent, "", nil, "文档对象不存在或已变化")
 	}
 	return internalAdminError("校验文档对象失败", err)
+}
+
+func documentPreviewKind(mimeType string, size int64) DocumentPreviewKind {
+	mediaType := strings.ToLower(strings.TrimSpace(mimeType))
+	switch mediaType {
+	case "text/plain":
+		if size <= 2<<20 {
+			return DocumentPreviewText
+		}
+	case "text/markdown", "text/x-markdown":
+		if size <= 2<<20 {
+			return DocumentPreviewMarkdown
+		}
+	case "application/pdf":
+		return DocumentPreviewPDF
+	}
+	return DocumentPreviewExternal
+}
+
+func sameObjectMetadata(metadata storage.ConditionalObjectMetadata, version ContextDocumentVersion) bool {
+	return strings.TrimSpace(metadata.ETag) == strings.TrimSpace(version.SourceETag) && metadata.Size == version.SourceSize && strings.EqualFold(strings.TrimSpace(metadata.MIMEType), strings.TrimSpace(version.SourceMIMEType))
+}
+
+func documentPreviewAppError(err error) *apperror.Error {
+	if errors.Is(err, storage.ErrConditionalObjectUnavailable) || errors.Is(err, storage.ErrConditionalObjectVersionChanged) || errors.Is(err, storage.ErrInvalidConditionalObjectPreview) {
+		return apperror.Wrap("ai.context.document_version.source_changed", apperror.CategoryConflict, 409, apperror.Permanent, "", nil, "文档对象不存在或已变化", err)
+	}
+	return documentPreviewUnavailable(err)
+}
+
+func documentPreviewUnavailable(err error) *apperror.Error {
+	return apperror.Wrap("ai.context.document_version.preview_unavailable", apperror.CategoryDependency, 503, apperror.Retryable, "", nil, "上下文文档预览暂不可用", err)
 }

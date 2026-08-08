@@ -289,6 +289,25 @@ func TestTrustedAIChatObjectKeySeparatesLegacyImagesFromNewFiles(t *testing.T) {
 	}
 }
 
+func TestTrustedAIContextDocumentObjectKeyRejectsNamespaceEscapes(t *testing.T) {
+	for _, test := range []struct {
+		key    string
+		wantOK bool
+	}{
+		{key: "ai_context_documents/2026/08/report.pdf", wantOK: true},
+		{key: "ai_context_documents/../secret.pdf"},
+		{key: "/ai_context_documents/report.pdf"},
+		{key: "ai_context_documents\\report.pdf"},
+		{key: "ai_chat_attachments/report.pdf"},
+		{key: "ai_context_documents/"},
+	} {
+		_, err := TrustedAIContextDocumentObjectKey(test.key)
+		if (err == nil) != test.wantOK {
+			t.Fatalf("key=%q err=%v", test.key, err)
+		}
+	}
+}
+
 func TestObjectInspectorRejectsMissingETag(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Type", "application/pdf")

@@ -206,12 +206,14 @@ func Build(input BuildInput) (*BuildResult, error) {
 	if contextEvaluation == nil {
 		return nil, errors.New("build admin context evaluation")
 	}
+	contextObjectReader := storagecos.NewConditionalObjectReader(aiChatObjectConfig, storagecos.ObjectStreamerConfig{Enabled: true, PreviewTTL: 5 * time.Minute})
 	contextService := contextengine.NewAdminService(
 		contextengine.NewAdminRepository(resources.DB),
-		storagecos.NewConditionalObjectReader(aiChatObjectConfig, storagecos.ObjectStreamerConfig{Enabled: true}),
+		contextObjectReader,
 		contextengine.NewDocumentVersionEnqueuer(input.Queue, contextengine.NewIngestionRepository(resources.DB)),
 		contextengine.WithOfficialModelResolver(aiOfficialModelResolver),
 		contextengine.WithProfileRebuildEnqueuer(contextengine.NewProfileRebuildEnqueuer(input.Queue)),
+		contextengine.WithDocumentPreviewer(contextObjectReader),
 		contextengine.WithEvaluationRunner(contextEvaluation),
 	)
 	aiAgentService := aiagent.NewService(

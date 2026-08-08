@@ -2461,6 +2461,22 @@ table "ai_provider_models" {
     null = true
     type = datetime(6)
   }
+  column "embedding_dimensions" {
+    null     = true
+    type     = int
+    unsigned = true
+  }
+  column "embedding_max_input_tokens" {
+    null     = true
+    type     = bigint
+    unsigned = true
+  }
+  column "embedding_token_counter_id" {
+    null    = true
+    type    = varchar(64)
+    charset = "ascii"
+    collate = "ascii_bin"
+  }
   column "status" {
     null     = false
     type     = tinyint
@@ -2508,7 +2524,10 @@ table "ai_provider_models" {
     expr = "(((`mapping_status` = _ascii'mapped') and (`official_model_id` is not null) and (`official_catalog_version` is not null) and (`mapped_at` is not null)) or ((`mapping_status` = _ascii'unmapped') and (`official_model_id` is null) and (`official_catalog_version` is null) and (`mapped_at` is null)))"
   }
   check "chk_ai_provider_models_model_kind" {
-    expr = "(`model_kind` in (_ascii'chat',_ascii'embedding',_ascii'rerank'))"
+    expr = "(`model_kind` in (_ascii'chat',_ascii'embedding',_ascii'rerank',_ascii'image'))"
+  }
+  check "chk_ai_provider_models_embedding_spec" {
+    expr = "(((`model_kind` = _ascii'embedding') and (((`status` = 2) and (`embedding_dimensions` is null) and (`embedding_max_input_tokens` is null) and (`embedding_token_counter_id` is null)) or ((`embedding_dimensions` is not null) and (`embedding_dimensions` > 0) and (`embedding_max_input_tokens` is not null) and (`embedding_max_input_tokens` > 0) and (`embedding_token_counter_id` is not null) and (char_length(`embedding_token_counter_id`) > 0)))) or ((`model_kind` <> _ascii'embedding') and (`embedding_dimensions` is null) and (`embedding_max_input_tokens` is null) and (`embedding_token_counter_id` is null)))"
   }
 }
 table "ai_providers" {

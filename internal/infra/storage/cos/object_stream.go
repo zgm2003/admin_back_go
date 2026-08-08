@@ -25,6 +25,7 @@ var (
 type ObjectStreamerConfig struct {
 	Enabled    bool
 	Timeout    time.Duration
+	PreviewTTL time.Duration
 	HTTPClient *http.Client
 }
 

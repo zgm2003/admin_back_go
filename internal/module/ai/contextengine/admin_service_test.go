@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net/http"
 	"testing"
 
 	"admin_back_go/internal/infra/storage"
@@ -147,8 +148,11 @@ func TestAdminContractMissingDocumentIsNotAnEmptyVersionList(t *testing.T) {
 }
 
 func TestContextPageInitPartitionsProviderModelOptions(t *testing.T) {
+	dimensions := uint32(1536)
+	maxInputTokens := int64(8192)
+	tokenCounterID := "utf8_bytes_v1"
 	repository := &fakeAdminRepository{modelOptions: []ProviderModelOption{
-		{ID: 11, ProviderName: "Alpha", ModelID: "embed-v1", ModelKind: aiprovider.ModelKindEmbedding, DisplayName: "Embedding One"},
+		{ID: 11, ProviderName: "Alpha", ModelID: "embed-v1", ModelKind: aiprovider.ModelKindEmbedding, DisplayName: "Embedding One", EmbeddingDimensions: &dimensions, EmbeddingMaxInputTokens: &maxInputTokens, EmbeddingTokenCounterID: &tokenCounterID},
 		{ID: 12, ProviderName: "Alpha", ModelID: "rerank-v1", ModelKind: aiprovider.ModelKindRerank},
 		{ID: 13, ProviderName: "Beta", ModelID: "chat-v1", ModelKind: aiprovider.ModelKindChat, DisplayName: "Memory Chat"},
 	}}
@@ -157,9 +161,8 @@ func TestContextPageInitPartitionsProviderModelOptions(t *testing.T) {
 	if appErr != nil {
 		t.Fatalf("PageInit error = %#v", appErr)
 	}
-	if len(result.EmbeddingModelOptions) != 1 || result.EmbeddingModelOptions[0] != (ProviderModelOptionDTO{
-		Value: 11, Label: "Alpha / Embedding One", ProviderName: "Alpha", ModelID: "embed-v1",
-	}) {
+	embeddingOption := result.EmbeddingModelOptions
+	if len(embeddingOption) != 1 || embeddingOption[0].Value != 11 || embeddingOption[0].Label != "Alpha / Embedding One" || embeddingOption[0].ProviderName != "Alpha" || embeddingOption[0].ModelID != "embed-v1" || embeddingOption[0].EmbeddingDimensions == nil || *embeddingOption[0].EmbeddingDimensions != dimensions || embeddingOption[0].EmbeddingMaxInputTokens == nil || *embeddingOption[0].EmbeddingMaxInputTokens != maxInputTokens || embeddingOption[0].EmbeddingTokenCounterID == nil || *embeddingOption[0].EmbeddingTokenCounterID != tokenCounterID {
 		t.Fatalf("embedding options = %#v", result.EmbeddingModelOptions)
 	}
 	if len(result.RerankerModelOptions) != 1 || result.RerankerModelOptions[0].Label != "Alpha / rerank-v1" {
@@ -183,16 +186,59 @@ func TestContextPageInitReturnsEmptyArraysWithoutFabricatedOptions(t *testing.T)
 	}
 }
 
+func TestPreviewDocumentVersionUsesAuthorizedSourceFacts(t *testing.T) {
+	version := ContextDocumentVersion{ID: 17, DocumentID: 9, ProfileID: 3, SourceStorageProvider: "cos", SourceObjectKey: "ai_context_documents/report.md", SourceETag: `"v1"`, SourceSize: 1024, SourceMIMEType: "text/markdown", SourceFilename: "report.md", State: DocumentVersionFailed}
+	previewer := &fakeConditionalPreviewer{result: storage.ConditionalObjectPreview{URL: "https://cos.example/report.md?signature=secret", ExpiresIn: 300, Metadata: storage.ConditionalObjectMetadata{ETag: `"v1"`, Size: 1024, MIMEType: "text/markdown"}}}
+	repository := &fakeAdminRepository{previewVersion: &version}
+	service := NewAdminService(repository, nil, nil, WithDocumentPreviewer(previewer))
+	result, appErr := service.PreviewDocumentVersion(context.Background(), "admin", version.ID)
+	if appErr != nil || result == nil {
+		t.Fatalf("result=%#v error=%#v", result, appErr)
+	}
+	if result.PreviewKind != DocumentPreviewMarkdown || result.URL == "" || result.ExpiresIn != 300 || result.Filename != "report.md" {
+		t.Fatalf("preview result=%#v", result)
+	}
+	if previewer.input.Object.ObjectKey != version.SourceObjectKey || previewer.input.Object.ETag != version.SourceETag || previewer.input.Object.Size != version.SourceSize {
+		t.Fatalf("preview input=%#v", previewer.input)
+	}
+}
+
+func TestPreviewDocumentVersionMapsObjectDriftAndInvalidID(t *testing.T) {
+	version := ContextDocumentVersion{ID: 17, DocumentID: 9, ProfileID: 3, SourceStorageProvider: "cos", SourceObjectKey: "ai_context_documents/report.pdf", SourceETag: `"v1"`, SourceSize: 1024, SourceMIMEType: "application/pdf", SourceFilename: "report.pdf", State: DocumentVersionQueued}
+	previewer := &fakeConditionalPreviewer{err: storage.ErrConditionalObjectVersionChanged}
+	service := NewAdminService(&fakeAdminRepository{previewVersion: &version}, nil, nil, WithDocumentPreviewer(previewer))
+	result, appErr := service.PreviewDocumentVersion(context.Background(), "admin", version.ID)
+	if result != nil || appErr == nil || appErr.HTTPStatus != http.StatusConflict || appErr.Code != "ai.context.document_version.source_changed" {
+		t.Fatalf("drift result=%#v error=%#v", result, appErr)
+	}
+	_, appErr = service.PreviewDocumentVersion(context.Background(), "admin", 0)
+	if appErr == nil || appErr.HTTPStatus != http.StatusBadRequest || appErr.Code != "ai.context.document_version.invalid_id" {
+		t.Fatalf("invalid id error=%#v", appErr)
+	}
+}
+
+func TestPreviewDocumentVersionRejectsMismatchedPreviewFacts(t *testing.T) {
+	version := ContextDocumentVersion{ID: 17, DocumentID: 9, ProfileID: 3, SourceStorageProvider: "cos", SourceObjectKey: "ai_context_documents/report.txt", SourceETag: `"v1"`, SourceSize: 1024, SourceMIMEType: "text/plain", SourceFilename: "report.txt", State: DocumentVersionReady}
+	previewer := &fakeConditionalPreviewer{result: storage.ConditionalObjectPreview{URL: "https://cos.example/report.txt?signature=secret", ExpiresIn: 300, Metadata: storage.ConditionalObjectMetadata{ETag: `"other"`, Size: 1024, MIMEType: "text/plain"}}}
+	service := NewAdminService(&fakeAdminRepository{previewVersion: &version}, nil, nil, WithDocumentPreviewer(previewer))
+	_, appErr := service.PreviewDocumentVersion(context.Background(), "admin", version.ID)
+	if appErr == nil || appErr.HTTPStatus != http.StatusConflict || appErr.Code != "ai.context.document_version.source_changed" {
+		t.Fatalf("mismatch error=%#v", appErr)
+	}
+}
+
 type fakeAdminRepository struct {
-	models          map[uint64]ProviderModelCapability
-	modelOptions    []ProviderModelOption
-	profiles        map[uint64]ContextProfile
-	spaces          map[uint64]ContextSpace
-	documents       map[uint64]DocumentAdminDTO
-	createdProfile  *ContextProfile
-	createdDocument *DocumentAdminDTO
-	spaceReferenced bool
-	agentConflict   bool
+	models            map[uint64]ProviderModelCapability
+	modelOptions      []ProviderModelOption
+	profiles          map[uint64]ContextProfile
+	spaces            map[uint64]ContextSpace
+	documents         map[uint64]DocumentAdminDTO
+	createdProfile    *ContextProfile
+	createdDocument   *DocumentAdminDTO
+	spaceReferenced   bool
+	agentConflict     bool
+	previewVersion    *ContextDocumentVersion
+	previewVersionErr error
 }
 
 func (repository *fakeAdminRepository) ListProviderModelOptions(context.Context) ([]ProviderModelOption, error) {
@@ -298,6 +344,9 @@ func (repository *fakeAdminRepository) ListDocuments(context.Context, string, ui
 func (repository *fakeAdminRepository) ListDocumentVersions(context.Context, string, uint64) ([]DocumentVersionDTO, error) {
 	return nil, nil
 }
+func (repository *fakeAdminRepository) FindDocumentVersion(context.Context, string, uint64) (*ContextDocumentVersion, error) {
+	return repository.previewVersion, repository.previewVersionErr
+}
 func (repository *fakeAdminRepository) UpdateDocumentStatus(_ context.Context, _ string, id uint64, status string) (DocumentAdminDTO, error) {
 	item := repository.documents[id]
 	item.Status = status
@@ -322,6 +371,17 @@ func (repository *fakeAdminRepository) ReplaceAgentContextSpaces(context.Context
 
 type fakeConditionalReader struct {
 	metadata storage.ConditionalObjectMetadata
+}
+
+type fakeConditionalPreviewer struct {
+	result storage.ConditionalObjectPreview
+	err    error
+	input  storage.ConditionalObjectPreviewInput
+}
+
+func (previewer *fakeConditionalPreviewer) Preview(_ context.Context, input storage.ConditionalObjectPreviewInput) (storage.ConditionalObjectPreview, error) {
+	previewer.input = input
+	return previewer.result, previewer.err
 }
 
 func (reader *fakeConditionalReader) Head(context.Context, storage.ConditionalObjectInput) (storage.ConditionalObjectMetadata, error) {

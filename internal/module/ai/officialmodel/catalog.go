@@ -18,6 +18,30 @@ import (
 
 type LifecycleStatus string
 
+type ModelKind string
+
+const (
+	ModelKindChat      ModelKind = "chat"
+	ModelKindEmbedding ModelKind = "embedding"
+	ModelKindRerank    ModelKind = "rerank"
+	ModelKindImage     ModelKind = "image"
+)
+
+func (kind ModelKind) Validate() error {
+	switch kind {
+	case ModelKindChat, ModelKindEmbedding, ModelKindRerank, ModelKindImage:
+		return nil
+	default:
+		return fmt.Errorf("invalid model kind %q", kind)
+	}
+}
+
+type EmbeddingSpec struct {
+	Dimensions     uint32 `json:"dimensions"`
+	MaxInputTokens int64  `json:"max_input_tokens"`
+	TokenCounterID string `json:"token_counter_id"`
+}
+
 const (
 	LifecycleActive     LifecycleStatus = "active"
 	LifecycleDeprecated LifecycleStatus = "deprecated"
@@ -35,6 +59,8 @@ type Model struct {
 	CatalogVendor              string
 	ModelFamily                string
 	ModelID                    string
+	ModelKind                  ModelKind
+	EmbeddingSpec              *EmbeddingSpec
 	Aliases                    []string
 	LifecycleStatus            LifecycleStatus
 	ContextWindowTokens        int64
@@ -140,6 +166,10 @@ func cloneModel(model Model) Model {
 	model.Aliases = cloneStrings(model.Aliases)
 	model.Capabilities = cloneCapabilities(model.Capabilities)
 	model.OfficialPrice.Rates = append([]pricing.Rate(nil), model.OfficialPrice.Rates...)
+	if model.EmbeddingSpec != nil {
+		spec := *model.EmbeddingSpec
+		model.EmbeddingSpec = &spec
+	}
 	return model
 }
 
@@ -162,6 +192,9 @@ func validateModel(version string, model Model) error {
 		return fmt.Errorf("%w: invalid token counter for %q", ErrInvalidCatalog, model.ModelID)
 	}
 	if err := validateCapabilities(model.Capabilities); err != nil {
+		return fmt.Errorf("%w: %s: %v", ErrInvalidCatalog, model.ModelID, err)
+	}
+	if err := validateModelKind(model); err != nil {
 		return fmt.Errorf("%w: %s: %v", ErrInvalidCatalog, model.ModelID, err)
 	}
 	if model.OfficialPrice.ModelID != model.ModelID ||
@@ -189,6 +222,41 @@ func validateModel(version string, model Model) error {
 	reviewAfter, reviewErr := time.Parse(time.DateOnly, model.ReviewAfter)
 	if retrievedErr != nil || reviewErr != nil || !reviewAfter.After(retrieved) {
 		return fmt.Errorf("%w: invalid review dates for %q", ErrInvalidCatalog, model.ModelID)
+	}
+	return nil
+}
+
+func validateModelKind(model Model) error {
+	if err := model.ModelKind.Validate(); err != nil {
+		return err
+	}
+	hasInput := func(value string) bool { return containsString(model.Capabilities.InputModalities, value) }
+	hasOutput := func(value string) bool { return containsString(model.Capabilities.OutputModalities, value) }
+	switch model.ModelKind {
+	case ModelKindChat:
+		if !hasInput(ModalityText) || !hasOutput(ModalityText) || hasOutput(ModalityImage) {
+			return errors.New("chat kind requires text input and text output")
+		}
+	case ModelKindImage:
+		if !hasInput(ModalityText) || !hasOutput(ModalityImage) || hasOutput(ModalityText) || model.Capabilities.SupportsTools {
+			return errors.New("image kind requires text input and image-only output")
+		}
+	case ModelKindEmbedding, ModelKindRerank:
+		if !hasInput(ModalityText) || hasOutput(ModalityImage) || model.Capabilities.SupportsStreaming || model.Capabilities.SupportsTools || model.Capabilities.SupportsStructuredOutput {
+			return errors.New("vector kind has an invalid execution capability")
+		}
+	}
+	if model.ModelKind != ModelKindEmbedding {
+		if model.EmbeddingSpec != nil {
+			return errors.New("only embedding kind may define an embedding spec")
+		}
+		return nil
+	}
+	if model.EmbeddingSpec == nil || model.EmbeddingSpec.Dimensions == 0 || model.EmbeddingSpec.MaxInputTokens <= 0 {
+		return errors.New("embedding kind requires a complete embedding spec")
+	}
+	if _, err := infraai.ResolveTokenCounter(model.EmbeddingSpec.TokenCounterID); err != nil {
+		return errors.New("embedding kind requires a registered token counter")
 	}
 	return nil
 }
@@ -298,6 +366,8 @@ type catalogModelJSON struct {
 	CatalogVendor              string                `json:"catalog_vendor"`
 	ModelFamily                string                `json:"model_family"`
 	ModelID                    string                `json:"model_id"`
+	ModelKind                  ModelKind             `json:"model_kind"`
+	EmbeddingSpec              *EmbeddingSpec        `json:"embedding_spec,omitempty"`
 	Aliases                    []string              `json:"aliases"`
 	LifecycleStatus            LifecycleStatus       `json:"lifecycle_status"`
 	ContextWindowTokens        int64                 `json:"context_window_tokens"`
@@ -356,7 +426,8 @@ func loadCatalog(data []byte) (*Catalog, error) {
 		}
 		models[index] = Model{
 			CatalogVersion: document.Version, CatalogVendor: raw.CatalogVendor, ModelFamily: raw.ModelFamily,
-			ModelID: raw.ModelID, Aliases: raw.Aliases, LifecycleStatus: raw.LifecycleStatus,
+			ModelID: raw.ModelID, ModelKind: raw.ModelKind, EmbeddingSpec: raw.EmbeddingSpec,
+			Aliases: raw.Aliases, LifecycleStatus: raw.LifecycleStatus,
 			ContextWindowTokens: raw.ContextWindowTokens, MaxOutputTokens: raw.MaxOutputTokens,
 			TokenCounterID:             raw.TokenCounterID,
 			ContextTierThresholdTokens: raw.ContextTierThresholdTokens,

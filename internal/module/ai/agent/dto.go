@@ -33,6 +33,7 @@ type ModelOption struct {
 	Value                      string                    `json:"value"`
 	ProviderID                 uint64                    `json:"provider_id"`
 	ModelID                    string                    `json:"model_id"`
+	ModelKind                  aiprovider.ModelKind      `json:"model_kind" validate:"oneof=chat image"`
 	DisplayName                string                    `json:"display_name"`
 	BillingMultiplier          string                    `json:"billing_multiplier"`
 	OfficialModel              *OfficialModelSummaryDTO  `json:"official_model,omitempty"`
@@ -81,6 +82,7 @@ type AgentDTO struct {
 	EngineType                 string                    `json:"engine_type"`
 	Name                       string                    `json:"name"`
 	ModelID                    string                    `json:"model_id"`
+	ModelKind                  aiprovider.ModelKind      `json:"model_kind" validate:"oneof=chat image"`
 	ModelDisplayName           string                    `json:"model_display_name"`
 	Scenes                     []string                  `json:"scenes"`
 	SceneNames                 []string                  `json:"scene_names"`
@@ -117,6 +119,7 @@ type CatalogRateDTO struct {
 
 type OfficialModelSummaryDTO struct {
 	ModelID             string                        `json:"model_id"`
+	ModelKind           officialmodel.ModelKind       `json:"model_kind" validate:"oneof=chat image"`
 	CatalogVersion      string                        `json:"catalog_version"`
 	CatalogVendor       string                        `json:"catalog_vendor"`
 	ModelFamily         string                        `json:"model_family"`
@@ -227,7 +230,7 @@ type ProviderModelDTO struct {
 	ID                     uint64                      `json:"id"`
 	ProviderID             uint64                      `json:"provider_id"`
 	ModelID                string                      `json:"model_id"`
-	ModelKind              aiprovider.ModelKind        `json:"model_kind" validate:"oneof=chat embedding rerank"`
+	ModelKind              aiprovider.ModelKind        `json:"model_kind" validate:"oneof=chat embedding rerank image"`
 	DisplayName            string                      `json:"display_name"`
 	OfficialModelID        string                      `json:"official_model_id"`
 	OfficialCatalogVersion string                      `json:"official_catalog_version"`

@@ -22,6 +22,7 @@ type AgentWithProvider struct {
 	APIProtocol            string                      `gorm:"column:api_protocol"`
 	ProviderStatus         int                         `gorm:"column:provider_status"`
 	ProviderModelStatus    int                         `gorm:"column:provider_model_status"`
+	ProviderModelKind      aiprovider.ModelKind        `gorm:"column:provider_model_kind"`
 	OfficialModelID        string                      `gorm:"column:official_model_id"`
 	OfficialCatalogVersion string                      `gorm:"column:official_catalog_version"`
 	MappingStatus          officialmodel.MappingStatus `gorm:"column:mapping_status"`
@@ -149,7 +150,7 @@ func (r *GormRepository) ListProviderModels(ctx context.Context, providerID uint
 		return nil, nil
 	}
 	var rows []ProviderModel
-	if err := r.db.WithContext(ctx).Where("provider_id = ? AND model_kind = ? AND status = ?", providerID, aiprovider.ModelKindChat, enum.CommonYes).Order("model_id ASC").Find(&rows).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("provider_id = ? AND model_kind IN ? AND status = ?", providerID, []aiprovider.ModelKind{aiprovider.ModelKindChat, aiprovider.ModelKindImage}, enum.CommonYes).Order("model_kind ASC, model_id ASC").Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -203,10 +204,15 @@ func (r *GormRepository) ListVisibleAgents(ctx context.Context, query OptionQuer
 	if scene == "" {
 		scene = sceneChat
 	}
+	requiredKind, err := requiredModelKind([]string{scene})
+	if err != nil {
+		return nil, err
+	}
 	var rows []AgentWithProvider
 	if err := r.agentSelectDB(ctx).
 		Where("e.status = ?", enum.CommonYes).
 		Where("pm.status = ? AND pm.mapping_status = ?", enum.CommonYes, officialmodel.MappingStatusMapped).
+		Where("pm.model_kind = ?", requiredKind).
 		Where("a.is_del = ?", enum.CommonNo).
 		Where("a.status = ?", enum.CommonYes).
 		Where("JSON_CONTAINS(a.scenes_json, JSON_QUOTE(?))", scene).
@@ -222,11 +228,12 @@ func (r *GormRepository) agentSelectDB(ctx context.Context) *gorm.DB {
 		a.*, e.name AS provider_name, e.engine_type AS engine_type,
 		e.api_protocol AS api_protocol, e.status AS provider_status,
 		pm.status AS provider_model_status,
+		pm.model_kind AS provider_model_kind,
 		pm.official_model_id AS official_model_id,
 		pm.official_catalog_version AS official_catalog_version,
 		pm.mapping_status AS mapping_status`).
 		Joins("LEFT JOIN ai_providers e ON e.id = a.provider_id AND e.is_del = ?", enum.CommonNo).
-		Joins("LEFT JOIN ai_provider_models pm ON pm.id = a.provider_model_id AND pm.provider_id = a.provider_id AND pm.model_id = a.model_id AND pm.model_kind = ?", aiprovider.ModelKindChat).
+		Joins("LEFT JOIN ai_provider_models pm ON pm.id = a.provider_model_id AND pm.provider_id = a.provider_id AND pm.model_id = a.model_id").
 		Where("a.is_del = ?", enum.CommonNo)
 }
 

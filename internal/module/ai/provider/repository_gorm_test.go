@@ -89,6 +89,11 @@ func TestReconcileModelsPreservesExistingIDsInBothScopes(t *testing.T) {
 
 			mock.ExpectBegin()
 			mock.ExpectQuery(test.query).WithArgs(test.queryArgs...).WillReturnRows(test.existing)
+			if test.name == "typed complete catalog" {
+				mock.ExpectQuery(`(?s)SELECT EXISTS\(.*ai_agents.*ai_context_profiles.*\)`).
+					WithArgs(uint64(32), uint64(32), uint64(32), uint64(32)).
+					WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+			}
 			for range test.updateRuns {
 				mock.ExpectExec("UPDATE `ai_provider_models` SET .* WHERE id = \\?").WillReturnResult(sqlmock.NewResult(0, 1))
 			}

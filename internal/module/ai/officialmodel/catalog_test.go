@@ -19,6 +19,7 @@ func validCatalogModel(id string) Model {
 		CatalogVendor:       "openai",
 		ModelFamily:         "gpt",
 		ModelID:             id,
+		ModelKind:           ModelKindChat,
 		LifecycleStatus:     LifecycleActive,
 		ContextWindowTokens: 128000,
 		MaxOutputTokens:     4096,
@@ -133,6 +134,60 @@ func TestOfficialCatalogRequiresRegisteredTokenCounter(t *testing.T) {
 	}
 }
 
+func TestOfficialCatalogRequiresKindConsistentWithOutput(t *testing.T) {
+	chat := validCatalogModel("chat-model")
+	chat.ModelKind = ModelKindImage
+	if _, err := NewCatalog("test-v1", []Model{chat}); !errors.Is(err, ErrInvalidCatalog) {
+		t.Fatalf("image kind with text output error = %v", err)
+	}
+
+	image := validCatalogModel("image-model")
+	image.ModelKind = ModelKindImage
+	image.Capabilities.OutputModalities = []string{ModalityImage}
+	image.Capabilities.SupportsStreaming = false
+	image.Capabilities.SupportsTools = false
+	image.Capabilities.SupportedParameters = nil
+	if _, err := NewCatalog("test-v1", []Model{image}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestOfficialCatalogDefaultHasReviewedModelKinds(t *testing.T) {
+	for _, model := range Default.Models() {
+		want := ModelKindChat
+		if model.ModelID == "gpt-image-2" {
+			want = ModelKindImage
+		}
+		if model.ModelKind != want {
+			t.Fatalf("%s kind=%q want=%q", model.ModelID, model.ModelKind, want)
+		}
+	}
+}
+
+func TestOfficialCatalogEmbeddingKindRequiresCompleteSpec(t *testing.T) {
+	embedding := validCatalogModel("embedding-model")
+	embedding.ModelKind = ModelKindEmbedding
+	embedding.Capabilities.OutputModalities = []string{ModalityText}
+	embedding.Capabilities.SupportsStreaming = false
+	embedding.Capabilities.SupportsTools = false
+	embedding.Capabilities.SupportsStructuredOutput = false
+	embedding.Capabilities.SupportedParameters = nil
+	if _, err := NewCatalog("test-v1", []Model{embedding}); !errors.Is(err, ErrInvalidCatalog) {
+		t.Fatalf("missing embedding spec error = %v", err)
+	}
+
+	embedding.EmbeddingSpec = &EmbeddingSpec{Dimensions: 1024, MaxInputTokens: 8192, TokenCounterID: "utf8_bytes_v1"}
+	if _, err := NewCatalog("test-v1", []Model{embedding}); err != nil {
+		t.Fatal(err)
+	}
+
+	chat := validCatalogModel("chat-with-embedding-spec")
+	chat.EmbeddingSpec = embedding.EmbeddingSpec
+	if _, err := NewCatalog("test-v1", []Model{chat}); !errors.Is(err, ErrInvalidCatalog) {
+		t.Fatalf("chat embedding spec error = %v", err)
+	}
+}
+
 func TestOfficialCatalogDefaultRecordsVerifiedMultimodalCapabilities(t *testing.T) {
 	for _, model := range Default.Models() {
 		expectedInput := []string{ModalityText, ModalityImage, ModalityFile}
@@ -234,7 +289,7 @@ func TestOfficialModelManagementDTOEncodesEmptyCollectionsAsArrays(t *testing.T)
 		t.Fatal(err)
 	}
 	encoded := string(payload)
-	for _, field := range []string{`"aliases":[]`, `"supported_parameters":[]`, `"token_counter_id":"utf8_bytes_v1"`} {
+	for _, field := range []string{`"aliases":[]`, `"supported_parameters":[]`, `"token_counter_id":"utf8_bytes_v1"`, `"model_kind":"chat"`, `"embedding_spec":null`} {
 		if !strings.Contains(encoded, field) {
 			t.Fatalf("management DTO must encode %s: %s", field, encoded)
 		}
