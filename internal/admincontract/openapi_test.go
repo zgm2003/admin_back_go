@@ -806,6 +806,7 @@ func TestAIContextPageInitPublishesTypedModelOptions(t *testing.T) {
 func TestAIProviderModelCatalogPublishesAlternativeInputsWithoutParentRequirement(t *testing.T) {
 	bundle := mustBuildBundle(t)
 	var document struct {
+		Paths      map[string]map[string]map[string]any `json:"paths"`
 		Components struct {
 			Schemas map[string]map[string]any `json:"schemas"`
 		} `json:"components"`
@@ -825,4 +826,58 @@ func TestAIProviderModelCatalogPublishesAlternativeInputsWithoutParentRequiremen
 	}
 	assertClosedSchemaWithRequired(t, document.Components.Schemas,
 		"Go_internal_module_ai_provider_ProviderModelInput_Input", "model_id", "model_kind")
+	for _, operation := range []struct {
+		method string
+		path   string
+	}{
+		{method: "post", path: "/api/admin/v1/ai-providers"},
+		{method: "put", path: "/api/admin/v1/ai-providers/{id}"},
+		{method: "put", path: "/api/admin/v1/ai-providers/{id}/models"},
+	} {
+		rules := strings.Join(anyStrings(document.Paths[operation.path][operation.method]["x-admin-parameter-rules"]), " ")
+		for _, fact := range []string{"exactly one", "model_ids", "models", "complete"} {
+			if !strings.Contains(strings.ToLower(rules), fact) {
+				t.Fatalf("%s %s parameter rules do not describe mutually exclusive legacy and complete-row shapes: %q", operation.method, operation.path, rules)
+			}
+		}
+	}
+}
+
+func TestAIContextDocumentVersionPreviewAndContextProfileCreateContract(t *testing.T) {
+	bundle := mustBuildBundle(t)
+	var document struct {
+		Paths      map[string]map[string]map[string]any `json:"paths"`
+		Components struct {
+			Schemas map[string]map[string]any `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(bundle.Artifacts["openapi.json"], &document); err != nil {
+		t.Fatal(err)
+	}
+
+	candidate := document.Components.Schemas["Go_internal_module_ai_provider_ModelOptionDTO_Output"]
+	if candidate == nil {
+		t.Fatal("provider model candidate output schema is missing")
+	}
+	if containsString(anyStrings(candidate["required"]), "model_kind") {
+		t.Fatalf("unreviewed provider candidate requires model_kind: %#v", candidate["required"])
+	}
+
+	operation := document.Paths["/api/admin/v1/ai/context-document-versions/{id}/preview"]["get"]
+	if operation == nil || operation["operationId"] != "ai_context_document_version_preview" {
+		t.Fatalf("context document version preview operation = %#v", operation)
+	}
+	assertOperationParameters(t, operation, nil, nil, []string{"id"})
+	assertOperationResponseRef(t, operation, "200", "ai_context_document_version_preview_ResponseEnvelope")
+
+	profileCreate := document.Components.Schemas["ai_context_profile_create_Request"]
+	if profileCreate == nil {
+		t.Fatal("context profile create request schema is missing")
+	}
+	required := anyStrings(profileCreate["required"])
+	for _, legacySpec := range []string{"embedding_dimensions", "embedding_max_input_tokens", "embedding_token_counter_id"} {
+		if containsString(required, legacySpec) {
+			t.Fatalf("context profile create still requires legacy %s: %v", legacySpec, required)
+		}
+	}
 }

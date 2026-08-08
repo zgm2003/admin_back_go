@@ -148,7 +148,7 @@ type UpdateModelsInput struct {
 type ProviderModelInput struct {
 	ID                      *uint64   `json:"id,omitempty" binding:"omitempty,gt=0"`
 	ModelID                 string    `json:"model_id" binding:"required,max=191"`
-	ModelKind               ModelKind `json:"model_kind"`
+	ModelKind               ModelKind `json:"model_kind" binding:"required,oneof=chat embedding rerank image"`
 	DisplayName             *string   `json:"display_name,omitempty" binding:"omitempty,max=191"`
 	Status                  *int      `json:"status,omitempty" binding:"omitempty,oneof=1 2"`
 	EmbeddingDimensions     *uint32   `json:"embedding_dimensions,omitempty"`

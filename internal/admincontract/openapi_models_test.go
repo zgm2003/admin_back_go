@@ -181,10 +181,41 @@ func TestAIProviderModelKindAndAgentContextProfileContracts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	kind := openAPIPropertySchema(t, document.Components.Schemas, "Go_internal_module_ai_provider_ProviderModelDTO_Output", "model_kind")
-	wantKinds := []string{string(aiprovider.ModelKindChat), string(aiprovider.ModelKindEmbedding), string(aiprovider.ModelKindRerank)}
-	if diff := cmp.Diff(wantKinds, openAPIStringEnum(t, document.Components.Schemas, kind)); diff != "" {
-		t.Fatalf("model kind enum mismatch (-want +got):\n%s", diff)
+	wantKinds := []string{
+		string(aiprovider.ModelKindChat), string(aiprovider.ModelKindEmbedding),
+		string(aiprovider.ModelKindRerank), string(aiprovider.ModelKindImage),
+	}
+	for _, check := range []struct {
+		schema   string
+		property string
+	}{
+		{schema: "Go_internal_module_ai_provider_ProviderModelDTO_Output", property: "model_kind"},
+		{schema: "Go_internal_module_ai_agent_ProviderModelDTO_Output", property: "model_kind"},
+		{schema: "Go_internal_module_ai_officialmodel_OfficialModelDTO_Output", property: "model_kind"},
+	} {
+		kind := openAPIPropertySchema(t, document.Components.Schemas, check.schema, check.property)
+		if diff := cmp.Diff(wantKinds, openAPIStringEnum(t, document.Components.Schemas, kind)); diff != "" {
+			t.Fatalf("%s.%s model kind enum mismatch (-want +got):\n%s", check.schema, check.property, diff)
+		}
+	}
+
+	input := document.Components.Schemas["Go_internal_module_ai_provider_ProviderModelInput_Input"]
+	if input == nil {
+		t.Fatal("ProviderModelInput input schema is missing")
+	}
+	required := anyStrings(input["required"])
+	properties := input["properties"].(map[string]any)
+	for _, field := range []string{
+		"id", "display_name", "status", "embedding_dimensions",
+		"embedding_max_input_tokens", "embedding_token_counter_id",
+	} {
+		if properties[field] == nil {
+			t.Fatalf("ProviderModelInput does not publish optional field %s", field)
+		}
+		if containsString(required, field) {
+			t.Fatalf("ProviderModelInput compatibility field %s is required: %v", field, required)
+		}
+		assertNullableProperty(t, input, field)
 	}
 	agent := document.Components.Schemas["Go_internal_module_ai_agent_AgentDTO_Output"]
 	if agent == nil {

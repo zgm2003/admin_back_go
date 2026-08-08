@@ -139,6 +139,25 @@ func TestAIRunDashboardUsesAIRunListPermission(t *testing.T) {
 	}
 }
 
+func TestAIContextDocumentVersionPreviewPermissionIsReadOnly(t *testing.T) {
+	bundle := mustBuildBundle(t)
+	var document PermissionsDocument
+	if err := json.Unmarshal(bundle.Artifacts["permissions.json"], &document); err != nil {
+		t.Fatalf("decode permissions: %v", err)
+	}
+
+	operation, exists := findOperationPolicy(document.Operations, "GET", "/api/admin/v1/ai/context-document-versions/:id/preview")
+	if !exists {
+		t.Fatal("missing context document version preview permission policy")
+	}
+	if operation.OperationID != "ai_context_document_version_preview" || operation.Access.Kind != "permission" || operation.Access.PermissionCode != "ai_context_view" {
+		t.Fatalf("preview permission policy=%#v", operation)
+	}
+	if operation.Audit.Enabled || operation.Audit.Reason != "read-only" {
+		t.Fatalf("preview audit policy=%#v", operation.Audit)
+	}
+}
+
 func findOperationPolicy(operations []OperationPolicy, method string, path string) (OperationPolicy, bool) {
 	for _, operation := range operations {
 		if operation.Method == method && operation.Path == path {

@@ -11,6 +11,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const providerModelCatalogShapeRule = "Submit exactly one provider model catalog shape: legacy model_ids/model_display_names/statuses or typed complete models rows."
+
 func Register(router *gin.Engine, service aiprovidermodule.HTTPService, routeRegistries ...*adminroute.Registry) {
 	validate.MustRegister()
 	handler := NewHandler(service)
@@ -60,8 +62,9 @@ func Register(router *gin.Engine, service aiprovidermodule.HTTPService, routeReg
 			Title:   "新增AI供应商",
 		},
 		Contract: &adminroute.HTTPContract{
-			Request:  mutationRequest{},
-			Response: adminroute.IDData{},
+			Request:        mutationRequest{},
+			Response:       adminroute.IDData{},
+			ParameterRules: []string{providerModelCatalogShapeRule},
 		},
 	}, handler.Create)
 	routes.Handle(adminroute.Definition{
@@ -75,8 +78,9 @@ func Register(router *gin.Engine, service aiprovidermodule.HTTPService, routeReg
 			Title:   "编辑AI供应商",
 		},
 		Contract: &adminroute.HTTPContract{
-			Request:  mutationRequest{},
-			Response: adminroute.EmptyData{},
+			Request:        mutationRequest{},
+			Response:       adminroute.EmptyData{},
+			ParameterRules: []string{providerModelCatalogShapeRule},
 		},
 	}, handler.Update)
 	routes.Handle(adminroute.Definition{
@@ -156,8 +160,9 @@ func Register(router *gin.Engine, service aiprovidermodule.HTTPService, routeReg
 			Title:   "编辑AI供应商模型",
 		},
 		Contract: &adminroute.HTTPContract{
-			Request:  updateModelsRequest{},
-			Response: adminroute.EmptyData{},
+			Request:        updateModelsRequest{},
+			Response:       adminroute.EmptyData{},
+			ParameterRules: []string{providerModelCatalogShapeRule},
 		},
 	}, handler.UpdateProviderModels)
 	routes.Handle(adminroute.Definition{
