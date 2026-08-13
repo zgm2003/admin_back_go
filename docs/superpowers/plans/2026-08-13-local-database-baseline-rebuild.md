@@ -16,6 +16,7 @@
 
 - `database/schema.sql`: complete current runtime schema without development rows, secrets, `DEFINER`, Atlas, or reconciliation tables.
 - `database/seed.sql`: deterministic permissions, roles, role grants, Admin auth policy, required settings, six registered cron tasks, and the official `admin_user_count` AI tool.
+- `database/reference/address.sql`: verified public address dictionary required by user and profile page initialization.
 - `database/migrations/README.md`: forward-only migration naming and transaction rules from baseline `202608130001` onward.
 - `database/baseline.json`: reviewed source commit, source Atlas version, dump SHA-256, schema SHA-256, table count, and seed row counts; no credentials.
 - `scripts/database.ps1`: the sole local `init`, `reset`, `migrate`, and `check` entry.
@@ -45,11 +46,13 @@
 | `roles` | 2 | Stable ordinary-user and super-admin roles |
 | `role_permissions` | active grants only | Ordinary role gets its reviewed subset; super-admin gets every active non-directory permission plus required root directories |
 | `auth_platforms` | 1 | Enabled `admin` platform policy |
-| `system_settings` | 3 | Required CAPTCHA TTL, slide padding, and upload-token TTL only |
+| `system_settings` | 4 | Default avatar, CAPTCHA TTL, slide padding, and upload-token TTL |
 | `cron_task` | 6 | Exact names in `crontask.NewDefaultRegistry()` only |
 | `ai_tools` | 1 | Official `admin_user_count` tool only |
 
 Official model definitions remain in `internal/module/ai/officialmodel/catalog/official_models_v1.json`; they are not duplicated into SQL. Provider models, providers, agents, agent-tool bindings, upload credentials, users, conversations, runs, context data, documents, logs, payments, queues, and vectors are excluded.
+
+The 3,244 active public address rows are owned separately by `database/reference/address.sql`; they are reference data consumed by user/profile page initialization, not user-owned business history.
 
 ### Task 1: Freeze the Recoverable Source
 
@@ -86,7 +89,7 @@ Official model definitions remain in `internal/module/ai/officialmodel/catalog/o
 
 - [ ] Add failing assertions for the exact whitelist above and for absence of every excluded table name in `INSERT INTO` statements.
 - [ ] Generate active permission rows from `database/seeds/admin_permissions.sql`, remove its historical guards, and preserve stable IDs and parent relations.
-- [ ] Write explicit stable rows for two roles, active role grants, one Admin auth policy, three required settings, the six registry-backed cron tasks, and `admin_user_count`; use UTC-neutral defaults instead of copied development timestamps.
+- [ ] Write explicit stable rows for two roles, active role grants, one Admin auth policy, four required settings, the six registry-backed cron tasks, and `admin_user_count`; use UTC-neutral defaults instead of copied development timestamps.
 - [ ] Insert baseline migration `202608130001` with the SHA-256 of `database/schema.sql`; do not put a user or password hash in SQL.
 - [ ] Wrap the seed in one transaction and make duplicate application fail explicitly instead of silently updating rows.
 - [ ] Run `go test ./internal/architecture -run 'TestDatabaseBaseline' -count=1`; require PASS.

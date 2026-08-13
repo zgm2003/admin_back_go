@@ -23,10 +23,14 @@
   "target": {
     "schema_sha256": "b4884de66b62700e47fe2481769012ef4f28ddeffaf7fb6e39e19bbe5fea4033",
     "seed_sha256": "0028ca39b615cb9ceec303962cbd1492d00dae81c1c86015ade1506e3383996c",
+    "address_reference_sha256": "af82e6ebe0120afebf10bdf13a7cf6ebc092eaa6388a2f47a398ed46e0f72bc2",
     "base_table_count": 77,
     "foreign_key_count": 64,
     "check_constraint_count": 103,
     "unique_index_count": 76,
+    "reference_row_counts": {
+      "address": 3244
+    },
     "seed_row_counts": {
       "permissions": 132,
       "roles": 2,

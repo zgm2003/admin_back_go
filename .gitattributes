@@ -1,5 +1,6 @@
 /database/schema.sql text eol=lf
 /database/seed.sql text eol=lf
+/database/reference/*.sql text eol=lf
 /database/baseline.json text eol=lf
 /database/migrations/*.sql text eol=lf
 /contracts/admin/v1/** text eol=lf

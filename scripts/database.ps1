@@ -16,6 +16,7 @@ Set-StrictMode -Version Latest
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $schemaPath = Join-Path $repoRoot 'database\schema.sql'
 $seedPath = Join-Path $repoRoot 'database\seed.sql'
+$addressReferencePath = Join-Path $repoRoot 'database\reference\address.sql'
 $baselinePath = Join-Path $repoRoot 'database\baseline.json'
 $migrationRoot = Join-Path $repoRoot 'database\migrations'
 $runtimeEnvPath = Join-Path $repoRoot 'deploy\docker-first\admin-go.env'
@@ -125,14 +126,16 @@ function Invoke-SQLFile {
 }
 
 function Assert-BaselineFiles {
-  foreach ($path in @($schemaPath, $seedPath, $baselinePath)) {
+  foreach ($path in @($schemaPath, $seedPath, $addressReferencePath, $baselinePath)) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw 'DATABASE_BASELINE_FILE_MISSING' }
   }
   $baseline = [IO.File]::ReadAllText($baselinePath, [Text.Encoding]::UTF8) | ConvertFrom-Json
   $schemaHash = (Get-FileHash -LiteralPath $schemaPath -Algorithm SHA256).Hash.ToLowerInvariant()
   $seedHash = (Get-FileHash -LiteralPath $seedPath -Algorithm SHA256).Hash.ToLowerInvariant()
+  $addressReferenceHash = (Get-FileHash -LiteralPath $addressReferencePath -Algorithm SHA256).Hash.ToLowerInvariant()
   if ($schemaHash -cne [string]$baseline.target.schema_sha256 -or
-      $seedHash -cne [string]$baseline.target.seed_sha256) {
+      $seedHash -cne [string]$baseline.target.seed_sha256 -or
+      $addressReferenceHash -cne [string]$baseline.target.address_reference_sha256) {
     throw 'DATABASE_BASELINE_HASH_MISMATCH'
   }
   return $baseline
@@ -225,6 +228,7 @@ function Initialize-Database {
   if ([int]$tableCount -ne 0) { throw 'DATABASE_INIT_REQUIRES_EMPTY_SCHEMA' }
   $null = Assert-BaselineFiles
   Invoke-SQLFile -Path $schemaPath
+  Invoke-SQLFile -Path $addressReferencePath
   Invoke-SQLFile -Path $seedPath
   Invoke-Migrations
   Invoke-CreateAdmin
@@ -246,6 +250,10 @@ function Test-Database {
   $seedFacts = Invoke-MySQL -SQL "SELECT CONCAT((SELECT COUNT(*) FROM permissions),'|',(SELECT COUNT(*) FROM roles),'|',(SELECT COUNT(*) FROM auth_platforms),'|',(SELECT COUNT(*) FROM system_settings),'|',(SELECT COUNT(*) FROM ai_tools));"
   $expected = "$($baseline.target.seed_row_counts.permissions)|$($baseline.target.seed_row_counts.roles)|$($baseline.target.seed_row_counts.auth_platforms)|$($baseline.target.seed_row_counts.system_settings)|$($baseline.target.seed_row_counts.ai_tools)"
   if ($seedFacts -cne $expected) { throw 'DATABASE_SEED_FACTS_MISMATCH' }
+  $addressCount = Invoke-MySQL -SQL 'SELECT COUNT(*) FROM address WHERE is_del = 2;'
+  if ([int]$addressCount -ne [int]$baseline.target.reference_row_counts.address) { throw 'DATABASE_ADDRESS_REFERENCE_COUNT_MISMATCH' }
+  $addressOrphans = Invoke-MySQL -SQL 'SELECT COUNT(*) FROM address AS child LEFT JOIN address AS parent ON parent.id = child.parent_id AND parent.is_del = 2 WHERE child.is_del = 2 AND child.parent_id <> 0 AND parent.id IS NULL;'
+  if ([int]$addressOrphans -ne 0) { throw 'DATABASE_ADDRESS_REFERENCE_ORPHANED' }
   Assert-Migrations
   Write-Output 'database baseline check passed'
 }

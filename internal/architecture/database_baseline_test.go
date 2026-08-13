@@ -143,3 +143,25 @@ func TestDatabaseBaselineSeedContract(t *testing.T) {
 		}
 	}
 }
+
+func TestDatabaseBaselineAddressReferenceContract(t *testing.T) {
+	reference, err := os.ReadFile(filepath.Join(backendRoot(t), "database", "reference", "address.sql"))
+	if err != nil {
+		t.Fatalf("read database/reference/address.sql: %v", err)
+	}
+	normalized := strings.ToLower(string(reference))
+	if !strings.Contains(normalized, "insert into `address`") {
+		t.Fatal("address reference does not initialize address")
+	}
+	if matches := regexp.MustCompile(`(?i)insert\s+into\s+`+"`"+`([a-z0-9_]+)`+"`").FindAllStringSubmatch(string(reference), -1); len(matches) != 1 || strings.ToLower(matches[0][1]) != "address" {
+		t.Fatalf("address reference must contain one address insert, got %d inserts", len(matches))
+	}
+	if rows := len(regexp.MustCompile(`\([0-9]+,[0-9]+,'[0-9]+'`).FindAll(reference, -1)); rows != 3244 {
+		t.Fatalf("address reference row count=%d want 3244", rows)
+	}
+	for _, forbidden := range []string{"password", "secret", "token", "api_key", "private_key"} {
+		if strings.Contains(normalized, forbidden) {
+			t.Fatalf("address reference contains forbidden credential marker %q", forbidden)
+		}
+	}
+}

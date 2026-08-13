@@ -50,6 +50,10 @@ Assert-Match $source 'delete_alias' 'Qdrant reset must explicitly delete project
 Assert-Match $source 'schema_migrations' 'migration checksums must use the immutable migration ledger'
 Assert-Match $source '202608130001' 'migration discovery must be anchored after the canonical baseline'
 Assert-Match $source 'Get-FileHash.*SHA256' 'schema and migration bytes must be checked with SHA-256'
+Assert-Match $source 'database.reference.address.sql' 'database command must own the canonical address reference path'
+Assert-Match $source 'address_reference_sha256' 'database command must verify the address reference hash'
+Assert-Match $source 'reference_row_counts.address' 'database command must read address counts from reference ownership metadata'
+Assert-Match $source 'Invoke-SQLFile -Path \$addressReferencePath' 'database initialization must load the address reference'
 Assert-Match $source 'ADMIN_INITIAL_PASSWORD' 'administrator password must use process environment input'
 Assert-Match $source '& go -C \$repoRoot run ./cmd/admin-db' 'administrator creation must run from the resolved repository root'
 Assert-NotMatch $source '(?i)(Write-(Host|Output)|echo).*?(MYSQL_DSN|ADMIN_INITIAL_PASSWORD|MYSQL_ROOT_PASSWORD)' 'database command may not print credentials'
@@ -66,6 +70,8 @@ Assert-Match $checkFunction.Groups['body'].Value 'referential_constraints' 'data
 Assert-Match $checkFunction.Groups['body'].Value 'check_constraints' 'database check must validate live CHECK constraints'
 Assert-Match $checkFunction.Groups['body'].Value 'statistics' 'database check must validate live unique indexes'
 Assert-Match $checkFunction.Groups['body'].Value "index_name <> ''PRIMARY''" 'database check must count business unique indexes without table primary keys'
+Assert-Match $checkFunction.Groups['body'].Value 'FROM address' 'database check must validate the address reference row count'
+Assert-Match $checkFunction.Groups['body'].Value 'ADDRESS_REFERENCE_ORPHANED' 'database check must reject orphaned address nodes'
 
 $failureOutput = & pwsh -NoProfile -File $scriptPath reset -ConfirmReset wrong 2>&1 | Out-String
 Assert-True ($LASTEXITCODE -ne 0) 'reset accepted an invalid confirmation token'

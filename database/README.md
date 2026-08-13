@@ -1,8 +1,11 @@
 # Database baseline
 
 MySQL schema has one source: `database/schema.sql`. Required non-secret startup
-facts have one source: `database/seed.sql`. Files under `database/migrations/`
-are forward-only changes created after baseline `202608130001`.
+facts have one source: `database/seed.sql`. Public address reference data lives
+in `database/reference/address.sql`. The single database command loads it between
+the schema and seed; it is not a migration or user-owned business state. Files
+under `database/migrations/` are forward-only changes created after baseline
+`202608130001`.
 
 Application startup never changes the database. Use the repository-owned
 PowerShell entry from the backend repository:
