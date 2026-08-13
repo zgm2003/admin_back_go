@@ -61,6 +61,85 @@ func TestDatabaseBaselineSchemaContract(t *testing.T) {
 	}
 }
 
+func TestDatabaseBaselineSeedContract(t *testing.T) {
+	root := backendRoot(t)
+	seedPath := filepath.Join(root, "database", "seed.sql")
+	seed, err := os.ReadFile(seedPath)
+	if err != nil {
+		t.Fatalf("read database/seed.sql: %v", err)
+	}
+
+	normalized := strings.ToLower(string(seed))
+	allowedTables := map[string]bool{
+		"permissions":       true,
+		"roles":             true,
+		"role_permissions":  true,
+		"auth_platforms":    true,
+		"system_settings":   true,
+		"cron_task":         true,
+		"ai_tools":          true,
+		"schema_migrations": true,
+	}
+	inserts := regexp.MustCompile(`(?i)insert\s+into\s+` + "`" + `([a-z0-9_]+)` + "`").FindAllStringSubmatch(string(seed), -1)
+	seen := make(map[string]bool, len(inserts))
+	for _, insert := range inserts {
+		table := strings.ToLower(insert[1])
+		if !allowedTables[table] {
+			t.Errorf("seed inserts forbidden table %q", table)
+		}
+		seen[table] = true
+	}
+	for table := range allowedTables {
+		if !seen[table] {
+			t.Errorf("seed does not initialize %q", table)
+		}
+	}
+
+	for _, required := range []string{
+		"start transaction",
+		"commit",
+		"202608130001",
+		"auth.captcha.ttl_minutes",
+		"auth.captcha.slide_padding",
+		"upload.token.ttl_minutes",
+		"admin_user_count",
+		"ai_run_timeout",
+		"notification_task_scheduler",
+		"export_cleanup_expired",
+		"realtime_event_retention_cleanup",
+		"payment_sync_pending_order",
+		"payment_close_expired_order",
+	} {
+		if !strings.Contains(normalized, required) {
+			t.Errorf("seed missing required fact %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"insert into `users`",
+		"insert into `ai_providers`",
+		"insert into `ai_provider_models`",
+		"insert into `ai_agents`",
+		"insert into `ai_context_",
+		"insert into `ai_conversations`",
+		"insert into `ai_messages`",
+		"insert into `ai_runs`",
+		"insert into `payment_",
+		"insert into `upload_driver`",
+		"insert into `upload_rule`",
+		"insert into `upload_setting`",
+		"insert into `operation_logs`",
+		"insert into `cron_task_log`",
+		"api_key_enc",
+		"secret_id_enc",
+		"secret_key_enc",
+		"app_private_key_enc",
+	} {
+		if strings.Contains(normalized, forbidden) {
+			t.Errorf("seed contains forbidden fact %q", forbidden)
+		}
+	}
+}
+
 func TestCanonicalDatabaseBaselineIsPinnedAndConvergent(t *testing.T) {
 	root := backendRoot(t)
 	schema, err := os.ReadFile(filepath.Join(root, "database", "schema", "admin.hcl"))
