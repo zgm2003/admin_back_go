@@ -155,6 +155,7 @@ INSERT INTO `auth_platforms` (
 INSERT INTO `system_settings` (
   `id`, `setting_key`, `setting_value`, `value_type`, `remark`, `status`, `is_del`
 ) VALUES
+(1, 'user.default_avatar', 'https://cos.zgm2003.cn/avatars/1769948592140-20.png', 1, '用户注册头像', 1, 2),
 (15, 'auth.captcha.ttl_minutes', '2', 2, '验证码有效期分钟数', 1, 2),
 (16, 'auth.captcha.slide_padding', '10', 2, '滑块容差像素', 1, 2),
 (19, 'upload.token.ttl_minutes', '15', 2, '上传临时凭证有效期分钟数', 1, 2);

@@ -22,7 +22,7 @@
   },
   "target": {
     "schema_sha256": "b4884de66b62700e47fe2481769012ef4f28ddeffaf7fb6e39e19bbe5fea4033",
-    "seed_sha256": "95b3e7359fb71bccb8added2bd88fcadfe21dcf63876eb642b9adf5229126820",
+    "seed_sha256": "0028ca39b615cb9ceec303962cbd1492d00dae81c1c86015ade1506e3383996c",
     "base_table_count": 77,
     "foreign_key_count": 64,
     "check_constraint_count": 103,
@@ -32,7 +32,7 @@
       "roles": 2,
       "role_permissions": 241,
       "auth_platforms": 1,
-      "system_settings": 3,
+      "system_settings": 4,
       "cron_task": 6,
       "ai_tools": 1,
       "schema_migrations": 1

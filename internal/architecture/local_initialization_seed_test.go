@@ -169,6 +169,20 @@ func TestLocalPermissionSeed(t *testing.T) {
 	}
 }
 
+func TestLocalSystemSettingSeedPreservesDefaultAvatar(t *testing.T) {
+	root := backendRoot(t)
+	seedPath := filepath.Join(root, "database", "seed.sql")
+	body, err := os.ReadFile(seedPath)
+	if err != nil {
+		t.Fatalf("read local initialization seed: %v", err)
+	}
+	normalized := strings.Join(strings.Fields(strings.ToLower(string(body))), " ")
+	want := "(1, 'user.default_avatar', 'https://cos.zgm2003.cn/avatars/1769948592140-20.png', 1, '用户注册头像', 1, 2)"
+	if !strings.Contains(normalized, strings.ToLower(strings.Join(strings.Fields(want), " "))) {
+		t.Fatal("local initialization seed must preserve the active default avatar system setting")
+	}
+}
+
 func parsePermissionSeedRows(seed string) ([]permissionSeedRow, error) {
 	const marker = "INSERT INTO `permissions`"
 	insertIndex := strings.Index(seed, marker)
