@@ -40,6 +40,7 @@ type QdrantOpener func(context.Context, config.QdrantConfig) (OpenedResource[*co
 type Openers struct {
 	Database       DatabaseOpener
 	Redis          RedisOpener
+	RealtimeRedis  RedisOpener
 	TokenRedis     RedisOpener
 	QueueRedis     RedisOpener
 	Qdrant         QdrantOpener
@@ -49,20 +50,22 @@ type Openers struct {
 }
 
 type resourceCapabilities struct {
-	database   bool
-	redis      bool
-	tokenRedis bool
-	queueRedis bool
-	realtime   bool
-	scheduler  bool
+	database      bool
+	redis         bool
+	realtimeRedis bool
+	tokenRedis    bool
+	queueRedis    bool
+	realtime      bool
+	scheduler     bool
 }
 
 type Resources struct {
-	DB         *database.Client
-	Redis      *redisclient.Client
-	TokenRedis *redisclient.Client
-	QueueRedis *redisclient.Client
-	Qdrant     *contextqdrant.Client
+	DB            *database.Client
+	Redis         *redisclient.Client
+	RealtimeRedis *redisclient.Client
+	TokenRedis    *redisclient.Client
+	QueueRedis    *redisclient.Client
+	Qdrant        *contextqdrant.Client
 
 	cleanup          *Cleanup
 	capabilities     resourceCapabilities
@@ -179,6 +182,20 @@ func OpenResources(ctx context.Context, process config.Process, cfg config.Confi
 		redis = opened.Client
 	}
 
+	var realtimeRedis *redisclient.Client
+	if capabilities.realtimeRedis {
+		realtimeCfg := cfg.Redis
+		realtimeCfg.DB = cfg.Realtime.RedisDB
+		opened, openErr := open.RealtimeRedis(ctx, realtimeCfg)
+		if openErr != nil {
+			return nil, failResourceOpen(ctx, cleanup, "realtime redis", openErr)
+		}
+		if activateErr := activateResource(ctx, cleanup, pings, "realtime_redis", opened.Client != nil, opened.Ping, opened.Close); activateErr != nil {
+			return nil, activateErr
+		}
+		realtimeRedis = opened.Client
+	}
+
 	var tokenRedis *redisclient.Client
 	if capabilities.tokenRedis {
 		tokenCfg := cfg.Redis
@@ -239,6 +256,7 @@ func OpenResources(ctx context.Context, process config.Process, cfg config.Confi
 	return &Resources{
 		DB:               db,
 		Redis:            redis,
+		RealtimeRedis:    realtimeRedis,
 		TokenRedis:       tokenRedis,
 		QueueRedis:       queueRedis,
 		Qdrant:           openedQdrant.Client,
@@ -262,23 +280,25 @@ func (r *Resources) Health(ctx context.Context) Report {
 	}
 	if r == nil {
 		return NewReport(map[string]Check{
-			"database":    {Status: StatusDisabled},
-			"redis":       {Status: StatusDisabled},
-			"token_redis": {Status: StatusDisabled},
-			"queue_redis": {Status: StatusDisabled},
-			"qdrant":      {Status: StatusDisabled},
-			"realtime":    {Status: StatusDisabled},
-			"scheduler":   {Status: StatusDisabled},
+			"database":       {Status: StatusDisabled},
+			"redis":          {Status: StatusDisabled},
+			"realtime_redis": {Status: StatusDisabled},
+			"token_redis":    {Status: StatusDisabled},
+			"queue_redis":    {Status: StatusDisabled},
+			"qdrant":         {Status: StatusDisabled},
+			"realtime":       {Status: StatusDisabled},
+			"scheduler":      {Status: StatusDisabled},
 		})
 	}
 	return NewReport(map[string]Check{
-		"database":    r.resourceCheck(ctx, "database", r.capabilities.database),
-		"redis":       r.resourceCheck(ctx, "redis", r.capabilities.redis),
-		"token_redis": r.resourceCheck(ctx, "token_redis", r.capabilities.tokenRedis),
-		"queue_redis": r.resourceCheck(ctx, "queue_redis", r.capabilities.queueRedis),
-		"qdrant":      r.contextReadiness.Check(ctx),
-		"realtime":    capabilityCheck(r.capabilities.realtime),
-		"scheduler":   capabilityCheck(r.capabilities.scheduler),
+		"database":       r.resourceCheck(ctx, "database", r.capabilities.database),
+		"redis":          r.resourceCheck(ctx, "redis", r.capabilities.redis),
+		"realtime_redis": r.resourceCheck(ctx, "realtime_redis", r.capabilities.realtimeRedis),
+		"token_redis":    r.resourceCheck(ctx, "token_redis", r.capabilities.tokenRedis),
+		"queue_redis":    r.resourceCheck(ctx, "queue_redis", r.capabilities.queueRedis),
+		"qdrant":         r.contextReadiness.Check(ctx),
+		"realtime":       capabilityCheck(r.capabilities.realtime),
+		"scheduler":      capabilityCheck(r.capabilities.scheduler),
 	})
 }
 
@@ -309,12 +329,13 @@ func capabilityCheck(enabled bool) Check {
 
 func capabilitiesFor(process config.Process, cfg config.Config) (resourceCapabilities, error) {
 	capabilities := resourceCapabilities{
-		database:   true,
-		redis:      true,
-		tokenRedis: process == config.ProcessAPI,
-		queueRedis: cfg.Queue.Enabled,
-		realtime:   cfg.Realtime.Enabled,
-		scheduler:  process == config.ProcessWorker && cfg.Scheduler.Enabled,
+		database:      true,
+		redis:         true,
+		realtimeRedis: process == config.ProcessAPI || process == config.ProcessWorker,
+		tokenRedis:    process == config.ProcessAPI,
+		queueRedis:    cfg.Queue.Enabled,
+		realtime:      cfg.Realtime.Enabled,
+		scheduler:     process == config.ProcessWorker && cfg.Scheduler.Enabled,
 	}
 	if process != config.ProcessAPI && process != config.ProcessWorker {
 		return resourceCapabilities{}, fmt.Errorf("runtime process is unsupported")
@@ -385,6 +406,11 @@ func (open Openers) withDefaults() Openers {
 	}
 	if open.Redis == nil {
 		open.Redis = func(ctx context.Context, cfg config.RedisConfig) (OpenedResource[*redisclient.Client], error) {
+			return defaultRedisOpener(ctx, cfg, recorder)
+		}
+	}
+	if open.RealtimeRedis == nil {
+		open.RealtimeRedis = func(ctx context.Context, cfg config.RedisConfig) (OpenedResource[*redisclient.Client], error) {
 			return defaultRedisOpener(ctx, cfg, recorder)
 		}
 	}

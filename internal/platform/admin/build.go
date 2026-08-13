@@ -61,11 +61,12 @@ import (
 )
 
 type BuildResources struct {
-	DB           *database.Client
-	Redis        *redisclient.Client
-	TokenRedis   *redisclient.Client
-	QueueRedis   *redisclient.Client
-	ContextIndex contextindex.Querier
+	DB            *database.Client
+	Redis         *redisclient.Client
+	RealtimeRedis *redisclient.Client
+	TokenRedis    *redisclient.Client
+	QueueRedis    *redisclient.Client
+	ContextIndex  contextindex.Querier
 }
 
 type ProviderSet struct {
@@ -241,7 +242,7 @@ func Build(input BuildInput) (*BuildResult, error) {
 	)
 	aiConversationService := aiconversation.NewService(
 		aiconversation.NewGormRepository(resources.DB),
-		aiconversation.WithCancelPublisher(replycommand.NewRedisCancelPublisher(resources.Redis)),
+		aiconversation.WithCancelPublisher(replycommand.NewRedisCancelPublisher(resources.RealtimeRedis)),
 	)
 	aiRunService := airun.NewService(
 		aiRunRepository,
@@ -374,7 +375,7 @@ func Build(input BuildInput) (*BuildResult, error) {
 			aimessage.WithRepositoryHistoryDerivedInvalidator(historyInvalidator),
 		),
 		aimessage.WithReplyWaker(replycommand.NewWakeupEnqueuer(input.Queue)),
-		aimessage.WithCancelPublisher(replycommand.NewRedisCancelPublisher(resources.Redis)),
+		aimessage.WithCancelPublisher(replycommand.NewRedisCancelPublisher(resources.RealtimeRedis)),
 		aimessage.WithPricingResolver(aiOfficialModelResolver),
 		aimessage.WithTransportCapabilityResolver(providers.AITransportCapabilities),
 		aimessage.WithObjectInspector(aiChatObjectInspector),
@@ -480,6 +481,9 @@ func accessTokenCodecForKeys(keys *secretkey.KeyRing) (accesstoken.Codec, error)
 func validateBuildInput(input BuildInput) error {
 	if input.Resources == nil {
 		return errors.New("admin build resources are required")
+	}
+	if input.Resources.RealtimeRedis == nil {
+		return errors.New("admin build realtime redis resource is required")
 	}
 	if input.Resources.DB == nil || input.Resources.Redis == nil || input.Resources.TokenRedis == nil {
 		return errors.New("admin build resources are incomplete")

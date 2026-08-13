@@ -276,7 +276,7 @@ func TestOpenResourcesAPIPlanOpensRequiredResourcesAndReportsDisabledCapabilitie
 		t.Fatalf("second close: %v", err)
 	}
 	closeEvents := filterEvents(events, "close:")
-	if want := []string{"close:qdrant", "close:token_redis", "close:redis", "close:database"}; !reflect.DeepEqual(closeEvents, want) {
+	if want := []string{"close:qdrant", "close:token_redis", "close:realtime_redis", "close:redis", "close:database"}; !reflect.DeepEqual(closeEvents, want) {
 		t.Fatalf("close events=%v want=%v", closeEvents, want)
 	}
 }
@@ -311,6 +311,148 @@ func TestOpenResourcesWorkerPlanSkipsTokenRedisAndRequiresQueue(t *testing.T) {
 	}
 }
 
+func TestOpenResourcesAlwaysOwnsRealtimeRedisWhenRealtimeIsDisabled(t *testing.T) {
+	for _, process := range []config.Process{config.ProcessAPI, config.ProcessWorker} {
+		t.Run(string(process), func(t *testing.T) {
+			var events []string
+			openers := successfulOpeners(&events)
+			openedDBs := map[string]int{}
+			openers.Redis = func(_ context.Context, cfg config.RedisConfig) (OpenedResource[*redisclient.Client], error) {
+				openedDBs["redis"] = cfg.DB
+				return openedRedis(&events, "redis"), nil
+			}
+			openers.RealtimeRedis = func(_ context.Context, cfg config.RedisConfig) (OpenedResource[*redisclient.Client], error) {
+				openedDBs["realtime_redis"] = cfg.DB
+				return openedRedis(&events, "realtime_redis"), nil
+			}
+			openers.TokenRedis = func(_ context.Context, cfg config.RedisConfig) (OpenedResource[*redisclient.Client], error) {
+				openedDBs["token_redis"] = cfg.DB
+				return openedRedis(&events, "token_redis"), nil
+			}
+			openers.QueueRedis = func(_ context.Context, cfg config.RedisConfig) (OpenedResource[*redisclient.Client], error) {
+				openedDBs["queue_redis"] = cfg.DB
+				return openedRedis(&events, "queue_redis"), nil
+			}
+			cfg := configuredResources()
+			cfg.Realtime.Enabled = false
+			cfg.Realtime.RedisDB = 1
+			cfg.Token.RedisDB = 2
+			cfg.Queue.RedisDB = 3
+			if process == config.ProcessWorker {
+				cfg.Queue.Enabled = true
+			}
+
+			resources, err := OpenResources(t.Context(), process, cfg, openers)
+			if err != nil {
+				t.Fatalf("open resources: %v", err)
+			}
+			defer resources.Close(t.Context())
+
+			if got := resources.Health(t.Context()).Checks["realtime_redis"].Status; got != StatusUp {
+				t.Fatalf("realtime_redis status=%q report=%+v", got, resources.Health(t.Context()))
+			}
+			if got := resources.Health(t.Context()).Checks["realtime"].Status; got != StatusDisabled {
+				t.Fatalf("realtime status=%q report=%+v", got, resources.Health(t.Context()))
+			}
+			if openedDBs["redis"] != 0 || openedDBs["realtime_redis"] != 1 {
+				t.Fatalf("cache/realtime redis dbs=%v", openedDBs)
+			}
+			if process == config.ProcessAPI && openedDBs["token_redis"] != 2 {
+				t.Fatalf("token redis dbs=%v", openedDBs)
+			}
+			if process == config.ProcessWorker && openedDBs["queue_redis"] != 3 {
+				t.Fatalf("queue redis dbs=%v", openedDBs)
+			}
+		})
+	}
+}
+
+func TestOpenResourcesUsesConfiguredRedisDatabasesAndReverseCleanupOrder(t *testing.T) {
+	var events []string
+	var openedDBs = map[string]int{}
+	openers := successfulOpeners(&events)
+	openers.Redis = func(_ context.Context, cfg config.RedisConfig) (OpenedResource[*redisclient.Client], error) {
+		openedDBs["redis"] = cfg.DB
+		return openedRedis(&events, "redis"), nil
+	}
+	openers.RealtimeRedis = func(_ context.Context, cfg config.RedisConfig) (OpenedResource[*redisclient.Client], error) {
+		openedDBs["realtime_redis"] = cfg.DB
+		return openedRedis(&events, "realtime_redis"), nil
+	}
+	openers.TokenRedis = func(_ context.Context, cfg config.RedisConfig) (OpenedResource[*redisclient.Client], error) {
+		openedDBs["token_redis"] = cfg.DB
+		return openedRedis(&events, "token_redis"), nil
+	}
+	openers.QueueRedis = func(_ context.Context, cfg config.RedisConfig) (OpenedResource[*redisclient.Client], error) {
+		openedDBs["queue_redis"] = cfg.DB
+		return openedRedis(&events, "queue_redis"), nil
+	}
+	cfg := configuredResources()
+	cfg.Queue.Enabled = true
+	cfg.Realtime.RedisDB = 1
+	cfg.Token.RedisDB = 2
+	cfg.Queue.RedisDB = 3
+
+	resources, err := OpenResources(t.Context(), config.ProcessAPI, cfg, openers)
+	if err != nil {
+		t.Fatalf("open resources: %v", err)
+	}
+	if err := resources.Close(t.Context()); err != nil {
+		t.Fatalf("close resources: %v", err)
+	}
+	for name, want := range map[string]int{"redis": 0, "realtime_redis": 1, "token_redis": 2, "queue_redis": 3} {
+		if got := openedDBs[name]; got != want {
+			t.Fatalf("%s db=%d want=%d", name, got, want)
+		}
+	}
+	wantClose := []string{"close:qdrant", "close:queue_redis", "close:token_redis", "close:realtime_redis", "close:redis", "close:database"}
+	if got := filterEvents(events, "close:"); !reflect.DeepEqual(got, wantClose) {
+		t.Fatalf("close events=%v want=%v", got, wantClose)
+	}
+}
+
+func TestOpenResourcesReportsRealtimeRedisPingFailureAsDown(t *testing.T) {
+	pingErr := errors.New("realtime redis ping failed")
+	for _, process := range []config.Process{config.ProcessAPI, config.ProcessWorker} {
+		t.Run(string(process), func(t *testing.T) {
+			var events []string
+			openers := successfulOpeners(&events)
+			pingFailed := false
+			openers.RealtimeRedis = func(context.Context, config.RedisConfig) (OpenedResource[*redisclient.Client], error) {
+				return OpenedResource[*redisclient.Client]{
+					Client: &redisclient.Client{},
+					Ping: func(context.Context) error {
+						if pingFailed {
+							return pingErr
+						}
+						return nil
+					},
+					Close: func(context.Context) error { return nil },
+				}, nil
+			}
+			cfg := configuredResources()
+			cfg.Queue.Enabled = process == config.ProcessWorker
+			resources, err := OpenResources(t.Context(), process, cfg, openers)
+			if err != nil {
+				t.Fatalf("open resources: %v", err)
+			}
+			defer resources.Close(t.Context())
+			pingFailed = true
+			check := resources.Health(t.Context()).Checks["realtime_redis"]
+			if check.Status != StatusDown {
+				t.Fatalf("realtime_redis status=%q check=%+v", check.Status, check)
+			}
+		})
+	}
+}
+
+func TestNilResourcesHealthIncludesRealtimeRedisCheck(t *testing.T) {
+	report := (*Resources)(nil).Health(t.Context())
+	if got := report.Checks["realtime_redis"].Status; got != StatusDisabled {
+		t.Fatalf("nil resources realtime_redis status=%q report=%+v", got, report)
+	}
+}
+
 func TestOpenResourcesOwnsOneQdrantClientAndClosesItBeforeStateResources(t *testing.T) {
 	var events []string
 	openers := successfulOpeners(&events)
@@ -330,7 +472,7 @@ func TestOpenResourcesOwnsOneQdrantClientAndClosesItBeforeStateResources(t *test
 	if err := resources.Close(t.Context()); err != nil {
 		t.Fatalf("close resources: %v", err)
 	}
-	if got, want := filterEvents(events, "close:"), []string{"close:qdrant", "close:token_redis", "close:redis", "close:database"}; !reflect.DeepEqual(got, want) {
+	if got, want := filterEvents(events, "close:"), []string{"close:qdrant", "close:token_redis", "close:realtime_redis", "close:redis", "close:database"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("close events=%v want=%v", got, want)
 	}
 }
@@ -366,11 +508,12 @@ func TestOpenResourcesRejectsEnabledRedisCapabilitiesWithoutAddress(t *testing.T
 
 func configuredResources() config.Config {
 	return config.Config{
-		MySQL:  config.MySQLConfig{DSN: "user:password@tcp(mysql:3306)/admin"},
-		Redis:  config.RedisConfig{Addr: "redis:6379"},
-		Qdrant: config.QdrantConfig{Addr: "qdrant:6334", CollectionPrefix: "admin_context"},
-		Token:  config.TokenConfig{RedisDB: 2},
-		Queue:  config.QueueConfig{RedisDB: 3},
+		MySQL:    config.MySQLConfig{DSN: "user:password@tcp(mysql:3306)/admin"},
+		Redis:    config.RedisConfig{Addr: "redis:6379"},
+		Realtime: config.RealtimeConfig{RedisDB: config.DefaultRealtimeRedisDB},
+		Qdrant:   config.QdrantConfig{Addr: "qdrant:6334", CollectionPrefix: "admin_context"},
+		Token:    config.TokenConfig{RedisDB: 2},
+		Queue:    config.QueueConfig{RedisDB: 3},
 	}
 }
 
@@ -381,6 +524,9 @@ func successfulOpeners(events *[]string) Openers {
 		},
 		Redis: func(context.Context, config.RedisConfig) (OpenedResource[*redisclient.Client], error) {
 			return openedRedis(events, "redis"), nil
+		},
+		RealtimeRedis: func(context.Context, config.RedisConfig) (OpenedResource[*redisclient.Client], error) {
+			return openedRedis(events, "realtime_redis"), nil
 		},
 		TokenRedis: func(context.Context, config.RedisConfig) (OpenedResource[*redisclient.Client], error) {
 			return openedRedis(events, "token_redis"), nil

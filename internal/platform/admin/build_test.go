@@ -331,11 +331,29 @@ func TestBuildRejectsMissingEnabledRuntimeAdapters(t *testing.T) {
 	}
 }
 
+func TestBuildRejectsMissingRealtimeRedis(t *testing.T) {
+	keys, err := secretkey.NewKeyRing(strings.Repeat("k", 64))
+	if err != nil {
+		t.Fatalf("key ring: %v", err)
+	}
+	resources := buildTestResources()
+	resources.RealtimeRedis = nil
+	result, err := Build(BuildInput{
+		Resources: resources,
+		Keys:      keys,
+		Providers: &ProviderSet{},
+	})
+	if result != nil || err == nil || !strings.Contains(err.Error(), "realtime redis") {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+}
+
 func buildTestResources() *BuildResources {
 	return &BuildResources{
-		DB:         &database.Client{},
-		Redis:      &redisclient.Client{},
-		TokenRedis: &redisclient.Client{},
-		QueueRedis: &redisclient.Client{},
+		DB:            &database.Client{},
+		Redis:         &redisclient.Client{},
+		RealtimeRedis: &redisclient.Client{},
+		TokenRedis:    &redisclient.Client{},
+		QueueRedis:    &redisclient.Client{},
 	}
 }

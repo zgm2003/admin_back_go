@@ -384,7 +384,7 @@ func registerWorkerHandlers(
 		Repository:       replyRepository,
 		Executor:         aiChatService,
 		Finalizer:        aiChatService,
-		CancelSubscriber: replycommand.NewRedisCancelSubscriber(resources.Redis),
+		CancelSubscriber: replycommand.NewRedisCancelSubscriber(resources.RealtimeRedis),
 		Logger:           logger,
 	})
 	imageRepository := aiimage.NewGormRepository(resources.DB)

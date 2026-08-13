@@ -172,10 +172,10 @@ func realtimePublisherForWorker(cfg config.Config, resources *Resources, recorde
 	}
 	switch publisherName {
 	case config.RealtimePublisherRedis:
-		if resources == nil || resources.Redis == nil || resources.Redis.Redis == nil {
+		if resources == nil || resources.RealtimeRedis == nil || resources.RealtimeRedis.Redis == nil {
 			return wrap(infrarealtime.NewRedisPublisher(nil, realtimeConfig.RedisChannel, modulerealtime.DefaultRegistry().ValidateServerEnvelope), "redis")
 		}
-		return wrap(infrarealtime.NewRedisPublisher(resources.Redis.Redis, realtimeConfig.RedisChannel, modulerealtime.DefaultRegistry().ValidateServerEnvelope), "redis")
+		return wrap(infrarealtime.NewRedisPublisher(resources.RealtimeRedis.Redis, realtimeConfig.RedisChannel, modulerealtime.DefaultRegistry().ValidateServerEnvelope), "redis")
 	case config.RealtimePublisherNoop, config.RealtimePublisherLocal:
 		return wrap(infrarealtime.NoopPublisher{}, "noop")
 	default:

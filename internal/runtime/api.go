@@ -137,13 +137,14 @@ func productionAPIHooks(cfg config.Config, logger *slog.Logger, keys *secretkey.
 			}, nil
 		},
 		buildAdmin: func(context.Context) (CleanupFunc, error) {
-			realtime = newRealtimeStackWithRedis(cfg.Realtime, cfg.CORS.AllowOrigins, resources.DB, resources.Redis, logger, recorder)
+			realtime = newRealtimeStackWithRedis(cfg.Realtime, cfg.CORS.AllowOrigins, resources.DB, resources.RealtimeRedis, logger, recorder)
 			adminResources := &platformadmin.BuildResources{
-				DB:           resources.DB,
-				Redis:        resources.Redis,
-				TokenRedis:   resources.TokenRedis,
-				QueueRedis:   resources.QueueRedis,
-				ContextIndex: resources.Qdrant,
+				DB:            resources.DB,
+				Redis:         resources.Redis,
+				RealtimeRedis: resources.RealtimeRedis,
+				TokenRedis:    resources.TokenRedis,
+				QueueRedis:    resources.QueueRedis,
+				ContextIndex:  resources.Qdrant,
 			}
 			adminProviders := platformadmin.ProviderSet{
 				Secretbox:               providers.Secretbox,
