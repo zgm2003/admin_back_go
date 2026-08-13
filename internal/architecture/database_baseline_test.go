@@ -8,6 +8,59 @@ import (
 	"testing"
 )
 
+func TestDatabaseBaselineSchemaContract(t *testing.T) {
+	root := backendRoot(t)
+	schemaPath := filepath.Join(root, "database", "schema.sql")
+	schema, err := os.ReadFile(schemaPath)
+	if err != nil {
+		t.Fatalf("read database/schema.sql: %v", err)
+	}
+
+	body := string(schema)
+	normalized := strings.ToLower(body)
+	for _, required := range []string{
+		"create table `users`",
+		"create table `ai_context_plans`",
+		"create table `payment_orders`",
+		"create table `schema_migrations`",
+		"constraint `fk_mail_log_verification_codes_mail_log`",
+		"constraint `chk_ai_runs_status`",
+		"unique key `uk_wallet_transaction_source`",
+	} {
+		if !strings.Contains(normalized, required) {
+			t.Errorf("canonical schema missing %q", required)
+		}
+	}
+
+	if count := strings.Count(normalized, "create table `"); count != 77 {
+		t.Errorf("canonical schema table count=%d want 77", count)
+	}
+	if count := strings.Count(normalized, "create table `schema_migrations`"); count != 1 {
+		t.Errorf("schema_migrations table count=%d want 1", count)
+	}
+
+	for _, forbidden := range []string{
+		"atlas_schema_revisions",
+		"schema_reconciliation_runs",
+		"ai_billing_migration_metadata",
+		"definer=",
+		"insert into",
+	} {
+		if strings.Contains(normalized, forbidden) {
+			t.Errorf("canonical schema contains forbidden %q", forbidden)
+		}
+	}
+	if regexp.MustCompile(`(?i)\bauto_increment\s*=\s*[0-9]+`).Match(schema) {
+		t.Error("canonical schema contains a volatile auto-increment counter")
+	}
+	if !regexp.MustCompile(`(?i)engine=innodb`).Match(schema) {
+		t.Error("canonical schema contains no InnoDB table")
+	}
+	if !regexp.MustCompile(`(?i)(default charset|character set)\s*=\s*utf8mb4`).Match(schema) {
+		t.Error("canonical schema contains no utf8mb4 table")
+	}
+}
+
 func TestCanonicalDatabaseBaselineIsPinnedAndConvergent(t *testing.T) {
 	root := backendRoot(t)
 	schema, err := os.ReadFile(filepath.Join(root, "database", "schema", "admin.hcl"))
