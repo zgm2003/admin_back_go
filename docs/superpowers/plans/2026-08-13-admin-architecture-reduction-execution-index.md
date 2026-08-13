@@ -1,0 +1,164 @@
+# Admin 平台架构减法执行总索引
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans or superpowers:subagent-driven-development to execute each wave. Every wave has its own review and user acceptance gate. Do not execute this index as one giant batch.
+
+**Goal:** 在不破坏现有业务、数据库、接口和用户习惯的前提下，把 Admin 前后端恢复为社区可读的模块化单体和线性调用链。
+
+**Architecture:** 后端固定 `route -> middleware -> handler -> service -> repository -> model`，前端固定 `views -> api -> request -> backend`。MySQL 保存业务事实，Redis 按角色提供缓存/实时/Token/队列能力，COS 保存文件内容，Qdrant 保存可重建派生索引。
+
+**Tech Stack:** Go 1.26.5、Gin、GORM、MySQL 8.4、Redis 8、Asynq、Qdrant、Vue 3.5、TypeScript、Vite、Element Plus、Vitest。
+
+---
+
+## 使用规则
+
+唯一设计来源是：
+
+```text
+E:/admin/admin_back_go/docs/superpowers/specs/2026-08-13-admin-architecture-reduction-direction.md
+```
+
+执行前必须读取中心方向书和当前代码，不能只按旧计划中的文件名操作。中心方向书已经确认：
+
+- 原仓逐模块迁移，不新建长期 v2 双轨；
+- 保留 API、数据库、菜单、权限码和用户操作习惯；
+- 删除前必须有引用盘点、恢复点和用户批准；
+- 不跑全量长脚本、Playwright 或 `admin-dev`，由用户人工启动和验收；
+- 每波只修改自己的文件，不能顺手修计划外问题；
+- 每波完成后先运行短测试，再等用户人工验收；
+- 只有验收后才允许删除对应旧实现。
+
+当前恢复点：
+
+```text
+Backend baseline tag: pre-database-baseline-20260813
+Database baseline: 202608130001
+Backend documentation commits: bf44a11, 912a8db
+```
+
+## 阶段总览
+
+| 波次 | 内容 | 结果 | 删除边界 |
+|---|---|---|---|
+| Wave 01 | 权限矩阵 UI + Realtime Redis DB 1 | 页面权限自然可选，实时和 AI 取消信号脱离缓存 DB 0 | 不删除旧架构 |
+| Wave 02 | 系统设置 CRUD 样板 | 第一条可读的后端/前端样板链 | 仅删除系统设置旧重复层 |
+| Wave 03 | 配置、公共响应、RBAC、后台基础模块 | 线性 Handler/Service/Repository 结构稳定 | 只删除已迁移模块旧层 |
+| Wave 04 | Worker、任务、Realtime、COS | 后台任务、WebSocket、上传边界收口 | 只删除已迁移 runtime 包装 |
+| Wave 05 | 支付与钱包 | 订单、钱包、供应商、回调幂等边界清楚 | 只删除支付旧适配层 |
+| Wave 06 | AI 七个子包 | AI、附件、上下文、扣费均沿真实业务边界 | 核心域最后清理 |
+| Wave 07 | 旧合同、Kernel、Registry、脚本归档 | 日常开发不依赖生成器和脚本框架 | 最后一波集中删除 |
+
+每个 Wave 结束后，新窗口必须把实际变更、测试结果、未处理问题和下一波入口写入交接记录，等待用户人工验收。不要跨 Wave 自动继续。
+
+## Wave 01
+
+详细执行文件：
+
+```text
+docs/superpowers/plans/2026-08-13-admin-architecture-reduction-wave-01.md
+```
+
+该波只包含两个互不穿透的变更：
+
+1. 角色权限矩阵中，页面名称本身承担页面访问权限；动作列只展示真实按钮。
+2. Realtime 和 AI 取消信号使用独立 Redis DB 1；缓存仍为 DB 0，Token 为 DB 2，队列为 DB 3。
+
+## Wave 02：系统设置样板
+
+开始条件：Wave 01 已被用户验收，当前代码和数据库状态已重新只读盘点。
+
+目标调用链：
+
+```text
+后端 systemsetting route
+-> middleware.Auth/Permission/OperationLog
+-> handler
+-> service
+-> repository
+-> model
+
+前端 system/setting view
+-> api/system-setting.ts
+-> request
+```
+
+必须保留：系统设置缓存、双语言、默认头像、列表返回 `{list: [...]}` 的真实协议、权限码和操作日志。先为该模块写短 Handler/Service/Repository 测试，再迁移文件；不得先删除 generated contract。
+
+## Wave 03：基础模块
+
+按一个模块一个提交迁移：用户、角色、权限、邮件、短信、日志、上传配置。每个模块都执行：
+
+```text
+记录 API/字段/权限
+-> 新结构实现
+-> 受影响 Go/Vue 测试
+-> 用户验收
+-> 删除该模块旧重复层
+```
+
+公共响应、错误通知和 `permission.ts` 只保留一份事实来源；后端低权限接口必须有 403 矩阵测试。
+
+## Wave 04：运行与存储
+
+保留 `admin-worker` 和 Asynq，任务显式注册。WebSocket 收口为 `realtime` 包，MySQL 是消息/运行终态事实，Redis Pub/Sub 只做广播。COS 使用 `init -> 直传 -> complete -> HEAD 校验 -> MySQL 元数据`，API 不中转大文件。
+
+## Wave 05：支付
+
+支付域按 `order`、`wallet`、`provider`、`handler` 组织。支付宝回调先验签，再按订单号幂等更新；AI 只能调用钱包 Service，不能直接写支付表；金额、事务、退款和流水测试先于 UI 迁移。
+
+## Wave 06：AI
+
+AI 最后迁移，内部只保留真实子包：
+
+```text
+provider / agent / conversation / run / asset / context / billing
+```
+
+Embedding/Qdrant 不可用时，上下文增强降级，普通聊天继续工作。MySQL 保存文档和版本事实，Qdrant 只保存可重建索引。附件只引用 `asset_id`，文件内容继续走 COS。
+
+## Wave 07：删除与归档
+
+只有所有消费者迁移且用户验收后，才按引用盘点删除：
+
+- generated operations/views/permissions 和 runtime schema 日常依赖；
+- AppKernel、RuntimeRouteRegistry、万能 Workflow、纯转发 Adapter；
+- `cmd/admin-contract`、一次性 context preflight 和旧 `admin-db` 入口；
+- 多层 PowerShell smoke、合同生成、发布 rehearsal、browser-only 和历史 cutover 脚本；
+- 失效架构文档、空目录和只保护旧文件路径的测试。
+
+最终公开入口必须是：
+
+```text
+cmd/admin-api
+cmd/admin-worker
+cmd/admin-cli
+
+scripts/admin-dev.ps1
+scripts/database.ps1
+scripts/docker.ps1
+scripts/install-shortcuts.ps1
+scripts/internal/common.ps1
+```
+
+## 禁止事项
+
+- 不在 Wave 01 顺手迁移系统设置、AI、支付或数据库表；
+- 不改变 API 返回外层 `code/data/msg/error`；
+- 不将页面访问改成新的权限码或新表；
+- 不把 Redis 多 DB 当成 Cluster；Cluster 适配另设 Wave；
+- 不把 Qdrant 必需性改成阻断普通聊天；
+- 不用 `|| ''`、`?? []` 或空对象吞掉合同错误；
+- 不运行全仓长测试代替目标测试；
+- 不主动启动、停止或重启用户的 `admin-dev`；
+- 不覆盖其他窗口或用户的未提交修改。
+
+## 每波完成标准
+
+```text
+目标行为有短测试
+-> 受影响模块测试通过
+-> git diff --check 通过
+-> 变更只在本波范围
+-> 用户人工验收
+-> 记录提交和下一波恢复点
+```
