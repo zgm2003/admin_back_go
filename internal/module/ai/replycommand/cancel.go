@@ -14,7 +14,7 @@ import (
 
 var ErrCancelSignalsNotConfigured = errors.New("reply command cancel signals are not configured")
 
-const cancelChannelPrefix = "ai:reply:cancel:"
+const cancelChannelPrefix = "admin_go:realtime:ai:reply:cancel:"
 
 type CancelPublisher interface {
 	PublishCancel(context.Context, uint64) error

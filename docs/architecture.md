@@ -1041,6 +1041,10 @@ key 只允许 create，edit 不允许改 key，避免缓存和业务读取歧义
 写入、状态、删除必须清理 Redis cache；key 规则继承 legacy：sys_setting_raw_ + setting key 中的 "." 替换为 "_"
 ```
 
+Redis 逻辑 DB 只隔离普通 key，不隔离 Pub/Sub。Realtime 事件使用
+`admin_go:realtime:publish`，AI cancel 使用
+`admin_go:realtime:ai:reply:cancel:<command_id>`；不得依赖 DB 1 阻止同名频道互通。
+
 历史系统的 `devtools_queue_monitor_queues` 不再属于 Go system-settings 契约。Go 队列监控已经使用 `QUEUE_*` env、Asynq Redis lane 和官方 asynqmon UI；收口时只清理这条旧配置项，不删除队列监控功能。
 
 

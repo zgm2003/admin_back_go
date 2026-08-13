@@ -87,13 +87,15 @@ func (f *fakeCancelSubscription) Signal() <-chan struct{} { return f.signal }
 func (f *fakeCancelSubscription) Close() error            { return nil }
 
 func TestRedisCancelSignalUsesCommandScopedChannel(t *testing.T) {
+	const wantCancelChannel = "admin_go:realtime:ai:reply:cancel:41"
+
 	var publishedChannel string
 	publisher := &RedisCancelPublisher{publish: func(_ context.Context, channel string) error {
 		publishedChannel = channel
 		return errors.New("redis unavailable")
 	}}
-	if err := publisher.PublishCancel(context.Background(), 41); err == nil || publishedChannel != "ai:reply:cancel:41" {
-		t.Fatalf("channel=%q err=%v", publishedChannel, err)
+	if err := publisher.PublishCancel(context.Background(), 41); err == nil || publishedChannel != wantCancelChannel {
+		t.Fatalf("PublishCancel() channel=%q err=%v", publishedChannel, err)
 	}
 
 	want := &fakeCancelSubscription{signal: make(chan struct{})}
@@ -103,7 +105,7 @@ func TestRedisCancelSignalUsesCommandScopedChannel(t *testing.T) {
 		return want, nil
 	}}
 	got, err := subscriber.SubscribeCancel(context.Background(), 41)
-	if err != nil || got != want || subscribedChannel != "ai:reply:cancel:41" {
-		t.Fatalf("subscription=%T channel=%q err=%v", got, subscribedChannel, err)
+	if err != nil || got != want || subscribedChannel != wantCancelChannel {
+		t.Fatalf("SubscribeCancel() channel=%q subscription=%v err=%v", subscribedChannel, got, err)
 	}
 }
