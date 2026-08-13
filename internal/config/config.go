@@ -180,6 +180,7 @@ const (
 	RealtimePublisherNoop  = "noop"
 	RealtimePublisherRedis = "redis"
 
+	DefaultRealtimeRedisDB           = 1
 	DefaultRealtimeRedisChannel      = "admin_go:realtime:publish"
 	DefaultRealtimeHeartbeatInterval = 25 * time.Second
 	DefaultRealtimeSendBuffer        = 16
@@ -188,6 +189,7 @@ const (
 type RealtimeConfig struct {
 	Enabled           bool
 	Publisher         string
+	RedisDB           int
 	HeartbeatInterval time.Duration
 	SendBuffer        int
 	RedisChannel      string
@@ -315,6 +317,10 @@ func loadFrom(lookup lookupEnv) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	realtimeRedisDB, err := envInteger(lookup, "REALTIME_REDIS_DB", DefaultRealtimeRedisDB, false)
+	if err != nil {
+		return Config{}, err
+	}
 	schedulerEnabled, err := envBoolean(lookup, "SCHEDULER_ENABLED", true)
 	if err != nil {
 		return Config{}, err
@@ -365,6 +371,7 @@ func loadFrom(lookup lookupEnv) (Config, error) {
 		Realtime: RealtimeConfig{
 			Enabled:           realtimeEnabled,
 			Publisher:         envText(lookup, "REALTIME_PUBLISHER", RealtimePublisherLocal),
+			RedisDB:           realtimeRedisDB,
 			HeartbeatInterval: DefaultRealtimeHeartbeatInterval,
 			SendBuffer:        DefaultRealtimeSendBuffer,
 			RedisChannel:      DefaultRealtimeRedisChannel,

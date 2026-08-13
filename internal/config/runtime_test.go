@@ -121,6 +121,7 @@ func TestValidateRejectsInvalidRuntimeConfig(t *testing.T) {
 		{name: "production qdrant api key", process: ProcessAPI, production: true, mutate: func(c *Config) { c.Qdrant.APIKey = "" }, want: "QDRANT_API_KEY"},
 		{name: "token redis db", process: ProcessAPI, mutate: func(c *Config) { c.Token.RedisDB = -1 }, want: "TOKEN_REDIS_DB"},
 		{name: "queue redis db", process: ProcessAPI, mutate: func(c *Config) { c.Queue.RedisDB = -1 }, want: "QUEUE_REDIS_DB"},
+		{name: "realtime redis db", process: ProcessAPI, mutate: func(c *Config) { c.Realtime.RedisDB = -1 }, want: "REALTIME_REDIS_DB"},
 		{name: "production mysql localhost", process: ProcessAPI, production: true, mutate: func(c *Config) { c.MySQL.DSN = "user:pass@tcp(localhost:3306)/admin" }, want: "MYSQL_DSN"},
 		{name: "production mysql IPv6 loopback", process: ProcessAPI, production: true, mutate: func(c *Config) { c.MySQL.DSN = "user:pass@tcp([::1]:3306)/admin" }, want: "MYSQL_DSN"},
 		{name: "production mysql mapped loopback", process: ProcessAPI, production: true, mutate: func(c *Config) { c.MySQL.DSN = "user:pass@tcp([::ffff:127.0.0.1]:3306)/admin" }, want: "MYSQL_DSN"},

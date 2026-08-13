@@ -98,6 +98,7 @@ func TestLoadRejectsMalformedEnvironment(t *testing.T) {
 		{"REDIS_DB", "99999999999999999999999999999999999999", "REDIS_DB: parse integer"},
 		{"TOKEN_REDIS_DB", "-1", "TOKEN_REDIS_DB: must not be negative"},
 		{"QUEUE_REDIS_DB", "-1", "QUEUE_REDIS_DB: must not be negative"},
+		{"REALTIME_REDIS_DB", "-1", "REALTIME_REDIS_DB: must not be negative"},
 		{"MYSQL_CONN_MAX_LIFETIME", "tomorrow", "MYSQL_CONN_MAX_LIFETIME: parse duration"},
 		{"QUEUE_ENABLED", "sometimes", "QUEUE_ENABLED: parse boolean"},
 		{"REALTIME_ENABLED", "sometimes", "REALTIME_ENABLED: parse boolean"},

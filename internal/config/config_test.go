@@ -75,6 +75,9 @@ func TestLoadUsesSafeDefaults(t *testing.T) {
 	if cfg.Realtime.Publisher != RealtimePublisherLocal {
 		t.Fatalf("expected realtime publisher local, got %q", cfg.Realtime.Publisher)
 	}
+	if cfg.Realtime.RedisDB != DefaultRealtimeRedisDB {
+		t.Fatalf("expected realtime redis db %d, got %d", DefaultRealtimeRedisDB, cfg.Realtime.RedisDB)
+	}
 	if cfg.Realtime.HeartbeatInterval != DefaultRealtimeHeartbeatInterval {
 		t.Fatalf("expected realtime heartbeat interval %s, got %s", DefaultRealtimeHeartbeatInterval, cfg.Realtime.HeartbeatInterval)
 	}
@@ -209,6 +212,7 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	t.Setenv("QUEUE_CONCURRENCY", "22")
 	t.Setenv("REALTIME_ENABLED", "false")
 	t.Setenv("REALTIME_PUBLISHER", "noop")
+	t.Setenv("REALTIME_REDIS_DB", "6")
 	t.Setenv("REALTIME_HEARTBEAT_INTERVAL", "10s")
 	t.Setenv("REALTIME_SEND_BUFFER", "32")
 	t.Setenv("REALTIME_REDIS_CHANNEL", "test:realtime")
@@ -263,6 +267,9 @@ func TestLoadReadsEnvironmentOverrides(t *testing.T) {
 	}
 	if cfg.Realtime.Publisher != RealtimePublisherNoop {
 		t.Fatalf("expected realtime publisher noop, got %q", cfg.Realtime.Publisher)
+	}
+	if cfg.Realtime.RedisDB != 6 {
+		t.Fatalf("expected realtime redis db override 6, got %d", cfg.Realtime.RedisDB)
 	}
 	if cfg.Realtime.HeartbeatInterval != DefaultRealtimeHeartbeatInterval ||
 		cfg.Realtime.SendBuffer != DefaultRealtimeSendBuffer ||
@@ -690,6 +697,13 @@ func TestDockerFirstEnvDocumentsOnlyRealtimeRuntimeKnobs(t *testing.T) {
 		}
 		if got := values["REALTIME_PUBLISHER"]; got != RealtimePublisherRedis {
 			t.Fatalf("deploy/docker-first/%s must keep REALTIME_PUBLISHER=redis, got %q", fileName, got)
+		}
+		if fileName == "admin-go.env.example" {
+			if got := values["REALTIME_REDIS_DB"]; got != "1" {
+				t.Fatalf("deploy/docker-first/%s must keep REALTIME_REDIS_DB=1, got %q", fileName, got)
+			}
+		} else if got, exists := values["REALTIME_REDIS_DB"]; exists && got != "1" {
+			t.Fatalf("deploy/docker-first/%s must use REALTIME_REDIS_DB=1 when present, got %q", fileName, got)
 		}
 		for _, key := range deprecatedRealtimePolicyEnvKeys() {
 			if _, ok := values[key]; ok {

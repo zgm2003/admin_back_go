@@ -236,11 +236,12 @@ REDIS_ADDR=127.0.0.1:6379
 REDIS_PASSWORD=
 REDIS_DB=0
 
+REALTIME_REDIS_DB=1
 TOKEN_REDIS_DB=2
 QUEUE_REDIS_DB=3
 ```
 
-注意：主 Redis、token Redis、queue Redis 是同一 Redis 实例的不同 DB 逻辑隔离。
+注意：缓存 Redis、realtime Redis、token Redis、queue Redis 是同一 Redis 实例的 DB 0/1/2/3 逻辑隔离。
 
 Token Redis key prefix `token:`、session cache TTL `30m`、single-session pointer TTL `720h` 是代码内置默认，不再通过 Docker-first env 暴露；access/refresh token 有效期仍由 `auth_platforms` 管理。
 
@@ -266,9 +267,10 @@ QUEUE_DEFAULT_TIMEOUT=30s
 ```env
 REALTIME_ENABLED=true
 REALTIME_PUBLISHER=redis
+REALTIME_REDIS_DB=1
 ```
 
-Docker-first realtime env 只保留启用开关和 publisher 拓扑。
+`REALTIME_REDIS_DB` 选择 WebSocket Pub/Sub 与 AI cancel 使用的逻辑库。`REALTIME_ENABLED` 只控制 WebSocket/实时事件能力，不控制 DB 1 客户端生命周期。
 
 代码内置：Redis Pub/Sub channel `admin_go:realtime:publish`、heartbeat interval `25s`、send buffer `16`。
 
@@ -528,6 +530,7 @@ APP_SECRET=CHANGE_ME_TO_64_PLUS_RANDOM_CHARS
 QUEUE_ENABLED=true
 REALTIME_ENABLED=true
 REALTIME_PUBLISHER=redis
+REALTIME_REDIS_DB=1
 SCHEDULER_ENABLED=true
 
 CORS_ALLOW_ORIGINS=https://<frontend-domain>
@@ -758,6 +761,7 @@ curl -fsS https://<api-domain>/ready
 ```text
 database
 redis
+realtime_redis
 token_redis
 queue_redis
 realtime
@@ -836,6 +840,7 @@ D: 备用后端或后续对象存储/监控，不要为了“分布式”硬拆
 ```text
 database    MySQL DSN、账号、库名、网络、防火墙
 redis       REDIS_ADDR、密码、网络
+realtime_redis REALTIME_REDIS_DB 对应 Redis 必须可用，供 Realtime/AI cancel 使用
 queue_redis QUEUE_ENABLED=true 时 Redis 必须可用
 token_redis TOKEN_REDIS_DB 对应 Redis 必须可用
 realtime    REALTIME_ENABLED/REALTIME_PUBLISHER 配置错误

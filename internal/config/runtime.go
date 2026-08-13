@@ -43,6 +43,9 @@ func Validate(process Process, cfg Config) error {
 	if cfg.Queue.RedisDB < 0 {
 		return fmt.Errorf("QUEUE_REDIS_DB must not be negative")
 	}
+	if cfg.Realtime.RedisDB < 0 {
+		return fmt.Errorf("REALTIME_REDIS_DB must not be negative")
+	}
 	if process == ProcessWorker && !cfg.Queue.Enabled {
 		return fmt.Errorf("QUEUE_ENABLED must be true for admin-worker")
 	}
