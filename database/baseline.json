@@ -21,12 +21,21 @@
     "qdrant": "qdrant/qdrant:v1.18.3@sha256:0bd98fa7977f1e75694779359ca4e212822e5a71334e28421182f72f209d5286"
   },
   "target": {
-    "schema_sha256": null,
-    "seed_sha256": null,
-    "base_table_count": 0,
-    "foreign_key_count": 0,
-    "check_constraint_count": 0,
-    "unique_index_count": 0,
-    "seed_row_counts": {}
+    "schema_sha256": "b4884de66b62700e47fe2481769012ef4f28ddeffaf7fb6e39e19bbe5fea4033",
+    "seed_sha256": "95b3e7359fb71bccb8added2bd88fcadfe21dcf63876eb642b9adf5229126820",
+    "base_table_count": 77,
+    "foreign_key_count": 64,
+    "check_constraint_count": 103,
+    "unique_index_count": 76,
+    "seed_row_counts": {
+      "permissions": 132,
+      "roles": 2,
+      "role_permissions": 241,
+      "auth_platforms": 1,
+      "system_settings": 3,
+      "cron_task": 6,
+      "ai_tools": 1,
+      "schema_migrations": 1
+    }
   }
 }
