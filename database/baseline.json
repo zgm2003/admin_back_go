@@ -1,0 +1,32 @@
+{
+  "baseline_version": "202608130001",
+  "created_on": "2026-08-13",
+  "recovery": {
+    "tag": "pre-database-baseline-20260813",
+    "backend_commit": "201f01f5a6fc325b1f557a8c7cbaf89d94e5b2a1",
+    "frontend_commit": "170a2d9e4d6452399b8adca51e831b03d4c7967c"
+  },
+  "source": {
+    "atlas_version": "202608080103",
+    "atlas_revision_rows": 38,
+    "pending_migrations": 0,
+    "base_table_count": 79,
+    "dump_path": "C:\\Users\\20931\\AppData\\Local\\Temp\\admin-db-baseline\\admin-current-full-20260813-092521.sql",
+    "dump_size_bytes": 15936795,
+    "dump_sha256": "c2b73e639892c3c1cd274443758738ce153d7c3eef7b8fdad67545453a018e50"
+  },
+  "state_images": {
+    "mysql": "mysql:8.4.10@sha256:8dbcf531a03aade657e181b9cf2f1d1803ce621a1d55610cb44cb531ab7d7db6",
+    "redis": "redis:8.2.7-alpine@sha256:223b183cbc49f5ff48728e1fc52ccf101f05072decad2bd9867281a3c9bf75fd",
+    "qdrant": "qdrant/qdrant:v1.18.3@sha256:0bd98fa7977f1e75694779359ca4e212822e5a71334e28421182f72f209d5286"
+  },
+  "target": {
+    "schema_sha256": null,
+    "seed_sha256": null,
+    "base_table_count": 0,
+    "foreign_key_count": 0,
+    "check_constraint_count": 0,
+    "unique_index_count": 0,
+    "seed_row_counts": {}
+  }
+}
