@@ -1038,7 +1038,7 @@ shared/setting 拥有仍属于 system_settings 的 typed keys：auth.captcha.ttl
 value_type 只来自 internal/shared/enum -> internal/shared/dict，handler 用 validator 拒绝非法 type
 service 做值类型校验：数字、布尔、JSON object/array
 key 只允许 create，edit 不允许改 key，避免缓存和业务读取歧义
-写入、状态、删除必须清理 Redis cache；key 规则继承 legacy：sys_setting_raw_ + setting key 中的 "." 替换为 "_"
+SettingByKey 使用 Cache Redis read-through cache，TTL 固定 5 分钟；Redis miss、读取失败或非法派生数据必须回源 MySQL。写入、状态、删除 best-effort 清理 cache；key 规则为 sys_setting_raw_ + setting key 中的 "." 替换为 "_"。Cache Redis 故障不能把已提交的 MySQL mutation 改写成失败。
 ```
 
 Redis 逻辑 DB 只隔离普通 key，不隔离 Pub/Sub。Realtime 事件使用

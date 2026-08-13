@@ -83,9 +83,7 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (int64, *ap
 	if err != nil {
 		return 0, apperror.WrapKey(apperror.CodeInternal, 500, "systemsetting.create_failed", nil, "新增系统设置失败", err)
 	}
-	if err := repo.InvalidateCache(ctx, request.Key); err != nil {
-		return 0, apperror.WrapKey(apperror.CodeInternal, 500, "systemsetting.cache_clear_failed", nil, "清理系统设置缓存失败", err)
-	}
+	repo.InvalidateCache(ctx, request.Key)
 	return id, nil
 }
 
@@ -116,9 +114,7 @@ func (s *Service) Update(ctx context.Context, id int64, request UpdateRequest) *
 	}); err != nil {
 		return apperror.WrapKey(apperror.CodeInternal, 500, "systemsetting.update_failed", nil, "更新系统设置失败", err)
 	}
-	if err := repo.InvalidateCache(ctx, row.SettingKey); err != nil {
-		return apperror.WrapKey(apperror.CodeInternal, 500, "systemsetting.cache_clear_failed", nil, "清理系统设置缓存失败", err)
-	}
+	repo.InvalidateCache(ctx, row.SettingKey)
 	return nil
 }
 
@@ -143,9 +139,7 @@ func (s *Service) ChangeStatus(ctx context.Context, id int64, status int) *apper
 	if err := repo.Update(ctx, id, map[string]any{"status": status}); err != nil {
 		return apperror.WrapKey(apperror.CodeInternal, 500, "systemsetting.status_update_failed", nil, "更新系统设置状态失败", err)
 	}
-	if err := repo.InvalidateCache(ctx, row.SettingKey); err != nil {
-		return apperror.WrapKey(apperror.CodeInternal, 500, "systemsetting.cache_clear_failed", nil, "清理系统设置缓存失败", err)
-	}
+	repo.InvalidateCache(ctx, row.SettingKey)
 	return nil
 }
 
@@ -169,9 +163,7 @@ func (s *Service) Delete(ctx context.Context, ids []int64) *apperror.Error {
 		return apperror.WrapKey(apperror.CodeInternal, 500, "systemsetting.delete_failed", nil, "删除系统设置失败", err)
 	}
 	for _, id := range ids {
-		if err := repo.InvalidateCache(ctx, rows[id].SettingKey); err != nil {
-			return apperror.WrapKey(apperror.CodeInternal, 500, "systemsetting.cache_clear_failed", nil, "清理系统设置缓存失败", err)
-		}
+		repo.InvalidateCache(ctx, rows[id].SettingKey)
 	}
 	return nil
 }

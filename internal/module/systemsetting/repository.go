@@ -2,17 +2,44 @@ package systemsetting
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
 	"admin_back_go/internal/infra/database"
 	"admin_back_go/internal/infra/redisclient"
 	"admin_back_go/internal/shared/enum"
 
+	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 )
 
 var ErrRepositoryNotConfigured = errors.New("system setting repository is not configured")
+
+const systemSettingCacheTTL = 5 * time.Minute
+
+type settingCache interface {
+	Get(context.Context, string) (string, error)
+	Set(context.Context, string, string, time.Duration) error
+	Delete(context.Context, string) error
+}
+
+type redisSettingCache struct {
+	client *redis.Client
+}
+
+func (c *redisSettingCache) Get(ctx context.Context, key string) (string, error) {
+	return c.client.Get(ctx, key).Result()
+}
+
+func (c *redisSettingCache) Set(ctx context.Context, key string, value string, ttl time.Duration) error {
+	return c.client.Set(ctx, key, value, ttl).Err()
+}
+
+func (c *redisSettingCache) Delete(ctx context.Context, key string) error {
+	return c.client.Del(ctx, key).Err()
+}
 
 type Repository interface {
 	List(ctx context.Context, request ListRequest) ([]Setting, int64, error)
@@ -22,19 +49,23 @@ type Repository interface {
 	Create(ctx context.Context, row Setting) (int64, error)
 	Update(ctx context.Context, id int64, fields map[string]any) error
 	Delete(ctx context.Context, ids []int64) error
-	InvalidateCache(ctx context.Context, key string) error
+	InvalidateCache(ctx context.Context, key string)
 }
 
 type GormRepository struct {
 	db    *gorm.DB
-	cache *redisclient.Client
+	cache settingCache
 }
 
 func NewGormRepository(client *database.Client, cache *redisclient.Client) *GormRepository {
 	if client == nil || client.Gorm == nil {
 		return nil
 	}
-	return &GormRepository{db: client.Gorm, cache: cache}
+	var settingCacheClient settingCache
+	if cache != nil && cache.Redis != nil {
+		settingCacheClient = &redisSettingCache{client: cache.Redis}
+	}
+	return &GormRepository{db: client.Gorm, cache: settingCacheClient}
 }
 
 func (r *GormRepository) List(ctx context.Context, request ListRequest) ([]Setting, int64, error) {
@@ -97,6 +128,11 @@ func (r *GormRepository) SettingByKey(ctx context.Context, key string) (*Setting
 	if key == "" {
 		return nil, nil
 	}
+
+	if row := r.cachedSetting(ctx, key); row != nil {
+		return row, nil
+	}
+
 	var row Setting
 	err := r.db.WithContext(ctx).
 		Where("setting_key = ?", key).
@@ -108,7 +144,34 @@ func (r *GormRepository) SettingByKey(ctx context.Context, key string) (*Setting
 	if err != nil {
 		return nil, err
 	}
+	r.cacheSetting(ctx, row)
 	return &row, nil
+}
+
+func (r *GormRepository) cachedSetting(ctx context.Context, key string) *Setting {
+	if r.cache == nil {
+		return nil
+	}
+	payload, err := r.cache.Get(ctx, cacheKey(key))
+	if err != nil {
+		return nil
+	}
+	var row Setting
+	if json.Unmarshal([]byte(payload), &row) != nil || row.SettingKey != key || row.IsDel != enum.CommonNo {
+		return nil
+	}
+	return &row
+}
+
+func (r *GormRepository) cacheSetting(ctx context.Context, row Setting) {
+	if r.cache == nil {
+		return
+	}
+	payload, err := json.Marshal(row)
+	if err != nil {
+		return
+	}
+	_ = r.cache.Set(ctx, cacheKey(row.SettingKey), string(payload), systemSettingCacheTTL)
 }
 
 func (r *GormRepository) SettingsByIDs(ctx context.Context, ids []int64) (map[int64]Setting, error) {
@@ -189,15 +252,15 @@ func (r *GormRepository) Delete(ctx context.Context, ids []int64) error {
 		Update("is_del", enum.CommonYes).Error
 }
 
-func (r *GormRepository) InvalidateCache(ctx context.Context, key string) error {
-	if r == nil || r.cache == nil || r.cache.Redis == nil {
-		return nil
+func (r *GormRepository) InvalidateCache(ctx context.Context, key string) {
+	if r == nil || r.cache == nil {
+		return
 	}
 	key = strings.TrimSpace(key)
 	if key == "" {
-		return nil
+		return
 	}
-	return r.cache.Redis.Del(ctx, cacheKey(key)).Err()
+	_ = r.cache.Delete(ctx, cacheKey(key))
 }
 
 func cacheKey(key string) string {

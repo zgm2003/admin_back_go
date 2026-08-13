@@ -70,9 +70,8 @@ func (f *fakeRepository) Delete(ctx context.Context, ids []int64) error {
 	return nil
 }
 
-func (f *fakeRepository) InvalidateCache(ctx context.Context, key string) error {
+func (f *fakeRepository) InvalidateCache(ctx context.Context, key string) {
 	f.invalidated = append(f.invalidated, key)
-	return nil
 }
 
 func TestInitReturnsEnumBackedDict(t *testing.T) {
