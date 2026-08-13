@@ -65,6 +65,7 @@ Assert-Match $checkFunction.Groups['body'].Value 'Assert-Migrations' 'database c
 Assert-Match $checkFunction.Groups['body'].Value 'referential_constraints' 'database check must validate live foreign keys'
 Assert-Match $checkFunction.Groups['body'].Value 'check_constraints' 'database check must validate live CHECK constraints'
 Assert-Match $checkFunction.Groups['body'].Value 'statistics' 'database check must validate live unique indexes'
+Assert-Match $checkFunction.Groups['body'].Value "index_name <> ''PRIMARY''" 'database check must count business unique indexes without table primary keys'
 
 $failureOutput = & pwsh -NoProfile -File $scriptPath reset -ConfirmReset wrong 2>&1 | Out-String
 Assert-True ($LASTEXITCODE -ne 0) 'reset accepted an invalid confirmation token'

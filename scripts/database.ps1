@@ -239,7 +239,7 @@ function Test-Database {
   if ([int]$foreignKeyCount -ne [int]$baseline.target.foreign_key_count) { throw 'DATABASE_FOREIGN_KEY_COUNT_MISMATCH' }
   $checkConstraintCount = Invoke-MySQL -SQL 'SELECT COUNT(*) FROM information_schema.check_constraints WHERE constraint_schema = DATABASE();'
   if ([int]$checkConstraintCount -ne [int]$baseline.target.check_constraint_count) { throw 'DATABASE_CHECK_CONSTRAINT_COUNT_MISMATCH' }
-  $uniqueIndexCount = Invoke-MySQL -SQL 'SELECT COUNT(*) FROM (SELECT table_name, index_name FROM information_schema.statistics WHERE table_schema = DATABASE() AND non_unique = 0 GROUP BY table_name, index_name) AS unique_indexes;'
+  $uniqueIndexCount = Invoke-MySQL -SQL 'SELECT COUNT(*) FROM (SELECT table_name, index_name FROM information_schema.statistics WHERE table_schema = DATABASE() AND non_unique = 0 AND index_name <> ''PRIMARY'' GROUP BY table_name, index_name) AS unique_indexes;'
   if ([int]$uniqueIndexCount -ne [int]$baseline.target.unique_index_count) { throw 'DATABASE_UNIQUE_INDEX_COUNT_MISMATCH' }
   $baselineChecksum = Invoke-MySQL -SQL "SELECT checksum_sha256 FROM schema_migrations WHERE version = '$($baseline.baseline_version)';"
   if ($baselineChecksum -cne [string]$baseline.target.schema_sha256) { throw 'DATABASE_LEDGER_BASELINE_MISMATCH' }
