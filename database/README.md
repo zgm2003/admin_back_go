@@ -19,7 +19,7 @@ pwsh -NoProfile -File scripts/database.ps1 check
 
 `init` requires an empty `admin` schema. `reset` refuses a running Admin API,
 Worker, or `admin-dev`, replaces only the local `admin` schema, clears Redis DB
-0/2/3, and removes only Qdrant aliases and collections with the configured
+0/1/2/3 (cache, realtime/AI cancel, token, and queue), and removes only Qdrant aliases and collections with the configured
 `admin_context_` prefix. It never stops application processes automatically.
 
 `-CreateAdmin` reads the password from `ADMIN_INITIAL_PASSWORD` or a hidden

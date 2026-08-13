@@ -444,7 +444,7 @@ pwsh -NoProfile -File scripts/database.ps1 migrate
 pwsh -NoProfile -File scripts/database.ps1 check
 ```
 
-`reset` 只允许固定的本地 `admin-state` MySQL/Redis/Qdrant 容器，且 API、Worker、`admin-dev` 必须已停止。它只清 Redis DB `0/2/3` 和 `admin_context_` 前缀的 Qdrant 派生数据，不执行 `FLUSHALL`。
+`reset` 只允许固定的本地 `admin-state` MySQL/Redis/Qdrant 容器，且 API、Worker、`admin-dev` 必须已停止。它只清 Redis DB `0/1/2/3`（缓存、Realtime/AI cancel、Token、Queue）和 `admin_context_` 前缀的 Qdrant 派生数据，不执行 `FLUSHALL`。
 
 新迁移命名为 `<12位版本>_<小写名称>.sql`，版本必须大于基线 `202608130001`。已应用迁移的 SHA-256 写入 `schema_migrations`，之后禁止修改文件字节。
 

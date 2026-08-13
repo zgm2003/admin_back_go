@@ -43,7 +43,7 @@ Assert-Match $source 'Get-Process.*admin-api.*admin-worker' 'reset must refuse i
 Assert-Match $source "admin-state-mysql-1" 'MySQL operations must target the canonical state container'
 Assert-Match $source "admin-state-redis-1" 'Redis operations must target the canonical state container'
 Assert-Match $source "admin-state-qdrant-1" 'Qdrant operations must target the canonical state container'
-Assert-Match $source "@\(0, 2, 3\)" 'reset must clear only the three project Redis databases'
+Assert-Match $source "@\(0, 1, 2, 3\)" 'reset must clear only the four project Redis databases'
 Assert-NotMatch $source '(?i)FLUSHALL' 'database reset must never flush every Redis database'
 Assert-Match $source "admin_context" 'Qdrant deletion must be restricted to the Admin context prefix'
 Assert-Match $source 'delete_alias' 'Qdrant reset must explicitly delete project aliases'

@@ -28,7 +28,7 @@ $script:RedisContainer = 'admin-state-redis-1'
 $script:QdrantContainer = 'admin-state-qdrant-1'
 $script:ApplicationContainers = @('admin-app-admin-api-1', 'admin-app-admin-worker-1')
 $script:DatabaseName = 'admin'
-$script:RedisDatabases = @(0, 2, 3)
+$script:RedisDatabases = @(0, 1, 2, 3)
 $script:QdrantCollectionPrefix = 'admin_context'
 
 function Read-RuntimeEnvironment {
