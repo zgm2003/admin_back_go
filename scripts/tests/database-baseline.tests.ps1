@@ -72,6 +72,7 @@ Assert-Match $checkFunction.Groups['body'].Value 'statistics' 'database check mu
 Assert-Match $checkFunction.Groups['body'].Value "index_name <> ''PRIMARY''" 'database check must count business unique indexes without table primary keys'
 Assert-Match $checkFunction.Groups['body'].Value 'FROM address' 'database check must validate the address reference row count'
 Assert-Match $checkFunction.Groups['body'].Value 'ADDRESS_REFERENCE_ORPHANED' 'database check must reject orphaned address nodes'
+Assert-Match $checkFunction.Groups['body'].Value 'FROM mail_templates' 'database check must validate required mail templates'
 
 $failureOutput = & pwsh -NoProfile -File $scriptPath reset -ConfirmReset wrong 2>&1 | Out-String
 Assert-True ($LASTEXITCODE -ne 0) 'reset accepted an invalid confirmation token'

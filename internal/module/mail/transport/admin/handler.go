@@ -75,7 +75,7 @@ func (h *Handler) TestSend(c *gin.Context) {
 
 func (h *Handler) Templates(c *gin.Context) {
 	result, appErr := h.requireService().Templates(c.Request.Context())
-	writeResult(c, gin.H{"list": result}, appErr)
+	writeResult(c, mailmodule.TemplateListResponse{List: result}, appErr)
 }
 
 func (h *Handler) CreateTemplate(c *gin.Context) {

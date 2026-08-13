@@ -82,7 +82,7 @@ func RegisterRoutes(router *gin.Engine, service HTTPService, routeRegistries ...
 		Access: adminroute.Authenticated(),
 		Audit:  adminroute.NoAudit("read-only"),
 		Contract: &adminroute.HTTPContract{
-			Response: []smsmodule.TemplateDTO{},
+			Response: smsmodule.TemplateListResponse{},
 		},
 	}, handler.Templates)
 	routes.Handle(adminroute.Definition{

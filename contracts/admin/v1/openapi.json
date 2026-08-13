@@ -8532,6 +8532,21 @@
         ],
         "type": "object"
       },
+      "Go_internal_module_mail_TemplateListResponse_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "list": {
+            "items": {
+              "$ref": "#/components/schemas/Go_internal_module_mail_TemplateDTO_Output"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "list"
+        ],
+        "type": "object"
+      },
       "Go_internal_module_notification_task_CreateResponse_Output": {
         "additionalProperties": false,
         "properties": {
@@ -10610,6 +10625,21 @@
           "tencent_template_id",
           "updated_at",
           "variables"
+        ],
+        "type": "object"
+      },
+      "Go_internal_module_sms_TemplateListResponse_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "list": {
+            "items": {
+              "$ref": "#/components/schemas/Go_internal_module_sms_TemplateDTO_Output"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "list"
         ],
         "type": "object"
       },
@@ -14789,10 +14819,7 @@
             "type": "integer"
           },
           "data": {
-            "items": {
-              "$ref": "#/components/schemas/Go_internal_module_mail_TemplateDTO_Output"
-            },
-            "type": "array"
+            "$ref": "#/components/schemas/Go_internal_module_mail_TemplateListResponse_Output"
           },
           "msg": {
             "type": "string"
@@ -15344,10 +15371,7 @@
             "type": "integer"
           },
           "data": {
-            "items": {
-              "$ref": "#/components/schemas/Go_internal_module_sms_TemplateDTO_Output"
-            },
-            "type": "array"
+            "$ref": "#/components/schemas/Go_internal_module_sms_TemplateListResponse_Output"
           },
           "msg": {
             "type": "string"

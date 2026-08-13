@@ -16,16 +16,17 @@ import (
 )
 
 type fakeMailHTTPService struct {
-	pageInitResult *mailmodule.PageInitResponse
-	configResult   *mailmodule.ConfigResponse
-	logsResult     *mailmodule.LogListResponse
-	logResult      *mailmodule.LogDTO
-	logsErr        *apperror.Error
-	logErr         *apperror.Error
-	logsCalls      int
-	logCalls       int
-	savedConfig    mailmodule.SaveConfigInput
-	deletedIDs     []uint64
+	pageInitResult  *mailmodule.PageInitResponse
+	configResult    *mailmodule.ConfigResponse
+	templatesResult []mailmodule.TemplateDTO
+	logsResult      *mailmodule.LogListResponse
+	logResult       *mailmodule.LogDTO
+	logsErr         *apperror.Error
+	logErr          *apperror.Error
+	logsCalls       int
+	logCalls        int
+	savedConfig     mailmodule.SaveConfigInput
+	deletedIDs      []uint64
 }
 
 func (f *fakeMailHTTPService) PageInit(ctx context.Context) (*mailmodule.PageInitResponse, *apperror.Error) {
@@ -48,7 +49,7 @@ func (f *fakeMailHTTPService) TestSend(ctx context.Context, input mailmodule.Tes
 	return nil
 }
 func (f *fakeMailHTTPService) Templates(ctx context.Context) ([]mailmodule.TemplateDTO, *apperror.Error) {
-	return nil, nil
+	return f.templatesResult, nil
 }
 func (f *fakeMailHTTPService) CreateTemplate(ctx context.Context, input mailmodule.SaveTemplateInput) (uint64, *apperror.Error) {
 	return 1, nil
@@ -102,6 +103,34 @@ func TestHandlerPageInitReturnsDataDict(t *testing.T) {
 	}
 	if body.Code != 0 || len(body.Data.Dict.MailSceneArr) != 4 || body.Data.Dict.DefaultEndpoint != mailmodule.DefaultEndpoint {
 		t.Fatalf("unexpected page-init response: %#v", body)
+	}
+}
+
+func TestHandlerTemplatesReturnsNamedListResponse(t *testing.T) {
+	service := &fakeMailHTTPService{templatesResult: []mailmodule.TemplateDTO{{
+		ID:    7,
+		Scene: enum.VerifyCodeSceneLogin,
+		Name:  "邮箱验证码登录",
+	}}}
+	router := newMailTestRouter(service)
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/admin/v1/mail/templates", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var body struct {
+		Code int `json:"code"`
+		Data struct {
+			List []mailmodule.TemplateDTO `json:"list"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Code != 0 || len(body.Data.List) != 1 || body.Data.List[0].ID != 7 {
+		t.Fatalf("unexpected template list response: %#v", body)
 	}
 }
 

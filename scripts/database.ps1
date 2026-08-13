@@ -247,8 +247,8 @@ function Test-Database {
   if ([int]$uniqueIndexCount -ne [int]$baseline.target.unique_index_count) { throw 'DATABASE_UNIQUE_INDEX_COUNT_MISMATCH' }
   $baselineChecksum = Invoke-MySQL -SQL "SELECT checksum_sha256 FROM schema_migrations WHERE version = '$($baseline.baseline_version)';"
   if ($baselineChecksum -cne [string]$baseline.target.schema_sha256) { throw 'DATABASE_LEDGER_BASELINE_MISMATCH' }
-  $seedFacts = Invoke-MySQL -SQL "SELECT CONCAT((SELECT COUNT(*) FROM permissions),'|',(SELECT COUNT(*) FROM roles),'|',(SELECT COUNT(*) FROM auth_platforms),'|',(SELECT COUNT(*) FROM system_settings),'|',(SELECT COUNT(*) FROM ai_tools));"
-  $expected = "$($baseline.target.seed_row_counts.permissions)|$($baseline.target.seed_row_counts.roles)|$($baseline.target.seed_row_counts.auth_platforms)|$($baseline.target.seed_row_counts.system_settings)|$($baseline.target.seed_row_counts.ai_tools)"
+  $seedFacts = Invoke-MySQL -SQL "SELECT CONCAT((SELECT COUNT(*) FROM permissions),'|',(SELECT COUNT(*) FROM roles),'|',(SELECT COUNT(*) FROM auth_platforms),'|',(SELECT COUNT(*) FROM system_settings),'|',(SELECT COUNT(*) FROM mail_templates),'|',(SELECT COUNT(*) FROM ai_tools));"
+  $expected = "$($baseline.target.seed_row_counts.permissions)|$($baseline.target.seed_row_counts.roles)|$($baseline.target.seed_row_counts.auth_platforms)|$($baseline.target.seed_row_counts.system_settings)|$($baseline.target.seed_row_counts.mail_templates)|$($baseline.target.seed_row_counts.ai_tools)"
   if ($seedFacts -cne $expected) { throw 'DATABASE_SEED_FACTS_MISMATCH' }
   $addressCount = Invoke-MySQL -SQL 'SELECT COUNT(*) FROM address WHERE is_del = 2;'
   if ([int]$addressCount -ne [int]$baseline.target.reference_row_counts.address) { throw 'DATABASE_ADDRESS_REFERENCE_COUNT_MISMATCH' }

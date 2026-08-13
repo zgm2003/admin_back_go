@@ -71,6 +71,10 @@ type TemplateDTO struct {
 	UpdatedAt         string            `json:"updated_at"`
 }
 
+type TemplateListResponse struct {
+	List []TemplateDTO `json:"list"`
+}
+
 type SaveTemplateInput struct {
 	Scene             string
 	Name              string
