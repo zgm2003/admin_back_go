@@ -979,28 +979,28 @@ func (f *fakeRouterSystemLogService) Lines(ctx context.Context, query systemlog.
 }
 
 type fakeRouterSystemSettingService struct {
-	listQuery systemsetting.ListQuery
-	statusID  int64
-	status    int
+	listRequest systemsetting.ListRequest
+	statusID    int64
+	status      int
 }
 
-func (f *fakeRouterSystemSettingService) PageInit(ctx context.Context) (*systemsetting.InitResponse, *apperror.Error) {
+func (f *fakeRouterSystemSettingService) PageInit(ctx context.Context) (*systemsetting.PageInitResponse, *apperror.Error) {
 	return systemsetting.NewService(nil).PageInit(ctx)
 }
 
-func (f *fakeRouterSystemSettingService) List(ctx context.Context, query systemsetting.ListQuery) (*systemsetting.ListResponse, *apperror.Error) {
-	f.listQuery = query
+func (f *fakeRouterSystemSettingService) List(ctx context.Context, request systemsetting.ListRequest) (*systemsetting.ListResponse, *apperror.Error) {
+	f.listRequest = request
 	return &systemsetting.ListResponse{
 		List: []systemsetting.ListItem{{ID: 1, SettingKey: "user.default_avatar"}},
-		Page: systemsetting.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
+		Page: systemsetting.Page{CurrentPage: request.CurrentPage, PageSize: request.PageSize, Total: 1, TotalPage: 1},
 	}, nil
 }
 
-func (f *fakeRouterSystemSettingService) Create(ctx context.Context, input systemsetting.CreateInput) (int64, *apperror.Error) {
+func (f *fakeRouterSystemSettingService) Create(ctx context.Context, input systemsetting.CreateRequest) (int64, *apperror.Error) {
 	return 1, nil
 }
 
-func (f *fakeRouterSystemSettingService) Update(ctx context.Context, id int64, input systemsetting.UpdateInput) *apperror.Error {
+func (f *fakeRouterSystemSettingService) Update(ctx context.Context, id int64, input systemsetting.UpdateRequest) *apperror.Error {
 	return nil
 }
 
@@ -2514,8 +2514,8 @@ func TestRouterInstallsSystemSettingRESTRoutes(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected system settings list status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
 	}
-	if systemSettingService.listQuery.CurrentPage != 1 || systemSettingService.listQuery.PageSize != 20 || systemSettingService.listQuery.Key != "user." || systemSettingService.listQuery.Status == nil || *systemSettingService.listQuery.Status != 1 {
-		t.Fatalf("system setting list query mismatch: %#v", systemSettingService.listQuery)
+	if systemSettingService.listRequest.CurrentPage != 1 || systemSettingService.listRequest.PageSize != 20 || systemSettingService.listRequest.Key != "user." || systemSettingService.listRequest.Status == nil || *systemSettingService.listRequest.Status != 1 {
+		t.Fatalf("system setting list request mismatch: %#v", systemSettingService.listRequest)
 	}
 
 	recorder = httptest.NewRecorder()

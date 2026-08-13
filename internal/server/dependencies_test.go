@@ -32,7 +32,7 @@ import (
 	smsadmin "admin_back_go/internal/module/sms/transport/admin"
 	"admin_back_go/internal/module/system"
 	systemlogadmin "admin_back_go/internal/module/systemlog/transport/admin"
-	systemsettingadmin "admin_back_go/internal/module/systemsetting/transport/admin"
+	"admin_back_go/internal/module/systemsetting"
 	uploadconfigadmin "admin_back_go/internal/module/uploadconfig/transport/admin"
 	uploadtokenadmin "admin_back_go/internal/module/uploadtoken/transport/admin"
 	"admin_back_go/internal/module/user"
@@ -82,7 +82,7 @@ type testDependencies struct {
 	PermissionService       permissionadmin.ManagementService
 	QueueMonitorService     queuemonitoradmin.HTTPService
 	QueueMonitorUI          http.Handler
-	SystemSettingService    systemsettingadmin.HTTPService
+	SystemSettingService    systemsetting.HTTPService
 	SystemLogService        systemlogadmin.HTTPService
 	UploadConfigService     uploadconfigadmin.HTTPService
 	UploadTokenService      uploadtokenadmin.HTTPService

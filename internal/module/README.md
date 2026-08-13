@@ -17,20 +17,40 @@ internal/module/{capability}/
     presenter*.go   # platform-specific response projection
 ```
 
-模块根目录不注册 HTTP 表面。旧 `app_handler.go`、`platform_handler.go`、`platform_route.go` 不得新增；HTTP 表面统一放在 `transport/{platform}/route.go|handler.go|request.go|presenter.go`。
+单一 Admin HTTP 表面的已迁移模块采用：
+
+```text
+internal/module/{capability}/
+  model.go
+  request.go
+  response.go
+  repository.go
+  service.go
+  handler.go
+  route.go
+```
+
+当同一能力真实存在 Admin/App/Canvas 两个以上 HTTP 表面时，才把平台差异拆到：
+
+```text
+internal/module/{capability}/transport/{platform}/
+  request.go
+  handler.go
+  route.go
+```
+
+Service、Repository 和 Model 始终共享。不得为了未来可能出现的第二平台预建 transport 目录；也不得在第二平台出现后复制业务 Service。`systemsetting` 是 Wave 02 第一条新样板，其他模块在各自 Wave 前仍以现状为准，不能一次性机械搬目录。
 
 ## 每层职责
 
 ```text
-transport/{platform}/route.go       注册路由，只绑定 handler
-transport/{platform}/handler.go     解析 HTTP，请求校验，调用 service，返回 response
-transport/{platform}/request.go     只放 HTTP 入参结构和 binding 规则
-transport/{platform}/presenter.go   只做该平台响应投影，不写业务状态机
+route.go                             注册路径、中间件和 Handler 绑定
+handler.go                           解析 HTTP，请求校验，调用 service，返回 response
+request.go                           请求结构和基础格式校验
+response.go                          data 内的业务响应结构
 service.go                          业务规则、状态转换、事务编排
 repository.go                       数据访问、锁、分页、条件查询
 model.go                            数据库映射
-dto.go                              能力内数据结构
-errors.go                           模块错误 key/code
 jobs.go                             queue task type、payload、handler
 ```
 

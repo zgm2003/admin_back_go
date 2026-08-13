@@ -41,7 +41,3 @@ type CreateResponse struct {
 }
 
 type EmptyResponse struct{}
-
-// Kept only until the Admin HTTP surface moves into this package in Wave 02.
-type InitResponse = PageInitResponse
-type InitDict = PageInitDict

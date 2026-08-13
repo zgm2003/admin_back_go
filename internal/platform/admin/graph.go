@@ -29,7 +29,7 @@ import (
 	roleadmin "admin_back_go/internal/module/role/transport/admin"
 	smsadmin "admin_back_go/internal/module/sms/transport/admin"
 	systemlogadmin "admin_back_go/internal/module/systemlog/transport/admin"
-	systemsettingadmin "admin_back_go/internal/module/systemsetting/transport/admin"
+	"admin_back_go/internal/module/systemsetting"
 	uploadconfigadmin "admin_back_go/internal/module/uploadconfig/transport/admin"
 	uploadtokenadmin "admin_back_go/internal/module/uploadtoken/transport/admin"
 	"admin_back_go/internal/module/user"
@@ -60,7 +60,7 @@ type SystemGraph struct {
 	Exports       exporttask.HTTPService
 	OperationLogs operationlogadmin.HTTPService
 	QueueMonitor  queuemonitoradmin.HTTPService
-	Settings      systemsettingadmin.HTTPService
+	Settings      systemsetting.HTTPService
 	Logs          systemlogadmin.HTTPService
 }
 

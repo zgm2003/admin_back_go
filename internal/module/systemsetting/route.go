@@ -1,27 +1,26 @@
-package admin
+package systemsetting
 
 import (
 	"net/http"
 
-	systemsettingmodule "admin_back_go/internal/module/systemsetting"
 	"admin_back_go/internal/server/adminroute"
 	"admin_back_go/internal/shared/validate"
 
 	"github.com/gin-gonic/gin"
 )
 
-func RegisterRoutes(router *gin.Engine, service HTTPService, routeRegistries ...*adminroute.Registry) {
+func RegisterRoutes(router *gin.Engine, service HTTPService, registries ...*adminroute.Registry) {
 	validate.MustRegister()
 	handler := NewHandler(service)
+	routes := adminroute.NewRegistrar(router, registries...)
 
-	routes := adminroute.NewRegistrar(router, routeRegistries...)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodGet,
 		Path:   "/api/admin/v1/system-settings/page-init",
 		Access: adminroute.Authenticated(),
 		Audit:  adminroute.NoAudit("read-only"),
 		Contract: &adminroute.HTTPContract{
-			Response: systemsettingmodule.InitResponse{},
+			Response: PageInitResponse{},
 		},
 	}, handler.PageInit)
 	routes.Handle(adminroute.Definition{
@@ -30,8 +29,8 @@ func RegisterRoutes(router *gin.Engine, service HTTPService, routeRegistries ...
 		Access: adminroute.Authenticated(),
 		Audit:  adminroute.NoAudit("read-only"),
 		Contract: &adminroute.HTTPContract{
-			Query:    listRequest{},
-			Response: systemsettingmodule.ListResponse{},
+			Query:    ListRequest{},
+			Response: ListResponse{},
 		},
 	}, handler.List)
 	routes.Handle(adminroute.Definition{
@@ -45,8 +44,8 @@ func RegisterRoutes(router *gin.Engine, service HTTPService, routeRegistries ...
 			Title:   "新增系统设置",
 		},
 		Contract: &adminroute.HTTPContract{
-			Request:  createRequest{},
-			Response: adminroute.IDData{},
+			Request:  CreateRequest{},
+			Response: CreateResponse{},
 		},
 	}, handler.Create)
 	routes.Handle(adminroute.Definition{
@@ -60,8 +59,8 @@ func RegisterRoutes(router *gin.Engine, service HTTPService, routeRegistries ...
 			Title:   "编辑系统设置",
 		},
 		Contract: &adminroute.HTTPContract{
-			Request:  updateRequest{},
-			Response: adminroute.EmptyData{},
+			Request:  UpdateRequest{},
+			Response: EmptyResponse{},
 		},
 	}, handler.Update)
 	routes.Handle(adminroute.Definition{
@@ -75,8 +74,8 @@ func RegisterRoutes(router *gin.Engine, service HTTPService, routeRegistries ...
 			Title:   "修改系统设置状态",
 		},
 		Contract: &adminroute.HTTPContract{
-			Request:  statusRequest{},
-			Response: adminroute.EmptyData{},
+			Request:  StatusRequest{},
+			Response: EmptyResponse{},
 		},
 	}, handler.ChangeStatus)
 	routes.Handle(adminroute.Definition{
@@ -90,7 +89,7 @@ func RegisterRoutes(router *gin.Engine, service HTTPService, routeRegistries ...
 			Title:   "删除系统设置",
 		},
 		Contract: &adminroute.HTTPContract{
-			Response: adminroute.EmptyData{},
+			Response: EmptyResponse{},
 		},
 	}, handler.DeleteOne)
 	routes.Handle(adminroute.Definition{
@@ -104,8 +103,8 @@ func RegisterRoutes(router *gin.Engine, service HTTPService, routeRegistries ...
 			Title:   "批量删除系统设置",
 		},
 		Contract: &adminroute.HTTPContract{
-			Request:  deleteBatchRequest{},
-			Response: adminroute.EmptyData{},
+			Request:  DeleteRequest{},
+			Response: EmptyResponse{},
 		},
 	}, handler.DeleteBatch)
 }

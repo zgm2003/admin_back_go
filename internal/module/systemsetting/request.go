@@ -27,8 +27,3 @@ type DeleteRequest struct {
 type StatusRequest struct {
 	Status int `json:"status" binding:"required,common_status"`
 }
-
-// Kept only until the Admin HTTP surface moves into this package in Wave 02.
-type ListQuery = ListRequest
-type CreateInput = CreateRequest
-type UpdateInput = UpdateRequest
