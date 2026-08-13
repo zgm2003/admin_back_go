@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"admin_back_go/internal/module/mail"
 
 	mysqldriver "github.com/go-sql-driver/mysql"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type commandDependencies struct {
@@ -37,6 +39,7 @@ type commandDependencies struct {
 	captureConnection      func(context.Context, *sql.Conn, string) (databaseevolution.Fingerprint, error)
 	runExternal            func(context.Context, []string) error
 	runMailDiagnosticRekey func(context.Context, string, string, string, mail.DiagnosticRekeyObserverFunc) (mail.DiagnosticRekeyResult, error)
+	hashPassword           func(string) (string, error)
 	stdout                 io.Writer
 }
 
@@ -67,6 +70,12 @@ type lockRunOptions struct {
 	timeout             time.Duration
 	expectedFingerprint string
 	command             []string
+}
+
+type createAdminOptions struct {
+	username string
+	email    string
+	roleID   int64
 }
 
 type commandError struct {
@@ -127,7 +136,11 @@ func main() {
 		captureConnection:      databaseevolution.CaptureConnection,
 		runExternal:            runExternalCommand,
 		runMailDiagnosticRekey: runMailDiagnosticRekeyProduction,
-		stdout:                 os.Stdout,
+		hashPassword: func(password string) (string, error) {
+			hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+			return string(hash), err
+		},
+		stdout: os.Stdout,
 	}
 	if err := run(context.Background(), os.Args[1:], dependencies); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
@@ -137,9 +150,15 @@ func main() {
 
 func run(ctx context.Context, args []string, dependencies commandDependencies) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: admin-db <fingerprint|invariants|cos-references|query-manifest|lock-run|mail-diagnostic-rekey> [arguments]")
+		return fmt.Errorf("usage: admin-db <create-admin|fingerprint|invariants|cos-references|query-manifest|lock-run|mail-diagnostic-rekey> [arguments]")
 	}
 	switch args[0] {
+	case "create-admin":
+		options, err := parseCreateAdminOptions(args[1:])
+		if err != nil {
+			return err
+		}
+		return runCreateAdmin(ctx, options, dependencies)
 	case "fingerprint":
 		options, err := parseFingerprintOptions(args[1:])
 		if err != nil {
@@ -181,6 +200,131 @@ func run(ctx context.Context, args []string, dependencies commandDependencies) e
 	default:
 		return fmt.Errorf("unsupported subcommand")
 	}
+}
+
+var createAdminEmailPattern = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
+
+func parseCreateAdminOptions(args []string) (createAdminOptions, error) {
+	flags := flag.NewFlagSet("create-admin", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	var options createAdminOptions
+	var roleID string
+	usernameFlag := &singleStringFlag{name: "username", value: &options.username}
+	emailFlag := &singleStringFlag{name: "email", value: &options.email}
+	roleIDFlag := &singleStringFlag{name: "role-id", value: &roleID}
+	flags.Var(usernameFlag, "username", "administrator display name")
+	flags.Var(emailFlag, "email", "administrator login email")
+	flags.Var(roleIDFlag, "role-id", "administrator role ID")
+	if err := flags.Parse(args); err != nil {
+		for _, value := range []*singleStringFlag{usernameFlag, emailFlag, roleIDFlag} {
+			if value.duplicate {
+				return createAdminOptions{}, fmt.Errorf("--%s may be provided only once", value.name)
+			}
+		}
+		return createAdminOptions{}, fmt.Errorf("invalid create-admin arguments")
+	}
+	if flags.NArg() != 0 {
+		return createAdminOptions{}, fmt.Errorf("invalid create-admin arguments")
+	}
+	options.username = strings.TrimSpace(options.username)
+	options.email = strings.ToLower(strings.TrimSpace(options.email))
+	if options.username == "" {
+		return createAdminOptions{}, fmt.Errorf("--username is required")
+	}
+	if strings.ContainsAny(options.username, "\r\n\t") {
+		return createAdminOptions{}, fmt.Errorf("--username contains control characters")
+	}
+	if len([]rune(options.username)) > 50 {
+		return createAdminOptions{}, fmt.Errorf("--username is too long")
+	}
+	if options.email == "" {
+		return createAdminOptions{}, fmt.Errorf("--email is required")
+	}
+	if len(options.email) > 255 || !createAdminEmailPattern.MatchString(options.email) {
+		return createAdminOptions{}, fmt.Errorf("--email is invalid")
+	}
+	parsedRoleID, err := strconv.ParseInt(strings.TrimSpace(roleID), 10, 64)
+	if err != nil || parsedRoleID != 2 {
+		return createAdminOptions{}, fmt.Errorf("--role-id must be 2")
+	}
+	options.roleID = parsedRoleID
+	return options, nil
+}
+
+func runCreateAdmin(ctx context.Context, options createAdminOptions, dependencies commandDependencies) error {
+	if dependencies.getenv == nil || dependencies.openDatabase == nil || dependencies.hashPassword == nil || dependencies.stdout == nil {
+		return fmt.Errorf("create-admin command dependencies are incomplete")
+	}
+	password := dependencies.getenv("ADMIN_INITIAL_PASSWORD")
+	passwordLength := len([]rune(password))
+	if passwordLength < 6 || passwordLength > 128 {
+		return fmt.Errorf("ADMIN_INITIAL_PASSWORD is required and must contain 6 to 128 characters")
+	}
+	passwordHash, err := dependencies.hashPassword(password)
+	password = ""
+	if err != nil {
+		return safeCommandError("hash initial administrator password", err)
+	}
+
+	dsn := strings.TrimSpace(dependencies.getenv("MYSQL_DSN"))
+	if err := databaseevolution.ValidateSchemaDSN(dsn, "admin"); err != nil {
+		return err
+	}
+	database, err := dependencies.openDatabase(dsn)
+	if err != nil {
+		return safeCommandError("open MySQL connection", err)
+	}
+	defer database.Close()
+
+	transaction, err := database.BeginTx(ctx, nil)
+	if err != nil {
+		return safeCommandError("begin create-admin transaction", err)
+	}
+	defer transaction.Rollback()
+
+	var roleCount int
+	if err := transaction.QueryRowContext(ctx, "SELECT COUNT(*) FROM roles WHERE id = ? AND is_del = ?", options.roleID, 2).Scan(&roleCount); err != nil {
+		return safeCommandError("validate administrator role", err)
+	}
+	if roleCount != 1 {
+		return fmt.Errorf("administrator role 2 is unavailable")
+	}
+	var userCount int
+	if err := transaction.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE email = ?", options.email).Scan(&userCount); err != nil {
+		return safeCommandError("validate administrator email", err)
+	}
+	if userCount != 0 {
+		return fmt.Errorf("administrator email already exists")
+	}
+
+	result, err := transaction.ExecContext(ctx,
+		"INSERT INTO users (role_id, username, email, password, status, is_del) VALUES (?, ?, ?, ?, ?, ?)",
+		options.roleID, options.username, options.email, passwordHash, 1, 2,
+	)
+	if err != nil {
+		return safeCommandError("create administrator user", err)
+	}
+	userID, err := result.LastInsertId()
+	if err != nil || userID <= 0 {
+		return safeCommandError("read administrator user ID", err)
+	}
+	if _, err := transaction.ExecContext(ctx,
+		"INSERT INTO user_profiles (user_id, sex, is_del) VALUES (?, ?, ?)", userID, 0, 2,
+	); err != nil {
+		return safeCommandError("create administrator profile", err)
+	}
+	if _, err := transaction.ExecContext(ctx,
+		"INSERT INTO authz_principal_versions (user_id, platform, version) VALUES (?, ?, ?)", userID, "admin", 1,
+	); err != nil {
+		return safeCommandError("create administrator authorization version", err)
+	}
+	if err := transaction.Commit(); err != nil {
+		return safeCommandError("commit create-admin transaction", err)
+	}
+	if _, err := fmt.Fprintf(dependencies.stdout, "created_admin\t%d\t%s\n", userID, options.username); err != nil {
+		return fmt.Errorf("print created administrator: %w", err)
+	}
+	return nil
 }
 
 func runMailDiagnosticRekeyCommand(ctx context.Context, dependencies commandDependencies) error {

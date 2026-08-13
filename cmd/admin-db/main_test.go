@@ -20,6 +20,116 @@ import (
 
 const testCommit = "0123456789abcdef0123456789abcdef01234567"
 
+func TestRunCreateAdminRequiresExplicitSafeInput(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "missing username", args: []string{"create-admin", "--email", "admin@example.com", "--role-id", "2"}, want: "--username is required"},
+		{name: "control character username", args: []string{"create-admin", "--username", "admin\nforged", "--email", "admin@example.com", "--role-id", "2"}, want: "--username contains control characters"},
+		{name: "missing email", args: []string{"create-admin", "--username", "admin", "--role-id", "2"}, want: "--email is required"},
+		{name: "invalid email", args: []string{"create-admin", "--username", "admin", "--email", "not-an-email", "--role-id", "2"}, want: "--email is invalid"},
+		{name: "wrong role", args: []string{"create-admin", "--username", "admin", "--email", "admin@example.com", "--role-id", "1"}, want: "--role-id must be 2"},
+		{name: "password argument", args: []string{"create-admin", "--username", "admin", "--email", "admin@example.com", "--role-id", "2", "--password", "secret"}, want: "invalid create-admin arguments"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := run(context.Background(), test.args, commandDependencies{})
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("run() error=%v want text %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestRunCreateAdminWritesOwnedRowsInOneTransaction(t *testing.T) {
+	database, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM roles").WithArgs(int64(2), 2).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM users").WithArgs("admin@example.com").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectExec("INSERT INTO users").
+		WithArgs(int64(2), "Local Admin", "admin@example.com", "$2a$10$fixture", 1, 2).
+		WillReturnResult(sqlmock.NewResult(9, 1))
+	mock.ExpectExec("INSERT INTO user_profiles").WithArgs(int64(9), 0, 2).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO authz_principal_versions").WithArgs(int64(9), "admin", 1).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	mock.ExpectClose()
+
+	const dsn = "admin_user:safe-password@tcp(127.0.0.1:3306)/admin?parseTime=true"
+	var output bytes.Buffer
+	dependencies := commandDependencies{
+		getenv: func(key string) string {
+			switch key {
+			case "MYSQL_DSN":
+				return dsn
+			case "ADMIN_INITIAL_PASSWORD":
+				return "secret12"
+			default:
+				t.Fatalf("unexpected environment key %q", key)
+				return ""
+			}
+		},
+		openDatabase: func(got string) (*sql.DB, error) {
+			if got != dsn {
+				t.Fatal("MYSQL_DSN changed")
+			}
+			return database, nil
+		},
+		hashPassword: func(password string) (string, error) {
+			if password != "secret12" {
+				t.Fatal("initial password changed")
+			}
+			return "$2a$10$fixture", nil
+		},
+		stdout: &output,
+	}
+
+	err = run(context.Background(), []string{
+		"create-admin", "--username", "Local Admin", "--email", "admin@example.com", "--role-id", "2",
+	}, dependencies)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output.String() != "created_admin\t9\tLocal Admin\n" {
+		t.Fatalf("stdout=%q", output.String())
+	}
+	if strings.Contains(output.String(), "secret12") || strings.Contains(output.String(), "$2a$") {
+		t.Fatal("create-admin output exposed password material")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunCreateAdminRejectsMissingPasswordBeforeOpeningDatabase(t *testing.T) {
+	opened := false
+	err := run(context.Background(), []string{
+		"create-admin", "--username", "admin", "--email", "admin@example.com", "--role-id", "2",
+	}, commandDependencies{
+		getenv: func(string) string { return "" },
+		openDatabase: func(string) (*sql.DB, error) {
+			opened = true
+			return nil, errors.New("must not open")
+		},
+		hashPassword: func(string) (string, error) { return "", errors.New("must not hash") },
+		stdout:       io.Discard,
+	})
+	if err == nil || !strings.Contains(err.Error(), "ADMIN_INITIAL_PASSWORD is required") {
+		t.Fatalf("run() error=%v", err)
+	}
+	if opened {
+		t.Fatal("database opened without an initial password")
+	}
+}
+
 func TestRunRejectsIncompleteAndUnexpectedFingerprintArguments(t *testing.T) {
 	tests := []struct {
 		name string
