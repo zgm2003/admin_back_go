@@ -74,14 +74,3 @@ func TestQuickEntryRemovedFromActiveRuntime(t *testing.T) {
 		t.Fatalf("QuickEntry must be removed from active runtime:\n  %s", strings.Join(offenders, "\n  "))
 	}
 }
-
-func TestDropUsersQuickEntryMigrationExists(t *testing.T) {
-	root := backendRoot(t)
-	body, err := os.ReadFile(filepath.Join(root, "database", "legacy-migrations", "20260601_drop_users_quick_entry.sql"))
-	if err != nil {
-		t.Fatalf("drop users_quick_entry migration must exist: %v", err)
-	}
-	if !strings.Contains(string(body), "DROP TABLE IF EXISTS `users_quick_entry`;") {
-		t.Fatalf("drop users_quick_entry migration must drop the obsolete table")
-	}
-}

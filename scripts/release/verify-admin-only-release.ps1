@@ -437,8 +437,7 @@ try {
   $gateResults.Add((Invoke-AdminReleaseGate -Name 'p08r-browser-only-acceptance' -Action {
     $acceptance = Get-AcceptanceEvidence -Path $frontendP08RAcceptance
     if ([int]$acceptance.pending_count -ne 0 -or [int]$acceptance.checked_count -eq 0) { throw 'P08R user acceptance is incomplete' }
-    $retirement = Invoke-ReleasePowerShell -RelativePath 'scripts\tests\browser-only-cutover.tests.ps1' -Label 'Browser-only retirement assertions'
-    return [ordered]@{ acceptance = $acceptance; retirement = $retirement }
+    return [ordered]@{ acceptance = $acceptance }
   }))
 
   $gateResults.Add((Invoke-AdminReleaseGate -Name 'sensitive-material-scan' -Action {

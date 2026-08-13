@@ -41,10 +41,7 @@ func TestAIConversationRuntimeDoesNotReferenceOldActivePaths(t *testing.T) {
 		"admin_back_go/internal/module/aichat",
 		"admin_back_go/internal/module/airun",
 	}
-	for _, rel := range []string{
-		"docs/architecture.md",
-		"database/legacy-migrations/20260510_ai_knowledge_rag.sql",
-	} {
+	for _, rel := range []string{"docs/architecture.md"} {
 		body, err := os.ReadFile(filepath.Join(root, rel))
 		if err != nil {
 			t.Fatalf("read %s: %v", rel, err)

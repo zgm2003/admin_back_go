@@ -215,7 +215,6 @@ foreach ($needle in @(
   'docs\acceptance\p07-frontend-manual.md',
   'docs\acceptance\p08r-browser-only-manual.md',
   "'-Command', 'admin-status'",
-  'scripts\tests\browser-only-cutover.tests.ps1',
   'client_versions',
   'auth-platforms',
   'git worktree list --porcelain',

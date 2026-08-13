@@ -1,51 +1,62 @@
 package architecture
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
-func TestAllAgentModelJoinsPinChatKind(t *testing.T) {
-	wantPredicates := map[string]int{
-		"internal/module/ai/agent/repository.go":           2,
-		"internal/module/ai/chat/repository.go":            1,
-		"internal/module/ai/message/repository.go":         1,
-		"internal/module/ai/message/history_repository.go": 1,
-		"internal/module/ai/tool/repository.go":            1,
-		"internal/module/ai/image/repository.go":           2,
+func TestAgentModelQueriesPinTheirRequiredKinds(t *testing.T) {
+	wantKinds := map[string]string{
+		"internal/module/ai/chat/repository.go":            "ModelKindChat",
+		"internal/module/ai/message/repository.go":         "ModelKindChat",
+		"internal/module/ai/message/history_repository.go": "ModelKindChat",
+		"internal/module/ai/tool/repository.go":            "ModelKindChat",
+		"internal/module/ai/image/repository.go":           "ModelKindImage",
 	}
-	for path, want := range wantPredicates {
-		source := mustReadRepoFile(t, path)
-		if got := strings.Count(source, "model_kind = ?"); got < want {
-			t.Errorf("%s has %d model-kind predicates, want at least %d", path, got, want)
+	for path, wantKind := range wantKinds {
+		body, err := os.ReadFile(filepath.Join(backendRoot(t), filepath.FromSlash(path)))
+		if err != nil {
+			t.Fatal(err)
 		}
-		if !strings.Contains(source, "ModelKindChat") {
-			t.Errorf("%s does not bind the closed Chat model kind", path)
+		source := string(body)
+		if !strings.Contains(source, "model_kind = ?") {
+			t.Errorf("%s does not constrain provider model kind", path)
+		}
+		if !strings.Contains(source, wantKind) {
+			t.Errorf("%s does not bind %s", path, wantKind)
+		}
+	}
+
+	agentRepository, err := os.ReadFile(filepath.Join(backendRoot(t), "internal", "module", "ai", "agent", "repository.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentSource := string(agentRepository)
+	for _, required := range []string{"model_kind IN ?", "ModelKindChat", "ModelKindImage", "pm.model_kind = ?"} {
+		if !strings.Contains(agentSource, required) {
+			t.Errorf("agent repository missing model-kind boundary %q", required)
 		}
 	}
 }
 
-func TestProviderModelKindFinalSchemaAndMigrationGuards(t *testing.T) {
-	schema := mustReadRepoFile(t, "database/schema/admin.hcl")
-	block := hclTableBlock(t, schema, "ai_provider_models")
+func TestProviderModelKindFinalSchema(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join(backendRoot(t), "database", "schema.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema := strings.ToLower(string(body))
 	for _, required := range []string{
-		`column "embedding_dimensions"`,
-		`column "embedding_max_input_tokens"`,
-		`column "embedding_token_counter_id"`,
-		`_ascii'image'`,
-		`check "chk_ai_provider_models_embedding_spec"`,
+		"`model_kind`",
+		"`embedding_dimensions`",
+		"`embedding_max_input_tokens`",
+		"`embedding_token_counter_id`",
+		"constraint `chk_ai_provider_models_model_kind`",
+		"constraint `chk_ai_provider_models_embedding_spec`",
 	} {
-		if !strings.Contains(block, required) {
-			t.Fatalf("ai_provider_models missing %q", required)
+		if !strings.Contains(schema, required) {
+			t.Errorf("ai_provider_models schema missing %q", required)
 		}
-	}
-	backfill := mustReadRepoFile(t, "database/migrations/202608080102_ai_provider_model_kind_backfill.sql")
-	for _, required := range []string{"gpt-image-2", "scenes_json", "image_generate", "ai_context_profiles", "embedding_dimensions"} {
-		if !strings.Contains(backfill, required) {
-			t.Fatalf("backfill missing %q", required)
-		}
-	}
-	if strings.Contains(strings.ToUpper(backfill), "DELETE FROM `AI_PROVIDER_MODELS`") {
-		t.Fatal("backfill must not delete provider model rows")
 	}
 }

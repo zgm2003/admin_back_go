@@ -11,8 +11,8 @@ objects.
 
 - **Release operator** verifies Git commits, image/archive digests, Compose
   resources, health, readiness, and Admin smoke evidence.
-- **Database operator** owns the recovery artifact, source/target fingerprints,
-  the maintenance lock, and all three Atlas contract groups.
+- **Database operator** owns the recovery artifact, baseline hashes, ordered
+  migration checksums, and the maintenance lock.
 - **Security owner** supplies the approval and secrets through the approved
   environment or ignored files. Values are never pasted into logs or evidence.
 
@@ -35,8 +35,9 @@ approved backend environment file
 ```
 
 The manifest commits must equal the two clean primary checkouts. The archive
-hashes, loaded image IDs, OCI revision labels, Bundle digest, Atlas checksum,
-database target fingerprint, and all evidence hashes must match exactly.
+hashes, loaded image IDs, OCI revision labels, Bundle digest, baseline schema
+and seed hashes, ordered migration checksums, and all evidence hashes must
+match exactly.
 
 ## Preflight
 
@@ -100,4 +101,4 @@ error metrics. Close the window only when `release/admin-only/out/proof.json`
 passes and the operator records the release ID.
 
 **STOP** and invoke the rollback runbook if staging, promotion, health,
-readiness, smoke, durable-work recovery, or post-contract drift fails.
+readiness, smoke, durable-work recovery, or baseline drift fails.

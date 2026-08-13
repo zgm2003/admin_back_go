@@ -163,37 +163,12 @@ func TestBrowserOnlyAdminHasNoClientVersionRuntimeAndP09OwnsHistoryDeletion(t *t
 		}
 	}
 
-	schema, err := os.ReadFile(filepath.Join(root, "database", "schema", "admin.hcl"))
+	schema, err := os.ReadFile(filepath.Join(root, "database", "schema.sql"))
 	if err != nil {
 		t.Fatalf("read canonical schema: %v", err)
 	}
-	if strings.Contains(string(schema), `table "client_versions"`) {
+	if strings.Contains(strings.ToLower(string(schema)), "create table `client_versions`") {
 		t.Fatal("P09 canonical schema must not retain the frozen client_versions history table")
-	}
-	migration, err := os.ReadFile(filepath.Join(root, "database", "migrations", "202607150202_admin_only_schema.sql"))
-	if err != nil {
-		t.Fatalf("read P09 schema migration: %v", err)
-	}
-	if !strings.Contains(string(migration), "DROP TABLE `client_versions`") {
-		t.Fatal("P09 schema migration must own the physical client_versions deletion")
-	}
-	wrapper, err := os.ReadFile(filepath.Join(root, "scripts", "database", "contract-admin-only.ps1"))
-	if err != nil {
-		t.Fatalf("read P09 contract wrapper: %v", err)
-	}
-	for _, token := range []string{"P09_DESTRUCTIVE_APPROVAL_REQUIRED", "DROP_CLIENT_VERSIONS_FOR_P09"} {
-		if !strings.Contains(string(wrapper), token) {
-			t.Fatalf("P09 wrapper is missing destructive approval boundary %q", token)
-		}
-	}
-	preconditions, err := os.ReadFile(filepath.Join(root, "database", "reconciliation", "050_contract_preconditions.sql"))
-	if err != nil {
-		t.Fatalf("read P09 preconditions: %v", err)
-	}
-	for _, evidence := range []string{"client_versions_count_mismatch", "client_versions_hash_mismatch"} {
-		if !strings.Contains(string(preconditions), evidence) {
-			t.Fatalf("P09 preconditions no longer verify frozen client_versions evidence %q", evidence)
-		}
 	}
 
 	smoke, err := os.ReadFile(filepath.Join(root, "scripts", "full-admin-smoke.ps1"))

@@ -247,14 +247,14 @@ try {
     $LASTEXITCODE -eq 0
   }
 
-  [void](Invoke-MySQLScalar -SQL 'CREATE DATABASE atlas_dev CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci')
-  $atlasURL = "mysql://root:$script:MySQLPassword@mysql:3306/admin"
-  $atlasDevURL = "mysql://root:$script:MySQLPassword@mysql:3306/atlas_dev"
+  $schemaPath = Join-Path $script:RepoRoot 'database\schema.sql'
+  if (-not (Test-Path -LiteralPath $schemaPath -PathType Leaf)) {
+    throw 'database/schema.sql is missing'
+  }
+  Invoke-Docker -Arguments @('cp', $schemaPath, ($script:MySQLContainer + ':/tmp/admin-schema.sql')) | Out-Null
   Invoke-Docker -Arguments @(
-    'run','--rm','--network',$script:Network,
-    '--mount',('type=bind,source=' + $script:RepoRoot + ',target=/src,readonly'),
-    '--workdir','/src','arigaio/atlas:0.38.0@sha256:9883fdf5290020022ad0ac91fe20b846d32f93c19f68dfd3cf3b327c3e1b7e1a',
-    'schema','apply','--url',$atlasURL,'--dev-url',$atlasDevURL,'--to','file://database/schema/admin.hcl','--auto-approve'
+    'exec', '-e', ("MYSQL_PWD=" + $script:MySQLPassword), $script:MySQLContainer,
+    'sh', '-lc', 'mysql --user=root --database=admin < /tmp/admin-schema.sql'
   ) | Out-Null
 
   $runtimeLines = @(

@@ -83,25 +83,3 @@ func TestVerifyCodeTTLDoesNotUseSystemSettingRuntime(t *testing.T) {
 		})
 	}
 }
-
-func TestChannelVerifyCodeTTLMigrationOwnsColumnsAndRetiresGlobalKey(t *testing.T) {
-	root := backendRoot(t)
-	body, err := os.ReadFile(filepath.Join(root, "database", "legacy-migrations", "20260529_channel_verify_code_ttl.sql"))
-	if err != nil {
-		t.Fatalf("read channel verify-code ttl migration: %v", err)
-	}
-	text := string(body)
-	for _, want := range []string{
-		"ALTER TABLE `mail_configs` ADD COLUMN `verify_code_ttl_minutes`",
-		"ALTER TABLE `sms_configs` ADD COLUMN `verify_code_ttl_minutes`",
-		"@mail_ttl_column_exists = 0",
-		"@sms_ttl_column_exists = 0",
-		"auth.verify_code.ttl_minutes",
-		"SET `status` = 2",
-		"`is_del` = 1",
-	} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("migration must contain %q", want)
-		}
-	}
-}

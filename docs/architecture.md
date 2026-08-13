@@ -1534,13 +1534,12 @@ send-task handler 解析目标用户、批量写 notifications、更新 sent_cou
 notification.created.v1 通过 worker RedisPublisher -> admin-api RedisSubscriber -> 本机 WebSocket Manager 做 best-effort 推送；DB notifications 写入仍是真相。
 ```
 
-RBAC 数据迁移：
+RBAC 初始化数据：
 
 ```text
-database/legacy-migrations/20260505_add_notification_task_button_permissions.sql
-为通知管理页面补齐 system_notificationTask_add / cancel / del 三个 BUTTON 权限。
-迁移只给已经拥有 /system/notificationTask PAGE 权限的角色补按钮授权，不创建隐藏超级管理员绕过。
-执行后如果用户已有旧 RBAC route access grant cache，需要等待 TTL 或删除 auth_perm_uid_{userId}_admin_rbac_route_access_grants 后重新计算。
+database/seed.sql 是本地初始化权限树和角色授权的唯一 SQL 来源。
+通知管理的 system_notificationTask_add / cancel / del BUTTON 权限及其角色授权必须在 seed 中显式存在。
+权限变更通过正式权限写接口更新版本并使缓存失效；不要靠恢复历史 migration 或手工删除未知缓存键修正权限。
 ```
 
 ## Profile + Avatar Upload Slice

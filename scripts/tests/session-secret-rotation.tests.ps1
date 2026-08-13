@@ -24,7 +24,6 @@ else {
 }
 
 . $adminDevCommonScript
-. (Join-Path $repoRoot 'scripts\database\atlas-runtime-common.ps1')
 
 if (-not (Test-Path -LiteralPath $runtimeEnv -PathType Leaf)) {
   throw 'Docker runtime env is missing; run scripts/docker-platform.ps1 init first.'
@@ -57,13 +56,11 @@ function Assert-NoAdminDevDatabaseMutation {
         $node -is [Management.Automation.Language.StringConstantExpressionAst] -or
           $node -is [Management.Automation.Language.ExpandableStringExpressionAst]
       }, $true) | ForEach-Object { ([string]$_.Value).Trim().ToLowerInvariant() })
-      $directMutator = $commandLeaf -in @('invoke-lockedatlasmigration', 'invoke-maildiagnosticrekey')
+      $directMutator = $commandLeaf -ceq 'invoke-maildiagnosticrekey'
       $mutationCapable = [string]::IsNullOrWhiteSpace($commandName) -or $commandLeaf -in @(
         'go',
         'docker',
-        'atlas',
         'admin-db',
-        'invoke-atlascontainer',
         'pwsh',
         'powershell'
       )
@@ -106,6 +103,79 @@ function Test-PathInsideRoot {
   $separators = [char[]]@([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
   $prefix = $Root.TrimEnd($separators) + [IO.Path]::DirectorySeparatorChar
   return $Path.StartsWith($prefix, $comparison)
+}
+
+function Write-RestrictedTextFile {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][string]$Content
+  )
+
+  if (Test-Path -LiteralPath $Path) { throw 'restricted file already exists' }
+  if ($IsWindows) {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $security = [Security.AccessControl.FileSecurity]::new()
+    $security.SetOwner($identity.User)
+    $security.SetAccessRuleProtection($true, $false)
+    $rule = [Security.AccessControl.FileSystemAccessRule]::new(
+      $identity.User,
+      [Security.AccessControl.FileSystemRights]::FullControl,
+      [Security.AccessControl.AccessControlType]::Allow
+    )
+    [void]$security.AddAccessRule($rule)
+    $stream = [IO.FileSystemAclExtensions]::Create(
+      [IO.FileInfo]::new($Path),
+      [IO.FileMode]::CreateNew,
+      [Security.AccessControl.FileSystemRights]::Write,
+      [IO.FileShare]::None,
+      4096,
+      [IO.FileOptions]::None,
+      $security
+    )
+  }
+  else {
+    $stream = [IO.FileStream]::new($Path, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+    & chmod 600 -- $Path
+    if ($LASTEXITCODE -ne 0) {
+      $stream.Dispose()
+      throw 'failed to restrict runtime file permissions'
+    }
+  }
+  try {
+    $bytes = [Text.UTF8Encoding]::new($false).GetBytes($Content)
+    $stream.Write($bytes, 0, $bytes.Length)
+    $stream.Flush($true)
+  }
+  finally {
+    $stream.Dispose()
+  }
+}
+
+function New-DisposableSchemaDSN {
+  param(
+    [Parameter(Mandatory = $true)][string]$SourceDSN,
+    [Parameter(Mandatory = $true)][string]$Database
+  )
+
+  if ($Database -notmatch '^admin_rekey_[0-9a-f]{12}$') {
+    throw 'refusing to build a DSN for an unexpected disposable schema'
+  }
+  $addressMarker = '@tcp('
+  $addressIndex = $SourceDSN.LastIndexOf($addressMarker, [StringComparison]::Ordinal)
+  $databaseStart = if ($addressIndex -gt 0) {
+    $SourceDSN.IndexOf(')/', $addressIndex + $addressMarker.Length, [StringComparison]::Ordinal)
+  }
+  else {
+    -1
+  }
+  if ($databaseStart -lt 0) { throw 'MYSQL_DSN is not a supported TCP DSN' }
+  $databaseStart += 2
+  $queryIndex = $SourceDSN.IndexOf('?', $databaseStart)
+  $databaseEnd = if ($queryIndex -ge 0) { $queryIndex } else { $SourceDSN.Length }
+  if ($SourceDSN.Substring($databaseStart, $databaseEnd - $databaseStart) -cne 'admin') {
+    throw 'MYSQL_DSN must target the admin schema'
+  }
+  return $SourceDSN.Substring(0, $databaseStart) + $Database + $SourceDSN.Substring($databaseEnd)
 }
 
 function Invoke-BoundedProcessCapture {
@@ -224,283 +294,17 @@ function Assert-NoSensitiveOutput {
   }
 }
 
-function Assert-SchemaFingerprintCapture {
-  param(
-    [Parameter(Mandatory = $true)]$Result,
-    [Parameter(Mandatory = $true)][string]$ExpectedPath,
-    [Parameter(Mandatory = $true)][string]$ExpectedSHA256
-  )
-
-  if ($Result.ExitCode -ne 0 -or
-      -not [string]::IsNullOrWhiteSpace([string]$Result.StdErr) -or
-      $Result.StdOutLines.Count -ne 2 -or
-      [string]$Result.StdOutLines[0] -cne $ExpectedPath -or
-      [string]$Result.StdOutLines[1] -cne $ExpectedSHA256) {
-    throw 'schema fingerprint capture output was malformed'
-  }
-}
-
-function Get-SchemaFingerprint {
-  param(
-    [Parameter(Mandatory = $true)]$Settings,
-    [Parameter(Mandatory = $true)][string]$Database
-  )
-
-  $fingerprintPath = Join-Path ([IO.Path]::GetTempPath()) ('admin-rotation-fingerprint-' + [guid]::NewGuid().ToString('N') + '.json')
-  $previousDSN = [Environment]::GetEnvironmentVariable('MYSQL_DSN', 'Process')
-  $primaryFailure = $null
-  $cleanupFailure = $null
-  $fingerprint = $null
-  try {
-    $env:MYSQL_DSN = New-SchemaDSN -Settings $Settings -Database $Database
-    $gitCommand = Get-Command 'git.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($null -eq $gitCommand) {
-      $gitCommand = Get-Command 'git' -ErrorAction Stop | Select-Object -First 1
-    }
-    $gitResult = Invoke-BoundedProcessCapture `
-      -Executable $gitCommand.Source `
-      -Arguments @('-C', $script:RepoRoot, 'rev-parse', 'HEAD') `
-      -Operation 'Git commit resolution' `
-      -TimeoutSeconds 30 `
-      -WorkingDirectory $script:RepoRoot
-    $commit = $gitResult.StdOut.Trim()
-    if ($gitResult.ExitCode -ne 0 -or $commit -notmatch '^[0-9a-f]{40}$') {
-      throw 'Git commit could not be resolved'
-    }
-    $gitResult = $null
-    $fingerprintResult = Invoke-GoCapture `
-      -Arguments @('run', './cmd/admin-db', 'fingerprint', '--schema', $Database, '--out', $fingerprintPath, '--commit', $commit) `
-      -TimeoutSeconds 180 `
-      -Operation 'schema fingerprint capture'
-    if ($fingerprintResult.ExitCode -ne 0) {
-      throw 'schema fingerprint capture failed'
-    }
-    $document = [IO.File]::ReadAllText($fingerprintPath, [Text.Encoding]::UTF8) | ConvertFrom-Json
-    if ([string]$document.schema_sha256 -notmatch '^[0-9a-f]{64}$') {
-      throw 'schema fingerprint output was invalid'
-    }
-    Assert-SchemaFingerprintCapture `
-      -Result $fingerprintResult `
-      -ExpectedPath $fingerprintPath `
-      -ExpectedSHA256 ([string]$document.schema_sha256)
-    $fingerprintResult = $null
-    $fingerprint = [string]$document.schema_sha256
-  }
-  catch {
-    $primaryFailure = $_
-  }
-  finally {
-    [Environment]::SetEnvironmentVariable('MYSQL_DSN', $previousDSN, 'Process')
-    try {
-      if (Test-Path -LiteralPath $fingerprintPath -PathType Leaf) {
-        Remove-Item -LiteralPath $fingerprintPath -Force -ErrorAction Stop
-      }
-    }
-    catch {
-      $cleanupFailure = 'schema fingerprint temporary file cleanup failed'
-    }
-  }
-  if ($null -ne $primaryFailure) {
-    if ($null -ne $cleanupFailure) {
-      throw "$($primaryFailure.Exception.Message); cleanup also failed: $cleanupFailure"
-    }
-    throw $primaryFailure
-  }
-  if ($null -ne $cleanupFailure) {
-    throw $cleanupFailure
-  }
-  return $fingerprint
-}
-
 function Invoke-DisposableSchemaBootstrap {
-  param(
-    [Parameter(Mandatory = $true)]$Settings,
-    [Parameter(Mandatory = $true)][string]$Database
-  )
+  param([Parameter(Mandatory = $true)][string]$Database)
 
   if ($Database -notmatch '^admin_rekey_[0-9a-f]{12}$') {
     throw 'refusing to bootstrap an unexpected disposable schema'
   }
-
-  $runtimeDirectory = ''
-  $primaryFailure = $null
-  $cleanupFailure = $null
-  try {
-    $runtimeDirectory = New-AtlasRuntimeConfig -Settings $Settings -Database $Database
-    $schemaPath = Join-Path $script:RepoRoot 'database\schema\admin.hcl'
-    if (-not (Test-Path -LiteralPath $schemaPath -PathType Leaf)) {
-      throw 'canonical admin.hcl is missing'
-    }
-    $canonicalSchema = [IO.File]::ReadAllText($schemaPath, [Text.Encoding]::UTF8)
-    if ([regex]::Matches($canonicalSchema, '(?m)^schema "admin" \{$').Count -ne 1) {
-      throw 'canonical schema must contain exactly one admin schema declaration'
-    }
-    $runtimeSchema = $canonicalSchema.Replace('schema "admin" {', 'schema "' + $Database + '" {')
-    $runtimeSchema = $runtimeSchema.Replace('schema.admin', "schema.$Database")
-    if ([regex]::IsMatch($runtimeSchema, '\bschema\.admin\b')) {
-      throw 'canonical schema reference rebinding was incomplete'
-    }
-    $runtimeSchemaPath = Join-Path $runtimeDirectory 'admin.hcl'
-    [IO.File]::WriteAllText($runtimeSchemaPath, $runtimeSchema, [Text.UTF8Encoding]::new($false))
-    $schemaApplyOutput = Invoke-AtlasContainer `
-      -DockerExecutable $script:DockerExecutable `
-      -BackendRoot $script:RepoRoot `
-      -RuntimeDirectory $runtimeDirectory `
-      -AtlasArguments @(
-        'schema', 'apply',
-        '--config', 'file:///runtime/atlas.hcl',
-        '--env', 'runtime',
-        '--to', 'file:///runtime/admin.hcl',
-        '--auto-approve'
-      ) `
-      -TimeoutSeconds 600
-    Assert-NoSensitiveOutput -Text $schemaApplyOutput
-    $schemaApplyOutput = $null
-
+  $schemaPath = Join-Path $script:RepoRoot 'database\schema.sql'
+  if (-not (Test-Path -LiteralPath $schemaPath -PathType Leaf)) {
+    throw 'canonical schema.sql is missing'
   }
-  catch {
-    $primaryFailure = $_
-  }
-  finally {
-    try {
-      Remove-AtlasRuntimeConfig -Directory $runtimeDirectory
-    }
-    catch {
-      $cleanupFailure = 'disposable Atlas runtime config cleanup failed'
-    }
-  }
-  if ($null -ne $primaryFailure) {
-    if ($null -ne $cleanupFailure) {
-      throw "$($primaryFailure.Exception.Message); cleanup also failed: $cleanupFailure"
-    }
-    throw $primaryFailure
-  }
-  if ($null -ne $cleanupFailure) {
-    throw $cleanupFailure
-  }
-}
-
-function Invoke-LockedAtlasMigration {
-  param(
-    [Parameter(Mandatory = $true)]$Settings,
-    [Parameter(Mandatory = $true)][string]$Database
-  )
-
-  $beforeFingerprint = Get-SchemaFingerprint -Settings $Settings -Database $Database
-  $runtimeDirectory = ''
-  $previousDSN = [Environment]::GetEnvironmentVariable('MYSQL_DSN', 'Process')
-  $primaryFailure = $null
-  $cleanupFailure = $null
-  $migrationResult = $null
-  try {
-    $runtimeDirectory = New-AtlasRuntimeConfig -Settings $Settings -Database $Database
-    $statusBefore = Invoke-AtlasContainer `
-      -DockerExecutable $script:DockerExecutable `
-      -BackendRoot $script:RepoRoot `
-      -RuntimeDirectory $runtimeDirectory `
-      -AtlasArguments @(
-        'migrate', 'status',
-        '--config', 'file:///runtime/atlas.hcl',
-        '--env', 'runtime',
-        '--dir', 'file:///workspace/database/migrations'
-      ) `
-      -TimeoutSeconds 600
-    Assert-NoSensitiveOutput -Text $statusBefore
-    $dockerArguments = @(
-      'run', '--rm', '--add-host', 'host.docker.internal:host-gateway',
-      '--volume', "${script:RepoRoot}:/workspace:ro",
-      '--volume', "${runtimeDirectory}:/runtime:ro",
-      '--workdir', '/workspace',
-      $script:AtlasImage,
-      'migrate', 'apply',
-      '--config', 'file:///runtime/atlas.hcl',
-      '--env', 'runtime',
-      '--dir', 'file:///workspace/database/migrations',
-      '--to-version', '202607230101'
-    )
-    $env:MYSQL_DSN = New-SchemaDSN -Settings $Settings -Database $Database
-    $locked = Invoke-GoCapture `
-      -Arguments (@(
-        'run', './cmd/admin-db', 'lock-run',
-        '--schema', $Database,
-        '--name', 'admin:atlas:migrate',
-        '--timeout', '30s',
-        '--expected-fingerprint', $beforeFingerprint,
-        '--'
-      ) + @($script:DockerExecutable) + $dockerArguments) `
-      -TimeoutSeconds 900 `
-      -Operation 'locked Atlas migration'
-    if ($locked.ExitCode -ne 0) { throw 'locked Atlas migration failed' }
-    $locked = $null
-
-    $statusText = Invoke-AtlasContainer `
-      -DockerExecutable $script:DockerExecutable `
-      -BackendRoot $script:RepoRoot `
-      -RuntimeDirectory $runtimeDirectory `
-      -AtlasArguments @(
-        'migrate', 'status',
-        '--config', 'file:///runtime/atlas.hcl',
-        '--env', 'runtime',
-        '--dir', 'file:///workspace/database/migrations'
-      ) `
-      -TimeoutSeconds 600
-    Assert-NoSensitiveOutput -Text $statusText
-    if ($statusText -notmatch '(?i)migration status:\s*ok') {
-      throw 'Atlas migration status is not clean'
-    }
-    $statusText = $null
-    $afterFingerprint = Get-SchemaFingerprint -Settings $Settings -Database $Database
-    $migrationResult = [pscustomobject]@{ Status = 'ok'; Fingerprint = $afterFingerprint }
-  }
-  catch {
-    $primaryFailure = $_
-  }
-  finally {
-    [Environment]::SetEnvironmentVariable('MYSQL_DSN', $previousDSN, 'Process')
-    try {
-      Remove-AtlasRuntimeConfig -Directory $runtimeDirectory
-    }
-    catch {
-      $cleanupFailure = 'locked Atlas runtime config cleanup failed'
-    }
-  }
-  if ($null -ne $primaryFailure) {
-    if ($null -ne $cleanupFailure) {
-      throw "$($primaryFailure.Exception.Message); cleanup also failed: $cleanupFailure"
-    }
-    throw $primaryFailure
-  }
-  if ($null -ne $cleanupFailure) {
-    throw $cleanupFailure
-  }
-  return $migrationResult
-}
-
-function Invoke-InvariantGate {
-  param(
-    [Parameter(Mandatory = $true)][string]$Database,
-    [Parameter(Mandatory = $true)][string]$RelativePath,
-    [Parameter(Mandatory = $true)][string[]]$ExpectedNames
-  )
-
-  $result = Invoke-GoCapture `
-    -Arguments @('run', './cmd/admin-db', 'invariants', '--schema', $Database, '--file', $RelativePath) `
-    -TimeoutSeconds 180 `
-    -Operation 'database reconciliation invariant command'
-  if ($result.ExitCode -ne 0 -or $result.Lines.Count -ne $ExpectedNames.Count -or
-      -not [string]::IsNullOrWhiteSpace([string]$result.StdErr)) {
-    throw 'database reconciliation invariant command failed'
-  }
-  $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-  for ($index = 0; $index -lt $ExpectedNames.Count; $index++) {
-    $line = $result.Lines[$index]
-    $parts = [string]$line -split "`t", 2
-    if ($parts.Count -ne 2 -or $parts[0] -cne $ExpectedNames[$index] -or
-        -not $seen.Add($parts[0]) -or $parts[1] -notmatch '^[0-9]+$' -or [uint64]$parts[1] -ne 0) {
-      throw 'database reconciliation invariant was non-zero or malformed'
-    }
-  }
-  return $result.Lines.Count
+  Invoke-FixtureHelper -Arguments @('apply-schema', $schemaPath)
 }
 
 function Invoke-MailDiagnosticRekey {
@@ -624,6 +428,13 @@ func main() {
 		runSchemaCommand(command, os.Args[2])
 		return
 	}
+	if command == "apply-schema" {
+		if len(os.Args) != 3 {
+			fail()
+		}
+		applySchema(os.Args[2])
+		return
+	}
 	if command == "verify-current-pair" {
 		if len(os.Args) != 5 {
 			fail()
@@ -703,6 +514,27 @@ func runSchemaCommand(command, schema string) {
 		}
 	}
 	if err != nil {
+		fail()
+	}
+}
+
+func applySchema(path string) {
+	content, err := os.ReadFile(path)
+	if err != nil || !strings.Contains(string(content), "CREATE TABLE `schema_migrations`") ||
+		strings.Contains(string(content), "CREATE DATABASE") || strings.Contains(string(content), "DROP DATABASE") {
+		fail()
+	}
+	parsed, err := mysqldriver.ParseDSN(os.Getenv("MYSQL_DSN"))
+	if err != nil || !schemaPattern.MatchString(parsed.DBName) {
+		fail()
+	}
+	parsed.MultiStatements = true
+	db, err := sql.Open("mysql", parsed.FormatDSN())
+	if err != nil {
+		fail()
+	}
+	defer db.Close()
+	if _, err = db.Exec(string(content)); err != nil {
 		fail()
 	}
 }
@@ -947,13 +779,9 @@ $oldSecret = $null
 $newSecret = $null
 $persistentDSN = $null
 $persistentSecret = $null
-$persistentAtlasDSN = $null
 $disposableDSN = $null
-$disposableAtlasDSN = $null
 $containerEnvironment = $null
 $hostEnvironment = $null
-$persistentSettings = $null
-Set-Variable -Name disposableSettings -Value $null
 $summaryData = $null
 $primaryFailureMessage = $null
 $cleanupFailures = [Collections.Generic.List[string]]::new()
@@ -962,28 +790,6 @@ $previousAppSecret = [Environment]::GetEnvironmentVariable('APP_SECRET', 'Proces
 $previousAppSecretPrevious = [Environment]::GetEnvironmentVariable('APP_SECRET_PREVIOUS', 'Process')
 $previousPath = [Environment]::GetEnvironmentVariable('Path', 'Process')
 $script:SensitiveValues = @($previousDSN, $previousAppSecret, $previousAppSecretPrevious)
-$schemaInvariantNames = @(
-  'required_tables',
-  'required_columns',
-  'required_column_shapes',
-  'required_indexes',
-  'required_constraints',
-  'mail_verification_diagnostic_table',
-  'mail_verification_diagnostic_columns',
-  'mail_verification_diagnostic_column_shapes',
-  'mail_verification_diagnostic_indexes',
-  'mail_verification_diagnostic_foreign_key'
-)
-$relationInvariantNames = @(
-  'rbac_relationship_orphans',
-  'payment_relationship_orphans',
-  'wallet_relationship_orphans',
-  'ai_relationship_orphans',
-  'notification_relationship_orphans',
-  'export_relationship_orphans',
-  'mail_verification_diagnostic_orphans'
-)
-
 try {
   $oldSecret = New-RotationSecret
   $newSecret = New-RotationSecret
@@ -1021,43 +827,13 @@ try {
   $env:MYSQL_DSN = $persistentDSN
   $env:APP_SECRET = $persistentSecret
   $env:APP_SECRET_PREVIOUS = $null
-  $persistentSettings = Get-MySQLDSNSettings -Database 'admin'
-  $persistentAtlasDSN = Get-AtlasDatabaseURL -Settings $persistentSettings -Database 'admin'
-  $script:SensitiveValues += @($persistentSettings.Password, $persistentAtlasDSN)
-
-  $persistentMigration = Invoke-LockedAtlasMigration -Settings $persistentSettings -Database 'admin'
-  $schemaInvariantCount = Invoke-InvariantGate `
-    -Database 'admin' `
-    -RelativePath 'database/reconciliation/030_verify_schema.sql' `
-    -ExpectedNames $schemaInvariantNames
-  $relationInvariantCount = Invoke-InvariantGate `
-    -Database 'admin' `
-    -RelativePath 'database/reconciliation/031_verify_relations.sql' `
-    -ExpectedNames $relationInvariantNames
-  $persistentNoOp = Invoke-MailDiagnosticRekey -ExpectSuccess $true -ExpectedScanned 0 -ExpectedRekeyed 0
 
   $schemaCreated = $true
   Invoke-FixtureHelper -Arguments @('create-schema', $disposableSchema)
-  $disposableSettings = [pscustomobject]@{
-    User = $persistentSettings.User
-    Password = $persistentSettings.Password
-    Host = $persistentSettings.Host
-    Port = $persistentSettings.Port
-    Query = $persistentSettings.Query
-  }
-  $disposableDSN = New-SchemaDSN -Settings $disposableSettings -Database $disposableSchema
-  $disposableAtlasDSN = Get-AtlasDatabaseURL -Settings $disposableSettings -Database $disposableSchema
-  $script:SensitiveValues += @($disposableSettings.Password, $disposableDSN, $disposableAtlasDSN)
+  $disposableDSN = New-DisposableSchemaDSN -SourceDSN $persistentDSN -Database $disposableSchema
+  $script:SensitiveValues += @($disposableDSN)
   $env:MYSQL_DSN = $disposableDSN
-  Invoke-DisposableSchemaBootstrap -Settings $disposableSettings -Database $disposableSchema
-  $disposableSchemaInvariantCount = Invoke-InvariantGate `
-    -Database $disposableSchema `
-    -RelativePath 'database/reconciliation/030_verify_schema.sql' `
-    -ExpectedNames $schemaInvariantNames
-  $disposableRelationInvariantCount = Invoke-InvariantGate `
-    -Database $disposableSchema `
-    -RelativePath 'database/reconciliation/031_verify_relations.sql' `
-    -ExpectedNames $relationInvariantNames
+  Invoke-DisposableSchemaBootstrap -Database $disposableSchema
 
   $env:APP_SECRET = $newSecret
   $env:APP_SECRET_PREVIOUS = $oldSecret
@@ -1092,14 +868,6 @@ try {
 
   $sessionRaceExit = Invoke-SessionRotationRace -SecretEnv $secretEnv
   $summaryData = [ordered]@{
-    atlas_status = [string]$persistentMigration.Status
-    schema_sha256 = [string]$persistentMigration.Fingerprint
-    reconciliation_030_checks = [int]$schemaInvariantCount
-    reconciliation_031_checks = [int]$relationInvariantCount
-    persistent_rekey_scanned = [uint64]$persistentNoOp.Scanned
-    persistent_rekeyed = [uint64]$persistentNoOp.Rekeyed
-    disposable_reconciliation_030_checks = [int]$disposableSchemaInvariantCount
-    disposable_reconciliation_031_checks = [int]$disposableRelationInvariantCount
     conversion_scanned = [uint64]$conversion.Scanned
     conversion_rekeyed = [uint64]$conversion.Rekeyed
     previous_references = [uint64]$conversion.PreviousReferences
@@ -1163,26 +931,16 @@ finally {
       $cleanupFailures.Add('failed to remove the verified rotation rehearsal directory')
     }
   }
-  if ($null -ne $persistentSettings) {
-    $persistentSettings.Password = $null
-  }
-  if ($null -ne $disposableSettings) {
-    $disposableSettings.Password = $null
-  }
   $oldSecret = $null
   $newSecret = $null
   $persistentSecret = $null
   $persistentDSN = $null
-  $persistentAtlasDSN = $null
   $disposableDSN = $null
-  $disposableAtlasDSN = $null
   $previousDSN = $null
   $previousAppSecret = $null
   $previousAppSecretPrevious = $null
   $containerEnvironment = $null
   $hostEnvironment = $null
-  $persistentSettings = $null
-  $disposableSettings = $null
   $script:FixtureHelper = $null
   $script:GoExecutable = $null
   $script:SensitiveValues = @()
