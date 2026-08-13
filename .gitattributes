@@ -1,6 +1,7 @@
+/database/schema.sql text eol=lf
+/database/seed.sql text eol=lf
+/database/baseline.json text eol=lf
 /database/migrations/*.sql text eol=lf
-/database/migrations/atlas.sum text eol=lf
-/database/reconciliation/*.sql text eol=lf
 /contracts/admin/v1/** text eol=lf
 /internal/server/testdata/*.json text eol=lf
 /internal/server/testdata/*.txt text eol=lf

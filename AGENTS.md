@@ -40,4 +40,4 @@ E:\admin\admin_back_go\internal\platform\README.md
 
 `admin_back_go` 已是 active Go runtime，现有 Auth/RBAC、用户、日志、通知、上传、支付、AI、realtime、queue 和 worker 能力以运行时代码、测试及 `docs/architecture.md` 为事实来源。
 
-Infinite Canvas 平台接入只能按已批准规格和 `docs/superpowers/plans/2026-07-31-infinite-canvas-platform-foundation-execution-index.md` 分波执行：先冻结当前 AI/COS 基线与 guarded schema，再推进 platform RBAC、trusted Auth、项目/素材/提示词和独立前端。不得绕过 Contract/Atlas 顺序，也不得恢复退役 app/canvas adapter。
+Infinite Canvas 平台接入只能按已批准规格和 `docs/superpowers/plans/2026-07-31-infinite-canvas-platform-foundation-execution-index.md` 分波执行：先冻结当前 AI/COS 基线，再推进 platform RBAC、trusted Auth、项目/素材/提示词和独立前端。不得绕过 Contract 与数据库基线检查，也不得恢复退役 app/canvas adapter。

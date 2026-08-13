@@ -106,7 +106,9 @@ admin_back_go/
     admin-api/             # HTTP API 进程入口
     admin-worker/          # 队列 + 定时任务进程入口
   database/
-    migrations/            # 当前增量迁移 SQL，不是完整建库脚本
+    schema.sql             # 当前完整结构的唯一基线
+    seed.sql               # 最小、无密钥的初始化数据
+    migrations/            # 基线之后的短 forward migration
   deploy/
     docker-first/          # 后端 Docker-first Compose 部署模板
   docs/                    # 后端运行时架构说明；总控状态/契约在 ../docs
@@ -422,24 +424,31 @@ admin-status
 ```
 ## 数据库和迁移
 
-数据库目录已经按用途隔离：
+数据库主动开发路径只有四个表面：
 
 ```text
-database/legacy-migrations  历史 SQL 审计证据，禁止自动执行
-database/reconciliation     导入库的分阶段协调与不变量验证
-database/schema             经验证的规范 schema
-database/migrations         Atlas 校验和基线及未来版本迁移
+database/schema.sql         完整结构唯一事实
+database/seed.sql           最小系统初始化数据
+database/migrations         基线之后的 forward migration
+database/baseline.json      已验证的哈希和结构计数
 ```
 
-历史 SQL 的文件名顺序不构成可执行迁移计划。导入的 `admin` 数据库必须先完成可恢复备份、指纹采集和 reconciliation；应用启动不会自动执行迁移。
-
-首次部署需要使用经验证的规范 schema，或使用已完成 reconciliation 的导入库。未来版本迁移统一通过固定 digest 的 Atlas 包装器验证和执行：
+应用启动不会自动迁移。所有本地数据库操作只走一个入口：
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/database/atlas.ps1 migrate validate --dir file://database/migrations
+pwsh -NoProfile -File scripts/database.ps1 init
+pwsh -NoProfile -File scripts/database.ps1 reset -ConfirmReset admin -CreateAdmin -AdminUsername "Local Admin" -AdminEmail admin@example.com
+pwsh -NoProfile -File scripts/database.ps1 migrate
+pwsh -NoProfile -File scripts/database.ps1 check
 ```
 
-生产执行迁移前必须：
+`reset` 只允许固定的本地 `admin-state` MySQL/Redis/Qdrant 容器，且 API、Worker、`admin-dev` 必须已停止。它只清 Redis DB `0/2/3` 和 `admin_context_` 前缀的 Qdrant 派生数据，不执行 `FLUSHALL`。
+
+新迁移命名为 `<12位版本>_<小写名称>.sql`，版本必须大于基线 `202608130001`。已应用迁移的 SHA-256 写入 `schema_migrations`，之后禁止修改文件字节。
+
+创建管理员时，密码只来自隐藏输入或当前进程的 `ADMIN_INITIAL_PASSWORD`，不得进入 SQL、命令参数和日志。
+
+生产执行破坏性迁移前必须：
 
 ```text
 1. 备份数据库
@@ -908,7 +917,7 @@ deploy/docker-first/admin-go.env.example
 ```text
 不要提交仓库根 .env。
 不要让 8080 裸奔公网；如果为了局域网真机调试绑定 `0.0.0.0`，必须只在受控内网/防火墙白名单下使用。
-不要执行 database/legacy-migrations；它只保存历史审计证据。
+不要手工绕过 scripts/database.ps1 修改迁移账本。
 不要在 README 里承诺未实现能力。
 不要为了“分布式”增加复杂度；能单机稳定演示，就先单机。
 ```

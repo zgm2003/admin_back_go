@@ -23,14 +23,12 @@ $schemaPath = Join-Path $root 'release\admin-only\input-lock.schema.json'
 $lockPath = Join-Path $root 'release\admin-only\input-lock.json'
 $lockScriptPath = Join-Path $root 'scripts\release\lock-inputs.ps1'
 $checkScriptPath = Join-Path $root 'scripts\release\check-inputs.ps1'
-$preconditionsPath = Join-Path $root 'database\reconciliation\050_contract_preconditions.sql'
 $runbookPath = Join-Path $root 'docs\runbooks\admin-only-data-disposition.md'
 $gitignorePath = Join-Path $root 'release\admin-only\.gitignore'
 
 $schemaText = Read-RequiredFile $schemaPath
 $lockScript = Read-RequiredFile $lockScriptPath
 $checkScript = Read-RequiredFile $checkScriptPath
-$preconditions = Read-RequiredFile $preconditionsPath
 $runbook = Read-RequiredFile $runbookPath
 $gitignore = Read-RequiredFile $gitignorePath
 
@@ -43,7 +41,6 @@ $expectedFields = @(
   'backend_commit',
   'frontend_commit',
   'contract_manifest_sha256',
-  'database_fingerprint_sha256',
   'recovery_artifact_sha256',
   'cos_disposition_evidence_sha256',
   'query_evidence_sha256',
@@ -66,7 +63,6 @@ Assert-True (-not (($invalid | ConvertTo-Json -Compress) | Test-Json -SchemaFile
 
 $inputScripts = $lockScript + "`n" + $checkScript
 foreach ($needle in @(
-  '[string]$DatabaseFingerprint',
   '[string]$RecoveryArtifact',
   '[string]$CosDispositionEvidence',
   '[string]$QueryEvidence',
@@ -89,7 +85,6 @@ foreach ($needle in @(
   'Test-Json -SchemaFile',
   'git merge-base --is-ancestor',
   'contract_manifest_sha256',
-  'database_fingerprint_sha256',
   'recovery_artifact_sha256',
   'cos_disposition_evidence_sha256',
   'query_evidence_sha256',
@@ -98,25 +93,6 @@ foreach ($needle in @(
   Assert-Contains $checkScript $needle "check-inputs.ps1 is missing $needle"
 }
 Assert-NotMatch $checkScript '(Get-Content|Write-(Output|Host)).*(dump_path|MYSQL_DSN|APP_SECRET|refresh_token|access_token|Cookie)' 'check-inputs.ps1 may expose evidence or a secret'
-
-foreach ($needle in @(
-  'active_retired_session_violations',
-  'unknown_platform_violations',
-  'unmapped_scene_violations',
-  'nonterminal_durable_work_violations',
-  'client_version_surface_count_mismatch',
-  'client_versions_count_mismatch',
-  'client_versions_hash_mismatch',
-  'ai_prompts_count_mismatch',
-  'ai_prompt_permission_count_mismatch',
-  'ai_prompt_role_grant_count_mismatch',
-  'ai_prompt_foreign_key_reference_violations',
-  'wallet_balance_violations',
-  'orphan_relationship_violations'
-)) {
-  Assert-Contains $preconditions $needle "precondition SQL is missing $needle"
-}
-Assert-NotMatch $preconditions '(DROP|TRUNCATE|DELETE|UPDATE|INSERT|ALTER)\s+' 'precondition SQL must be read-only'
 
 foreach ($needle in @(
   'App/Canvas sessions and login attempts',

@@ -1,6 +1,5 @@
 [CmdletBinding()]
 param(
-  [Parameter(Mandatory = $true)][string]$DatabaseFingerprint,
   [Parameter(Mandatory = $true)][string]$RecoveryArtifact,
   [Parameter(Mandatory = $true)][string]$CosDispositionEvidence,
   [Parameter(Mandatory = $true)][string]$QueryEvidence,
@@ -17,7 +16,6 @@ $frontendRoot = [IO.Path]::GetFullPath((Join-Path $backendRoot '..\admin_front_t
 $checkScript = Join-Path $PSScriptRoot 'check-inputs.ps1'
 . $checkScript `
   -ImportFunctions `
-  -DatabaseFingerprint $DatabaseFingerprint `
   -RecoveryArtifact $RecoveryArtifact `
   -CosDispositionEvidence $CosDispositionEvidence `
   -QueryEvidence $QueryEvidence `
@@ -38,7 +36,6 @@ if (-not $outputPath.Equals($expectedOutput, [StringComparison]::OrdinalIgnoreCa
 if ($CheckOnly) {
   & pwsh -NoProfile -File $checkScript `
     -LockPath $outputPath `
-    -DatabaseFingerprint $DatabaseFingerprint `
     -RecoveryArtifact $RecoveryArtifact `
     -CosDispositionEvidence $CosDispositionEvidence `
     -QueryEvidence $QueryEvidence `
@@ -54,7 +51,6 @@ $allowedBackendPaths = @(
   'scripts/release/lock-inputs.ps1',
   'scripts/release/check-inputs.ps1',
   'scripts/tests/release-input-lock.tests.ps1',
-  'database/reconciliation/050_contract_preconditions.sql',
   'docs/runbooks/admin-only-data-disposition.md'
 )
 
@@ -63,7 +59,6 @@ Assert-SingleWorktree -Repository $frontendRoot
 Assert-RepositoryStatus -Repository $backendRoot -AllowedPaths $allowedBackendPaths
 Assert-RepositoryStatus -Repository $frontendRoot
 
-$fingerprintFile = Assert-ExternalEvidencePath -Path $DatabaseFingerprint -Label 'database fingerprint evidence'
 $recoveryFile = Assert-ExternalEvidencePath -Path $RecoveryArtifact -Label 'recovery artifact'
 $cosFile = Assert-ExternalEvidencePath -Path $CosDispositionEvidence -Label 'COS disposition evidence'
 $queryFile = Assert-ExternalEvidencePath -Path $QueryEvidence -Label 'query evidence'
@@ -74,7 +69,6 @@ if (-not $freezeFile.Equals($expectedFreeze, [StringComparison]::OrdinalIgnoreCa
 }
 
 Assert-ExternalEvidenceBundle `
-  -FingerprintPath $fingerprintFile `
   -RecoveryPath $recoveryFile `
   -COSPath $cosFile `
   -QueryPath $queryFile `
@@ -89,7 +83,6 @@ $lock = [ordered]@{
   backend_commit = $backendCommit
   frontend_commit = $frontendCommit
   contract_manifest_sha256 = Get-FileSha256 -Path $manifestPath
-  database_fingerprint_sha256 = Get-FileSha256 -Path $fingerprintFile
   recovery_artifact_sha256 = Get-FileSha256 -Path $recoveryFile
   cos_disposition_evidence_sha256 = Get-FileSha256 -Path $cosFile
   query_evidence_sha256 = Get-FileSha256 -Path $queryFile

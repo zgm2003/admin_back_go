@@ -234,7 +234,7 @@ foreach ($needle in @(
   'Release operator',
   'Database operator',
   'Maintenance window',
-  'P09_DESTRUCTIVE_APPROVAL',
+  'scripts/database.ps1',
   'admin-status',
   'check-release-manifest.ps1',
   'deploy-admin-only.ps1',
@@ -288,13 +288,11 @@ foreach ($needle in @(
 }
 
 foreach ($needle in @(
-  '202607150201',
-  '202607150202',
-  '202607150203',
-  'client_versions',
-  'target fingerprint',
-  'check-drift.ps1',
-  '053_verify_admin_only.sql',
+  '202608130001',
+  'database/schema.sql',
+  'database/seed.sql',
+  'schema_migrations',
+  'database.ps1 check',
   'STOP'
 )) {
   Assert-Contains $schemaStatus $needle "schema-status runbook is missing $needle"

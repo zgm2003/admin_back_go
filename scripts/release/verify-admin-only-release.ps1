@@ -342,7 +342,8 @@ $proof = [ordered]@{
   backend_commit = [string]$release.backend.commit
   frontend_commit = [string]$release.frontend.commit
   contract_manifest_sha256 = [string]$release.contract.manifest_sha256
-  database_target_fingerprint_sha256 = [string]$release.database.target_fingerprint_sha256
+  database_baseline_schema_sha256 = [string]$release.database.baseline_schema_sha256
+  database_baseline_seed_sha256 = [string]$release.database.baseline_seed_sha256
   image_ids = [ordered]@{
     backend = Get-ReleaseImageID -Image ([string]$release.backend.image)
     frontend = Get-ReleaseImageID -Image ([string]$release.frontend.image)
@@ -383,17 +384,11 @@ try {
   }))
 
   $gateResults.Add((Invoke-AdminReleaseGate -Name 'database-recovery-contract' -Action {
-    $databaseOutput = Join-Path $script:ReleaseOutputRoot 'database-verification.json'
-    $databaseGate = Invoke-ReleasePowerShell -RelativePath 'scripts\verify-database.ps1' -Arguments @('-Mode', 'all', '-OutputPath', $databaseOutput) -Label 'database restore and reconciliation gate'
-    $recovery = Invoke-ReleasePowerShell -RelativePath 'scripts\tests\database-recovery.tests.ps1' -Label 'database recovery assertions'
-    $contract = Invoke-ReleasePowerShell -RelativePath 'scripts\tests\admin-only-contract.tests.ps1' -Label 'Admin-only contract assertions'
-    $inputLock = Invoke-ReleasePowerShell -RelativePath 'scripts\tests\release-input-lock.tests.ps1' -Label 'release input lock assertions'
+    $databaseGate = Invoke-ReleasePowerShell -RelativePath 'scripts\verify-database.ps1' -Label 'database baseline gate'
+    $contract = Invoke-ReleasePowerShell -RelativePath 'scripts\tests\database-baseline.tests.ps1' -Label 'database baseline command assertions'
     return [ordered]@{
       database = $databaseGate
-      database_summary_sha256 = Get-ReleaseFileSHA256 -Path $databaseOutput
-      recovery = $recovery
       contract = $contract
-      input_lock = $inputLock
     }
   }))
 

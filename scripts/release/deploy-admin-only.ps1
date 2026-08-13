@@ -7,8 +7,6 @@ param(
   [string]$ImageMetadata,
   [string]$RecoveryArtifact,
   [string]$Database,
-  [string]$ExpectedSourceFingerprint,
-  [string]$DestructiveApproval = '',
   [string]$BackendEnvFile,
   [string]$RuntimeVolume,
   [string]$ExportVolume,
@@ -35,8 +33,6 @@ $requested = [pscustomobject]@{
   ImageMetadata = $ImageMetadata
   RecoveryArtifact = $RecoveryArtifact
   Database = $Database
-  ExpectedSourceFingerprint = $ExpectedSourceFingerprint
-  DestructiveApproval = $DestructiveApproval
   BackendEnvFile = $BackendEnvFile
   RuntimeVolume = $RuntimeVolume
   ExportVolume = $ExportVolume
@@ -50,7 +46,6 @@ $requested = [pscustomobject]@{
   DockerCommand = $DockerCommand
 }
 . (Join-Path $PSScriptRoot 'check-release-manifest.ps1') -ImportFunctions
-. (Join-Path $script:BackendRoot 'scripts\database\atlas-runtime-common.ps1')
 . (Join-Path $script:BackendRoot 'scripts\dev\admin-dev-common.ps1')
 
 function Invoke-ReleaseDocker {
@@ -294,8 +289,6 @@ $Manifest = $requested.Manifest
 $ImageMetadata = $requested.ImageMetadata
 $RecoveryArtifact = $requested.RecoveryArtifact
 $Database = $requested.Database
-$ExpectedSourceFingerprint = $requested.ExpectedSourceFingerprint
-$DestructiveApproval = $requested.DestructiveApproval
 $BackendEnvFile = $requested.BackendEnvFile
 $RuntimeVolume = $requested.RuntimeVolume
 $ExportVolume = $requested.ExportVolume
@@ -310,20 +303,17 @@ $DockerCommand = $requested.DockerCommand
 
 if (-not $Apply) { throw 'Admin release deployment requires explicit -Apply' }
 if (-not $MaintenanceWindow) { throw 'Admin release deployment requires an approved maintenance window' }
-if ($DestructiveApproval -cne 'DROP_CLIENT_VERSIONS_FOR_P09') { throw 'fresh P09 destructive approval is required' }
 foreach ($required in @(
   [pscustomobject]@{ Value = $Manifest; Label = 'release manifest' },
   [pscustomobject]@{ Value = $RecoveryArtifact; Label = 'recovery artifact' },
   [pscustomobject]@{ Value = $Database; Label = 'database' },
-  [pscustomobject]@{ Value = $ExpectedSourceFingerprint; Label = 'expected source fingerprint' },
   [pscustomobject]@{ Value = $BackendEnvFile; Label = 'backend environment file' },
   [pscustomobject]@{ Value = $RuntimeVolume; Label = 'runtime volume' },
   [pscustomobject]@{ Value = $ExportVolume; Label = 'export volume' }
 )) {
   if ([string]::IsNullOrWhiteSpace([string]$required.Value)) { throw "$($required.Label) is required" }
 }
-if ($Database -cnotmatch '^[A-Za-z][A-Za-z0-9_]{0,63}$') { throw 'database name is invalid' }
-if ($ExpectedSourceFingerprint -cnotmatch '^[0-9a-f]{64}$') { throw 'expected source fingerprint is invalid' }
+if ($Database -cne 'admin') { throw 'database name must be admin' }
 foreach ($name in @($RuntimeVolume, $ExportVolume, $PlatformNetwork, $StagingProject, $ProductionProject)) {
   if ($name -cnotmatch '^[a-zA-Z0-9][a-zA-Z0-9_.-]*$') { throw 'Compose resource name is invalid' }
 }
@@ -340,14 +330,6 @@ $recoveryPath = Assert-ExternalEvidencePath -Path $RecoveryArtifact -Label 'reco
 $validation = Assert-ReleaseManifest -ManifestPath $manifestPath -InputLockPath $script:DefaultInputLock -PlatformKernelProofPath $script:DefaultPlatformKernelProof -ImageMetadataPath $metadataPath -SkipImageInspection
 Assert-ExactString (Get-FileSha256 -Path $recoveryPath) ([string]$validation.Document.evidence.recovery_sha256) 'recovery artifact digest'
 [void](Assert-RecoveryArtifact -Path $recoveryPath)
-
-$settings = Get-MySQLDSNSettings -Database $Database
-try {
-  $sourceFingerprint = Get-DatabaseFingerprintSHA -BackendRoot $script:BackendRoot -Settings $settings -Database $Database
-  Assert-ExactString $sourceFingerprint $ExpectedSourceFingerprint 'source database fingerprint'
-} finally {
-  $settings.Password = $null
-}
 
 Import-AdminReleaseImages -Validation $validation -MetadataPath $metadataPath
 $validation = Assert-ReleaseManifest -ManifestPath $manifestPath -InputLockPath $script:DefaultInputLock -PlatformKernelProofPath $script:DefaultPlatformKernelProof -ImageMetadataPath $metadataPath -DockerExecutable $script:ReleaseDockerExecutable
@@ -376,23 +358,10 @@ try {
     Invoke-AdminReleaseCompose -Project ([string]$previousState.current_project) -Arguments @('stop') -Label 'stop previous release project'
   }
 
-  & pwsh -NoProfile -File (Join-Path $script:BackendRoot 'scripts\database\contract-admin-only.ps1') `
-    -Database $Database `
-    -ExpectedSourceFingerprint $ExpectedSourceFingerprint `
-    -InputLock $script:DefaultInputLock `
-    -DestructiveApproval $DestructiveApproval `
-    -ReleaseManifest $manifestPath `
-    -DockerCommand $script:ReleaseDockerExecutable `
-    -Apply
-  if ($LASTEXITCODE -ne 0) { throw 'Admin-only database contract failed' }
-
-  $postSettings = Get-MySQLDSNSettings -Database $Database
-  try {
-    $postFingerprint = Get-DatabaseFingerprintSHA -BackendRoot $script:BackendRoot -Settings $postSettings -Database $Database
-    Assert-ExactString $postFingerprint ([string]$validation.Document.database.target_fingerprint_sha256) 'post-contract database fingerprint'
-  } finally {
-    $postSettings.Password = $null
-  }
+  & pwsh -NoProfile -File (Join-Path $script:BackendRoot 'scripts\database.ps1') migrate
+  if ($LASTEXITCODE -ne 0) { throw 'Admin database migration failed' }
+  & pwsh -NoProfile -File (Join-Path $script:BackendRoot 'scripts\database.ps1') check
+  if ($LASTEXITCODE -ne 0) { throw 'Admin database baseline check failed' }
 
   Invoke-AdminReleaseCompose -Project $StagingProject -Arguments @('up', '-d', '--no-build', '--force-recreate', '--wait', '--wait-timeout', '300') -Label 'start staging release'
   Invoke-AdminReleaseSmoke -FrontendURL "http://127.0.0.1:$StagingFrontendPort" -APIURL "http://127.0.0.1:$StagingAPIPort"

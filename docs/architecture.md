@@ -181,8 +181,9 @@ Redis process is an accepted verification path.
 The final release unit is a synchronized Browser-only frontend image plus one
 backend image used by API and Worker. `release/admin-only/out/release-manifest.json`
 binds both clean repository commits, OCI image IDs and archive hashes, the Admin
-Contract Bundle, Atlas checksum, target database fingerprint, recovery/input/
-query/COS/retirement evidence, and the retained platform-kernel proof.
+Contract Bundle, database baseline schema/seed hashes, ordered forward migration
+hashes, recovery/input/query/COS/retirement evidence, and the retained platform-
+kernel proof.
 
 Deployment and rollback use `deploy/admin-only/docker-compose.yml` with
 immutable image IDs and `--no-build`. Application rollback restores the prior
@@ -870,7 +871,9 @@ service -> calls repository
 handler -> calls service
 ```
 
-当前只建立连接边界和连接池设置，不迁移任何表。
+数据库结构唯一事实是 `database/schema.sql`，最小初始化事实是
+`database/seed.sql`。应用启动不迁移；`scripts/database.ps1` 独占
+`init/reset/migrate/check`，并用 `schema_migrations` 校验基线之后的文件哈希。
 
 GORM 只作为 MySQL 访问工具，不允许把 GORM model 方法写成业务层。
 

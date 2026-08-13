@@ -47,8 +47,8 @@ database target fingerprint, and all evidence hashes must match exactly.
    `admin-dev` lock.
 3. Confirm one primary checkout per repository, no secondary worktree, clean
    status, and no `.github` directory or deployment Workflow.
-4. Verify the recovery artifact was restored successfully and its source
-   fingerprint matches the pre-contract input lock.
+4. Verify the recovery artifact was restored successfully and its dump hash
+   matches the pre-contract input lock.
 5. Verify retained COS keys and the historical-object disposition evidence.
 6. Run the non-mutating package check:
 
@@ -57,21 +57,18 @@ database target fingerprint, and all evidence hashes must match exactly.
      -Manifest release/admin-only/out/release-manifest.json
    ```
 
-**STOP** if any path, digest, revision label, fingerprint, proof, checkout, or
+**STOP** if any path, digest, revision label, proof, checkout, or
 acceptance artifact differs. Never regenerate evidence to hide a mismatch.
 
 ## Deploy
 
 Set secret-bearing variables from the approved environment or ignored file;
-do not echo them. The fresh approval variable is
-`P09_DESTRUCTIVE_APPROVAL`. Previewing or omitting `-Apply` must fail closed.
+do not echo them. Previewing or omitting `-Apply` must fail closed.
 
 ```powershell
 pwsh -NoProfile -File scripts/release/deploy-admin-only.ps1 `
   -Manifest release/admin-only/out/release-manifest.json `
   -Database $env:ADMIN_RELEASE_DB `
-  -ExpectedSourceFingerprint $env:ADMIN_RELEASE_SOURCE_FINGERPRINT `
-  -DestructiveApproval $env:P09_DESTRUCTIVE_APPROVAL `
   -BackendEnvFile $env:ADMIN_BACKEND_ENV_FILE `
   -RuntimeVolume admin-runtime `
   -ExportVolume admin-exports `
@@ -79,9 +76,10 @@ pwsh -NoProfile -File scripts/release/deploy-admin-only.ps1 `
   -Apply
 ```
 
-The script validates and loads immutable archives, executes Atlas groups
-`202607150201`, `202607150202`, and `202607150203` under the database lock,
-checks the post-contract fingerprint, starts staging with `--no-build`, probes
+The script validates and loads immutable archives, runs
+`scripts/database.ps1 migrate` followed by the read-only
+`scripts/database.ps1 check`, starts staging
+with `--no-build`, probes
 health/readiness and Admin smoke, then promotes the exact images. It archives
 manifest/proof/metadata under the release ID before atomically changing
 deployment state.

@@ -94,19 +94,37 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "atlas_version",
-        "target_fingerprint_sha256",
-        "atlas_sum_sha256"
+        "baseline_version",
+        "baseline_schema_sha256",
+        "baseline_seed_sha256",
+        "migration_checksums"
       ],
       "properties": {
-        "atlas_version": {
-          "const": "202607150203"
+        "baseline_version": {
+          "const": "202608130001"
         },
-        "target_fingerprint_sha256": {
+        "baseline_schema_sha256": {
           "$ref": "#/$defs/sha256"
         },
-        "atlas_sum_sha256": {
+        "baseline_seed_sha256": {
           "$ref": "#/$defs/sha256"
+        },
+        "migration_checksums": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["version", "sha256"],
+            "properties": {
+              "version": {
+                "type": "string",
+                "pattern": "^[0-9]{12}$"
+              },
+              "sha256": {
+                "$ref": "#/$defs/sha256"
+              }
+            }
+          }
         }
       }
     },

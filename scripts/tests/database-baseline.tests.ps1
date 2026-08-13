@@ -70,4 +70,23 @@ $failureOutput = & pwsh -NoProfile -File $scriptPath reset -ConfirmReset wrong 2
 Assert-True ($LASTEXITCODE -ne 0) 'reset accepted an invalid confirmation token'
 Assert-Match $failureOutput 'DATABASE_RESET_CONFIRMATION_REQUIRED' 'reset returned an unstable confirmation failure'
 
+$releaseSchema = [IO.File]::ReadAllText((Join-Path $repoRoot 'release\admin-only\release-manifest.schema.json'), [Text.Encoding]::UTF8)
+foreach ($field in @('baseline_version', 'baseline_schema_sha256', 'baseline_seed_sha256', 'migration_checksums')) {
+  Assert-Match $releaseSchema $field "release manifest schema is missing $field"
+}
+Assert-NotMatch $releaseSchema 'atlas_version|atlas_sum_sha256|target_fingerprint_sha256' 'release manifest still owns retired database evidence'
+
+$databaseVerifier = [IO.File]::ReadAllText((Join-Path $repoRoot 'scripts\verify-database.ps1'), [Text.Encoding]::UTF8)
+Assert-Match $databaseVerifier 'scripts[\\/]database\.ps1.*check' 'database verifier must delegate to the single database check entry'
+Assert-NotMatch $databaseVerifier '(?i)atlas|reconcil' 'database verifier still runs the retired governance chain'
+
+$durableVerifier = [IO.File]::ReadAllText((Join-Path $repoRoot 'scripts\verify-durable-work.ps1'), [Text.Encoding]::UTF8)
+Assert-NotMatch $durableVerifier '(?i)arigaio/atlas|migrate.validate' 'durable-work verification still starts Atlas'
+
+$databaseReadme = [IO.File]::ReadAllText((Join-Path $repoRoot 'database\README.md'), [Text.Encoding]::UTF8)
+foreach ($command in @('database.ps1 init', 'database.ps1 reset', 'database.ps1 migrate', 'database.ps1 check')) {
+  Assert-Match $databaseReadme ([regex]::Escape($command)) "database README is missing $command"
+}
+Assert-NotMatch $databaseReadme '(?i)atlas|reconcil|legacy-migrations|admin\.hcl' 'database README still documents the retired governance chain'
+
 Write-Output 'database baseline command contracts passed'

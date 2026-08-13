@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory = $true)]
-  [ValidatePattern('^[A-Za-z][A-Za-z0-9_]{0,63}$')]
+  [ValidateSet('admin')]
   [string]$Database,
 
   [string]$Output
@@ -22,7 +22,6 @@ if (-not $outputPath.Equals($expectedOutput, [StringComparison]::OrdinalIgnoreCa
 }
 
 . (Join-Path $PSScriptRoot 'check-inputs.ps1') -ImportFunctions
-. (Join-Path $backendRoot 'scripts\database\atlas-runtime-common.ps1')
 
 function Invoke-GoReleaseCheck {
   param(
@@ -110,33 +109,20 @@ if ((Get-FileSha256 -Path $frontendManifestPath) -cne $contractDigest -or
   throw 'frontend contract lock does not match the backend Bundle'
 }
 
-$settings = Get-MySQLDSNSettings -Database $Database
 $previousDSN = [Environment]::GetEnvironmentVariable('MYSQL_DSN', 'Process')
 try {
-  $targetFingerprint = Get-DatabaseFingerprintSHA -BackendRoot $backendRoot -Settings $settings -Database $Database
-  $env:MYSQL_DSN = New-SchemaDSN -Settings $settings -Database $Database
-  $invariantLines = @(Invoke-GoReleaseCheck -Arguments @(
-    'run', './cmd/admin-db', 'invariants',
-    '--schema', $Database,
-    '--file', 'database/reconciliation/053_verify_admin_only.sql'
-  ) -Label '053_verify_admin_only.sql')
+  $dsn = [Environment]::GetEnvironmentVariable('MYSQL_DSN', 'Process')
+  if ([string]::IsNullOrWhiteSpace($dsn) -or $dsn -notmatch '/admin\?') {
+    throw 'MYSQL_DSN must target the canonical admin schema'
+  }
+  & pwsh -NoProfile -File (Join-Path $backendRoot 'scripts\database.ps1') check | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw 'database baseline check failed' }
 } finally {
   [Environment]::SetEnvironmentVariable('MYSQL_DSN', $previousDSN, 'Process')
-  $settings.Password = $null
 }
 
-$invariantCounts = [ordered]@{}
-foreach ($line in $invariantLines) {
-  $parts = [string]$line -split "`t", 2
-  if ($parts.Count -ne 2 -or [string]::IsNullOrWhiteSpace($parts[0]) -or $parts[1] -notmatch '^[0-9]+$') {
-    throw 'platform-kernel invariant output is invalid'
-  }
-  if ($invariantCounts.Contains($parts[0])) { throw 'platform-kernel invariant output contains duplicate names' }
-  $count = [uint64]$parts[1]
-  if ($count -ne 0) { throw "platform-kernel invariant failed: $($parts[0])" }
-  $invariantCounts[$parts[0]] = $count
-}
-if ($invariantCounts.Count -eq 0) { throw 'platform-kernel invariants produced no evidence' }
+$baseline = Read-JsonEvidence -Path (Join-Path $backendRoot 'database\baseline.json') -Label 'database baseline'
+$invariantCounts = [ordered]@{ database_baseline_violations = 0 }
 
 $proof = [ordered]@{
   schema_version = 1
@@ -145,8 +131,9 @@ $proof = [ordered]@{
   frontend_commit = Get-RepositoryCommit -Repository $frontendRoot
   bundle_version = [string]$contract.bundle_version
   contract_manifest_sha256 = $contractDigest
-  atlas_version = '202607150203'
-  target_fingerprint_sha256 = $targetFingerprint
+  baseline_version = [string]$baseline.baseline_version
+  baseline_schema_sha256 = [string]$baseline.target.schema_sha256
+  baseline_seed_sha256 = [string]$baseline.target.seed_sha256
   registered_platform_count = 1
   retired_platform_count = 0
   auth_platform_operation_count = $authPlatformOperations.Count

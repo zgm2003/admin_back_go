@@ -55,7 +55,8 @@ function Assert-PlatformKernelProof {
   if ([int]$Proof.schema_version -ne 1 -or $Proof.passed -ne $true) {
     throw 'platform-kernel proof did not pass'
   }
-  if ([string]$Proof.target_fingerprint_sha256 -cnotmatch '^[0-9a-f]{64}$' -or
+  if ([string]$Proof.baseline_schema_sha256 -cnotmatch '^[0-9a-f]{64}$' -or
+      [string]$Proof.baseline_seed_sha256 -cnotmatch '^[0-9a-f]{64}$' -or
       [string]$Proof.contract_manifest_sha256 -cnotmatch '^[0-9a-f]{64}$' -or
       [string]$Proof.backend_commit -cnotmatch '^[0-9a-f]{40}$' -or
       [string]$Proof.frontend_commit -cnotmatch '^[0-9a-f]{40}$') {
@@ -196,9 +197,23 @@ function Assert-ReleaseManifest {
   Assert-ExactString ([string]$proof.frontend_commit) ([string]$release.frontend.commit) 'platform proof frontend commit'
   Assert-ExactString ([string]$proof.contract_manifest_sha256) $contractDigest 'platform proof contract digest'
   Assert-ExactString ([string]$proof.bundle_version) ([string]$backendContract.bundle_version) 'platform proof bundle version'
-  Assert-ExactString ([string]$proof.atlas_version) ([string]$release.database.atlas_version) 'platform proof Atlas version'
-  Assert-ExactString ([string]$proof.target_fingerprint_sha256) ([string]$release.database.target_fingerprint_sha256) 'platform proof target fingerprint'
-  Assert-ExactString (Get-FileSha256 -Path (Join-Path $script:BackendRoot 'database\migrations\atlas.sum')) ([string]$release.database.atlas_sum_sha256) 'Atlas sum digest'
+  $baseline = Read-JsonEvidence -Path (Join-Path $script:BackendRoot 'database\baseline.json') -Label 'database baseline'
+  Assert-ExactString ([string]$proof.baseline_version) ([string]$release.database.baseline_version) 'platform proof baseline version'
+  Assert-ExactString ([string]$proof.baseline_schema_sha256) ([string]$release.database.baseline_schema_sha256) 'platform proof baseline schema digest'
+  Assert-ExactString ([string]$proof.baseline_seed_sha256) ([string]$release.database.baseline_seed_sha256) 'platform proof baseline seed digest'
+  Assert-ExactString ([string]$baseline.baseline_version) ([string]$release.database.baseline_version) 'database baseline version'
+  Assert-ExactString (Get-FileSha256 -Path (Join-Path $script:BackendRoot 'database\schema.sql')) ([string]$release.database.baseline_schema_sha256) 'database baseline schema digest'
+  Assert-ExactString (Get-FileSha256 -Path (Join-Path $script:BackendRoot 'database\seed.sql')) ([string]$release.database.baseline_seed_sha256) 'database baseline seed digest'
+  $expectedMigrations = @(
+    Get-ChildItem -LiteralPath (Join-Path $script:BackendRoot 'database\migrations') -Filter '*.sql' -File |
+      Where-Object { $_.BaseName -match '^(?<version>[0-9]{12})_[a-z0-9_]+$' -and $Matches.version -gt [string]$baseline.baseline_version } |
+      Sort-Object Name
+  )
+  if (@($release.database.migration_checksums).Count -ne $expectedMigrations.Count) { throw 'database migration checksum count mismatch' }
+  for ($index = 0; $index -lt $expectedMigrations.Count; $index++) {
+    Assert-ExactString ([string]$release.database.migration_checksums[$index].version) $expectedMigrations[$index].BaseName.Substring(0, 12) 'database migration version'
+    Assert-ExactString ([string]$release.database.migration_checksums[$index].sha256) (Get-FileSha256 -Path $expectedMigrations[$index].FullName) 'database migration digest'
+  }
 
   $evidence = [ordered]@{
     input_lock_sha256 = Get-FileSha256 -Path $lockPath
@@ -236,7 +251,12 @@ function Invoke-ReleaseManifestSchemaSelfTest {
     backend = [ordered]@{ commit = 'a' * 40; image = 'admin-go-backend@sha256:' + ('b' * 64); archive_sha256 = 'c' * 64 }
     frontend = [ordered]@{ commit = 'd' * 40; image = 'admin-frontend@sha256:' + ('e' * 64); archive_sha256 = 'f' * 64 }
     contract = [ordered]@{ bundle_version = 'admin-2026-07-15.2'; manifest_sha256 = '0' * 64 }
-    database = [ordered]@{ atlas_version = '202607150203'; target_fingerprint_sha256 = '1' * 64; atlas_sum_sha256 = '2' * 64 }
+    database = [ordered]@{
+      baseline_version = '202608130001'
+      baseline_schema_sha256 = '1' * 64
+      baseline_seed_sha256 = '2' * 64
+      migration_checksums = @([ordered]@{ version = '202608130002'; sha256 = '9' * 64 })
+    }
     evidence = [ordered]@{
       input_lock_sha256 = '3' * 64
       query_sha256 = '4' * 64

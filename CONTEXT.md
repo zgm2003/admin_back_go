@@ -12,8 +12,8 @@ that concrete project and contract exist.
 ## Admin-only immutable release
 
 The release manifest binds the backend/frontend commits, immutable Docker image
-IDs and archive hashes, current Bundle digest, final database fingerprint, and
-reviewed evidence. The complete proof is written to
+IDs and archive hashes, current Bundle digest, database baseline and migration
+hashes, and reviewed evidence. The complete proof is written to
 `release/admin-only/out/proof.json`; generated release output is ignored and is
 never a source file.
 
@@ -31,7 +31,7 @@ isolation tests, and a new immutable Docker release.
 - **Admin Workflow Module** — Admin-specific orchestration around one or more Capability Modules. It owns Admin policy and may adapt Admin parameters, but it does not duplicate capability implementation.
 - **Transport Adapter** — Gin or Worker implementation that maps an external protocol to a workflow or capability interface and maps results back to that protocol.
 - **Runtime Module** — process lifecycle, capability assembly, dependency validation, health, startup, and shutdown for `admin-api` and `admin-worker`.
-- **Database Evolution Module** — schema fingerprinting, reconciliation, migration checksums, deployment locking, drift detection, data verification, and destructive-change gates.
+- **Database Baseline** — `database/schema.sql`, `database/seed.sql`, and the short forward migrations owned by `scripts/database.ps1`.
 - **Session Lifecycle Module** — issue, authenticate, rotate, revoke, and enforce session policy atomically across MySQL and Redis adapters.
 - **Mail Diagnostic Evidence** — an Admin-owned, one-to-one encrypted verification-code snapshot attached to a mail log. It is diagnostic evidence, not an authentication authority or a second source of verification-code state.
 - **Route Policy Registry** — the complete classification of every active route as Public, Authenticated, or Permission-protected, including audit policy.
@@ -57,17 +57,17 @@ Capability       = reusable business behavior
 
 Platform-specific request fields, response fields, and workflow rules stay outside Capability Modules. Capability Modules must not accumulate `if platform == ...` branches or accept catch-all JSON configuration.
 
-A canonical Product Platform value may remain in persisted records as validated provenance or routing metadata. That value does not permit platform-policy branching inside a Capability Module. During this refactor, new active records use only `admin`; legacy `app`/`canvas` values are explicitly migrated, archived, or deleted by the reconciliation design.
+A canonical Product Platform value may remain in persisted records as validated provenance or routing metadata. That value does not permit platform-policy branching inside a Capability Module. New active records use only `admin`; retired product values are not compatibility inputs.
 
 ## Current truth hierarchy
 
 1. Approved design specs under `docs/superpowers/specs/`.
 2. Executable tests and active route snapshots.
 3. Current code.
-4. Fingerprinted live schema plus versioned migration history.
+4. `database/schema.sql`, `database/seed.sql`, and the applied migration ledger.
 5. README and historical migration comments.
 
-When these disagree, stop and reconcile the higher-priority truth instead of adding compatibility guesses.
+When these disagree, fix the lower-priority source instead of adding compatibility guesses.
 
 ## Mail diagnostic boundary
 

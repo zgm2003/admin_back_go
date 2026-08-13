@@ -3,7 +3,6 @@ param(
   [switch]$SchemaOnly,
   [switch]$ImportFunctions,
   [string]$LockPath,
-  [string]$DatabaseFingerprint,
   [string]$RecoveryArtifact,
   [string]$CosDispositionEvidence,
   [string]$QueryEvidence,
@@ -121,15 +120,6 @@ function Read-JsonEvidence {
   } catch {
     throw "$Label is not valid JSON"
   }
-}
-
-function Assert-DatabaseFingerprint {
-  param([Parameter(Mandatory = $true)][string]$Path)
-  $document = Read-JsonEvidence -Path $Path -Label 'database fingerprint evidence'
-  $schemaHash = [string]$document.schema_sha256
-  if ($schemaHash -cnotmatch '^[0-9a-f]{64}$') { throw 'database fingerprint evidence has no valid schema hash' }
-  if ([string]$document.database -cne 'admin') { throw 'database fingerprint evidence must identify admin' }
-  return [pscustomobject]@{ SchemaSha256 = $schemaHash }
 }
 
 function Assert-RecoveryArtifact {
@@ -265,22 +255,16 @@ function Assert-COSDispositionEvidence {
 
 function Assert-ExternalEvidenceBundle {
   param(
-    [Parameter(Mandatory = $true)][string]$FingerprintPath,
     [Parameter(Mandatory = $true)][string]$RecoveryPath,
     [Parameter(Mandatory = $true)][string]$COSPath,
     [Parameter(Mandatory = $true)][string]$QueryPath,
     [Parameter(Mandatory = $true)][string]$FreezePath
   )
   $freeze = Assert-ClientVersionsFreezeEvidence -Path $FreezePath
-  $fingerprint = Assert-DatabaseFingerprint -Path $FingerprintPath
   $recovery = Assert-RecoveryArtifact -Path $RecoveryPath
   Assert-QueryEvidence -Path $QueryPath
   [void](Assert-COSDispositionEvidence -Path $COSPath -FreezeEvidence $freeze)
-  $fingerprintMatch = [regex]::Match($freeze.Text, '(?m)^source_schema_fingerprint=([0-9a-f]{64})$')
   $recoveryMatch = [regex]::Match($freeze.Text, '(?m)^recovery_dump_sha256=([0-9a-f]{64})$')
-  if (-not $fingerprintMatch.Success -or $fingerprint.SchemaSha256 -cne $fingerprintMatch.Groups[1].Value) {
-    throw 'database fingerprint does not match P08R evidence'
-  }
   if (-not $recoveryMatch.Success -or $recovery.DumpSha256 -cne $recoveryMatch.Groups[1].Value) {
     throw 'recovery artifact does not match P08R evidence'
   }
@@ -340,7 +324,6 @@ function Invoke-InputLockSchemaSelfTest {
     backend_commit = 'a' * 40
     frontend_commit = 'b' * 40
     contract_manifest_sha256 = 'c' * 64
-    database_fingerprint_sha256 = 'd' * 64
     recovery_artifact_sha256 = 'e' * 64
     cos_disposition_evidence_sha256 = 'f' * 64
     query_evidence_sha256 = '0' * 64
@@ -365,7 +348,6 @@ if ($SchemaOnly) {
 if ([string]::IsNullOrWhiteSpace($LockPath)) { $LockPath = $script:DefaultInputLock }
 if ([string]::IsNullOrWhiteSpace($ClientVersionsFreezeEvidence)) { $ClientVersionsFreezeEvidence = $script:DefaultFreezeEvidence }
 $lockFile = Get-RequiredFilePath -Path $LockPath -Label 'input lock'
-$fingerprintFile = Assert-ExternalEvidencePath -Path $DatabaseFingerprint -Label 'database fingerprint evidence'
 $recoveryFile = Assert-ExternalEvidencePath -Path $RecoveryArtifact -Label 'recovery artifact'
 $cosFile = Assert-ExternalEvidencePath -Path $CosDispositionEvidence -Label 'COS disposition evidence'
 $queryFile = Assert-ExternalEvidencePath -Path $QueryEvidence -Label 'query evidence'
@@ -388,20 +370,18 @@ if ((Get-RepositoryCommit -Repository $script:BackendRoot) -ceq $backendCommit) 
     'scripts/release/lock-inputs.ps1',
     'scripts/release/check-inputs.ps1',
     'scripts/tests/release-input-lock.tests.ps1',
-    'database/reconciliation/050_contract_preconditions.sql',
     'docs/runbooks/admin-only-data-disposition.md'
   )
 }
 Assert-RepositoryStatus -Repository $script:BackendRoot -AllowedPaths $allowedBackendPaths
 Assert-RepositoryStatus -Repository $script:FrontendRoot
-Assert-ExternalEvidenceBundle -FingerprintPath $fingerprintFile -RecoveryPath $recoveryFile -COSPath $cosFile -QueryPath $queryFile -FreezePath $freezeFile
+Assert-ExternalEvidenceBundle -RecoveryPath $recoveryFile -COSPath $cosFile -QueryPath $queryFile -FreezePath $freezeFile
 
 Test-LockedCommitAncestor -Repository $script:BackendRoot -LockedCommit $backendCommit
 Test-LockedCommitAncestor -Repository $script:FrontendRoot -LockedCommit $frontendCommit
 
 $expected = [ordered]@{
   contract_manifest_sha256 = Get-GitBlobSha256 -Repository $script:BackendRoot -Commit $backendCommit -Path 'contracts/admin/v1/manifest.json'
-  database_fingerprint_sha256 = Get-FileSha256 -Path $fingerprintFile
   recovery_artifact_sha256 = Get-FileSha256 -Path $recoveryFile
   cos_disposition_evidence_sha256 = Get-FileSha256 -Path $cosFile
   query_evidence_sha256 = Get-FileSha256 -Path $queryFile

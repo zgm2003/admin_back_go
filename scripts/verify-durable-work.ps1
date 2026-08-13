@@ -50,13 +50,6 @@ Invoke-DockerGo -Arguments @(
 Invoke-DockerGo -Arguments @('test','./internal/architecture','-run','TestDurableWork','-count=1')
 Invoke-DockerGo -Arguments @('test','./internal/admincontract','-run','TestRealtime','-count=1')
 
-Invoke-DockerCommand -Arguments @(
-  'run','--rm','--network','none',
-  '--mount',('type=bind,source=' + $script:RepoRoot + ',target=/src,readonly'),
-  '--workdir','/src','arigaio/atlas:0.38.0@sha256:9883fdf5290020022ad0ac91fe20b846d32f93c19f68dfd3cf3b327c3e1b7e1a',
-  'migrate','validate','--dir','file://database/migrations'
-)
-
 $manifest = Get-Content -Raw -LiteralPath (Join-Path $script:RepoRoot 'contracts\admin\v1\manifest.json') | ConvertFrom-Json
 $contractCommit = [string]$manifest.backend_commit
 Invoke-DockerGo -Arguments @('run','./cmd/admin-contract','check','--out','contracts/admin/v1','--commit',$contractCommit)

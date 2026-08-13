@@ -11,7 +11,6 @@ param(
   [string]$RecoveryArtifact,
   [string]$RecoveryRehearsalEvidence,
   [string]$Database,
-  [string]$ExpectedRecoveryFingerprint,
   [string]$BackendEnvFile,
   [string]$RuntimeVolume,
   [string]$ExportVolume,
@@ -41,7 +40,6 @@ $rollbackRequest = [pscustomobject]@{
   RecoveryArtifact = $RecoveryArtifact
   RecoveryRehearsalEvidence = $RecoveryRehearsalEvidence
   Database = $Database
-  ExpectedRecoveryFingerprint = $ExpectedRecoveryFingerprint
   BackendEnvFile = $BackendEnvFile
   RuntimeVolume = $RuntimeVolume
   ExportVolume = $ExportVolume
@@ -100,12 +98,10 @@ function Invoke-RecoveryDumpRestore {
     [Parameter(Mandatory = $true)][string]$ArtifactPath,
     [Parameter(Mandatory = $true)][string]$RehearsalPath,
     [Parameter(Mandatory = $true)][string]$TargetDatabase,
-    [Parameter(Mandatory = $true)][string]$ExpectedFingerprint,
     [Parameter(Mandatory = $true)][string]$MySQLExecutable,
     [Parameter(Mandatory = $true)][int]$TimeoutSeconds,
     [Parameter(Mandatory = $true)][string]$ExpectedArtifactSHA
   )
-  if ($ExpectedFingerprint -cnotmatch '^[0-9a-f]{64}$') { throw 'expected recovery fingerprint is invalid' }
   Assert-ExactString (Get-FileSha256 -Path $ArtifactPath) $ExpectedArtifactSHA 'rollback recovery artifact digest'
   [void](Assert-RecoveryArtifact -Path $ArtifactPath)
   $artifact = Read-JsonEvidence -Path $ArtifactPath -Label 'rollback recovery artifact'
@@ -166,8 +162,6 @@ function Invoke-RecoveryDumpRestore {
         throw "recovery row count mismatch: $($property.Name)"
       }
     }
-    $fingerprint = Get-DatabaseFingerprintSHA -BackendRoot $script:BackendRoot -Settings $settings -Database $TargetDatabase
-    Assert-ExactString $fingerprint $ExpectedFingerprint 'restored database fingerprint'
   } finally {
     $settings.Password = $null
   }
@@ -185,7 +179,6 @@ $ImageArchiveDirectory = $rollbackRequest.ImageArchiveDirectory
 $RecoveryArtifact = $rollbackRequest.RecoveryArtifact
 $RecoveryRehearsalEvidence = $rollbackRequest.RecoveryRehearsalEvidence
 $Database = $rollbackRequest.Database
-$ExpectedRecoveryFingerprint = $rollbackRequest.ExpectedRecoveryFingerprint
 $BackendEnvFile = $rollbackRequest.BackendEnvFile
 $RuntimeVolume = $rollbackRequest.RuntimeVolume
 $ExportVolume = $rollbackRequest.ExportVolume
@@ -271,8 +264,7 @@ try {
     foreach ($required in @(
       [pscustomobject]@{ Value = $RecoveryArtifact; Label = 'locked recovery artifact' },
       [pscustomobject]@{ Value = $RecoveryRehearsalEvidence; Label = 'recovery rehearsal evidence' },
-      [pscustomobject]@{ Value = $Database; Label = 'rollback database' },
-      [pscustomobject]@{ Value = $ExpectedRecoveryFingerprint; Label = 'expected recovery fingerprint' }
+      [pscustomobject]@{ Value = $Database; Label = 'rollback database' }
     )) {
       if ([string]::IsNullOrWhiteSpace([string]$required.Value)) { throw "$($required.Label) is required for full database rollback" }
     }
@@ -280,7 +272,7 @@ try {
     $artifactPath = Assert-ExternalEvidencePath -Path $RecoveryArtifact -Label 'locked recovery artifact'
     $rehearsalPath = Assert-ExternalEvidencePath -Path $RecoveryRehearsalEvidence -Label 'recovery rehearsal evidence'
     $mysqlExecutable = (Get-Command $MySQLCommand -ErrorAction Stop | Select-Object -First 1).Source
-    Invoke-RecoveryDumpRestore -ArtifactPath $artifactPath -RehearsalPath $rehearsalPath -TargetDatabase $Database -ExpectedFingerprint $ExpectedRecoveryFingerprint -MySQLExecutable $mysqlExecutable -TimeoutSeconds $RestoreTimeoutSeconds -ExpectedArtifactSHA ([string]$release.evidence.recovery_sha256)
+    Invoke-RecoveryDumpRestore -ArtifactPath $artifactPath -RehearsalPath $rehearsalPath -TargetDatabase $Database -MySQLExecutable $mysqlExecutable -TimeoutSeconds $RestoreTimeoutSeconds -ExpectedArtifactSHA ([string]$release.evidence.recovery_sha256)
   }
 
   Invoke-AdminReleaseCompose -Project $previousProject -Arguments @('up', '-d', '--no-build', '--force-recreate', '--wait', '--wait-timeout', '300') -Label 'restore previous release project'

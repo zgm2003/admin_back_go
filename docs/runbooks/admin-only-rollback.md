@@ -19,7 +19,7 @@ health, readiness, and Admin smoke.
 
 Use Full database rollback only when the contract database itself must return
 to the pre-contract point. It requires the locked **recovery artifact**, matching
-**recovery rehearsal** evidence, expected source fingerprint, an approved
+**recovery rehearsal** evidence, an approved
 maintenance window, and the Database operator. The verified dump is restored;
 there is no reverse DDL and `client_versions` is not reconstructed from guessed
 metadata.
@@ -35,8 +35,7 @@ metadata.
    stopping the current release.
 
 **STOP** if deployment state points outside `release/admin-only/out`, if any
-digest differs, if no previous package exists, or if the recovery fingerprint
-is not independently known.
+digest differs, or if no previous package exists.
 
 ## Application rollback command
 
@@ -57,7 +56,6 @@ pwsh -NoProfile -File scripts/release/rollback-admin-only.ps1 `
   -RecoveryArtifact $env:ADMIN_RECOVERY_ARTIFACT `
   -RecoveryRehearsalEvidence $env:ADMIN_RECOVERY_REHEARSAL `
   -Database $env:ADMIN_RELEASE_DB `
-  -ExpectedRecoveryFingerprint $env:ADMIN_RECOVERY_FINGERPRINT `
   -BackendEnvFile $env:ADMIN_BACKEND_ENV_FILE `
   -RuntimeVolume admin-runtime `
   -ExportVolume admin-exports `
@@ -69,7 +67,7 @@ pwsh -NoProfile -File scripts/release/rollback-admin-only.ps1 `
 After either mode, require frontend health, API health/readiness, authenticated
 HTTP, WebSocket reconnect/resume, queue recovery, scheduler single ownership,
 and provider/storage probes. For Full database rollback, also compare restored
-table counts and the exact source fingerprint from the recovery artifact.
+table counts with the locked recovery artifact.
 
 Record actual RTO and recovered data point for RPO. Escalate if either exceeds
 the approved objective, if durable work cannot resume/cancel, or if smoke fails.
