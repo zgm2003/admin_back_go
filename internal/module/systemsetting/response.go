@@ -2,19 +2,12 @@ package systemsetting
 
 import "admin_back_go/internal/shared/dict"
 
-type InitResponse struct {
-	Dict InitDict `json:"dict"`
+type PageInitResponse struct {
+	Dict PageInitDict `json:"dict"`
 }
 
-type InitDict struct {
+type PageInitDict struct {
 	SystemSettingValueTypeArr []dict.Option[int] `json:"system_setting_value_type_arr"`
-}
-
-type ListQuery struct {
-	CurrentPage int
-	PageSize    int
-	Key         string
-	Status      *int
 }
 
 type Page struct {
@@ -43,15 +36,12 @@ type ListItem struct {
 	UpdatedAt     string `json:"updated_at"`
 }
 
-type CreateInput struct {
-	Key    string
-	Value  string
-	Type   int
-	Remark string
+type CreateResponse struct {
+	ID int64 `json:"id"`
 }
 
-type UpdateInput struct {
-	Value  string
-	Type   int
-	Remark string
-}
+type EmptyResponse struct{}
+
+// Kept only until the Admin HTTP surface moves into this package in Wave 02.
+type InitResponse = PageInitResponse
+type InitDict = PageInitDict

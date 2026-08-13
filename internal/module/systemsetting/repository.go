@@ -12,8 +12,10 @@ import (
 	"gorm.io/gorm"
 )
 
+var ErrRepositoryNotConfigured = errors.New("system setting repository is not configured")
+
 type Repository interface {
-	List(ctx context.Context, query ListQuery) ([]Setting, int64, error)
+	List(ctx context.Context, request ListRequest) ([]Setting, int64, error)
 	Get(ctx context.Context, id int64) (*Setting, error)
 	SettingsByIDs(ctx context.Context, ids []int64) (map[int64]Setting, error)
 	ExistsByKey(ctx context.Context, key string, excludeID int64) (bool, error)
@@ -35,18 +37,18 @@ func NewGormRepository(client *database.Client, cache *redisclient.Client) *Gorm
 	return &GormRepository{db: client.Gorm, cache: cache}
 }
 
-func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]Setting, int64, error) {
+func (r *GormRepository) List(ctx context.Context, request ListRequest) ([]Setting, int64, error) {
 	if r == nil || r.db == nil {
 		return nil, 0, ErrRepositoryNotConfigured
 	}
 
 	db := r.db.WithContext(ctx).Model(&Setting{}).Where("is_del = ?", enum.CommonNo)
-	key := strings.TrimSpace(query.Key)
+	key := strings.TrimSpace(request.Key)
 	if key != "" {
 		db = db.Where("setting_key LIKE ?", key+"%")
 	}
-	if query.Status != nil {
-		db = db.Where("status = ?", *query.Status)
+	if request.Status != nil {
+		db = db.Where("status = ?", *request.Status)
 	}
 
 	var total int64
@@ -56,8 +58,8 @@ func (r *GormRepository) List(ctx context.Context, query ListQuery) ([]Setting, 
 
 	var rows []Setting
 	err := db.Order("id desc").
-		Limit(query.PageSize).
-		Offset((query.CurrentPage - 1) * query.PageSize).
+		Limit(request.PageSize).
+		Offset((request.CurrentPage - 1) * request.PageSize).
 		Find(&rows).Error
 	if err != nil {
 		return nil, 0, err

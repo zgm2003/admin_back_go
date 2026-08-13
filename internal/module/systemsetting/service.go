@@ -3,7 +3,6 @@ package systemsetting
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"math"
 	"sort"
 	"strconv"
@@ -21,8 +20,6 @@ const (
 	timeLayout   = "2006-01-02 15:04:05"
 )
 
-var ErrRepositoryNotConfigured = errors.New("system setting repository is not configured")
-
 type Service struct {
 	repository Repository
 }
@@ -31,23 +28,23 @@ func NewService(repository Repository) *Service {
 	return &Service{repository: repository}
 }
 
-func (s *Service) PageInit(ctx context.Context) (*InitResponse, *apperror.Error) {
-	return &InitResponse{Dict: InitDict{
+func (s *Service) PageInit(context.Context) (*PageInitResponse, *apperror.Error) {
+	return &PageInitResponse{Dict: PageInitDict{
 		SystemSettingValueTypeArr: shareddict.SystemSettingValueTypeOptions(),
 	}}, nil
 }
 
-func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *apperror.Error) {
+func (s *Service) List(ctx context.Context, request ListRequest) (*ListResponse, *apperror.Error) {
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
 		return nil, appErr
 	}
-	if appErr := validateListQuery(query); appErr != nil {
+	if appErr := validateListRequest(request); appErr != nil {
 		return nil, appErr
 	}
-	query.Key = strings.TrimSpace(query.Key)
+	request.Key = strings.TrimSpace(request.Key)
 
-	rows, total, err := repo.List(ctx, query)
+	rows, total, err := repo.List(ctx, request)
 	if err != nil {
 		return nil, apperror.WrapKey(apperror.CodeInternal, 500, "systemsetting.query_failed", nil, "查询系统设置失败", err)
 	}
@@ -58,41 +55,41 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 	}
 	return &ListResponse{
 		List: list,
-		Page: Page{PageSize: query.PageSize, CurrentPage: query.CurrentPage, TotalPage: totalPage(total, query.PageSize), Total: total},
+		Page: Page{PageSize: request.PageSize, CurrentPage: request.CurrentPage, TotalPage: totalPage(total, request.PageSize), Total: total},
 	}, nil
 }
 
-func (s *Service) Create(ctx context.Context, input CreateInput) (int64, *apperror.Error) {
+func (s *Service) Create(ctx context.Context, request CreateRequest) (int64, *apperror.Error) {
 	repo, appErr := s.requireRepository()
 	if appErr != nil {
 		return 0, appErr
 	}
-	input, appErr = normalizeCreateInput(input)
+	request, appErr = normalizeCreateRequest(request)
 	if appErr != nil {
 		return 0, appErr
 	}
-	exists, err := repo.ExistsByKey(ctx, input.Key, 0)
+	exists, err := repo.ExistsByKey(ctx, request.Key, 0)
 	if err != nil {
 		return 0, apperror.WrapKey(apperror.CodeInternal, 500, "systemsetting.key_check_failed", nil, "校验配置 key 失败", err)
 	}
 	if exists {
-		return 0, apperror.BadRequestKey("systemsetting.key.duplicate", map[string]any{"key": input.Key}, "配置 key ["+input.Key+"] 已存在")
+		return 0, apperror.BadRequestKey("systemsetting.key.duplicate", map[string]any{"key": request.Key}, "配置 key ["+request.Key+"] 已存在")
 	}
 
 	id, err := repo.Create(ctx, Setting{
-		SettingKey: input.Key, SettingValue: input.Value, ValueType: input.Type, Remark: input.Remark,
+		SettingKey: request.Key, SettingValue: request.Value, ValueType: request.Type, Remark: request.Remark,
 		Status: enum.CommonYes, IsDel: enum.CommonNo,
 	})
 	if err != nil {
 		return 0, apperror.WrapKey(apperror.CodeInternal, 500, "systemsetting.create_failed", nil, "新增系统设置失败", err)
 	}
-	if err := repo.InvalidateCache(ctx, input.Key); err != nil {
+	if err := repo.InvalidateCache(ctx, request.Key); err != nil {
 		return 0, apperror.WrapKey(apperror.CodeInternal, 500, "systemsetting.cache_clear_failed", nil, "清理系统设置缓存失败", err)
 	}
 	return id, nil
 }
 
-func (s *Service) Update(ctx context.Context, id int64, input UpdateInput) *apperror.Error {
+func (s *Service) Update(ctx context.Context, id int64, request UpdateRequest) *apperror.Error {
 	if id <= 0 {
 		return apperror.BadRequestKey("systemsetting.id.invalid", nil, "无效的配置ID")
 	}
@@ -108,14 +105,14 @@ func (s *Service) Update(ctx context.Context, id int64, input UpdateInput) *appe
 		return apperror.NotFoundKey("systemsetting.not_found", nil, "配置项不存在")
 	}
 
-	input, appErr = normalizeUpdateInput(input)
+	request, appErr = normalizeUpdateRequest(request)
 	if appErr != nil {
 		return appErr
 	}
 	if err := repo.Update(ctx, id, map[string]any{
-		"setting_value": input.Value,
-		"value_type":    input.Type,
-		"remark":        input.Remark,
+		"setting_value": request.Value,
+		"value_type":    request.Type,
+		"remark":        request.Remark,
 	}); err != nil {
 		return apperror.WrapKey(apperror.CodeInternal, 500, "systemsetting.update_failed", nil, "更新系统设置失败", err)
 	}
@@ -181,55 +178,55 @@ func (s *Service) Delete(ctx context.Context, ids []int64) *apperror.Error {
 
 func (s *Service) requireRepository() (Repository, *apperror.Error) {
 	if s == nil || s.repository == nil {
-		return nil, repositoryNotConfigured()
+		return nil, apperror.InternalKey("systemsetting.repository_missing", nil, "系统设置仓储未配置")
 	}
 	return s.repository, nil
 }
 
-func validateListQuery(query ListQuery) *apperror.Error {
-	if query.CurrentPage <= 0 {
+func validateListRequest(request ListRequest) *apperror.Error {
+	if request.CurrentPage <= 0 {
 		return apperror.BadRequestKey("systemsetting.current_page.invalid", nil, "当前页无效")
 	}
-	if query.PageSize < enum.PageSizeMin || query.PageSize > enum.PageSizeMax {
+	if request.PageSize < enum.PageSizeMin || request.PageSize > enum.PageSizeMax {
 		return apperror.BadRequestKey("systemsetting.page_size.invalid", nil, "每页数量无效")
 	}
-	if query.Status != nil && !enum.IsCommonStatus(*query.Status) {
+	if request.Status != nil && !enum.IsCommonStatus(*request.Status) {
 		return apperror.BadRequestKey("systemsetting.status.invalid", nil, "无效的状态")
 	}
 	return nil
 }
 
-func normalizeCreateInput(input CreateInput) (CreateInput, *apperror.Error) {
-	input.Key = strings.TrimSpace(input.Key)
-	if input.Key == "" || len([]rune(input.Key)) > maxKeyLen {
-		return input, apperror.BadRequestKey("systemsetting.key.invalid", nil, "配置 key 不能为空且不能超过100个字符")
+func normalizeCreateRequest(request CreateRequest) (CreateRequest, *apperror.Error) {
+	request.Key = strings.TrimSpace(request.Key)
+	if request.Key == "" || len([]rune(request.Key)) > maxKeyLen {
+		return request, apperror.BadRequestKey("systemsetting.key.invalid", nil, "配置 key 不能为空且不能超过100个字符")
 	}
-	return normalizeCreateFields(input)
+	return normalizeCreateFields(request)
 }
 
-func normalizeCreateFields(input CreateInput) (CreateInput, *apperror.Error) {
-	update, appErr := normalizeUpdateInput(UpdateInput{Value: input.Value, Type: input.Type, Remark: input.Remark})
+func normalizeCreateFields(request CreateRequest) (CreateRequest, *apperror.Error) {
+	update, appErr := normalizeUpdateRequest(UpdateRequest{Value: request.Value, Type: request.Type, Remark: request.Remark})
 	if appErr != nil {
-		return input, appErr
+		return request, appErr
 	}
-	input.Value = update.Value
-	input.Type = update.Type
-	input.Remark = update.Remark
-	return input, nil
+	request.Value = update.Value
+	request.Type = update.Type
+	request.Remark = update.Remark
+	return request, nil
 }
 
-func normalizeUpdateInput(input UpdateInput) (UpdateInput, *apperror.Error) {
-	input.Remark = strings.TrimSpace(input.Remark)
-	if len([]rune(input.Remark)) > maxRemarkLen {
-		return input, apperror.BadRequestKey("systemsetting.remark.too_long", nil, "备注不能超过255个字符")
+func normalizeUpdateRequest(request UpdateRequest) (UpdateRequest, *apperror.Error) {
+	request.Remark = strings.TrimSpace(request.Remark)
+	if len([]rune(request.Remark)) > maxRemarkLen {
+		return request, apperror.BadRequestKey("systemsetting.remark.too_long", nil, "备注不能超过255个字符")
 	}
-	if !enum.IsSystemSettingValueType(input.Type) {
-		return input, apperror.BadRequestKey("systemsetting.value_type.invalid", nil, "无效的配置值类型")
+	if !enum.IsSystemSettingValueType(request.Type) {
+		return request, apperror.BadRequestKey("systemsetting.value_type.invalid", nil, "无效的配置值类型")
 	}
-	if appErr := validateTypedValue(input.Type, input.Value); appErr != nil {
-		return input, appErr
+	if appErr := validateTypedValue(request.Type, request.Value); appErr != nil {
+		return request, appErr
 	}
-	return input, nil
+	return request, nil
 }
 
 func validateTypedValue(valueType int, value string) *apperror.Error {

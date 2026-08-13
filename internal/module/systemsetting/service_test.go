@@ -12,7 +12,7 @@ import (
 type fakeRepository struct {
 	rows        []Setting
 	total       int64
-	gotList     ListQuery
+	gotList     ListRequest
 	gotCreate   *Setting
 	existsKey   bool
 	byID        map[int64]Setting
@@ -21,7 +21,7 @@ type fakeRepository struct {
 	invalidated []string
 }
 
-func (f *fakeRepository) List(ctx context.Context, query ListQuery) ([]Setting, int64, error) {
+func (f *fakeRepository) List(ctx context.Context, query ListRequest) ([]Setting, int64, error) {
 	f.gotList = query
 	return f.rows, f.total, nil
 }
@@ -99,7 +99,7 @@ func TestListTrimsKeyAndReturnsLabels(t *testing.T) {
 	}
 	service := NewService(repo)
 
-	got, appErr := service.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20, Key: " user.", Status: ptrInt(enum.CommonYes)})
+	got, appErr := service.List(context.Background(), ListRequest{CurrentPage: 1, PageSize: 20, Key: " user.", Status: ptrInt(enum.CommonYes)})
 	if appErr != nil {
 		t.Fatalf("expected list to succeed, got %v", appErr)
 	}
@@ -117,7 +117,7 @@ func TestListTrimsKeyAndReturnsLabels(t *testing.T) {
 func TestCreateRejectsDuplicateKey(t *testing.T) {
 	service := NewService(&fakeRepository{existsKey: true})
 
-	_, appErr := service.Create(context.Background(), CreateInput{Key: "user.default_avatar", Value: "x", Type: enum.SystemSettingValueString})
+	_, appErr := service.Create(context.Background(), CreateRequest{Key: "user.default_avatar", Value: "x", Type: enum.SystemSettingValueString})
 	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.MessageID != "systemsetting.key.duplicate" {
 		t.Fatalf("expected duplicate key error, got %#v", appErr)
 	}
@@ -127,7 +127,7 @@ func TestCreatePreservesStringValueWhitespace(t *testing.T) {
 	repo := &fakeRepository{}
 	service := NewService(repo)
 
-	_, appErr := service.Create(context.Background(), CreateInput{Key: "ui.banner", Value: "  keep spaces  ", Type: enum.SystemSettingValueString})
+	_, appErr := service.Create(context.Background(), CreateRequest{Key: "ui.banner", Value: "  keep spaces  ", Type: enum.SystemSettingValueString})
 	if appErr != nil {
 		t.Fatalf("expected create to succeed, got %v", appErr)
 	}
@@ -140,7 +140,7 @@ func TestCreateValidatesValueTypeAndStoresRow(t *testing.T) {
 	repo := &fakeRepository{}
 	service := NewService(repo)
 
-	id, appErr := service.Create(context.Background(), CreateInput{Key: "feature.switch", Value: "true", Type: enum.SystemSettingValueBool, Remark: "开关"})
+	id, appErr := service.Create(context.Background(), CreateRequest{Key: "feature.switch", Value: "true", Type: enum.SystemSettingValueBool, Remark: "开关"})
 	if appErr != nil {
 		t.Fatalf("expected create to succeed, got %v", appErr)
 	}
@@ -157,12 +157,12 @@ func TestCreateRejectsInvalidTypedValue(t *testing.T) {
 
 	cases := []struct {
 		name  string
-		input CreateInput
+		input CreateRequest
 		msg   string
 	}{
-		{name: "number", input: CreateInput{Key: "num", Value: "abc", Type: enum.SystemSettingValueNumber}, msg: "数值类型需为数字"},
-		{name: "bool", input: CreateInput{Key: "bool", Value: "yes", Type: enum.SystemSettingValueBool}, msg: "布尔类型需为 true/false 或 0/1"},
-		{name: "json", input: CreateInput{Key: "json", Value: `"string"`, Type: enum.SystemSettingValueJSON}, msg: "JSON 类型需为合法对象或数组"},
+		{name: "number", input: CreateRequest{Key: "num", Value: "abc", Type: enum.SystemSettingValueNumber}, msg: "数值类型需为数字"},
+		{name: "bool", input: CreateRequest{Key: "bool", Value: "yes", Type: enum.SystemSettingValueBool}, msg: "布尔类型需为 true/false 或 0/1"},
+		{name: "json", input: CreateRequest{Key: "json", Value: `"string"`, Type: enum.SystemSettingValueJSON}, msg: "JSON 类型需为合法对象或数组"},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -177,7 +177,7 @@ func TestCreateRejectsInvalidTypedValue(t *testing.T) {
 func TestUpdateMissingRowReturnsNotFound(t *testing.T) {
 	service := NewService(&fakeRepository{})
 
-	appErr := service.Update(context.Background(), 99, UpdateInput{Value: "x", Type: enum.SystemSettingValueString})
+	appErr := service.Update(context.Background(), 99, UpdateRequest{Value: "x", Type: enum.SystemSettingValueString})
 	if appErr == nil || appErr.LegacyCode != apperror.CodeNotFound || appErr.MessageID != "systemsetting.not_found" {
 		t.Fatalf("expected not found, got %#v", appErr)
 	}
@@ -187,7 +187,7 @@ func TestUpdateInvalidatesChangedKey(t *testing.T) {
 	repo := &fakeRepository{byID: map[int64]Setting{2: {ID: 2, SettingKey: "user.default_avatar", Status: enum.CommonYes}}}
 	service := NewService(repo)
 
-	appErr := service.Update(context.Background(), 2, UpdateInput{Value: `{"url":"avatar.png"}`, Type: enum.SystemSettingValueJSON, Remark: "默认头像"})
+	appErr := service.Update(context.Background(), 2, UpdateRequest{Value: `{"url":"avatar.png"}`, Type: enum.SystemSettingValueJSON, Remark: "默认头像"})
 	if appErr != nil {
 		t.Fatalf("expected update to succeed, got %v", appErr)
 	}
