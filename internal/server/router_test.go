@@ -347,7 +347,7 @@ func (f *fakeRouterUserService) List(ctx context.Context, query user.ListQuery) 
 	}
 	return &user.ListResponse{
 		List: []user.ListItem{{ID: 1, Username: "admin"}},
-		Page: user.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
+		Page: pagination.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
 	}, f.err
 }
 

@@ -282,8 +282,7 @@ role_permissions rows for permission_id=13: 2（未新增或改写）
 PASS  go test ./internal/shared/pagination ./internal/module/permission ./internal/module/role ./internal/module/role/transport/admin -count=1
 PASS  go test ./internal/architecture -run 'TestDatabaseBaselineRoleManagerPagePermissionContract|TestRoleManagerPagePermissionMigrationIsGuardedAndForwardOnly' -count=1
 PASS  go test ./internal/admincontract -run 'TestViewsProtectRoleManagerWithPagePermission|TestRoleManagerReadsUsePagePermission|TestOpenAPIContainsEveryRuntimeAdminOperation' -count=1
-FAIL  go test ./internal/server -run 'Test.*Role' -count=1
-      既有 User fixture 漂移：internal/server/router_test.go:350 仍引用已删除的 user.Page，Role 测试未开始运行；本计划未越界修改 User。
+PASS  go test ./internal/server -run 'Test.*Role' -count=1
 PASS  npm test -- tests/shared/http/notifier.test.ts tests/shared/permission/role-api.test.ts tests/shared/permission/role-matrix.test.ts tests/component/permission/RolePermissionMatrix.test.ts tests/unit/http/generated-operations.test.ts tests/unit/routing/contracts.test.ts（6 files，31 tests）
 PASS  npx eslint src/lib/http/notifier.ts src/api/permission/role.ts src/views/Main/permission/role/use-role-page.ts src/views/Main/permission/role/index.vue src/views/Main/permission/role/role-matrix.ts src/views/Main/permission/role/components/RolePermissionMatrix.vue tests/shared/http/notifier.test.ts tests/shared/permission/role-api.test.ts
 PASS  backend/frontend git diff --check
