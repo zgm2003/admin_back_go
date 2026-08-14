@@ -91,6 +91,12 @@ docs/superpowers/plans/2026-08-13-admin-architecture-reduction-wave-01.md
 
 ## Wave 03：基础模块
 
+基础段详细执行文件：
+
+```text
+docs/superpowers/plans/2026-08-14-admin-architecture-reduction-wave-03-foundation.md
+```
+
 开始业务模块前先完成一个独立基础任务：
 
 ```text
