@@ -12,6 +12,7 @@ import (
 	"admin_back_go/internal/middleware"
 	usermodule "admin_back_go/internal/module/user"
 	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/pagination"
 
 	"github.com/gin-gonic/gin"
 )
@@ -56,7 +57,7 @@ func (f *fakeUserService) UpdatePhone(ctx context.Context, input usermodule.Upda
 }
 func (f *fakeUserService) List(ctx context.Context, query usermodule.ListQuery) (*usermodule.ListResponse, *apperror.Error) {
 	f.listQuery = query
-	return &usermodule.ListResponse{Page: usermodule.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
+	return &usermodule.ListResponse{Page: pagination.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
 }
 func (f *fakeUserService) Export(ctx context.Context, input usermodule.ExportInput) (*usermodule.ExportResponse, *apperror.Error) {
 	f.exportInput = input

@@ -13,6 +13,7 @@ import (
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
+	"admin_back_go/internal/shared/pagination"
 )
 
 type fakeUserRepository struct {
@@ -46,6 +47,16 @@ type fakeUserRepository struct {
 	batchUpdate          BatchProfileUpdate
 	principalSubjects    []permission.PrincipalSubject
 	err                  error
+}
+
+func TestListResponseUsesSharedPagination(t *testing.T) {
+	field, ok := reflect.TypeOf(ListResponse{}).FieldByName("Page")
+	if !ok {
+		t.Fatal("ListResponse.Page is missing")
+	}
+	if field.Type != reflect.TypeOf(pagination.Page{}) {
+		t.Fatalf("ListResponse.Page type = %v, want pagination.Page", field.Type)
+	}
 }
 
 func (f *fakeUserRepository) FindUser(ctx context.Context, userID int64) (*User, error) {

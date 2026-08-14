@@ -16,6 +16,7 @@ import (
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/dict"
 	"admin_back_go/internal/shared/enum"
+	"admin_back_go/internal/shared/pagination"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -285,7 +286,7 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 
 	return &ListResponse{
 		List: list,
-		Page: Page{
+		Page: pagination.Page{
 			PageSize:    normalized.PageSize,
 			CurrentPage: normalized.CurrentPage,
 			TotalPage:   totalPage(total, normalized.PageSize),
