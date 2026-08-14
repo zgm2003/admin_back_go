@@ -11,6 +11,7 @@ import (
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/dict"
 	"admin_back_go/internal/shared/enum"
+	"admin_back_go/internal/shared/pagination"
 )
 
 type fakePermissionDict struct {
@@ -20,7 +21,7 @@ type fakePermissionDict struct {
 }
 
 func TestServiceDefaultPlatformsUseRegisteredAdapters(t *testing.T) {
-	service := NewService(&fakeRepository{}, &fakePermissionDict{}, nil, nil)
+	service := NewService(&fakeRepository{}, &fakePermissionDict{}, nil)
 	if !reflect.DeepEqual(service.platforms, []string{enum.PlatformAdmin}) {
 		t.Fatalf("default role platforms mismatch: %#v", service.platforms)
 	}
@@ -31,14 +32,22 @@ func (f *fakePermissionDict) PageInit(ctx context.Context) (*permission.InitResp
 	return f.result, f.err
 }
 
-type fakeCacheInvalidator struct {
-	keys []string
-	err  error
+func TestListResponseUsesSharedPagination(t *testing.T) {
+	field, ok := reflect.TypeOf(ListResponse{}).FieldByName("Page")
+	if !ok {
+		t.Fatal("ListResponse.Page is missing")
+	}
+	if field.Type != reflect.TypeOf(pagination.Page{}) {
+		t.Fatalf("ListResponse.Page type = %v, want pagination.Page", field.Type)
+	}
 }
 
-func (f *fakeCacheInvalidator) Delete(ctx context.Context, key string) error {
-	f.keys = append(f.keys, key)
-	return f.err
+func TestPageInitRejectsNilPermissionDictionaryResult(t *testing.T) {
+	service := NewService(&fakeRepository{}, &fakePermissionDict{}, nil)
+	result, appErr := service.PageInit(context.Background())
+	if appErr == nil || result != nil {
+		t.Fatalf("PageInit() result=%#v error=%#v", result, appErr)
+	}
 }
 
 type fakeRepository struct {
@@ -231,7 +240,7 @@ func TestServiceInitUsesPermissionDictionary(t *testing.T) {
 		PermissionTree:        []permission.PermissionTreeNode{{ID: 1, Label: "系统", Value: 1}},
 		PermissionPlatformArr: []dict.Option[string]{{Label: "admin", Value: "admin"}},
 	}}}
-	svc := NewService(&fakeRepository{}, dict, nil, nil)
+	svc := NewService(&fakeRepository{}, dict, nil)
 
 	got, appErr := svc.PageInit(context.Background())
 
@@ -257,7 +266,7 @@ func TestServiceListNormalizesRolePermissionIDsWithPageParents(t *testing.T) {
 			{ID: 3, Platform: enum.PlatformAdmin, Type: permission.TypeButton, ParentID: 2, Status: permission.StatusActive, IsDel: permission.CommonNo},
 		},
 	}
-	svc := NewService(repo, &fakePermissionDict{}, nil, nil)
+	svc := NewService(repo, &fakePermissionDict{}, nil)
 
 	got, appErr := svc.List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 50})
 
@@ -282,7 +291,7 @@ func TestServiceListExcludesPermissionsOutsideServicePlatforms(t *testing.T) {
 		},
 	}
 
-	got, appErr := NewService(repo, &fakePermissionDict{}, nil, []string{enum.PlatformAdmin}).List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20})
+	got, appErr := NewService(repo, &fakePermissionDict{}, []string{enum.PlatformAdmin}).List(context.Background(), ListQuery{CurrentPage: 1, PageSize: 20})
 	if appErr != nil {
 		t.Fatalf("List() error = %v", appErr)
 	}
@@ -335,7 +344,7 @@ func TestServiceCreateSyncsNormalizedPermissionsInTransaction(t *testing.T) {
 			{ID: 3, Platform: enum.PlatformAdmin, Type: permission.TypeButton, ParentID: 2, Status: permission.StatusActive, IsDel: permission.CommonNo},
 		},
 	}
-	svc := NewService(repo, &fakePermissionDict{}, nil, nil)
+	svc := NewService(repo, &fakePermissionDict{}, nil)
 
 	id, appErr := svc.Create(context.Background(), MutationInput{Name: "运营", PermissionIDs: []int64{3}})
 
@@ -360,7 +369,7 @@ func TestServiceCreateRestoresSoftDeletedRoleName(t *testing.T) {
 			{ID: 2, Platform: enum.PlatformAdmin, Type: permission.TypePage, ParentID: 1, Status: permission.StatusActive, IsDel: permission.CommonNo},
 		},
 	}
-	svc := NewService(repo, &fakePermissionDict{}, nil, nil)
+	svc := NewService(repo, &fakePermissionDict{}, nil)
 
 	id, appErr := svc.Create(context.Background(), MutationInput{Name: "ces", PermissionIDs: []int64{2}})
 
@@ -378,31 +387,6 @@ func TestServiceCreateRestoresSoftDeletedRoleName(t *testing.T) {
 	}
 }
 
-func TestServiceUpdateInvalidatesBoundUserRouteAccessGrantCaches(t *testing.T) {
-	repo := &fakeRepository{
-		rolesByID:        map[int64]*Role{9: {ID: 9, Name: "客服", IsDefault: permission.CommonNo}},
-		permissions:      []permission.Permission{{ID: 2, Platform: enum.PlatformAdmin, Type: permission.TypePage, ParentID: 1, Status: permission.StatusActive, IsDel: permission.CommonNo}},
-		userIDsByRoleIDs: []int64{101, 102},
-	}
-	cache := &fakeCacheInvalidator{}
-	svc := NewService(repo, &fakePermissionDict{}, cache, []string{"admin", "app"})
-
-	appErr := svc.Update(context.Background(), 9, MutationInput{Name: "客服主管", PermissionIDs: []int64{2}})
-
-	if appErr != nil {
-		t.Fatalf("expected update to succeed, got %v", appErr)
-	}
-	wantKeys := []string{
-		"auth_perm_uid_101_admin_rbac_route_access_grants_v3",
-		"auth_perm_uid_101_app_rbac_route_access_grants_v3",
-		"auth_perm_uid_102_admin_rbac_route_access_grants_v3",
-		"auth_perm_uid_102_app_rbac_route_access_grants_v3",
-	}
-	if !reflect.DeepEqual(cache.keys, wantKeys) {
-		t.Fatalf("cache keys mismatch\nwant=%#v\n got=%#v", wantKeys, cache.keys)
-	}
-}
-
 func TestPrincipalRoleUpdateBumpsEveryBoundUserAcrossServicePlatformsInTransaction(t *testing.T) {
 	repo := &fakeRepository{
 		rolesByID:        map[int64]*Role{9: {ID: 9, Name: "support", IsDefault: permission.CommonNo}},
@@ -410,7 +394,7 @@ func TestPrincipalRoleUpdateBumpsEveryBoundUserAcrossServicePlatformsInTransacti
 		userIDsByRoleIDs: []int64{101, 102},
 	}
 	coordinator := &fakePrincipalMutationCoordinator{}
-	svc := NewService(repo, &fakePermissionDict{}, nil, []string{"admin", "partner_portal"}, WithPrincipalMutations(coordinator))
+	svc := NewService(repo, &fakePermissionDict{}, []string{"admin", "partner_portal"}, WithPrincipalMutations(coordinator))
 
 	if appErr := svc.Update(context.Background(), 9, MutationInput{Name: "support lead", PermissionIDs: []int64{2}}); appErr != nil {
 		t.Fatalf("Update() error = %v", appErr)
@@ -436,7 +420,7 @@ func TestPrincipalRoleUpdateDoesNotTouchSQLWhenGateFails(t *testing.T) {
 		userIDsByRoleIDs: []int64{101},
 	}
 	coordinator := &fakePrincipalMutationCoordinator{err: errors.New("redis down")}
-	svc := NewService(repo, &fakePermissionDict{}, nil, []string{"admin"}, WithPrincipalMutations(coordinator))
+	svc := NewService(repo, &fakePermissionDict{}, []string{"admin"}, WithPrincipalMutations(coordinator))
 
 	if appErr := svc.Update(context.Background(), 9, MutationInput{Name: "support lead", PermissionIDs: []int64{2}}); appErr == nil {
 		t.Fatal("Update() allowed role grant mutation while Redis gate failed")
@@ -458,7 +442,7 @@ func TestServiceDeleteRejectsDefaultOrBoundRoles(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			svc := NewService(tc.repo, &fakePermissionDict{}, nil, nil)
+			svc := NewService(tc.repo, &fakePermissionDict{}, nil)
 			appErr := svc.Delete(context.Background(), []int64{tc.repo.firstRoleID()})
 			if appErr == nil || appErr.Message != tc.msg {
 				t.Fatalf("expected %q, got %#v", tc.msg, appErr)

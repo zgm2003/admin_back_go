@@ -318,7 +318,7 @@ func Build(input BuildInput) (*BuildResult, error) {
 		nil,
 		permission.WithPrincipalMutations(principalService),
 	)
-	roleService := role.NewService(role.NewGormRepository(resources.DB), permissionService, nil, nil, role.WithPrincipalMutations(principalService))
+	roleService := role.NewService(role.NewGormRepository(resources.DB), permissionService, nil, role.WithPrincipalMutations(principalService))
 	userRepository := user.NewGormRepository(resources.DB)
 	addressCache := user.NewRedisAddressDictCache(resources.Redis)
 	operationRepository := operationlog.NewGormRepository(resources.DB)

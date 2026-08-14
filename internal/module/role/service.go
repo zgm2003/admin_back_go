@@ -11,6 +11,7 @@ import (
 	"admin_back_go/internal/module/permission"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
+	"admin_back_go/internal/shared/pagination"
 )
 
 const (
@@ -24,14 +25,9 @@ type PermissionDictionary interface {
 	PageInit(ctx context.Context) (*permission.InitResponse, *apperror.Error)
 }
 
-type CacheInvalidator interface {
-	Delete(ctx context.Context, key string) error
-}
-
 type Service struct {
 	repository           Repository
 	permissionDictionary PermissionDictionary
-	cacheInvalidator     CacheInvalidator
 	platforms            []string
 	principalMutations   permission.PrincipalMutationCoordinator
 }
@@ -44,14 +40,13 @@ func WithPrincipalMutations(coordinator permission.PrincipalMutationCoordinator)
 	}
 }
 
-func NewService(repository Repository, permissionDictionary PermissionDictionary, cacheInvalidator CacheInvalidator, platforms []string, options ...Option) *Service {
+func NewService(repository Repository, permissionDictionary PermissionDictionary, platforms []string, options ...Option) *Service {
 	if len(platforms) == 0 {
 		platforms = enum.RegisteredPlatforms()
 	}
 	service := &Service{
 		repository:           repository,
 		permissionDictionary: permissionDictionary,
-		cacheInvalidator:     cacheInvalidator,
 		platforms:            normalizePlatforms(platforms),
 	}
 	for _, option := range options {
@@ -72,7 +67,7 @@ func (s *Service) PageInit(ctx context.Context) (*InitResponse, *apperror.Error)
 		return nil, appErr
 	}
 	if result == nil {
-		return &InitResponse{}, nil
+		return nil, apperror.Internal("权限字典返回为空")
 	}
 	return &InitResponse{
 		Dict: InitDict{
@@ -124,7 +119,7 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 
 	return &ListResponse{
 		List: list,
-		Page: Page{
+		Page: pagination.Page{
 			PageSize:    query.PageSize,
 			CurrentPage: query.CurrentPage,
 			TotalPage:   totalPage(total, query.PageSize),
@@ -228,9 +223,6 @@ func (s *Service) Update(ctx context.Context, id int64, input MutationInput) *ap
 		return apperror.LegacyWrap(apperror.CodeInternal, 500, "更新角色失败", err)
 	}
 
-	if appErr := s.invalidateRoleUsers(ctx, []int64{id}); appErr != nil {
-		return appErr
-	}
 	return nil
 }
 
@@ -351,24 +343,6 @@ func (s *Service) normalizeMutation(ctx context.Context, input MutationInput) (M
 	activePermissions = permissionsForPlatforms(activePermissions, s.platforms)
 	input.PermissionIDs = normalizeAssignablePermissionIDs(input.PermissionIDs, activePermissions)
 	return input, nil
-}
-
-func (s *Service) invalidateRoleUsers(ctx context.Context, roleIDs []int64) *apperror.Error {
-	if s.cacheInvalidator == nil {
-		return nil
-	}
-	userIDs, err := s.repository.UserIDsByRoleIDs(ctx, roleIDs)
-	if err != nil {
-		return apperror.LegacyWrap(apperror.CodeInternal, 500, "查询角色用户失败", err)
-	}
-	for _, userID := range normalizeIDs(userIDs) {
-		for _, platform := range s.platforms {
-			if err := s.cacheInvalidator.Delete(ctx, permission.RouteAccessCacheKey(userID, platform)); err != nil {
-				return apperror.LegacyWrap(apperror.CodeInternal, 500, "清理权限缓存失败", err)
-			}
-		}
-	}
-	return nil
 }
 
 func validateListQuery(query ListQuery) *apperror.Error {

@@ -10,6 +10,7 @@ import (
 	rolemodule "admin_back_go/internal/module/role"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/dict"
+	"admin_back_go/internal/shared/pagination"
 
 	"github.com/gin-gonic/gin"
 )
@@ -60,7 +61,7 @@ func (f *fakeHTTPService) SetDefault(ctx context.Context, id int64) *apperror.Er
 func TestHandlerInstallsRoleRESTRoutes(t *testing.T) {
 	service := &fakeHTTPService{
 		initResult: &rolemodule.InitResponse{Dict: rolemodule.InitDict{PermissionPlatformArr: []dict.Option[string]{{Label: "admin", Value: "admin"}}}},
-		listResult: &rolemodule.ListResponse{List: []rolemodule.ListItem{}, Page: rolemodule.Page{CurrentPage: 1, PageSize: 50, Total: 0, TotalPage: 0}},
+		listResult: &rolemodule.ListResponse{List: []rolemodule.ListItem{}, Page: pagination.Page{CurrentPage: 1, PageSize: 50, Total: 0, TotalPage: 0}},
 	}
 	router := newRoleTestRouter(service)
 
