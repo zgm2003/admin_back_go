@@ -196,6 +196,36 @@ DELETE /api/admin/v1/users
 
 `src/enums` 只保留跨模块稳定值域；后端字典、本地化标签和页面展示映射不得搬入公共枚举。每个基础模块迁移时，同时把自己的重复分页结构切换到公共协议。
 
+### Wave 03 User 恢复点（2026-08-14）
+
+代码迁移已完成，停在 User 模块，等待人工验收；不得自动进入 Role。
+
+后端提交：
+
+```text
+2780fe7 fix(permission): restore user manager page access fact
+a2bf32b chore(contract): publish user manager page permission
+a51ec19 refactor(user): use shared pagination
+ed86f36 chore(contract): publish user management operations
+05a5158 chore(contract): sync user management schemas
+```
+
+前端提交：
+
+```text
+eb3c01a chore(contract): sync user manager page permission
+9a807b5 refactor(user): centralize user management API
+494cdd6 refactor(user): use crud table in user manager
+2102216 refactor(user): remove redundant management workflow
+117f70d chore(contract): sync user management schemas
+```
+
+合同恢复点：后端 manifest 绑定 `ed86f361e6514cc88502d49c548c142dc15abc59`，前端 lock 的 manifest SHA-256 为 `c15b60fd645179622280e8aba5cf182434420082afbfe770fcfa7bd193e090cd`。
+
+计划内后端短测试、前端 ESLint、合同生成/检查和四个前端测试文件分别运行均通过。四个前端测试文件在同一 Vitest 进程合跑时存在既有模块隔离失败：`generated-operations.test.ts` 可能得到 `installApiClient is not a function` 或 `isApiError is not a function`；各文件独立运行全部通过，本 Wave 未修改 HTTP 产品代码或 Vitest 配置。
+
+明确未运行：`admin-dev`、全量 Go/Vue 测试、全量 typecheck、Playwright、`verify:frontend` 和发布长脚本。
+
 ## Wave 04：运行与存储
 
 保留 `admin-worker` 和 Asynq，任务显式注册。WebSocket 收口为 `realtime` 包，MySQL 是消息/运行终态事实，Redis Pub/Sub 只做广播。COS 使用 `init -> 直传 -> complete -> HEAD 校验 -> MySQL 元数据`，API 不中转大文件。
