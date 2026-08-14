@@ -198,7 +198,7 @@ DELETE /api/admin/v1/users
 
 ### Wave 03 User 恢复点（2026-08-14）
 
-代码迁移已完成，停在 User 模块，等待人工验收；不得自动进入 Role。
+代码迁移已完成，并已通过用户人工验收。当前停在 User 模块，不得自动进入 Role；Role 必须另写计划、另设验收门。
 
 后端提交：
 
@@ -219,6 +219,15 @@ eb3c01a chore(contract): sync user manager page permission
 2102216 refactor(user): remove redundant management workflow
 117f70d chore(contract): sync user management schemas
 ```
+
+用户模块验收恢复点：
+
+```text
+Backend: 61bcf8926a915334a1b12de80709e84c3baa8c59
+Frontend: 117f70d
+```
+
+验收范围：用户列表分页、用户资料读取、编辑、状态切换、单个/批量删除、权限矩阵和页面访问。用户确认人工测试无问题。前端当前若存在 `src/lib/http/notifier.ts` 及其测试的未提交修改，属于计划外 HTTP 通知调整，不纳入 Wave 03 恢复点，也不得在本记录中默认带入下一波。
 
 合同恢复点：后端 manifest 绑定 `ed86f361e6514cc88502d49c548c142dc15abc59`，前端 lock 的 manifest SHA-256 为 `c15b60fd645179622280e8aba5cf182434420082afbfe770fcfa7bd193e090cd`。
 
