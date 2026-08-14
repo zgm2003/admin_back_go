@@ -45,7 +45,7 @@ Wave 02 frontend: 3c27ec5
 |---|---|---|---|
 | Wave 01 | 权限矩阵 UI + Realtime Redis DB 1 | 页面权限自然可选，实时和 AI 取消信号脱离缓存 DB 0 | 不删除旧架构 |
 | Wave 02 | 系统设置 CRUD 样板（已验收） | 第一条可读的后端/前端样板链 | 已删除系统设置旧重复层 |
-| Wave 03 | 公共分页、配置、公共响应、RBAC、后台基础模块 | 公共分页唯一，线性 Handler/Service/Repository 结构稳定 | 只删除已迁移模块旧层 |
+| Wave 03 | 公共分页、配置、公共响应、RBAC、后台基础模块 | 基础段已完成并人工验收；进入用户模块迁移 | 只删除已迁移模块旧层 |
 | Wave 04 | Worker、任务、Realtime、COS | 后台任务、WebSocket、上传边界收口 | 只删除已迁移 runtime 包装 |
 | Wave 05 | 支付与钱包 | 订单、钱包、供应商、回调幂等边界清楚 | 只删除支付旧适配层 |
 | Wave 06 | AI 七个子包 | AI、附件、上下文、扣费均沿真实业务边界 | 核心域最后清理 |
@@ -109,6 +109,74 @@ docs/superpowers/plans/2026-08-14-admin-architecture-reduction-wave-03-foundatio
 ```
 
 这一步只建立已经确认重复的分页协议，不创建万能响应包，不迁移所有业务模块，不删除 `src/lib` 或 `src/modules`。查询请求继续留在业务模块，因为筛选字段和分页限制并不统一。
+
+### Wave 03 基础段当前恢复点
+
+基础段已经完成并通过定向测试与用户人工验收。系统设置软删除 key 修复属于基础段收口后的必要修复，也已经完成 CRUD 人工验收。
+
+```text
+Backend HEAD: 2a34e3eaf477eb177bf374e8319eada8132b0697
+Frontend HEAD: 7528becad61783ca37cc7de4c793c30e0e4ed701
+Backend branch: master
+Frontend branch: master
+Backend worktree: clean
+Frontend worktree: clean
+```
+
+本基础段实际保留的事实：
+
+- 后端公共分页唯一入口为 `internal/shared/pagination`；
+- 前端公共分页唯一入口为 `src/utils/pagination.ts`；
+- 新前端请求入口为 `src/utils/request.ts`，`src/lib/http` 仅是迁移期同实例兼容导出；
+- `src/enums` 只保留稳定协议值域，页面颜色映射留在业务页面；
+- 未迁移用户、角色、权限、邮件、短信、日志、上传、支付和 AI；
+- 未删除 `src/lib`、`src/modules`、generated contract 或 runtime HTTP 模块。
+
+### 多平台 transport 规则
+
+用户已经确认后续会真实制作多个产品平台，因此 `transport` 是最终架构，不是临时目录。业务模块共享 `model/service/repository`，平台入口放在同一能力下：
+
+```text
+internal/module/{capability}/
+├── model.go
+├── service.go
+├── repository.go
+└── transport/
+    ├── admin/
+    ├── app/
+    └── openapi/
+```
+
+只为已经存在的真实平台创建对应目录；不复制业务 Service，不建立 `adminuser`、`appauth` 等平台命名业务模块。Wave 03 用户模块计划必须保留 `internal/module/user/transport/admin`，不得把它收回模块根目录。
+
+### Wave 03 下一入口
+
+基础段完成后，下一项只迁移 Admin 用户管理核心，计划文件为：
+
+```text
+docs/superpowers/plans/2026-08-14-admin-architecture-reduction-wave-03-user.md
+```
+
+用户模块计划完成并人工验收后，才进入角色模块；不得在同一计划中继续迁移权限、邮件、短信、日志或上传。
+
+### Wave 03 User 模块边界
+
+User 迁移只处理 Admin 用户管理页面的核心能力，保持原有 REST 路径、外层响应 `code/data/msg/error`、数据库字段、菜单和按钮权限不变：
+
+```text
+GET    /api/admin/v1/users/page-init
+GET    /api/admin/v1/users
+GET    /api/admin/v1/users/:id/profile
+PUT    /api/admin/v1/users/:id
+PATCH  /api/admin/v1/users/:id/status
+PATCH  /api/admin/v1/users
+DELETE /api/admin/v1/users/:id
+DELETE /api/admin/v1/users
+```
+
+本轮明确不迁移 `/users/me`、`/users/export`、用户会话、登录日志、个人资料安全修改、地址字典缓存实现；这些入口继续由现有能力提供，直到各自 Wave。`internal/module/user/transport/admin` 是长期 Admin 平台入口，不能因为本轮减法删除或收回模块根目录。
+
+前端 User 管理页面只保留一份 API 事实源：核心实现放在 `src/api/user/user-manager.ts`，`src/api/user/users.ts` 仅提供兼容导出，供登录日志、操作日志、通知任务和 AI 运行筛选继续使用。页面移除专用 `features/user-management/workflow.ts`，直接使用现有 `useCrudTable`/`useTable` 和模块 API；只有引用清零后才删除该 workflow 及其测试。
 
 按一个模块一个提交迁移：用户、角色、权限、邮件、短信、日志、上传配置。每个模块都执行：
 
