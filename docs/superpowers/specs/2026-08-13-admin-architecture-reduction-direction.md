@@ -2,11 +2,16 @@
 
 > 日期：2026-08-13
 >
-> 状态：数据库基线减法已完成；架构减法设计已完成，等待用户审阅；尚未开始架构迁移
+> 状态：数据库基线、Wave 01、Wave 02 和 Wave 03 基础段已完成；架构减法正在逐波执行
 >
 > 适用仓库：`E:\admin\admin_back_go`、`E:\admin\admin_front_ts`
 >
-> 文档地位：本轮架构减法的唯一中心设计。后续规格、计划、代码和验收必须引用并服从本文；若需改变方向，先修改本文并重新确认。
+> 文档地位：本轮架构减法的中心方向。后续规格、计划、代码和验收必须引用并服从本文；Wave 06 和 Wave 07 还必须分别服从下列已批准专项设计：
+>
+> - `docs/superpowers/specs/2026-08-14-ai-module-radical-simplification-design.md`
+> - `docs/superpowers/specs/2026-08-14-admin-generated-contract-retirement-design.md`
+>
+> 若需改变方向，必须先修改本文及受影响专项设计并重新确认，不允许让旧计划继续表达第二套架构。
 
 ## 1. 为什么必须重构
 
@@ -59,7 +64,6 @@ views
 ```text
 业务事实       -> MySQL
 文件内容       -> COS
-向量派生索引   -> Qdrant
 缓存/会话/队列 -> Redis
 实时通知       -> WebSocket + Redis Pub/Sub
 业务规则       -> Service
@@ -74,12 +78,12 @@ views
 - 现有数据库业务数据、表字段语义和必要索引；
 - 现有 API 路径、请求字段和响应协议；
 - 菜单、权限码、角色关系和用户操作习惯；
-- 登录、会话、RBAC、支付、上传、WebSocket、AI 和上下文工程能力；
+- 登录、会话、RBAC、支付、上传、WebSocket 和 AI 核心对话能力；
 - 支付验签、幂等、钱包流水和事务边界；
 - AI Conversation、Message、Run、Attachment 的持久化事实；
 - Worker 任务幂等、重试、终态收口和恢复；
 - COS 对象访问授权；
-- MySQL 真相与 Redis/Qdrant 派生状态的边界；
+- MySQL 真相与 Redis 派生状态的边界；
 - 中英文用户提示和稳定的程序错误码。
 
 删除表、字段、接口、功能或数据前，必须给出引用和业务证据并获得用户批准。每迁移一个模块，先验收新实现，再删除该模块旧实现。
@@ -218,11 +222,14 @@ handler -> service -> repository -> model
 - 前端业务类型放在对应 `api/*.ts` 中；
 - 后端分页响应只使用 `internal/shared/pagination` 的 `Page` 和 `Result[T]`；列表项仍由业务模块定义；
 - 前端分页响应只使用 `src/utils/pagination.ts` 的 `pageSchema` 和 `paginatedSchema(itemSchema)`；业务 schema 仍放在对应 `api/*.ts`；
-- 删除前端 generated operation 和 runtime schema compiler 的日常依赖；
-- OpenAPI 可作为文档或检查工具保留，但不能阻塞普通 CRUD；
+- 删除前端 generated operation 和 runtime schema compiler；
+- 彻底退役 OpenAPI、permissions/views/manifest bundle、前后端合同镜像及哈希检查，不保留可选文档产物；
+- 删除 route `HTTPContract` 请求/响应副本、`internal/admincontract` 和 `cmd/admin-contract`；
 - 核心接口用短集成测试验证真实 JSON；
 - 不再维护额外的 route HTTPContract 业务响应副本；
 - 后端返回结构与前端解包必须在同一变更中完成。
+
+完整删除边界、替代事实源和兼容顺序以 `docs/superpowers/specs/2026-08-14-admin-generated-contract-retirement-design.md` 为准。旧生成物在消费者迁移期间只作为临时遗留存在；不得为新接口继续扩展，也不得建立兼容 facade。
 
 ## 7. RBAC 与操作日志
 
@@ -351,7 +358,7 @@ API 启动链：
 ```text
 cmd/admin-api/main.go
 -> config.Load()
--> MySQL / Redis / Qdrant / COS / Provider client
+-> MySQL / Redis / COS / Provider client
 -> repository / service / handler
 -> middleware / routes
 -> HTTP server
@@ -449,7 +456,7 @@ scripts/
 
 - `admin-dev.ps1` 负责本地前后端开发启动；
 - `database.ps1` 负责 `init/reset/migrate/check`；
-- `docker.ps1` 只负责 MySQL、Redis、Qdrant 等状态服务；
+- `docker.ps1` 只负责 MySQL、Redis 等状态服务；
 - 合同生成、历史 cutover、browser-only、长 smoke 和未上线项目的发布平台脚本删除；
 - 标准 `go test`、`go vet`、`go build` 不再被多层 PowerShell 套娃；
 - 支付证书等人工维护能力进入 `admin-cli`；
@@ -530,7 +537,6 @@ internal/module/ai/
 ├── conversation/   会话与消息
 ├── run/            运行记录与流式终态
 ├── asset/          附件关联与授权
-├── context/        上下文工程
 └── billing/        用量计算与扣费编排
 ```
 
@@ -549,12 +555,17 @@ AI Handler
 - `conversation` 持有会话和消息事实；
 - `run` 持有一次模型执行、状态和终态收口；
 - `asset` 只管理消息与已授权文件的关联；
-- `context` 管理空间、文档、版本、检索和派生索引；
 - `billing` 计算 AI 用量，但实际余额变更必须调用钱包 Service；
-- 上下文工程和 Embedding 可热插拔，关闭或上游不可用时不得破坏普通聊天；
-- MySQL 保存上下文文档与版本事实，Qdrant 只保存可重建的向量索引；
+- 普通聊天上下文只使用智能体系统提示词、最近 N 个完整轮次、当前消息、原生附件和本 Run 工具结果；
+- 历史轮次中的图片和文件必须从持久化附件事实重新授权并通过 COS 物化，不能因删除 Context Plan 而丢失；
+- 删除 Profile、Space、Document、Memory、Context Plan、Citation、Embedding、Rerank 和 Qdrant；
+- 模型类型只保留 `chat` 和 `image`，不根据模型名称做运行时猜测；
+- 新 Run 只在接受时检查余额大于 0，不再冻结理论最大费用；真实 Usage 结算允许余额变负，非正余额拒绝下一次 Run；
+- Provider Usage 不完整时不猜测、不扣款，Run 明确进入 `unbilled`；
 - 删除通用 Kernel、Feature Registry、万能 Workflow 和二次 DTO 生成器；
 - AI 内部只有出现真实独立生命周期时才继续拆包。
+
+AI 表、字段、状态、部署和人工验收的完整删除边界，以 `docs/superpowers/specs/2026-08-14-ai-module-radical-simplification-design.md` 为准。本文不再保留“向量热插拔”作为另一套目标。
 
 ## 16. 支付与钱包
 
@@ -726,7 +737,7 @@ database/
 - AI 工具目录；
 - 新迁移基线账本。
 
-官方模型目录及其类型、能力和基础价格的权威来源是 `internal/module/ai/officialmodel/catalog/official_models_v1.json`，不在 SQL 中再复制一份。Provider、Provider Model、智能体和上下文配置属于用户配置，也不进入初始化 Seed。
+官方模型目录及其类型、能力和基础价格的权威来源是 `internal/module/ai/officialmodel/catalog/official_models_v1.json`，不在 SQL 中再复制一份。Provider、Provider Model 和智能体属于用户配置，也不进入初始化 Seed。
 
 Seed 不保留：
 
@@ -735,7 +746,7 @@ Seed 不保留：
 - 支付订单和运行流水；
 - 操作日志和队列历史；
 - 私有 Provider 密钥、支付证书和 COS 密钥；
-- Qdrant 向量和本地临时数据。
+- Redis、COS 和本地临时运行数据。
 
 管理员由 `admin-cli create-admin` 创建，密码不得硬编码在 SQL 或命令参数中。
 
@@ -746,7 +757,6 @@ Seed 不保留：
 -> 备份 MySQL
 -> schema.sql + seed.sql 重建 MySQL
 -> 清理本项目 Redis DB 0/1/2/3
--> 清理本项目 Qdrant 派生集合
 -> 创建本地管理员
 -> 启动 API/Worker
 -> 验证 /ready 和关键页面
@@ -797,7 +807,8 @@ Frontend API-> 请求参数和响应解包
 - WebSocket 断线恢复和多节点广播；
 - Worker 幂等、重试和恢复；
 - COS 权限和对象完成确认；
-- 上下文工程开关、索引降级和 Qdrant 重建。
+- AI 最近 N 个完整轮次、历史附件重放、Run 终态和真实 Usage 结算；
+- AI 正余额准入、结算后负余额、下一次调用拒绝和充值后恢复。
 
 删除：
 
@@ -816,7 +827,7 @@ Frontend API-> 请求参数和响应解包
 
 - 保存前后端当前提交和工作区差异；
 - 保留 MySQL 完整备份及哈希；
-- 记录 Redis/Qdrant 清理范围；
+- 记录 Redis 和 COS 临时数据清理范围；
 - 禁止新增 Kernel、Registry、generated contract 和一次性长期脚本。
 
 ### 阶段 1：基础骨架
@@ -858,18 +869,21 @@ view -> api -> request -> 后端
 
 ### 阶段 6：AI
 
-最后迁移供应商、智能体、会话、附件、运行记录、上下文工程和扣费。AI 每个子域单独验收，不进行一次性整体重写。
+最后迁移供应商、智能体、会话、附件、运行记录和扣费。按已批准的 AI 激进减法规格删除 Context/RAG/Qdrant/Embedding/Rerank/Memory/Context Plan 和钱包 Hold，恢复最近 N 个完整轮次与 COS 历史附件上下文。AI 每个子域单独验收，不进行一次性整体重写。
 
 ### 阶段 7：删除旧架构
 
 只有所有消费者迁移并通过验收后，才删除：
 
-- generated contracts/operations/views/permissions；
+- 后端 `contracts/admin/v1`、`internal/admincontract`、`cmd/admin-contract` 和 route `HTTPContract`；
+- 前端 `contracts/backend/admin`、generated operations/types/views/permissions；
 - runtime schema compiler；
 - AppKernel、RuntimeRouteRegistry、Workflow 和 Adapter 套娃；
-- route HTTPContract 业务响应副本；
+- 合同生成、同步、哈希检查、CI/Release 门禁和专用测试；
 - 旧 `cmd`、历史脚本、空目录和失效文档；
 - 只服务于旧架构的测试。
+
+Wave 07 不保留 OpenAPI、Swagger、SDK 或可选合同产物。完整退役顺序和兼容边界以 `docs/superpowers/specs/2026-08-14-admin-generated-contract-retirement-design.md` 为准。
 
 ## 21. 单模块迁移流程
 
@@ -894,6 +908,7 @@ view -> api -> request -> 后端
 - 开发者能从 Route 顺着代码直接读到 Model；
 - 前端页面能顺着 API 文件直接看到请求和响应类型；
 - 普通 CRUD 不再依赖生成合同、Kernel、Registry 或 Adapter；
+- 前后端不存在 OpenAPI bundle、合同镜像、generated operations/views/permissions 和合同哈希门禁；
 - API 只有一份人可读请求/响应定义；
 - RBAC 和操作日志在路由处显式可见；
 - `cmd` 只剩 API、Worker、CLI；
@@ -902,7 +917,8 @@ view -> api -> request -> 后端
 - COS 直传不占用 API 文件带宽；
 - WebSocket 断线后能从 MySQL 恢复；
 - 支付和 AI 扣费具有明确事务与流水边界；
-- 上下文工程关闭或不可用时不影响普通 AI 对话；
+- AI 普通对话不依赖 Context/RAG/Qdrant，最近 N 个完整轮次和历史附件可稳定重放；
+- AI 不再预冻结余额，真实 Usage 可把余额扣成负数且非正余额阻止下一次调用；
 - 空数据库可以通过 `schema.sql + seed.sql` 建立完整系统基础数据；
 - 所有旧架构删除都有引用盘点、恢复点和用户验收证据。
 

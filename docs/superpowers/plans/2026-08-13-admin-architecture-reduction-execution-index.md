@@ -4,21 +4,23 @@
 
 **Goal:** 在不破坏现有业务、数据库、接口和用户习惯的前提下，把 Admin 前后端恢复为社区可读的模块化单体和线性调用链。
 
-**Architecture:** 后端固定 `route -> middleware -> handler -> service -> repository -> model`，前端固定 `views -> api -> request -> backend`。MySQL 保存业务事实，Redis 按角色提供缓存/实时/Token/队列能力，COS 保存文件内容，Qdrant 保存可重建派生索引。
+**Architecture:** 后端固定 `route -> middleware -> handler -> service -> repository -> model`，前端固定 `views -> api -> request -> backend`。MySQL 保存业务事实，Redis 按角色提供缓存/实时/Token/队列能力，COS 保存文件内容；AI 普通对话不再依赖向量数据库。
 
-**Tech Stack:** Go 1.26.5、Gin、GORM、MySQL 8.4、Redis 8、Asynq、Qdrant、Vue 3.5、TypeScript、Vite、Element Plus、Vitest。
+**Tech Stack:** Go 1.26.5、Gin、GORM、MySQL 8.4、Redis 8、Asynq、Vue 3.5、TypeScript、Vite、Element Plus、Vitest。
 
 ---
 
 ## 使用规则
 
-唯一设计来源是：
+本轮唯一设计来源由一份中心方向书和两份已批准专项设计组成：
 
 ```text
 E:/admin/admin_back_go/docs/superpowers/specs/2026-08-13-admin-architecture-reduction-direction.md
+E:/admin/admin_back_go/docs/superpowers/specs/2026-08-14-ai-module-radical-simplification-design.md
+E:/admin/admin_back_go/docs/superpowers/specs/2026-08-14-admin-generated-contract-retirement-design.md
 ```
 
-执行前必须读取中心方向书和当前代码，不能只按旧计划中的文件名操作。中心方向书已经确认：
+执行 Wave 06 必须同时读取 AI 专项设计；执行 Wave 07 必须同时读取合同退役专项设计。任何旧规格、旧计划或当前实现与这三份文档冲突时，不得沿用旧方向。中心方向已经确认：
 
 - 原仓逐模块迁移，不新建长期 v2 双轨；
 - 保留 API、数据库、菜单、权限码和用户操作习惯；
@@ -27,6 +29,8 @@ E:/admin/admin_back_go/docs/superpowers/specs/2026-08-13-admin-architecture-redu
 - 每波只修改自己的文件，不能顺手修计划外问题；
 - 每波完成后先运行短测试，再等用户人工验收；
 - 只有验收后才允许删除对应旧实现。
+- Wave 06 彻底删除 Context/RAG/Qdrant/Embedding/Rerank/Memory/Context Plan 和钱包 Hold；
+- Wave 07 彻底删除 OpenAPI 与生成合同体系，不保留可选产物或兼容 facade。
 
 当前恢复点：
 
@@ -48,8 +52,8 @@ Wave 02 frontend: 3c27ec5
 | Wave 03 | 公共分页、配置、公共响应、RBAC、后台基础模块 | 基础段已完成并人工验收；进入用户模块迁移 | 只删除已迁移模块旧层 |
 | Wave 04 | Worker、任务、Realtime、COS | 后台任务、WebSocket、上传边界收口 | 只删除已迁移 runtime 包装 |
 | Wave 05 | 支付与钱包 | 订单、钱包、供应商、回调幂等边界清楚 | 只删除支付旧适配层 |
-| Wave 06 | AI 七个子包 | AI、附件、上下文、扣费均沿真实业务边界 | 核心域最后清理 |
-| Wave 07 | 旧合同、Kernel、Registry、脚本归档 | 日常开发不依赖生成器和脚本框架 | 最后一波集中删除 |
+| Wave 06 | AI 激进减法 | 最近 N 个完整轮次与 COS 历史附件；真实 Usage 扣费允许负余额 | 删除 Context/RAG/Qdrant/Embedding/Rerank/Memory/Context Plan/Hold |
+| Wave 07 | 生成合同与旧架构退役 | 日常 CRUD 只依赖 route/DTO/API/短测试 | OpenAPI、generated contract、Kernel、Registry 和旧脚本集中物理删除 |
 
 每个 Wave 结束后，新窗口必须把实际变更、测试结果、未处理问题和下一波入口写入交接记录，等待用户人工验收。不要跨 Wave 自动继续。
 
@@ -115,13 +119,13 @@ docs/superpowers/plans/2026-08-14-admin-architecture-reduction-wave-03-foundatio
 基础段已经完成并通过定向测试与用户人工验收。系统设置软删除 key 修复属于基础段收口后的必要修复，也已经完成 CRUD 人工验收。
 
 ```text
-Backend HEAD: 2a34e3eaf477eb177bf374e8319eada8132b0697
-Frontend HEAD: 7528becad61783ca37cc7de4c793c30e0e4ed701
+Accepted backend recovery point: 2a34e3eaf477eb177bf374e8319eada8132b0697
+Accepted frontend recovery point: 7528becad61783ca37cc7de4c793c30e0e4ed701
 Backend branch: master
 Frontend branch: master
-Backend worktree: clean
-Frontend worktree: clean
 ```
+
+上面是已人工验收的基础段恢复点，不是正在执行中的仓库 HEAD 或工作区状态。后续 User/Role 等任务由各自完成记录更新，执行总索引不得把未验收提交写成新基线。
 
 本基础段实际保留的事实：
 
@@ -202,24 +206,66 @@ DELETE /api/admin/v1/users
 
 ## Wave 06：AI
 
-AI 最后迁移，内部只保留真实子包：
+专项设计：
 
 ```text
-provider / agent / conversation / run / asset / context / billing
+docs/superpowers/specs/2026-08-14-ai-module-radical-simplification-design.md
 ```
 
-Embedding/Qdrant 不可用时，上下文增强降级，普通聊天继续工作。MySQL 保存文档和版本事实，Qdrant 只保存可重建索引。附件只引用 `asset_id`，文件内容继续走 COS。
+本波不是把上下文工程改成可选，而是彻底删除：
 
-## Wave 07：删除与归档
+```text
+Profile / Space / Document / Memory / Context Plan / Citation
+Embedding / Rerank / Qdrant
+wallet hold / reserve / capture / release
+```
+
+替代运行语义：
+
+- 普通聊天只使用系统提示词、最近 N 个完整轮次、当前消息、原生附件和本 Run 工具结果；
+- `max_history` 表示完整轮次数，默认 20、范围 0 到 50；
+- 历史轮次里的图片和文件继续从持久化附件事实授权，并通过 COS 重新物化；
+- 模型类型只保留 `chat` 和 `image`；
+- 新 Run 只要求接受时余额大于 0，不做理论最大费用冻结；
+- 真实 Provider Usage 结算允许余额为负，余额非正时拒绝下一次 Run；
+- Usage 不完整时不猜测、不扣款，明确记录为 `unbilled`；
+- 保留供应商、智能体、会话、消息、Run、附件、工具、生图、WebSocket、Usage、钱包流水、充值和支付宝支付。
+
+本波必须拆成专项设计规定的短波次逐段验收。不得恢复旧 Knowledge，不得建立 Context 兼容层，也不得保留 Qdrant Docker 作为“以后可能使用”的闲置依赖。
+
+## Wave 07：生成合同与旧架构退役
+
+专项设计：
+
+```text
+docs/superpowers/specs/2026-08-14-admin-generated-contract-retirement-design.md
+```
 
 只有所有消费者迁移且用户验收后，才按引用盘点删除：
 
-- generated operations/views/permissions 和 runtime schema 日常依赖；
+- 后端 `contracts/admin/v1`、`internal/admincontract`、`cmd/admin-contract`；
+- route `HTTPContract`、`Definition.Contract` 和各模块重复请求/响应合同声明；
+- 前端 `contracts/backend/admin`、`src/modules/http/generated`、`src/modules/routing/generated`；
+- OpenAPI、permissions/views/manifest、realtime schema bundle、合同镜像、lock、revision 和 SHA-256 检查；
+- `contract:sync`、`contract:generate`、`contract:check` 及生成、同步、校验和发布门禁；
+- 只验证生成 bundle、固定哈希、固定 revision、生成文件路径或操作清单的测试；
 - AppKernel、RuntimeRouteRegistry、万能 Workflow、纯转发 Adapter；
 - 已完成迁移且引用清零的 `src/lib`、`src/modules` 和其他过渡目录；
-- `cmd/admin-contract`、一次性 context preflight 和旧 `admin-db` 入口；
+- 一次性 context preflight 和旧 `admin-db` 入口；
 - 多层 PowerShell smoke、合同生成、发布 rehearsal、browser-only 和历史 cutover 脚本；
 - 失效架构文档、空目录和只保护旧文件路径的测试。
+
+替代事实源固定为：
+
+```text
+后端 route.go + request.go + response.go + handler.go + Handler 短测试
+前端 src/api/<business>.ts + TypeScript/Zod + src/utils/request.ts
+权限 数据库事实 + 后端路由中间件 + 403 矩阵测试
+菜单 users/me + 普通页面 registry/import.meta.glob
+实时 后端/前端明确事件结构 + 协议短测试
+```
+
+Wave 07 完成后不保留 OpenAPI、Swagger、SDK、生成合同可选产物或 deprecated facade。删除合同生成体系不等于删除运行时 RBAC、动态菜单、`users/me`、WebSocket 协议或统一错误响应。
 
 最终公开入口必须是：
 
@@ -243,7 +289,9 @@ scripts/internal/common.ps1
 - 不改变 API 返回外层 `code/data/msg/error`；
 - 不将页面访问改成新的权限码或新表；
 - 不把 Redis 多 DB 当成 Cluster；Cluster 适配另设 Wave；
-- 不把 Qdrant 必需性改成阻断普通聊天；
+- 不恢复 Context/RAG/Qdrant/Embedding/Rerank、跨会话长期记忆或钱包 Hold；
+- 不为新接口增加 route `HTTPContract`、generated operation 或合同生成物；
+- 不用另一套 IDL、SDK 生成器或兼容 facade 替代已退役合同体系；
 - 不用 `|| ''`、`?? []` 或空对象吞掉合同错误；
 - 不运行全仓长测试代替目标测试；
 - 不主动启动、停止或重启用户的 `admin-dev`；
