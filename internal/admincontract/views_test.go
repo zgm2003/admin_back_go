@@ -178,6 +178,31 @@ func TestViewsProtectUserManagerWithPagePermission(t *testing.T) {
 	t.Fatalf("missing user manager view %q", want.ViewKey)
 }
 
+func TestViewsProtectRoleManagerWithPagePermission(t *testing.T) {
+	bundle := mustBuildBundle(t)
+	var document ViewsDocument
+	if err := json.Unmarshal(bundle.Artifacts["views.json"], &document); err != nil {
+		t.Fatalf("decode views: %v", err)
+	}
+
+	want := View{
+		Path:            "/permission/role",
+		ViewKey:         "permission/role",
+		I18nKey:         "menu.permission_role",
+		ShowMenu:        1,
+		PermissionCodes: []string{"permission_role"},
+	}
+	for _, view := range document.Views {
+		if view.ViewKey == want.ViewKey {
+			if !reflect.DeepEqual(view, want) {
+				t.Fatalf("role manager view=%#v want=%#v", view, want)
+			}
+			return
+		}
+	}
+	t.Fatalf("missing role manager view %q", want.ViewKey)
+}
+
 func TestUsersMeSchemaClosesButtonCodesToPublishedPermissionCatalog(t *testing.T) {
 	bundle := mustBuildBundle(t)
 	var views ViewsDocument

@@ -15,7 +15,7 @@ INSERT INTO `permissions` (
 (10, '删除', '', '', 7, NULL, 'admin', 3, 2, 'user_userManager_del', '', 2, 1, 2),
 (11, '踢下线', '', '', 7, NULL, 'admin', 3, 3, 'user_userManager_kick', '', 2, 1, 2),
 (12, '后台菜单管理', '/permission/permission', '', 2, 'permission/permission', 'admin', 2, 1, NULL, 'menu.permission_permission', 1, 1, 2),
-(13, '角色管理', '/permission/role', '', 2, 'permission/role', 'admin', 2, 3, NULL, 'menu.permission_role', 1, 1, 2),
+(13, '角色管理', '/permission/role', '', 2, 'permission/role', 'admin', 2, 3, 'permission_role', 'menu.permission_role', 1, 1, 2),
 (14, '新增', '', '', 12, NULL, 'admin', 3, 1, 'permission_permission_add', '', 2, 1, 2),
 (15, '编辑', '', '', 12, NULL, 'admin', 3, 2, 'permission_permission_edit', '', 2, 1, 2),
 (16, '删除', '', '', 12, NULL, 'admin', 3, 3, 'permission_permission_del', '', 2, 1, 2),

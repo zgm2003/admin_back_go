@@ -193,6 +193,31 @@ func TestServiceBuildContextPublishesUserManagerPageAccessCode(t *testing.T) {
 	}
 }
 
+func TestServiceBuildContextPublishesRoleManagerPageAccessCode(t *testing.T) {
+	repo := &fakeRepository{
+		grantedIDs: []int64{13},
+		perms: []Permission{
+			{ID: 3, Name: "权限", ParentID: RootParentID, Type: TypeDir, Platform: "admin"},
+			{ID: 13, Name: "角色管理", ParentID: 3, Type: TypePage, Platform: "admin", Path: "/permission/role", Component: "permission/role", Code: "permission_role"},
+		},
+	}
+
+	got, appErr := NewService(repo, []string{"admin"}).BuildContextByRole(context.Background(), 2, "admin")
+
+	if appErr != nil {
+		t.Fatalf("BuildContextByRole() error = %v", appErr)
+	}
+	if !reflect.DeepEqual(got.RouteAccessCodes, []string{"permission_role"}) {
+		t.Fatalf("route access codes=%#v", got.RouteAccessCodes)
+	}
+	if len(got.ButtonCodes) != 0 {
+		t.Fatalf("page code leaked into button codes: %#v", got.ButtonCodes)
+	}
+	if len(got.Router) != 1 || got.Router[0].Meta["code"] != "permission_role" {
+		t.Fatalf("role manager route=%#v", got.Router)
+	}
+}
+
 func TestServiceBuildContextDoesNotExposeDirPathAsMenuRoute(t *testing.T) {
 	repo := &fakeRepository{
 		grantedIDs: []int64{2},
@@ -390,7 +415,7 @@ func TestServiceBuildContextWrapsRepositoryError(t *testing.T) {
 
 func TestRouteAccessCacheKey(t *testing.T) {
 	got := RouteAccessCacheKey(12, "admin")
-	want := "auth_perm_uid_12_admin_rbac_route_access_grants_v2"
+	want := "auth_perm_uid_12_admin_rbac_route_access_grants_v3"
 	if got != want {
 		t.Fatalf("cache key mismatch: got %q want %q", got, want)
 	}

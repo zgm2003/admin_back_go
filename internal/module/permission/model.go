@@ -13,7 +13,7 @@ const (
 	RootParentID = 0
 	StatusActive = 1
 
-	RouteAccessCacheKeySchema = "rbac_route_access_grants_v2"
+	RouteAccessCacheKeySchema = "rbac_route_access_grants_v3"
 )
 
 type Permission struct {

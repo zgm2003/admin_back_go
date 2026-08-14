@@ -18,7 +18,7 @@ func RegisterRoutes(router *gin.Engine, service HTTPService, routeRegistries ...
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodGet,
 		Path:   "/api/admin/v1/roles/page-init",
-		Access: adminroute.Authenticated(),
+		Access: adminroute.Permission("permission_role"),
 		Audit:  adminroute.NoAudit("read-only"),
 		Contract: &adminroute.HTTPContract{
 			Response: rolemodule.InitResponse{},
@@ -27,7 +27,7 @@ func RegisterRoutes(router *gin.Engine, service HTTPService, routeRegistries ...
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodGet,
 		Path:   "/api/admin/v1/roles",
-		Access: adminroute.Authenticated(),
+		Access: adminroute.Permission("permission_role"),
 		Audit:  adminroute.NoAudit("read-only"),
 		Contract: &adminroute.HTTPContract{
 			Query:    listRequest{},

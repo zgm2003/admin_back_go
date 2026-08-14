@@ -318,7 +318,7 @@ func TestServiceInitReturnsLegacyResponseAndCachesRouteAccess(t *testing.T) {
 	if builder.roleID != 7 || builder.platform != "admin" {
 		t.Fatalf("permission builder input mismatch: role=%d platform=%q", builder.roleID, builder.platform)
 	}
-	if cache.key != "auth_perm_uid_1_admin_rbac_route_access_grants_v2" || !reflect.DeepEqual(cache.values, []string{"user_list", "user_add"}) || cache.ttl != 30*time.Minute {
+	if cache.key != "auth_perm_uid_1_admin_rbac_route_access_grants_v3" || !reflect.DeepEqual(cache.values, []string{"user_list", "user_add"}) || cache.ttl != 30*time.Minute {
 		t.Fatalf("route access cache mismatch: %#v", cache)
 	}
 }
@@ -767,7 +767,7 @@ func TestServiceUpdateUserProfileAndInvalidatesRoleCacheWhenRoleChanges(t *testi
 	if repo.updatedProfileUserID != 9 || repo.updatedProfileFields["address_id"] != int64(3) || repo.updatedProfileFields["sex"] != enum.SexFemale {
 		t.Fatalf("profile update mismatch: %#v", repo.updatedProfileFields)
 	}
-	if cache.key != "auth_perm_uid_9_admin_rbac_route_access_grants_v2" {
+	if cache.key != "auth_perm_uid_9_admin_rbac_route_access_grants_v3" {
 		t.Fatalf("expected cache invalidation to visit every registered adapter, last key=%q", cache.key)
 	}
 }

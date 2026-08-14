@@ -393,10 +393,10 @@ func TestServiceUpdateInvalidatesBoundUserRouteAccessGrantCaches(t *testing.T) {
 		t.Fatalf("expected update to succeed, got %v", appErr)
 	}
 	wantKeys := []string{
-		"auth_perm_uid_101_admin_rbac_route_access_grants_v2",
-		"auth_perm_uid_101_app_rbac_route_access_grants_v2",
-		"auth_perm_uid_102_admin_rbac_route_access_grants_v2",
-		"auth_perm_uid_102_app_rbac_route_access_grants_v2",
+		"auth_perm_uid_101_admin_rbac_route_access_grants_v3",
+		"auth_perm_uid_101_app_rbac_route_access_grants_v3",
+		"auth_perm_uid_102_admin_rbac_route_access_grants_v3",
+		"auth_perm_uid_102_app_rbac_route_access_grants_v3",
 	}
 	if !reflect.DeepEqual(cache.keys, wantKeys) {
 		t.Fatalf("cache keys mismatch\nwant=%#v\n got=%#v", wantKeys, cache.keys)

@@ -215,6 +215,62 @@ func TestUserManagerPagePermissionMigrationIsGuardedAndForwardOnly(t *testing.T)
 	}
 }
 
+func TestDatabaseBaselineRoleManagerPagePermissionContract(t *testing.T) {
+	seed, err := os.ReadFile(filepath.Join(backendRoot(t), "database", "seed.sql"))
+	if err != nil {
+		t.Fatalf("read database/seed.sql: %v", err)
+	}
+	rows, err := parsePermissionSeedRows(string(seed))
+	if err != nil {
+		t.Fatalf("parse permissions: %v", err)
+	}
+	for _, row := range rows {
+		if row.id == 13 {
+			if row.platform != "admin" || row.typeID != 2 || row.path != "/permission/role" ||
+				row.component != "permission/role" || row.code != "permission_role" ||
+				row.status != 1 || row.isDel != 2 {
+				t.Fatalf("role manager page permission=%+v", row)
+			}
+			return
+		}
+	}
+	t.Fatal("role manager page permission id=13 is missing")
+}
+
+func TestRoleManagerPagePermissionMigrationIsGuardedAndForwardOnly(t *testing.T) {
+	path := filepath.Join(backendRoot(t), "database", "migrations", "202608140002_set_role_page_code.sql")
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read role page permission migration: %v", err)
+	}
+	normalized := strings.ToLower(strings.Join(strings.Fields(string(body)), " "))
+	for _, required := range []string{
+		"create temporary table",
+		"id = 13",
+		"platform = 'admin'",
+		"type = 2",
+		"path = '/permission/role'",
+		"component = 'permission/role'",
+		"code = 'permission_role'",
+		"update `permissions`",
+		"code is null or trim(code) = ''",
+	} {
+		if !strings.Contains(normalized, required) {
+			t.Errorf("permission migration missing guard %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"insert into `permissions`",
+		"insert into `role_permissions`",
+		"update `role_permissions`",
+		"delete from `role_permissions`",
+	} {
+		if strings.Contains(normalized, forbidden) {
+			t.Errorf("permission migration contains forbidden write %q", forbidden)
+		}
+	}
+}
+
 func TestDatabaseBaselineAddressReferenceContract(t *testing.T) {
 	reference, err := os.ReadFile(filepath.Join(backendRoot(t), "database", "reference", "address.sql"))
 	if err != nil {

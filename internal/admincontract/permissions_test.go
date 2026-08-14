@@ -59,12 +59,12 @@ func TestPermissionsCatalogAndOperationPoliciesAreComplete(t *testing.T) {
 			t.Fatalf("retired client-version permission %q remains published", code)
 		}
 	}
-	for _, required := range []string{"ai_agent_add", "ai_run_list", "ai_official_model_list", "ai_official_model_price_sync", "payment_recharge_add", "payment_recharge_list", "system_mail", "system_mail_logView", "devTools_queueMonitor_list"} {
+	for _, required := range []string{"ai_agent_add", "ai_run_list", "ai_official_model_list", "ai_official_model_price_sync", "payment_recharge_add", "payment_recharge_list", "permission_role", "system_mail", "system_mail_logView", "devTools_queueMonitor_list"} {
 		if _, exists := catalog[required]; !exists {
 			t.Fatalf("missing active permission code %q", required)
 		}
 	}
-	if got, want := len(document.PermissionCodes), 108; got != want {
+	if got, want := len(document.PermissionCodes), 109; got != want {
 		t.Fatalf("permission codes=%d want=%d", got, want)
 	}
 
@@ -165,6 +165,27 @@ func TestUserManagerReadsUsePagePermission(t *testing.T) {
 	me, exists := findOperationPolicy(document.Operations, http.MethodGet, "/api/admin/v1/users/me")
 	if !exists || me.Access.Kind != adminroute.AccessAuthenticated || me.Access.PermissionCode != "" {
 		t.Fatalf("users/me access=%#v exists=%v", me.Access, exists)
+	}
+}
+
+func TestRoleManagerReadsUsePagePermission(t *testing.T) {
+	bundle := mustBuildBundle(t)
+	var document PermissionsDocument
+	if err := json.Unmarshal(bundle.Artifacts["permissions.json"], &document); err != nil {
+		t.Fatalf("decode permissions: %v", err)
+	}
+
+	for _, path := range []string{
+		"/api/admin/v1/roles/page-init",
+		"/api/admin/v1/roles",
+	} {
+		operation, exists := findOperationPolicy(document.Operations, http.MethodGet, path)
+		if !exists {
+			t.Fatalf("missing GET %s", path)
+		}
+		if operation.Access.Kind != adminroute.AccessPermission || operation.Access.PermissionCode != "permission_role" {
+			t.Fatalf("GET %s access=%#v", path, operation.Access)
+		}
 	}
 }
 

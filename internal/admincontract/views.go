@@ -46,7 +46,7 @@ func buildViewsDocument() ViewsDocument {
 		{Path: "/payment/wallets", ViewKey: "payment/wallets", I18nKey: "menu.payment_wallets", ShowMenu: 1, PermissionCodes: []string{"payment_wallet_list"}},
 		{Path: "/permission/authPlatform", ViewKey: "permission/authPlatform", I18nKey: "menu.permission_authPlatform", ShowMenu: 1},
 		{Path: "/permission/permission", ViewKey: "permission/permission", I18nKey: "menu.permission_permission", ShowMenu: 1},
-		{Path: "/permission/role", ViewKey: "permission/role", I18nKey: "menu.permission_role", ShowMenu: 1},
+		{Path: "/permission/role", ViewKey: "permission/role", I18nKey: "menu.permission_role", ShowMenu: 1, PermissionCodes: []string{"permission_role"}},
 		{Path: "/personal", ViewKey: "personal", I18nKey: "menu.personal", ShowMenu: 2},
 		{Path: "/profile/wallet", ViewKey: "profile/wallet", I18nKey: "menu.profile_wallet", ShowMenu: 2, PermissionCodes: []string{"profile_wallet"}},
 		{Path: "/system/cronTask", ViewKey: "system/cronTask", I18nKey: "menu.system_cronTask", ShowMenu: 1},
