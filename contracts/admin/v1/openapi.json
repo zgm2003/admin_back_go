@@ -11608,6 +11608,148 @@
         ],
         "type": "object"
       },
+      "Go_internal_module_user_ListItem_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "address_id": {
+            "type": "integer"
+          },
+          "address_show": {
+            "type": "string"
+          },
+          "avatar": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "bio": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "detail_address": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "role_id": {
+            "type": "integer"
+          },
+          "role_name": {
+            "type": "string"
+          },
+          "sex": {
+            "type": "integer"
+          },
+          "sex_show": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "address_id",
+          "address_show",
+          "avatar",
+          "bio",
+          "created_at",
+          "detail_address",
+          "email",
+          "id",
+          "phone",
+          "role_id",
+          "role_name",
+          "sex",
+          "sex_show",
+          "status",
+          "username"
+        ],
+        "type": "object"
+      },
+      "Go_internal_module_user_ListResponse_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "list": {
+            "items": {
+              "$ref": "#/components/schemas/Go_internal_module_user_ListItem_Output"
+            },
+            "type": "array"
+          },
+          "page": {
+            "$ref": "#/components/schemas/Go_internal_shared_pagination_Page_Output"
+          }
+        },
+        "required": [
+          "list",
+          "page"
+        ],
+        "type": "object"
+      },
+      "Go_internal_module_user_PageInitDict_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "auth_address_tree": {
+            "items": {
+              "$ref": "#/components/schemas/Go_internal_module_user_AddressTreeNode_Output"
+            },
+            "type": "array"
+          },
+          "platformArr": {
+            "items": {
+              "$ref": "#/components/schemas/Go_internal_shared_dict_Option_string_Output"
+            },
+            "type": "array"
+          },
+          "roleArr": {
+            "items": {
+              "$ref": "#/components/schemas/Go_internal_shared_dict_Option_int_Output"
+            },
+            "type": "array"
+          },
+          "sexArr": {
+            "items": {
+              "$ref": "#/components/schemas/Go_internal_shared_dict_Option_int_Output"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "auth_address_tree",
+          "platformArr",
+          "roleArr",
+          "sexArr"
+        ],
+        "type": "object"
+      },
+      "Go_internal_module_user_PageInitResponse_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "dict": {
+            "$ref": "#/components/schemas/Go_internal_module_user_PageInitDict_Output"
+          }
+        },
+        "required": [
+          "dict"
+        ],
+        "type": "object"
+      },
       "Go_internal_module_user_ProfileDetail_Output": {
         "additionalProperties": false,
         "properties": {
@@ -14282,6 +14424,65 @@
         ],
         "type": "object"
       },
+      "delete_api_admin_v1_users_Request": {
+        "additionalProperties": false,
+        "properties": {
+          "ids": {
+            "items": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "ids"
+        ],
+        "type": "object"
+      },
+      "delete_api_admin_v1_users_ResponseEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": 0,
+            "type": "integer"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Go_internal_server_adminroute_EmptyData_Output"
+          },
+          "msg": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "data",
+          "msg"
+        ],
+        "type": "object"
+      },
+      "delete_api_admin_v1_users_id_ResponseEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": 0,
+            "type": "integer"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Go_internal_server_adminroute_EmptyData_Output"
+          },
+          "msg": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "data",
+          "msg"
+        ],
+        "type": "object"
+      },
       "get_api_admin_v1_ai_agents_ResponseEnvelope": {
         "additionalProperties": false,
         "properties": {
@@ -15695,6 +15896,27 @@
         ],
         "type": "object"
       },
+      "get_api_admin_v1_users_ResponseEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": 0,
+            "type": "integer"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Go_internal_module_user_ListResponse_Output"
+          },
+          "msg": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "data",
+          "msg"
+        ],
+        "type": "object"
+      },
       "get_api_admin_v1_users_id_profile_ResponseEnvelope": {
         "additionalProperties": false,
         "properties": {
@@ -15746,6 +15968,27 @@
           },
           "data": {
             "$ref": "#/components/schemas/Go_internal_module_auth_LoginLogPageInitResponse_Output"
+          },
+          "msg": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "data",
+          "msg"
+        ],
+        "type": "object"
+      },
+      "get_api_admin_v1_users_page_init_ResponseEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": 0,
+            "type": "integer"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Go_internal_module_user_PageInitResponse_Output"
           },
           "msg": {
             "type": "string"
@@ -16326,6 +16569,115 @@
           },
           "data": {
             "$ref": "#/components/schemas/Go_internal_module_auth_SessionBatchRevokeResponse_Output"
+          },
+          "msg": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "data",
+          "msg"
+        ],
+        "type": "object"
+      },
+      "patch_api_admin_v1_users_Request": {
+        "additionalProperties": false,
+        "properties": {
+          "address_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "minimum": 1
+          },
+          "detail_address": {
+            "maxLength": 255,
+            "type": "string"
+          },
+          "field": {
+            "type": "string"
+          },
+          "ids": {
+            "items": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "sex": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "enum": [
+              0,
+              1,
+              2
+            ]
+          }
+        },
+        "required": [
+          "field",
+          "ids"
+        ],
+        "type": "object"
+      },
+      "patch_api_admin_v1_users_ResponseEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": 0,
+            "type": "integer"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Go_internal_server_adminroute_EmptyData_Output"
+          },
+          "msg": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "data",
+          "msg"
+        ],
+        "type": "object"
+      },
+      "patch_api_admin_v1_users_id_status_Request": {
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "enum": [
+              1,
+              2
+            ],
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "patch_api_admin_v1_users_id_status_ResponseEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": 0,
+            "type": "integer"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Go_internal_server_adminroute_EmptyData_Output"
           },
           "msg": {
             "type": "string"
@@ -19972,6 +20324,77 @@
         "type": "object"
       },
       "put_api_admin_v1_upload_settings_id_ResponseEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": 0,
+            "type": "integer"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Go_internal_server_adminroute_EmptyData_Output"
+          },
+          "msg": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "data",
+          "msg"
+        ],
+        "type": "object"
+      },
+      "put_api_admin_v1_users_id_Request": {
+        "additionalProperties": false,
+        "properties": {
+          "address_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "minimum": 0
+          },
+          "avatar": {
+            "maxLength": 255,
+            "type": "string"
+          },
+          "bio": {
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "detail_address": {
+            "maxLength": 255,
+            "type": "string"
+          },
+          "role_id": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "sex": {
+            "enum": [
+              0,
+              1,
+              2
+            ],
+            "type": "integer"
+          },
+          "username": {
+            "maxLength": 64,
+            "type": "string"
+          }
+        },
+        "required": [
+          "address_id",
+          "role_id",
+          "username"
+        ],
+        "type": "object"
+      },
+      "put_api_admin_v1_users_id_ResponseEnvelope": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -35909,7 +36332,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/UserBatchDeleteRequest"
+                "$ref": "#/components/schemas/delete_api_admin_v1_users_Request"
               }
             }
           },
@@ -35920,7 +36343,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EmptySuccessEnvelope"
+                  "$ref": "#/components/schemas/delete_api_admin_v1_users_ResponseEnvelope"
                 }
               }
             },
@@ -35962,29 +36385,26 @@
         "operationId": "get_api_admin_v1_users",
         "parameters": [
           {
-            "description": "Comma-separated positive address IDs.",
+            "description": "",
             "in": "query",
             "name": "address_id",
             "required": false,
             "schema": {
-              "minLength": 1,
-              "pattern": "^\\d+(,\\d+)*$",
               "type": "string"
             }
           },
           {
-            "description": "One-based page number.",
+            "description": "",
             "in": "query",
             "name": "current_page",
             "required": true,
             "schema": {
-              "format": "int64",
               "minimum": 1,
               "type": "integer"
             }
           },
           {
-            "description": "Comma-separated start/end creation-time pair; ignored when date_start or date_end is present.",
+            "description": "",
             "in": "query",
             "name": "date",
             "required": false,
@@ -35993,7 +36413,7 @@
             }
           },
           {
-            "description": "Inclusive creation-time upper bound.",
+            "description": "",
             "in": "query",
             "name": "date_end",
             "required": false,
@@ -36002,7 +36422,7 @@
             }
           },
           {
-            "description": "Inclusive creation-time lower bound.",
+            "description": "",
             "in": "query",
             "name": "date_start",
             "required": false,
@@ -36011,7 +36431,7 @@
             }
           },
           {
-            "description": "Detail-address search.",
+            "description": "",
             "in": "query",
             "name": "detail_address",
             "required": false,
@@ -36021,7 +36441,7 @@
             }
           },
           {
-            "description": "Email search.",
+            "description": "",
             "in": "query",
             "name": "email",
             "required": false,
@@ -36031,7 +36451,7 @@
             }
           },
           {
-            "description": "General user keyword search.",
+            "description": "",
             "in": "query",
             "name": "keyword",
             "required": false,
@@ -36041,30 +36461,28 @@
             }
           },
           {
-            "description": "Number of rows per page.",
+            "description": "",
             "in": "query",
             "name": "page_size",
             "required": true,
             "schema": {
-              "format": "int64",
               "maximum": 50,
               "minimum": 1,
               "type": "integer"
             }
           },
           {
-            "description": "Role ID filter.",
+            "description": "",
             "in": "query",
             "name": "role_id",
             "required": false,
             "schema": {
-              "format": "int64",
               "minimum": 1,
               "type": "integer"
             }
           },
           {
-            "description": "Sex filter.",
+            "description": "",
             "in": "query",
             "name": "sex",
             "required": false,
@@ -36078,7 +36496,7 @@
             }
           },
           {
-            "description": "Username search.",
+            "description": "",
             "in": "query",
             "name": "username",
             "required": false,
@@ -36093,7 +36511,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UserListSuccessEnvelope"
+                  "$ref": "#/components/schemas/get_api_admin_v1_users_ResponseEnvelope"
                 }
               }
             },
@@ -36127,9 +36545,6 @@
           "enabled": false,
           "reason": "read-only"
         },
-        "x-admin-parameter-rules": [
-          "date_start/date_end take precedence over date when either explicit boundary is present"
-        ],
         "x-runtime-path": "/api/admin/v1/users"
       },
       "patch": {
@@ -36138,7 +36553,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/UserBatchProfileRequest"
+                "$ref": "#/components/schemas/patch_api_admin_v1_users_Request"
               }
             }
           },
@@ -36149,7 +36564,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EmptySuccessEnvelope"
+                  "$ref": "#/components/schemas/patch_api_admin_v1_users_ResponseEnvelope"
                 }
               }
             },
@@ -36477,7 +36892,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UserPageInitSuccessEnvelope"
+                  "$ref": "#/components/schemas/get_api_admin_v1_users_page_init_ResponseEnvelope"
                 }
               }
             },
@@ -36534,7 +36949,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EmptySuccessEnvelope"
+                  "$ref": "#/components/schemas/delete_api_admin_v1_users_id_ResponseEnvelope"
                 }
               }
             },
@@ -36590,7 +37005,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/UserUpdateRequest"
+                "$ref": "#/components/schemas/put_api_admin_v1_users_id_Request"
               }
             }
           },
@@ -36601,7 +37016,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EmptySuccessEnvelope"
+                  "$ref": "#/components/schemas/put_api_admin_v1_users_id_ResponseEnvelope"
                 }
               }
             },
@@ -36716,7 +37131,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/UserStatusRequest"
+                "$ref": "#/components/schemas/patch_api_admin_v1_users_id_status_Request"
               }
             }
           },
@@ -36727,7 +37142,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EmptySuccessEnvelope"
+                  "$ref": "#/components/schemas/patch_api_admin_v1_users_id_status_ResponseEnvelope"
                 }
               }
             },
