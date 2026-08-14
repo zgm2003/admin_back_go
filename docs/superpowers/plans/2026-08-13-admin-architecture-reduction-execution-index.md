@@ -49,7 +49,7 @@ Wave 02 frontend: 3c27ec5
 |---|---|---|---|
 | Wave 01 | 权限矩阵 UI + Realtime Redis DB 1 | 页面权限自然可选，实时和 AI 取消信号脱离缓存 DB 0 | 不删除旧架构 |
 | Wave 02 | 系统设置 CRUD 样板（已验收） | 第一条可读的后端/前端样板链 | 已删除系统设置旧重复层 |
-| Wave 03 | 公共分页、配置、公共响应、RBAC、后台基础模块 | 基础段已完成并人工验收；进入用户模块迁移 | 只删除已迁移模块旧层 |
+| Wave 03 | 公共分页、配置、公共响应、RBAC、后台基础模块 | 基础段和 User 已完成人工验收；下一项为 Role | 只删除已迁移模块旧层 |
 | Wave 04 | Worker、任务、Realtime、COS | 后台任务、WebSocket、上传边界收口 | 只删除已迁移 runtime 包装 |
 | Wave 05 | 支付与钱包 | 订单、钱包、供应商、回调幂等边界清楚 | 只删除支付旧适配层 |
 | Wave 06 | AI 激进减法 | 最近 N 个完整轮次与 COS 历史附件；真实 Usage 扣费允许负余额 | 删除 Context/RAG/Qdrant/Embedding/Rerank/Memory/Context Plan/Hold |
@@ -153,15 +153,15 @@ internal/module/{capability}/
 
 只为已经存在的真实平台创建对应目录；不复制业务 Service，不建立 `adminuser`、`appauth` 等平台命名业务模块。Wave 03 用户模块计划必须保留 `internal/module/user/transport/admin`，不得把它收回模块根目录。
 
-### Wave 03 下一入口
+### Wave 03 当前入口
 
-基础段完成后，下一项只迁移 Admin 用户管理核心，计划文件为：
+基础段和 User 模块已经完成人工验收。下一项只迁移 Admin Role 管理，计划文件为：
 
 ```text
-docs/superpowers/plans/2026-08-14-admin-architecture-reduction-wave-03-user.md
+docs/superpowers/plans/2026-08-14-admin-architecture-reduction-wave-03-role.md
 ```
 
-用户模块计划完成并人工验收后，才进入角色模块；不得在同一计划中继续迁移权限、邮件、短信、日志或上传。
+Role 计划完成并人工验收后，才进入 Permission 模块；不得在同一计划中继续迁移权限、邮件、短信、日志或上传。已执行的 User 计划保留在 `docs/superpowers/plans/2026-08-14-admin-architecture-reduction-wave-03-user.md`，不得回写。
 
 ### Wave 03 User 模块边界
 
@@ -227,7 +227,7 @@ Backend: 61bcf8926a915334a1b12de80709e84c3baa8c59
 Frontend: 117f70d
 ```
 
-验收范围：用户列表分页、用户资料读取、编辑、状态切换、单个/批量删除、权限矩阵和页面访问。用户确认人工测试无问题。前端当前若存在 `src/lib/http/notifier.ts` 及其测试的未提交修改，属于计划外 HTTP 通知调整，不纳入 Wave 03 恢复点，也不得在本记录中默认带入下一波。
+验收范围：用户列表分页、用户资料读取、编辑、状态切换、单个/批量删除、权限矩阵和页面访问。用户确认人工测试无问题。403 全局通知调整后来已作为独立前端提交 `9b034cb474115fc5ae6712c5408011631c15657d` 收口：401/404 保持静默，403 授权失败进入全局通知。该提交不是 User 模块验收恢复点的一部分，但它是 Role 执行前必须验证并保留的前端基线。
 
 合同恢复点：后端 manifest 绑定 `ed86f361e6514cc88502d49c548c142dc15abc59`，前端 lock 的 manifest SHA-256 为 `c15b60fd645179622280e8aba5cf182434420082afbfe770fcfa7bd193e090cd`。
 
