@@ -9,7 +9,7 @@ INSERT INTO `permissions` (
 (3, '系统管理', '', 'List', 0, NULL, 'admin', 1, 3, NULL, 'menu.system', 1, 1, 2),
 (4, '组件演示', '', 'Menu', 0, '', 'admin', 1, 4, NULL, 'menu.component', 1, 1, 2),
 (5, 'AI助手', '', 'HelpFilled', 0, NULL, 'admin', 1, 5, NULL, 'menu.ai', 1, 1, 2),
-(7, '用户管理', '/user/userManager', '', 1, 'user/userManager', 'admin', 2, 1, NULL, 'menu.user_userManager', 1, 1, 2),
+(7, '用户管理', '/user/userManager', '', 1, 'user/userManager', 'admin', 2, 1, 'user_userManager', 'menu.user_userManager', 1, 1, 2),
 (8, '登录日志', '/user/usersLoginLog', '', 1, 'user/usersLoginLog', 'admin', 2, 2, NULL, 'menu.user_usersLoginLog', 1, 1, 2),
 (9, '编辑', '', '', 7, NULL, 'admin', 3, 1, 'user_userManager_edit', '', 2, 1, 2),
 (10, '删除', '', '', 7, NULL, 'admin', 3, 2, 'user_userManager_del', '', 2, 1, 2),

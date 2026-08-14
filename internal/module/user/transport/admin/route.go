@@ -24,13 +24,13 @@ func RegisterRoutes(router *gin.Engine, service usermodule.HTTPService, routeReg
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodGet,
 		Path:   "/api/admin/v1/users/page-init",
-		Access: adminroute.Authenticated(),
+		Access: adminroute.Permission("user_userManager"),
 		Audit:  adminroute.NoAudit("read-only"),
 	}, handler.PageInit)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodGet,
 		Path:   "/api/admin/v1/users/:id/profile",
-		Access: adminroute.Authenticated(),
+		Access: adminroute.Permission("user_userManager"),
 		Audit:  adminroute.NoAudit("read-only"),
 		Contract: &adminroute.HTTPContract{
 			Response: usermodule.ProfileResponse{},
@@ -39,7 +39,7 @@ func RegisterRoutes(router *gin.Engine, service usermodule.HTTPService, routeReg
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodGet,
 		Path:   "/api/admin/v1/users",
-		Access: adminroute.Authenticated(),
+		Access: adminroute.Permission("user_userManager"),
 		Audit:  adminroute.NoAudit("read-only"),
 	}, handler.List)
 	routes.Handle(adminroute.Definition{

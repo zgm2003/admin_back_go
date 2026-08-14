@@ -2,12 +2,15 @@ package admincontract
 
 import (
 	"encoding/json"
+	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
 	"testing"
+
+	"admin_back_go/internal/server/adminroute"
 )
 
 func TestKnowledgePermissionRetirementSeedContract(t *testing.T) {
@@ -136,6 +139,32 @@ func TestAIRunDashboardUsesAIRunListPermission(t *testing.T) {
 		if operation.Access.Kind != "permission" || operation.Access.PermissionCode != "ai_run_list" {
 			t.Fatalf("GET %s access=%#v", path, operation.Access)
 		}
+	}
+}
+
+func TestUserManagerReadsUsePagePermission(t *testing.T) {
+	bundle := mustBuildBundle(t)
+	var document PermissionsDocument
+	if err := json.Unmarshal(bundle.Artifacts["permissions.json"], &document); err != nil {
+		t.Fatalf("decode permissions: %v", err)
+	}
+
+	for _, path := range []string{
+		"/api/admin/v1/users/page-init",
+		"/api/admin/v1/users",
+		"/api/admin/v1/users/:id/profile",
+	} {
+		operation, exists := findOperationPolicy(document.Operations, http.MethodGet, path)
+		if !exists {
+			t.Fatalf("missing GET %s", path)
+		}
+		if operation.Access.Kind != adminroute.AccessPermission || operation.Access.PermissionCode != "user_userManager" {
+			t.Fatalf("GET %s access=%#v", path, operation.Access)
+		}
+	}
+	me, exists := findOperationPolicy(document.Operations, http.MethodGet, "/api/admin/v1/users/me")
+	if !exists || me.Access.Kind != adminroute.AccessAuthenticated || me.Access.PermissionCode != "" {
+		t.Fatalf("users/me access=%#v exists=%v", me.Access, exists)
 	}
 }
 

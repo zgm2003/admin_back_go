@@ -59,7 +59,7 @@ func buildViewsDocument() ViewsDocument {
 		{Path: "/system/setting", ViewKey: "system/setting", I18nKey: "menu.system_setting", ShowMenu: 1},
 		{Path: "/system/sms", ViewKey: "system/sms", I18nKey: "menu.system_sms", ShowMenu: 1, PermissionCodes: []string{"system_sms"}},
 		{Path: "/system/uploadConfig", ViewKey: "system/uploadConfig", I18nKey: "menu.system_uploadConfig", ShowMenu: 1},
-		{Path: "/user/userManager", ViewKey: "user/userManager", I18nKey: "menu.user_userManager", ShowMenu: 1},
+		{Path: "/user/userManager", ViewKey: "user/userManager", I18nKey: "menu.user_userManager", ShowMenu: 1, PermissionCodes: []string{"user_userManager"}},
 		{Path: "/user/usersLoginLog", ViewKey: "user/usersLoginLog", I18nKey: "menu.user_usersLoginLog", ShowMenu: 1},
 	}
 	for index := range views {

@@ -98,7 +98,7 @@ func main() {
   })
   defer client.Close()
 
-  key := fmt.Sprintf("auth_perm_uid_%d_%s_rbac_route_access_grants", userID, os.Args[2])
+  key := fmt.Sprintf("auth_perm_uid_%d_%s_rbac_route_access_grants_v2", userID, os.Args[2])
   if err := client.Del(context.Background(), key).Err(); err != nil {
     fmt.Fprintln(os.Stderr, err)
     os.Exit(1)

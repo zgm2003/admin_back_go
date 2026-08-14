@@ -153,6 +153,31 @@ func TestViewsProtectAIRunMonitoringWithListPermission(t *testing.T) {
 	t.Fatalf("missing AI run view %q", want.ViewKey)
 }
 
+func TestViewsProtectUserManagerWithPagePermission(t *testing.T) {
+	bundle := mustBuildBundle(t)
+	var document ViewsDocument
+	if err := json.Unmarshal(bundle.Artifacts["views.json"], &document); err != nil {
+		t.Fatalf("decode views: %v", err)
+	}
+
+	want := View{
+		Path:            "/user/userManager",
+		ViewKey:         "user/userManager",
+		I18nKey:         "menu.user_userManager",
+		ShowMenu:        1,
+		PermissionCodes: []string{"user_userManager"},
+	}
+	for _, view := range document.Views {
+		if view.ViewKey == want.ViewKey {
+			if !reflect.DeepEqual(view, want) {
+				t.Fatalf("user manager view=%#v want=%#v", view, want)
+			}
+			return
+		}
+	}
+	t.Fatalf("missing user manager view %q", want.ViewKey)
+}
+
 func TestUsersMeSchemaClosesButtonCodesToPublishedPermissionCatalog(t *testing.T) {
 	bundle := mustBuildBundle(t)
 	var views ViewsDocument

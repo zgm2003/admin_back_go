@@ -981,6 +981,19 @@
     },
     {
       "method": "GET",
+      "path": "/api/admin/v1/ai/context-document-versions/:id/preview",
+      "operation_id": "ai_context_document_version_preview",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_context_view"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "method": "GET",
       "path": "/api/admin/v1/ai/context-documents/:id",
       "operation_id": "ai_context_document_get",
       "access": {
@@ -1061,6 +1074,19 @@
       "method": "GET",
       "path": "/api/admin/v1/ai/context-spaces/:id/documents",
       "operation_id": "ai_context_space_documents_list",
+      "access": {
+        "kind": "permission",
+        "permission_code": "ai_context_view"
+      },
+      "audit": {
+        "enabled": false,
+        "reason": "read-only"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/v1/ai/context/page-init",
+      "operation_id": "ai_context_page_init",
       "access": {
         "kind": "permission",
         "permission_code": "ai_context_view"
@@ -1854,7 +1880,8 @@
       "path": "/api/admin/v1/users",
       "operation_id": "get_api_admin_v1_users",
       "access": {
-        "kind": "authenticated"
+        "kind": "permission",
+        "permission_code": "user_userManager"
       },
       "audit": {
         "enabled": false,
@@ -1866,7 +1893,8 @@
       "path": "/api/admin/v1/users/:id/profile",
       "operation_id": "get_api_admin_v1_users_id_profile",
       "access": {
-        "kind": "authenticated"
+        "kind": "permission",
+        "permission_code": "user_userManager"
       },
       "audit": {
         "enabled": false,
@@ -1914,7 +1942,8 @@
       "path": "/api/admin/v1/users/page-init",
       "operation_id": "get_api_admin_v1_users_page_init",
       "access": {
-        "kind": "authenticated"
+        "kind": "permission",
+        "permission_code": "user_userManager"
       },
       "audit": {
         "enabled": false,

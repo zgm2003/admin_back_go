@@ -153,6 +153,68 @@ func TestDatabaseBaselineSeedContract(t *testing.T) {
 	}
 }
 
+func TestDatabaseBaselineUserManagerPagePermissionContract(t *testing.T) {
+	seed, err := os.ReadFile(filepath.Join(backendRoot(t), "database", "seed.sql"))
+	if err != nil {
+		t.Fatalf("read database/seed.sql: %v", err)
+	}
+	rows, err := parsePermissionSeedRows(string(seed))
+	if err != nil {
+		t.Fatalf("parse database/seed.sql permissions: %v", err)
+	}
+	if len(rows) != 132 {
+		t.Fatalf("permission seed row count=%d want 132", len(rows))
+	}
+
+	for _, row := range rows {
+		if row.id != 7 {
+			continue
+		}
+		if row.platform != "admin" || row.typeID != 2 || row.path != "/user/userManager" ||
+			row.component != "user/userManager" || row.code != "user_userManager" ||
+			row.status != 1 || row.isDel != 2 {
+			t.Fatalf("user manager page permission=%+v", row)
+		}
+		return
+	}
+	t.Fatal("user manager page permission id=7 is missing")
+}
+
+func TestUserManagerPagePermissionMigrationIsGuardedAndForwardOnly(t *testing.T) {
+	path := filepath.Join(backendRoot(t), "database", "migrations", "202608140001_set_user_manager_page_code.sql")
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read user manager page permission migration: %v", err)
+	}
+	normalized := strings.ToLower(strings.Join(strings.Fields(string(body)), " "))
+
+	for _, required := range []string{
+		"create temporary table",
+		"id = 7",
+		"platform = 'admin'",
+		"type = 2",
+		"path = '/user/usermanager'",
+		"component = 'user/usermanager'",
+		"code = 'user_usermanager'",
+		"update `permissions`",
+		"code is null or trim(code) = ''",
+	} {
+		if !strings.Contains(normalized, required) {
+			t.Errorf("permission migration missing guard %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"insert into `permissions`",
+		"insert into `role_permissions`",
+		"update `role_permissions`",
+		"delete from `role_permissions`",
+	} {
+		if strings.Contains(normalized, forbidden) {
+			t.Errorf("permission migration contains forbidden write %q", forbidden)
+		}
+	}
+}
+
 func TestDatabaseBaselineAddressReferenceContract(t *testing.T) {
 	reference, err := os.ReadFile(filepath.Join(backendRoot(t), "database", "reference", "address.sql"))
 	if err != nil {
