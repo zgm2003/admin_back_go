@@ -98,6 +98,7 @@
     "system_uploadConfig_settingDel",
     "system_uploadConfig_settingEdit",
     "system_uploadConfig_settingStatus",
+    "user_userManager",
     "user_userManager_batchEdit",
     "user_userManager_del",
     "user_userManager_edit",
@@ -3581,7 +3582,8 @@
       "method": "GET",
       "path": "/api/admin/v1/users",
       "access": {
-        "kind": "authenticated"
+        "kind": "permission",
+        "permission_code": "user_userManager"
       },
       "audit": {
         "enabled": false,
@@ -3638,7 +3640,8 @@
       "method": "GET",
       "path": "/api/admin/v1/users/:id/profile",
       "access": {
-        "kind": "authenticated"
+        "kind": "permission",
+        "permission_code": "user_userManager"
       },
       "audit": {
         "enabled": false,
@@ -3716,7 +3719,8 @@
       "method": "GET",
       "path": "/api/admin/v1/users/page-init",
       "access": {
-        "kind": "authenticated"
+        "kind": "permission",
+        "permission_code": "user_userManager"
       },
       "audit": {
         "enabled": false,

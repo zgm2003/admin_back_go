@@ -231,6 +231,7 @@
               "system_uploadConfig_settingDel",
               "system_uploadConfig_settingEdit",
               "system_uploadConfig_settingStatus",
+              "user_userManager",
               "user_userManager_batchEdit",
               "user_userManager_del",
               "user_userManager_edit",
@@ -550,7 +551,9 @@
       "view_key": "user/userManager",
       "i18n_key": "menu.user_userManager",
       "show_menu": 1,
-      "permission_codes": []
+      "permission_codes": [
+        "user_userManager"
+      ]
     },
     {
       "path": "/user/usersLoginLog",

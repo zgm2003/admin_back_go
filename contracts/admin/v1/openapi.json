@@ -36120,7 +36120,8 @@
           "users"
         ],
         "x-admin-access": {
-          "kind": "authenticated"
+          "kind": "permission",
+          "permission_code": "user_userManager"
         },
         "x-admin-audit": {
           "enabled": false,
@@ -36503,7 +36504,8 @@
           "users"
         ],
         "x-admin-access": {
-          "kind": "authenticated"
+          "kind": "permission",
+          "permission_code": "user_userManager"
         },
         "x-admin-audit": {
           "enabled": false,
@@ -36685,7 +36687,8 @@
           "users"
         ],
         "x-admin-access": {
-          "kind": "authenticated"
+          "kind": "permission",
+          "permission_code": "user_userManager"
         },
         "x-admin-audit": {
           "enabled": false,

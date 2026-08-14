@@ -3,14 +3,14 @@
   "openapi_version": "3.1.0",
   "permission_version": "admin-permissions-2026-07-15.3",
   "realtime_version": "admin-realtime-2026-07-18.1",
-  "backend_commit": "0e2624ca2562a89f77f831f1673345b237b31263",
+  "backend_commit": "2780fe71af5dd39451fe760204a106ae9b5b0b7a",
   "artifacts": {
     "openapi.json": {
-      "sha256": "2ee78191440e4c0fb78ab41ba5a359156d4ba5542818d277addbdaabefeff2e0",
+      "sha256": "26d9d19e800c9b862c17411d75584cfea99a74975499a415db6d30d0a1a03a0d",
       "schema_version": "3.1.0"
     },
     "permissions.json": {
-      "sha256": "062c72dbd3d66f24cf219d3eaf34a9c545ee171477513e142efc3a3552445bf8",
+      "sha256": "a46e755c20e71dc697f81110fe4bd8b3f090ccdcb02dce516e9706f831c9a553",
       "schema_version": "admin-permissions-2026-07-15.3"
     },
     "realtime/envelope.schema.json": {
@@ -22,7 +22,7 @@
       "schema_version": "admin-realtime-2026-07-18.1"
     },
     "views.json": {
-      "sha256": "59383bc36a28fcffe9d91bc5a395b100a72d5c4664dd17d0fa6871dd5d089741",
+      "sha256": "777b5385c9f3bdb73439bdb35b0348513841ec9fb67d6feb61d6a6e35469647d",
       "schema_version": "admin-views-2026-07-15.3"
     }
   }
