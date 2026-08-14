@@ -16,7 +16,11 @@ type fakeRepository struct {
 	total       int64
 	gotList     ListRequest
 	gotCreate   *Setting
-	existsKey   bool
+	createErr   error
+	existingKey *Setting
+	restoredID  int64
+	restoredRow *Setting
+	restoreMiss bool
 	byID        map[int64]Setting
 	updates     []map[string]any
 	deleted     []int64
@@ -53,12 +57,25 @@ func (f *fakeRepository) SettingsByIDs(ctx context.Context, ids []int64) (map[in
 	return rows, nil
 }
 
-func (f *fakeRepository) ExistsByKey(ctx context.Context, key string, excludeID int64) (bool, error) {
-	return f.existsKey, nil
+func (f *fakeRepository) FindByKey(ctx context.Context, key string) (*Setting, error) {
+	if f.existingKey == nil || f.existingKey.SettingKey != key {
+		return nil, nil
+	}
+	row := *f.existingKey
+	return &row, nil
+}
+
+func (f *fakeRepository) Restore(ctx context.Context, id int64, row Setting) (bool, error) {
+	f.restoredID = id
+	f.restoredRow = &row
+	return !f.restoreMiss, nil
 }
 
 func (f *fakeRepository) Create(ctx context.Context, row Setting) (int64, error) {
 	f.gotCreate = &row
+	if f.createErr != nil {
+		return 0, f.createErr
+	}
 	return 11, nil
 }
 
@@ -126,11 +143,56 @@ func TestListTrimsKeyAndReturnsLabels(t *testing.T) {
 }
 
 func TestCreateRejectsDuplicateKey(t *testing.T) {
-	service := NewService(&fakeRepository{existsKey: true})
+	service := NewService(&fakeRepository{
+		existingKey: &Setting{SettingKey: "user.default_avatar", IsDel: enum.CommonNo},
+	})
 
 	_, appErr := service.Create(context.Background(), CreateRequest{Key: "user.default_avatar", Value: "x", Type: enum.SystemSettingValueString})
 	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.MessageID != "systemsetting.key.duplicate" {
 		t.Fatalf("expected duplicate key error, got %#v", appErr)
+	}
+}
+
+func TestCreateRestoresSoftDeletedSetting(t *testing.T) {
+	repo := &fakeRepository{
+		existingKey: &Setting{ID: 20, SettingKey: "test", SettingValue: "old", ValueType: enum.SystemSettingValueString, Status: enum.CommonYes, IsDel: enum.CommonYes},
+	}
+	service := NewService(repo)
+
+	id, appErr := service.Create(context.Background(), CreateRequest{Key: "test", Value: "42", Type: enum.SystemSettingValueNumber, Remark: "restored"})
+	if appErr != nil {
+		t.Fatalf("expected soft-deleted setting to restore, got %v", appErr)
+	}
+	if id != 20 || repo.gotCreate != nil || repo.restoredID != 20 || repo.restoredRow == nil {
+		t.Fatalf("expected restore of existing id 20, id=%d create=%#v restore_id=%d restore_row=%#v", id, repo.gotCreate, repo.restoredID, repo.restoredRow)
+	}
+	if repo.restoredRow.SettingKey != "test" || repo.restoredRow.SettingValue != "42" || repo.restoredRow.ValueType != enum.SystemSettingValueNumber || repo.restoredRow.Remark != "restored" || repo.restoredRow.Status != enum.CommonYes || repo.restoredRow.IsDel != enum.CommonNo {
+		t.Fatalf("unexpected restored setting: %#v", repo.restoredRow)
+	}
+	if len(repo.invalidated) != 1 || repo.invalidated[0] != "test" {
+		t.Fatalf("expected restored key cache invalidation, got %#v", repo.invalidated)
+	}
+}
+
+func TestCreateMapsConcurrentRestoreRaceToBadRequest(t *testing.T) {
+	repo := &fakeRepository{
+		existingKey: &Setting{ID: 20, SettingKey: "test", IsDel: enum.CommonYes},
+		restoreMiss: true,
+	}
+	service := NewService(repo)
+
+	_, appErr := service.Create(context.Background(), CreateRequest{Key: "test", Value: "42", Type: enum.SystemSettingValueNumber})
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.MessageID != "systemsetting.key.duplicate" {
+		t.Fatalf("expected concurrent restore race to map to duplicate key, got %#v", appErr)
+	}
+}
+
+func TestCreateMapsConcurrentDuplicateToBadRequest(t *testing.T) {
+	service := NewService(&fakeRepository{createErr: ErrDuplicateKey})
+
+	_, appErr := service.Create(context.Background(), CreateRequest{Key: "race", Value: "x", Type: enum.SystemSettingValueString})
+	if appErr == nil || appErr.LegacyCode != apperror.CodeBadRequest || appErr.MessageID != "systemsetting.key.duplicate" {
+		t.Fatalf("expected concurrent duplicate key error, got %#v", appErr)
 	}
 }
 

@@ -11,11 +11,15 @@ import (
 	"admin_back_go/internal/infra/redisclient"
 	"admin_back_go/internal/shared/enum"
 
+	"github.com/go-sql-driver/mysql"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 )
 
-var ErrRepositoryNotConfigured = errors.New("system setting repository is not configured")
+var (
+	ErrRepositoryNotConfigured = errors.New("system setting repository is not configured")
+	ErrDuplicateKey            = errors.New("system setting key already exists")
+)
 
 const systemSettingCacheTTL = 5 * time.Minute
 
@@ -45,7 +49,8 @@ type Repository interface {
 	List(ctx context.Context, request ListRequest) ([]Setting, int64, error)
 	Get(ctx context.Context, id int64) (*Setting, error)
 	SettingsByIDs(ctx context.Context, ids []int64) (map[int64]Setting, error)
-	ExistsByKey(ctx context.Context, key string, excludeID int64) (bool, error)
+	FindByKey(ctx context.Context, key string) (*Setting, error)
+	Restore(ctx context.Context, id int64, row Setting) (bool, error)
 	Create(ctx context.Context, row Setting) (int64, error)
 	Update(ctx context.Context, id int64, fields map[string]any) error
 	Delete(ctx context.Context, ids []int64) error
@@ -198,22 +203,47 @@ func (r *GormRepository) SettingsByIDs(ctx context.Context, ids []int64) (map[in
 	return result, nil
 }
 
-func (r *GormRepository) ExistsByKey(ctx context.Context, key string, excludeID int64) (bool, error) {
+func (r *GormRepository) FindByKey(ctx context.Context, key string) (*Setting, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrRepositoryNotConfigured
+	}
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return nil, nil
+	}
+
+	var row Setting
+	err := r.db.WithContext(ctx).
+		Where("setting_key = ?", key).
+		First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &row, nil
+}
+
+func (r *GormRepository) Restore(ctx context.Context, id int64, row Setting) (bool, error) {
 	if r == nil || r.db == nil {
 		return false, ErrRepositoryNotConfigured
 	}
-	db := r.db.WithContext(ctx).
+	result := r.db.WithContext(ctx).
 		Model(&Setting{}).
-		Where("setting_key = ?", key).
-		Where("is_del = ?", enum.CommonNo)
-	if excludeID > 0 {
-		db = db.Where("id <> ?", excludeID)
+		Where("id = ?", id).
+		Where("is_del = ?", enum.CommonYes).
+		Updates(map[string]any{
+			"setting_value": row.SettingValue,
+			"value_type":    row.ValueType,
+			"remark":        row.Remark,
+			"status":        enum.CommonYes,
+			"is_del":        enum.CommonNo,
+		})
+	if result.Error != nil {
+		return false, result.Error
 	}
-	var count int64
-	if err := db.Count(&count).Error; err != nil {
-		return false, err
-	}
-	return count > 0, nil
+	return result.RowsAffected > 0, nil
 }
 
 func (r *GormRepository) Create(ctx context.Context, row Setting) (int64, error) {
@@ -221,6 +251,10 @@ func (r *GormRepository) Create(ctx context.Context, row Setting) (int64, error)
 		return 0, ErrRepositoryNotConfigured
 	}
 	if err := r.db.WithContext(ctx).Create(&row).Error; err != nil {
+		var mysqlErr *mysql.MySQLError
+		if errors.As(err, &mysqlErr) && mysqlErr.Number == 1062 {
+			return 0, ErrDuplicateKey
+		}
 		return 0, err
 	}
 	return row.ID, nil

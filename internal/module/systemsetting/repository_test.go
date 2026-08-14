@@ -11,6 +11,7 @@ import (
 	"admin_back_go/internal/shared/enum"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	mysqlDriver "github.com/go-sql-driver/mysql"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -124,6 +125,59 @@ func TestSettingByKeyFallsBackWhenCacheFails(t *testing.T) {
 	repository.InvalidateCache(context.Background(), row.SettingKey)
 	if cache.deletedKey != "sys_setting_raw_auth_captcha_ttl_minutes" {
 		t.Fatalf("deleted key=%q", cache.deletedKey)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet SQL expectations: %v", err)
+	}
+}
+
+func TestFindByKeyIncludesSoftDeletedSetting(t *testing.T) {
+	db, mock := newRepositoryTestDatabase(t)
+	mock.ExpectQuery("SELECT .* FROM .*system_settings.*setting_key.*ORDER BY .* LIMIT").
+		WithArgs("test", 1).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "setting_key", "setting_value", "value_type", "remark", "status", "is_del", "created_at", "updated_at",
+		}).AddRow(20, "test", "old", enum.SystemSettingValueString, "", enum.CommonYes, enum.CommonYes, time.Now(), time.Now()))
+
+	repository := &GormRepository{db: db}
+	row, err := repository.FindByKey(context.Background(), " test ")
+	if err != nil || row == nil || row.ID != 20 || row.IsDel != enum.CommonYes {
+		t.Fatalf("FindByKey() row=%#v err=%v", row, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet SQL expectations: %v", err)
+	}
+}
+
+func TestRestoreUpdatesOnlySoftDeletedSetting(t *testing.T) {
+	db, mock := newRepositoryTestDatabase(t)
+	mock.ExpectExec("UPDATE .*system_settings.*WHERE id = \\? AND is_del = \\?").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	repository := &GormRepository{db: db}
+	restored, err := repository.Restore(context.Background(), 20, Setting{
+		SettingValue: "42", ValueType: enum.SystemSettingValueNumber, Remark: "restored",
+	})
+	if err != nil || !restored {
+		t.Fatalf("Restore() restored=%v err=%v", restored, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet SQL expectations: %v", err)
+	}
+}
+
+func TestCreateMapsMySQLDuplicateKey(t *testing.T) {
+	db, mock := newRepositoryTestDatabase(t)
+	mock.ExpectExec("INSERT INTO .*system_settings").
+		WillReturnError(&mysqlDriver.MySQLError{Number: 1062, Message: "Duplicate entry 'test' for key 'uniq_setting_key'"})
+
+	repository := &GormRepository{db: db}
+	id, err := repository.Create(context.Background(), Setting{
+		SettingKey: "test", SettingValue: "42", ValueType: enum.SystemSettingValueNumber,
+		Status: enum.CommonYes, IsDel: enum.CommonNo,
+	})
+	if id != 0 || !errors.Is(err, ErrDuplicateKey) {
+		t.Fatalf("Create() id=%d err=%v, want ErrDuplicateKey", id, err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet SQL expectations: %v", err)

@@ -3,6 +3,7 @@ package systemsetting
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math"
 	"sort"
 	"strconv"
@@ -74,12 +75,26 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (int64, *ap
 	if appErr != nil {
 		return 0, appErr
 	}
-	exists, err := repo.ExistsByKey(ctx, request.Key, 0)
+	existing, err := repo.FindByKey(ctx, request.Key)
 	if err != nil {
 		return 0, apperror.WrapKey(apperror.CodeInternal, 500, "systemsetting.key_check_failed", nil, "校验配置 key 失败", err)
 	}
-	if exists {
-		return 0, apperror.BadRequestKey("systemsetting.key.duplicate", map[string]any{"key": request.Key}, "配置 key ["+request.Key+"] 已存在")
+	if existing != nil {
+		if existing.IsDel != enum.CommonYes {
+			return 0, apperror.BadRequestKey("systemsetting.key.duplicate", map[string]any{"key": request.Key}, "配置 key ["+request.Key+"] 已存在")
+		}
+		restored, err := repo.Restore(ctx, existing.ID, Setting{
+			SettingKey: request.Key, SettingValue: request.Value, ValueType: request.Type,
+			Remark: request.Remark, Status: enum.CommonYes, IsDel: enum.CommonNo,
+		})
+		if err != nil {
+			return 0, apperror.WrapKey(apperror.CodeInternal, 500, "systemsetting.restore_failed", nil, "恢复系统设置失败", err)
+		}
+		if !restored {
+			return 0, apperror.BadRequestKey("systemsetting.key.duplicate", map[string]any{"key": request.Key}, "配置 key ["+request.Key+"] 已存在")
+		}
+		repo.InvalidateCache(ctx, request.Key)
+		return existing.ID, nil
 	}
 
 	id, err := repo.Create(ctx, Setting{
@@ -87,6 +102,9 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (int64, *ap
 		Status: enum.CommonYes, IsDel: enum.CommonNo,
 	})
 	if err != nil {
+		if errors.Is(err, ErrDuplicateKey) {
+			return 0, apperror.BadRequestKey("systemsetting.key.duplicate", map[string]any{"key": request.Key}, "配置 key ["+request.Key+"] 已存在")
+		}
 		return 0, apperror.WrapKey(apperror.CodeInternal, 500, "systemsetting.create_failed", nil, "新增系统设置失败", err)
 	}
 	repo.InvalidateCache(ctx, request.Key)
