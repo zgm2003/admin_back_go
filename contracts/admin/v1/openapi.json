@@ -10759,31 +10759,21 @@
         ],
         "type": "object"
       },
-      "Go_internal_module_systemsetting_InitDict_Output": {
+      "Go_internal_module_systemsetting_CreateResponse_Output": {
         "additionalProperties": false,
         "properties": {
-          "system_setting_value_type_arr": {
-            "items": {
-              "$ref": "#/components/schemas/Go_internal_shared_dict_Option_int_Output"
-            },
-            "type": "array"
+          "id": {
+            "type": "integer"
           }
         },
         "required": [
-          "system_setting_value_type_arr"
+          "id"
         ],
         "type": "object"
       },
-      "Go_internal_module_systemsetting_InitResponse_Output": {
+      "Go_internal_module_systemsetting_EmptyResponse_Output": {
         "additionalProperties": false,
-        "properties": {
-          "dict": {
-            "$ref": "#/components/schemas/Go_internal_module_systemsetting_InitDict_Output"
-          }
-        },
-        "required": [
-          "dict"
-        ],
+        "properties": {},
         "type": "object"
       },
       "Go_internal_module_systemsetting_ListItem_Output": {
@@ -10854,6 +10844,33 @@
         "required": [
           "list",
           "page"
+        ],
+        "type": "object"
+      },
+      "Go_internal_module_systemsetting_PageInitDict_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "system_setting_value_type_arr": {
+            "items": {
+              "$ref": "#/components/schemas/Go_internal_shared_dict_Option_int_Output"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "system_setting_value_type_arr"
+        ],
+        "type": "object"
+      },
+      "Go_internal_module_systemsetting_PageInitResponse_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "dict": {
+            "$ref": "#/components/schemas/Go_internal_module_systemsetting_PageInitDict_Output"
+          }
+        },
+        "required": [
+          "dict"
         ],
         "type": "object"
       },
@@ -14054,7 +14071,7 @@
             "type": "integer"
           },
           "data": {
-            "$ref": "#/components/schemas/Go_internal_server_adminroute_EmptyData_Output"
+            "$ref": "#/components/schemas/Go_internal_module_systemsetting_EmptyResponse_Output"
           },
           "msg": {
             "type": "string"
@@ -14075,7 +14092,7 @@
             "type": "integer"
           },
           "data": {
-            "$ref": "#/components/schemas/Go_internal_server_adminroute_EmptyData_Output"
+            "$ref": "#/components/schemas/Go_internal_module_systemsetting_EmptyResponse_Output"
           },
           "msg": {
             "type": "string"
@@ -15476,7 +15493,7 @@
             "type": "integer"
           },
           "data": {
-            "$ref": "#/components/schemas/Go_internal_module_systemsetting_InitResponse_Output"
+            "$ref": "#/components/schemas/Go_internal_module_systemsetting_PageInitResponse_Output"
           },
           "msg": {
             "type": "string"
@@ -16211,7 +16228,7 @@
             "type": "integer"
           },
           "data": {
-            "$ref": "#/components/schemas/Go_internal_server_adminroute_EmptyData_Output"
+            "$ref": "#/components/schemas/Go_internal_module_systemsetting_EmptyResponse_Output"
           },
           "msg": {
             "type": "string"
@@ -17997,7 +18014,7 @@
             "type": "integer"
           },
           "data": {
-            "$ref": "#/components/schemas/Go_internal_server_adminroute_IDData_Output"
+            "$ref": "#/components/schemas/Go_internal_module_systemsetting_CreateResponse_Output"
           },
           "msg": {
             "type": "string"
@@ -19684,7 +19701,7 @@
             "type": "integer"
           },
           "data": {
-            "$ref": "#/components/schemas/Go_internal_server_adminroute_EmptyData_Output"
+            "$ref": "#/components/schemas/Go_internal_module_systemsetting_EmptyResponse_Output"
           },
           "msg": {
             "type": "string"
