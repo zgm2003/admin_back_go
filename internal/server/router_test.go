@@ -413,7 +413,7 @@ func (f *fakeRouterRoleService) List(ctx context.Context, query role.ListQuery) 
 	f.listQuery = query
 	return &role.ListResponse{
 		List: []role.ListItem{{ID: 1, Name: "管理员"}},
-		Page: role.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
+		Page: pagination.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
 	}, nil
 }
 
