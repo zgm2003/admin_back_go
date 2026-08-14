@@ -49,7 +49,7 @@ Wave 02 frontend: 3c27ec5
 |---|---|---|---|
 | Wave 01 | 权限矩阵 UI + Realtime Redis DB 1 | 页面权限自然可选，实时和 AI 取消信号脱离缓存 DB 0 | 不删除旧架构 |
 | Wave 02 | 系统设置 CRUD 样板（已验收） | 第一条可读的后端/前端样板链 | 已删除系统设置旧重复层 |
-| Wave 03 | 公共分页、配置、公共响应、RBAC、后台基础模块 | 基础段和 User 已完成人工验收；下一项为 Role | 只删除已迁移模块旧层 |
+| Wave 03 | 公共分页、配置、公共响应、RBAC、后台基础模块 | 基础段和 User 已完成人工验收；Role 已完成代码迁移，等待人工验收 | 只删除已迁移模块旧层 |
 | Wave 04 | Worker、任务、Realtime、COS | 后台任务、WebSocket、上传边界收口 | 只删除已迁移 runtime 包装 |
 | Wave 05 | 支付与钱包 | 订单、钱包、供应商、回调幂等边界清楚 | 只删除支付旧适配层 |
 | Wave 06 | AI 激进减法 | 最近 N 个完整轮次与 COS 历史附件；真实 Usage 扣费允许负余额 | 删除 Context/RAG/Qdrant/Embedding/Rerank/Memory/Context Plan/Hold |
@@ -155,13 +155,13 @@ internal/module/{capability}/
 
 ### Wave 03 当前入口
 
-基础段和 User 模块已经完成人工验收。下一项只迁移 Admin Role 管理，计划文件为：
+基础段和 User 模块已经完成人工验收。Admin Role 管理已经完成代码迁移和数据库 forward migration，当前停在人工验收门，计划文件为：
 
 ```text
 docs/superpowers/plans/2026-08-14-admin-architecture-reduction-wave-03-role.md
 ```
 
-Role 计划完成并人工验收后，才进入 Permission 模块；不得在同一计划中继续迁移权限、邮件、短信、日志或上传。已执行的 User 计划保留在 `docs/superpowers/plans/2026-08-14-admin-architecture-reduction-wave-03-user.md`，不得回写。
+Role 人工验收后，才进入 Permission 模块；不得在同一计划中继续迁移权限、邮件、短信、日志或上传。已执行的 User 计划保留在 `docs/superpowers/plans/2026-08-14-admin-architecture-reduction-wave-03-user.md`，不得回写。
 
 ### Wave 03 User 模块边界
 
@@ -234,6 +234,79 @@ Frontend: 117f70d
 计划内后端短测试、前端 ESLint、合同生成/检查和四个前端测试文件分别运行均通过。四个前端测试文件在同一 Vitest 进程合跑时存在既有模块隔离失败：`generated-operations.test.ts` 可能得到 `installApiClient is not a function` 或 `isApiError is not a function`；各文件独立运行全部通过，本 Wave 未修改 HTTP 产品代码或 Vitest 配置。
 
 明确未运行：`admin-dev`、全量 Go/Vue 测试、全量 typecheck、Playwright、`verify:frontend` 和发布长脚本。
+
+### Wave 03 Role 检查点（2026-08-14）
+
+状态：代码迁移、定向短验证和数据库 forward migration 已完成，等待用户人工验收。不得自动进入 Permission。
+
+Role 执行前验证并保留了既有 403 全局通知提交：
+
+```text
+Frontend: 9b034cb474115fc5ae6712c5408011631c15657d fix(http): 调整错误通知逻辑以包含授权失败
+```
+
+401 和 404 继续静默；403 授权失败触发全局通知。本轮没有重复修改 notifier。
+
+后端提交：
+
+```text
+49c4876ac2d6cc2824f709664283b96191272d83 fix(permission): protect role manager page reads
+abd8777402dd8a9df76f0027a9ec2dc94716f87d refactor(role): use shared pagination and principal invalidation
+811dc03ea7eb5f720007334d5d420cf64a9e3480 chore(contract): publish role management schemas
+872bf139de17fa4ece67f0fd8dc14c8a35476d8f test(role): align server pagination fixture
+```
+
+前端提交：
+
+```text
+84a9fde493112049a1d3110931893d65ee9d68e2 refactor(role): use direct frontend api
+6523f78180972c367b1279f46beb260d9145a2ed refactor(role): remove retired cascader helpers
+6218e97df48ca2243d9d6768bfd9f9f4ed1f086c chore(contract): sync role management schemas
+```
+
+数据库迁移：
+
+```text
+Migration: 202608140002_set_role_page_code.sql
+SHA-256: de70a82f9c14cead49af210271a3ff1034e222f5fd8d8b1f63d63035cfbfbcf9
+Applied version: 202608140002
+permissions.id=13: admin | type=2 | /permission/role | permission/role | permission_role
+role_permissions rows for permission_id=13: 2（未新增或改写）
+```
+
+迁移期合同：后端 manifest 绑定 `abd8777402dd8a9df76f0027a9ec2dc94716f87d`；前端 lock 的 manifest SHA-256 为 `a89d782c8d176aebf346ebb3f93868f675d4641c45d43cc6da7cdd297d945a2d`。
+
+最终定向验证结果：
+
+```text
+PASS  go test ./internal/shared/pagination ./internal/module/permission ./internal/module/role ./internal/module/role/transport/admin -count=1
+PASS  go test ./internal/architecture -run 'TestDatabaseBaselineRoleManagerPagePermissionContract|TestRoleManagerPagePermissionMigrationIsGuardedAndForwardOnly' -count=1
+PASS  go test ./internal/admincontract -run 'TestViewsProtectRoleManagerWithPagePermission|TestRoleManagerReadsUsePagePermission|TestOpenAPIContainsEveryRuntimeAdminOperation' -count=1
+FAIL  go test ./internal/server -run 'Test.*Role' -count=1
+      既有 User fixture 漂移：internal/server/router_test.go:350 仍引用已删除的 user.Page，Role 测试未开始运行；本计划未越界修改 User。
+PASS  npm test -- tests/shared/http/notifier.test.ts tests/shared/permission/role-api.test.ts tests/shared/permission/role-matrix.test.ts tests/component/permission/RolePermissionMatrix.test.ts tests/unit/http/generated-operations.test.ts tests/unit/routing/contracts.test.ts（6 files，31 tests）
+PASS  npx eslint src/lib/http/notifier.ts src/api/permission/role.ts src/views/Main/permission/role/use-role-page.ts src/views/Main/permission/role/index.vue src/views/Main/permission/role/role-matrix.ts src/views/Main/permission/role/components/RolePermissionMatrix.vue tests/shared/http/notifier.test.ts tests/shared/permission/role-api.test.ts
+PASS  backend/frontend git diff --check
+```
+
+减法检查确认 Role 后端不再定义本地 `Page` 或死 `CacheInvalidator`，Role 前端 API 不再依赖 generated operations，旧级联 helper 引用清零；通知任务仍使用同一 `RoleApi.list`。
+
+计划外数据库检查结果：`scripts/database.ps1 check` 报 `DATABASE_SEED_FACTS_MISMATCH`。只读核验为实际 `132|2|1|6|4|1`，基线期望 `132|2|1|4|4|1`；差异来自本地已有 6 条系统设置而初始化 seed 为 4 条，不影响本次迁移，未修改数据库检查脚本或业务数据。
+
+明确未运行：`admin-dev`、全量 Go/Vue 测试、全量 typecheck、Playwright、`verify:frontend` 和发布长脚本。
+
+Role 人工验收清单：
+
+- [ ] 角色 page-init 和列表正常，搜索、翻页、刷新正常；
+- [ ] 新增、编辑、单删、批删正常；
+- [ ] 删除后重新创建同名角色恢复原记录且权限正确；
+- [ ] 默认角色设置正常，默认角色和已绑定用户角色不能删除；
+- [ ] 页面权限可以单独勾选，无按钮页面仍可勾选；
+- [ ] 勾选按钮自动勾选所属页面，取消页面清除其按钮；
+- [ ] 多平台权限页签、全选本平台、清空本平台和差异确认正常；
+- [ ] 没有 `permission_role` 的已登录用户访问两个 Role GET 得到 403，并出现全局错误通知；
+- [ ] 通知任务发布弹窗中的角色 RemoteSelect 仍可搜索和选择角色；
+- [ ] 刷新和重新登录后角色权限变更立即生效，没有旧 Redis 授权缓存。
 
 ## Wave 04：运行与存储
 
