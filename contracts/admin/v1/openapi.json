@@ -10838,7 +10838,7 @@
             "type": "array"
           },
           "page": {
-            "$ref": "#/components/schemas/Go_internal_module_systemsetting_Page_Output"
+            "$ref": "#/components/schemas/Go_internal_shared_pagination_Page_Output"
           }
         },
         "required": [
@@ -10871,30 +10871,6 @@
         },
         "required": [
           "dict"
-        ],
-        "type": "object"
-      },
-      "Go_internal_module_systemsetting_Page_Output": {
-        "additionalProperties": false,
-        "properties": {
-          "current_page": {
-            "type": "integer"
-          },
-          "page_size": {
-            "type": "integer"
-          },
-          "total": {
-            "type": "integer"
-          },
-          "total_page": {
-            "type": "integer"
-          }
-        },
-        "required": [
-          "current_page",
-          "page_size",
-          "total",
-          "total_page"
         ],
         "type": "object"
       },
@@ -11787,6 +11763,30 @@
         "required": [
           "label",
           "value"
+        ],
+        "type": "object"
+      },
+      "Go_internal_shared_pagination_Page_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "current_page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "total_page": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "current_page",
+          "page_size",
+          "total",
+          "total_page"
         ],
         "type": "object"
       },
