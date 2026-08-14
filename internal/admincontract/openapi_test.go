@@ -189,13 +189,13 @@ func TestWorkflowOperationsUseFieldCompleteContracts(t *testing.T) {
 		positivePathIDs []string
 	}
 	operations := []operationExpectation{
-		{method: "get", path: "/api/admin/v1/users/page-init", responseStatus: "200", responseSchema: "UserPageInitSuccessEnvelope"},
-		{method: "get", path: "/api/admin/v1/users", responseStatus: "200", responseSchema: "UserListSuccessEnvelope", queryParameters: []string{"address_id", "current_page", "date", "date_end", "date_start", "detail_address", "email", "keyword", "page_size", "role_id", "sex", "username"}, requiredQueries: []string{"current_page", "page_size"}},
-		{method: "patch", path: "/api/admin/v1/users", responseStatus: "200", responseSchema: "EmptySuccessEnvelope", requestSchema: "UserBatchProfileRequest", requestRequired: true},
-		{method: "delete", path: "/api/admin/v1/users", responseStatus: "200", responseSchema: "EmptySuccessEnvelope", requestSchema: "UserBatchDeleteRequest", requestRequired: true},
-		{method: "put", path: "/api/admin/v1/users/{id}", responseStatus: "200", responseSchema: "EmptySuccessEnvelope", requestSchema: "UserUpdateRequest", requestRequired: true, positivePathIDs: []string{"id"}},
-		{method: "delete", path: "/api/admin/v1/users/{id}", responseStatus: "200", responseSchema: "EmptySuccessEnvelope", positivePathIDs: []string{"id"}},
-		{method: "patch", path: "/api/admin/v1/users/{id}/status", responseStatus: "200", responseSchema: "EmptySuccessEnvelope", requestSchema: "UserStatusRequest", requestRequired: true, positivePathIDs: []string{"id"}},
+		{method: "get", path: "/api/admin/v1/users/page-init", responseStatus: "200", responseSchema: "get_api_admin_v1_users_page_init_ResponseEnvelope"},
+		{method: "get", path: "/api/admin/v1/users", responseStatus: "200", responseSchema: "get_api_admin_v1_users_ResponseEnvelope", queryParameters: []string{"address_id", "current_page", "date", "date_end", "date_start", "detail_address", "email", "keyword", "page_size", "role_id", "sex", "username"}, requiredQueries: []string{"current_page", "page_size"}},
+		{method: "patch", path: "/api/admin/v1/users", responseStatus: "200", responseSchema: "patch_api_admin_v1_users_ResponseEnvelope", requestSchema: "patch_api_admin_v1_users_Request", requestRequired: true},
+		{method: "delete", path: "/api/admin/v1/users", responseStatus: "200", responseSchema: "delete_api_admin_v1_users_ResponseEnvelope", requestSchema: "delete_api_admin_v1_users_Request", requestRequired: true},
+		{method: "put", path: "/api/admin/v1/users/{id}", responseStatus: "200", responseSchema: "put_api_admin_v1_users_id_ResponseEnvelope", requestSchema: "put_api_admin_v1_users_id_Request", requestRequired: true, positivePathIDs: []string{"id"}},
+		{method: "delete", path: "/api/admin/v1/users/{id}", responseStatus: "200", responseSchema: "delete_api_admin_v1_users_id_ResponseEnvelope", positivePathIDs: []string{"id"}},
+		{method: "patch", path: "/api/admin/v1/users/{id}/status", responseStatus: "200", responseSchema: "patch_api_admin_v1_users_id_status_ResponseEnvelope", requestSchema: "patch_api_admin_v1_users_id_status_Request", requestRequired: true, positivePathIDs: []string{"id"}},
 		{method: "post", path: "/api/admin/v1/users/export", responseStatus: "200", responseSchema: "UserExportSuccessEnvelope", requestSchema: "UserExportRequest", requestRequired: true},
 
 		{method: "get", path: "/api/admin/v1/notifications/page-init", responseStatus: "200", responseSchema: "NotificationPageInitSuccessEnvelope"},

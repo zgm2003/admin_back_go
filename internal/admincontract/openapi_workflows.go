@@ -34,27 +34,7 @@ func buildWorkflowOperationContracts() map[workflowOperationKey]workflowOperatio
 	positiveID := true
 	noID := false
 	return map[workflowOperationKey]workflowOperationContract{
-		workflowKey(http.MethodGet, "/api/admin/v1/users/page-init"): workflowContract("UserPageInitSuccessEnvelope", nil, nil, noID),
-		workflowKey(http.MethodGet, "/api/admin/v1/users"): workflowContract("UserListSuccessEnvelope", nil, []map[string]any{
-			queryParameter("address_id", false, schemaWith(stringSchema(), "minLength", 1, "pattern", `^\d+(,\d+)*$`), "Comma-separated positive address IDs."),
-			queryParameter("current_page", true, positiveIntegerSchema(), "One-based page number."),
-			queryParameter("date", false, stringSchema(), "Comma-separated start/end creation-time pair; ignored when date_start or date_end is present."),
-			queryParameter("date_end", false, stringSchema(), "Inclusive creation-time upper bound."),
-			queryParameter("date_start", false, stringSchema(), "Inclusive creation-time lower bound."),
-			queryParameter("detail_address", false, maxStringSchema(255), "Detail-address search."),
-			queryParameter("email", false, maxStringSchema(255), "Email search."),
-			queryParameter("keyword", false, maxStringSchema(100), "General user keyword search."),
-			queryParameter("page_size", true, integerRangeSchema(1, 50), "Number of rows per page."),
-			queryParameter("role_id", false, positiveIntegerSchema(), "Role ID filter."),
-			queryParameter("sex", false, integerEnumSchema(0, 1, 2), "Sex filter."),
-			queryParameter("username", false, maxStringSchema(64), "Username search."),
-		}, noID, "date_start/date_end take precedence over date when either explicit boundary is present"),
-		workflowKey(http.MethodPatch, "/api/admin/v1/users"):            workflowContract("EmptySuccessEnvelope", requiredBody("UserBatchProfileRequest"), nil, noID),
-		workflowKey(http.MethodDelete, "/api/admin/v1/users"):           workflowContract("EmptySuccessEnvelope", requiredBody("UserBatchDeleteRequest"), nil, noID),
-		workflowKey(http.MethodPut, "/api/admin/v1/users/:id"):          workflowContract("EmptySuccessEnvelope", requiredBody("UserUpdateRequest"), nil, positiveID),
-		workflowKey(http.MethodDelete, "/api/admin/v1/users/:id"):       workflowContract("EmptySuccessEnvelope", nil, nil, positiveID),
-		workflowKey(http.MethodPatch, "/api/admin/v1/users/:id/status"): workflowContract("EmptySuccessEnvelope", requiredBody("UserStatusRequest"), nil, positiveID),
-		workflowKey(http.MethodPost, "/api/admin/v1/users/export"):      workflowContract("UserExportSuccessEnvelope", requiredBody("UserExportRequest"), nil, noID),
+		workflowKey(http.MethodPost, "/api/admin/v1/users/export"): workflowContract("UserExportSuccessEnvelope", requiredBody("UserExportRequest"), nil, noID),
 
 		workflowKey(http.MethodGet, "/api/admin/v1/notifications/page-init"): workflowContract("NotificationPageInitSuccessEnvelope", nil, nil, noID),
 		workflowKey(http.MethodGet, "/api/admin/v1/notifications"): workflowContract("NotificationListSuccessEnvelope", nil, []map[string]any{

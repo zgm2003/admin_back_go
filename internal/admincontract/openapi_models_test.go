@@ -641,6 +641,37 @@ func TestIdentityRoutesPublishRuntimeModelContracts(t *testing.T) {
 	}
 }
 
+func TestUserManagementRoutesPublishRuntimeModelContracts(t *testing.T) {
+	bundle := mustBuildBundle(t)
+	var document struct {
+		Paths map[string]map[string]map[string]any `json:"paths"`
+	}
+	if err := json.Unmarshal(bundle.Artifacts["openapi.json"], &document); err != nil {
+		t.Fatal(err)
+	}
+
+	operations := []struct {
+		method string
+		path   string
+	}{
+		{method: "get", path: "/api/admin/v1/users/page-init"},
+		{method: "get", path: "/api/admin/v1/users"},
+		{method: "get", path: "/api/admin/v1/users/{id}/profile"},
+		{method: "put", path: "/api/admin/v1/users/{id}"},
+		{method: "patch", path: "/api/admin/v1/users/{id}/status"},
+		{method: "patch", path: "/api/admin/v1/users"},
+		{method: "delete", path: "/api/admin/v1/users/{id}"},
+		{method: "delete", path: "/api/admin/v1/users"},
+	}
+	for _, expected := range operations {
+		operation := document.Paths[expected.path][expected.method]
+		if operation == nil {
+			t.Fatalf("missing operation %s %s", expected.method, expected.path)
+		}
+		assertJSONOperationIsFieldComplete(t, expected.method, expected.path, operation)
+	}
+}
+
 func TestSystemAndCommunicationsRoutesPublishRuntimeModelContracts(t *testing.T) {
 	bundle := mustBuildBundle(t)
 	var document struct {

@@ -26,6 +26,9 @@ func RegisterRoutes(router *gin.Engine, service usermodule.HTTPService, routeReg
 		Path:   "/api/admin/v1/users/page-init",
 		Access: adminroute.Permission("user_userManager"),
 		Audit:  adminroute.NoAudit("read-only"),
+		Contract: &adminroute.HTTPContract{
+			Response: usermodule.PageInitResponse{},
+		},
 	}, handler.PageInit)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodGet,
@@ -41,6 +44,10 @@ func RegisterRoutes(router *gin.Engine, service usermodule.HTTPService, routeReg
 		Path:   "/api/admin/v1/users",
 		Access: adminroute.Permission("user_userManager"),
 		Audit:  adminroute.NoAudit("read-only"),
+		Contract: &adminroute.HTTPContract{
+			Query:    listRequest{},
+			Response: usermodule.ListResponse{},
+		},
 	}, handler.List)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodPost,
@@ -63,6 +70,10 @@ func RegisterRoutes(router *gin.Engine, service usermodule.HTTPService, routeReg
 			Action:  "update",
 			Title:   "编辑用户",
 		},
+		Contract: &adminroute.HTTPContract{
+			Request:  updateRequest{},
+			Response: adminroute.EmptyData{},
+		},
 	}, handler.Update)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodPatch,
@@ -73,6 +84,10 @@ func RegisterRoutes(router *gin.Engine, service usermodule.HTTPService, routeReg
 			Module:  "user",
 			Action:  "change_status",
 			Title:   "修改用户状态",
+		},
+		Contract: &adminroute.HTTPContract{
+			Request:  statusRequest{},
+			Response: adminroute.EmptyData{},
 		},
 	}, handler.ChangeStatus)
 	routes.Handle(adminroute.Definition{
@@ -85,6 +100,10 @@ func RegisterRoutes(router *gin.Engine, service usermodule.HTTPService, routeReg
 			Action:  "batch_update_profile",
 			Title:   "批量修改用户资料",
 		},
+		Contract: &adminroute.HTTPContract{
+			Request:  batchProfileRequest{},
+			Response: adminroute.EmptyData{},
+		},
 	}, handler.BatchUpdateProfile)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodDelete,
@@ -96,6 +115,9 @@ func RegisterRoutes(router *gin.Engine, service usermodule.HTTPService, routeReg
 			Action:  "delete",
 			Title:   "删除用户",
 		},
+		Contract: &adminroute.HTTPContract{
+			Response: adminroute.EmptyData{},
+		},
 	}, handler.DeleteOne)
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodDelete,
@@ -106,6 +128,10 @@ func RegisterRoutes(router *gin.Engine, service usermodule.HTTPService, routeReg
 			Module:  "user",
 			Action:  "delete_batch",
 			Title:   "批量删除用户",
+		},
+		Contract: &adminroute.HTTPContract{
+			Request:  deleteBatchRequest{},
+			Response: adminroute.EmptyData{},
 		},
 	}, handler.DeleteBatch)
 }

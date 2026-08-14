@@ -57,7 +57,15 @@ func (f *fakeUserService) UpdatePhone(ctx context.Context, input usermodule.Upda
 }
 func (f *fakeUserService) List(ctx context.Context, query usermodule.ListQuery) (*usermodule.ListResponse, *apperror.Error) {
 	f.listQuery = query
-	return &usermodule.ListResponse{Page: pagination.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
+	return &usermodule.ListResponse{
+		List: []usermodule.ListItem{{ID: 9, Username: "alice"}},
+		Page: pagination.Page{
+			CurrentPage: query.CurrentPage,
+			PageSize:    query.PageSize,
+			TotalPage:   3,
+			Total:       41,
+		},
+	}, nil
 }
 func (f *fakeUserService) Export(ctx context.Context, input usermodule.ExportInput) (*usermodule.ExportResponse, *apperror.Error) {
 	f.exportInput = input
@@ -129,6 +137,67 @@ func TestAdminUserTransportRejectsLegacyAddressAlias(t *testing.T) {
 	}
 }
 
+func TestAdminUserHandlerReturnsCompleteListEnvelope(t *testing.T) {
+	router := newAdminUserTestRouter(&fakeUserService{}, &middleware.AuthIdentity{UserID: 7, Platform: "admin"})
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/admin/v1/users?current_page=2&page_size=20", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	body := decodeAdminUserResponse(t, recorder)
+	if body["code"] != float64(apperror.CodeOK) || body["msg"] != "ok" {
+		t.Fatalf("unexpected success envelope: %#v", body)
+	}
+	if _, exists := body["error"]; exists {
+		t.Fatalf("success envelope must not include error: %#v", body)
+	}
+	data, ok := body["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing object data: %#v", body)
+	}
+	list, ok := data["list"].([]any)
+	if !ok || len(list) != 1 {
+		t.Fatalf("unexpected list data: %#v", data["list"])
+	}
+	page, ok := data["page"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing page data: %#v", data)
+	}
+	wantPage := map[string]any{
+		"current_page": float64(2),
+		"page_size":    float64(20),
+		"total_page":   float64(3),
+		"total":        float64(41),
+	}
+	if !reflect.DeepEqual(page, wantPage) {
+		t.Fatalf("page=%#v want %#v", page, wantPage)
+	}
+}
+
+func TestAdminUserHandlerRejectsMissingPaginationWithErrorEnvelope(t *testing.T) {
+	router := newAdminUserTestRouter(&fakeUserService{}, &middleware.AuthIdentity{UserID: 7, Platform: "admin"})
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/admin/v1/users", nil))
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	body := decodeAdminUserResponse(t, recorder)
+	if body["code"] != float64(apperror.CodeBadRequest) || body["msg"] != "列表参数错误" {
+		t.Fatalf("unexpected error envelope: %#v", body)
+	}
+	if data, ok := body["data"].(map[string]any); !ok || len(data) != 0 {
+		t.Fatalf("error data=%#v want empty object", body["data"])
+	}
+	errorMeta, ok := body["error"].(map[string]any)
+	if !ok || errorMeta["code"] != "request.invalid" || errorMeta["category"] != "validation" || errorMeta["retryable"] != false {
+		t.Fatalf("unexpected error metadata: %#v", body["error"])
+	}
+}
+
 func TestAdminUserTransportDoesNotMountInitRoute(t *testing.T) {
 	router := newAdminUserTestRouter(&fakeUserService{}, &middleware.AuthIdentity{UserID: 7, Platform: "admin"})
 
@@ -163,13 +232,19 @@ func requestAdminUserData(t *testing.T, router *gin.Engine, method string, path 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("%s %s expected 200, got %d body=%s", method, path, recorder.Code, recorder.Body.String())
 	}
-	var decoded map[string]any
-	if err := json.Unmarshal(recorder.Body.Bytes(), &decoded); err != nil {
-		t.Fatalf("invalid json: %v", err)
-	}
+	decoded := decodeAdminUserResponse(t, recorder)
 	data, ok := decoded["data"].(map[string]any)
 	if !ok {
 		t.Fatalf("missing object data: %#v", decoded)
 	}
 	return data
+}
+
+func decodeAdminUserResponse(t *testing.T, recorder *httptest.ResponseRecorder) map[string]any {
+	t.Helper()
+	var decoded map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &decoded); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	return decoded
 }
