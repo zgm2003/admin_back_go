@@ -188,6 +188,7 @@
               "permission_permission_del",
               "permission_permission_edit",
               "permission_permission_status",
+              "permission_role",
               "permission_role_add",
               "permission_role_del",
               "permission_role_edit",
@@ -452,7 +453,9 @@
       "view_key": "permission/role",
       "i18n_key": "menu.permission_role",
       "show_menu": 1,
-      "permission_codes": []
+      "permission_codes": [
+        "permission_role"
+      ]
     },
     {
       "path": "/personal",

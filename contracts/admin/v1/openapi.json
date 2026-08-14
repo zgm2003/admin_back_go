@@ -10220,36 +10220,12 @@
             "type": "array"
           },
           "page": {
-            "$ref": "#/components/schemas/Go_internal_module_role_Page_Output"
+            "$ref": "#/components/schemas/Go_internal_shared_pagination_Page_Output"
           }
         },
         "required": [
           "list",
           "page"
-        ],
-        "type": "object"
-      },
-      "Go_internal_module_role_Page_Output": {
-        "additionalProperties": false,
-        "properties": {
-          "current_page": {
-            "type": "integer"
-          },
-          "page_size": {
-            "type": "integer"
-          },
-          "total": {
-            "type": "integer"
-          },
-          "total_page": {
-            "type": "integer"
-          }
-        },
-        "required": [
-          "current_page",
-          "page_size",
-          "total",
-          "total_page"
         ],
         "type": "object"
       },
@@ -33071,7 +33047,8 @@
           "roles"
         ],
         "x-admin-access": {
-          "kind": "authenticated"
+          "kind": "permission",
+          "permission_code": "permission_role"
         },
         "x-admin-audit": {
           "enabled": false,
@@ -33170,7 +33147,8 @@
           "roles"
         ],
         "x-admin-access": {
-          "kind": "authenticated"
+          "kind": "permission",
+          "permission_code": "permission_role"
         },
         "x-admin-audit": {
           "enabled": false,

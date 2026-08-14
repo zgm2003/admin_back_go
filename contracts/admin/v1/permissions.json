@@ -55,6 +55,7 @@
     "permission_permission_del",
     "permission_permission_edit",
     "permission_permission_status",
+    "permission_role",
     "permission_role_add",
     "permission_role_del",
     "permission_role_edit",
@@ -2806,7 +2807,8 @@
       "method": "GET",
       "path": "/api/admin/v1/roles",
       "access": {
-        "kind": "authenticated"
+        "kind": "permission",
+        "permission_code": "permission_role"
       },
       "audit": {
         "enabled": false,
@@ -2878,7 +2880,8 @@
       "method": "GET",
       "path": "/api/admin/v1/roles/page-init",
       "access": {
-        "kind": "authenticated"
+        "kind": "permission",
+        "permission_code": "permission_role"
       },
       "audit": {
         "enabled": false,
