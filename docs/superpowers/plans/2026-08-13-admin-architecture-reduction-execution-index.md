@@ -34,6 +34,9 @@ E:/admin/admin_back_go/docs/superpowers/specs/2026-08-13-admin-architecture-redu
 Backend baseline tag: pre-database-baseline-20260813
 Database baseline: 202608130001
 Backend documentation commits: bf44a11, 912a8db
+Wave 02 accepted at: 2026-08-14
+Wave 02 backend: 56b76c0
+Wave 02 frontend: 3c27ec5
 ```
 
 ## 阶段总览
@@ -41,8 +44,8 @@ Backend documentation commits: bf44a11, 912a8db
 | 波次 | 内容 | 结果 | 删除边界 |
 |---|---|---|---|
 | Wave 01 | 权限矩阵 UI + Realtime Redis DB 1 | 页面权限自然可选，实时和 AI 取消信号脱离缓存 DB 0 | 不删除旧架构 |
-| Wave 02 | 系统设置 CRUD 样板 | 第一条可读的后端/前端样板链 | 仅删除系统设置旧重复层 |
-| Wave 03 | 配置、公共响应、RBAC、后台基础模块 | 线性 Handler/Service/Repository 结构稳定 | 只删除已迁移模块旧层 |
+| Wave 02 | 系统设置 CRUD 样板（已验收） | 第一条可读的后端/前端样板链 | 已删除系统设置旧重复层 |
+| Wave 03 | 公共分页、配置、公共响应、RBAC、后台基础模块 | 公共分页唯一，线性 Handler/Service/Repository 结构稳定 | 只删除已迁移模块旧层 |
 | Wave 04 | Worker、任务、Realtime、COS | 后台任务、WebSocket、上传边界收口 | 只删除已迁移 runtime 包装 |
 | Wave 05 | 支付与钱包 | 订单、钱包、供应商、回调幂等边界清楚 | 只删除支付旧适配层 |
 | Wave 06 | AI 七个子包 | AI、附件、上下文、扣费均沿真实业务边界 | 核心域最后清理 |
@@ -65,6 +68,8 @@ docs/superpowers/plans/2026-08-13-admin-architecture-reduction-wave-01.md
 
 ## Wave 02：系统设置样板
 
+状态：已于 2026-08-14 完成人工验收。后端恢复点 `56b76c0`，前端恢复点 `3c27ec5`。本节只保留完成事实，不再回写已经执行的 Wave 02 计划。
+
 开始条件：Wave 01 已被用户验收，当前代码和数据库状态已重新只读盘点。
 
 目标调用链：
@@ -86,6 +91,19 @@ docs/superpowers/plans/2026-08-13-admin-architecture-reduction-wave-01.md
 
 ## Wave 03：基础模块
 
+开始业务模块前先完成一个独立基础任务：
+
+```text
+建立 internal/shared/pagination 的 Page / Result[T]
+-> 建立 src/utils/pagination.ts 的严格 schema 与类型
+-> 只迁移 systemsetting 使用公共分页
+-> 在最终目标结构中正式保留 src/enums
+-> 明确新 API 使用 src/utils/request.ts
+-> 定向测试和人工验收
+```
+
+这一步只建立已经确认重复的分页协议，不创建万能响应包，不迁移所有业务模块，不删除 `src/lib` 或 `src/modules`。查询请求继续留在业务模块，因为筛选字段和分页限制并不统一。
+
 按一个模块一个提交迁移：用户、角色、权限、邮件、短信、日志、上传配置。每个模块都执行：
 
 ```text
@@ -97,6 +115,8 @@ docs/superpowers/plans/2026-08-13-admin-architecture-reduction-wave-01.md
 ```
 
 公共响应、错误通知和 `permission.ts` 只保留一份事实来源；后端低权限接口必须有 403 矩阵测试。
+
+`src/enums` 只保留跨模块稳定值域；后端字典、本地化标签和页面展示映射不得搬入公共枚举。每个基础模块迁移时，同时把自己的重复分页结构切换到公共协议。
 
 ## Wave 04：运行与存储
 
@@ -122,6 +142,7 @@ Embedding/Qdrant 不可用时，上下文增强降级，普通聊天继续工作
 
 - generated operations/views/permissions 和 runtime schema 日常依赖；
 - AppKernel、RuntimeRouteRegistry、万能 Workflow、纯转发 Adapter；
+- 已完成迁移且引用清零的 `src/lib`、`src/modules` 和其他过渡目录；
 - `cmd/admin-contract`、一次性 context preflight 和旧 `admin-db` 入口；
 - 多层 PowerShell smoke、合同生成、发布 rehearsal、browser-only 和历史 cutover 脚本；
 - 失效架构文档、空目录和只保护旧文件路径的测试。
@@ -143,6 +164,8 @@ scripts/internal/common.ps1
 ## 禁止事项
 
 - 不在 Wave 01 顺手迁移系统设置、AI、支付或数据库表；
+- 不在 Wave 03 的公共分页任务中一次性改写所有业务模块；
+- 不把后端字典、本地化标签或页面展示映射复制进 `src/enums`；
 - 不改变 API 返回外层 `code/data/msg/error`；
 - 不将页面访问改成新的权限码或新表；
 - 不把 Redis 多 DB 当成 Cluster；Cluster 适配另设 Wave；

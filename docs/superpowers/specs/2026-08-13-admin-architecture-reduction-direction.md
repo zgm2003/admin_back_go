@@ -187,7 +187,7 @@ handler -> service -> repository -> model
 - `retryable` 供 AI、支付、上传等流程判断是否可重试；
 - `request_id`、`trace_id` 用于日志定位。
 
-公共响应实现只负责外层协议。业务模块只定义 `data` 内部结构，不把所有 DTO 堆入公共包。不得用默认空值吞掉理论上不应为空的数据。
+公共响应实现只负责外层协议。业务模块只定义自己的请求、列表项和其他业务数据，不把所有 DTO 堆入公共包。只有分页这类已经稳定、跨模块且字段完全一致的协议可以进入最小公共包；不得用默认空值吞掉理论上不应为空的数据。
 
 ## 6. HTTP 合同减法
 
@@ -216,6 +216,8 @@ handler -> service -> repository -> model
 
 - 后端 `request.go`、`response.go` 是人可读的接口定义；
 - 前端业务类型放在对应 `api/*.ts` 中；
+- 后端分页响应只使用 `internal/shared/pagination` 的 `Page` 和 `Result[T]`；列表项仍由业务模块定义；
+- 前端分页响应只使用 `src/utils/pagination.ts` 的 `pageSchema` 和 `paginatedSchema(itemSchema)`；业务 schema 仍放在对应 `api/*.ts`；
 - 删除前端 generated operation 和 runtime schema compiler 的日常依赖；
 - OpenAPI 可作为文档或检查工具保留，但不能阻塞普通 CRUD；
 - 核心接口用短集成测试验证真实 JSON；
@@ -590,6 +592,7 @@ src/
 ├── api/
 ├── assets/
 ├── components/
+├── enums/
 ├── hooks/
 ├── layout/
 ├── locales/
@@ -608,6 +611,7 @@ src/
 
 - 普通页面只走 `views -> api -> request -> 后端`；
 - `api/<business>.ts` 同时保存该业务请求函数和 TypeScript 类型；
+- `enums/` 只保存跨模块、值域稳定的枚举；单一业务值域仍放在对应 `api/<business>.ts`；
 - Store 只保存跨页面状态，不包装所有接口；
 - Hook 只抽取真实复用的有状态逻辑；
 - Component 只做展示和交互，不隐藏接口调用链；
@@ -649,6 +653,41 @@ permission.ts
 - 网络错误、超时和非法响应显示明确错误；
 - API 方法不得重复吞错或重复弹窗；
 - 响应结构不匹配时报告真实结构错误，不能归一化成空数组或空对象。
+
+### 17.3 公共分页协议
+
+分页是已经在多个模块稳定存在的公共数据结构，不应由每个业务重复声明。
+
+后端唯一结构：
+
+```text
+internal/shared/pagination/
+└── response.go        # Page 与 Result[T]
+```
+
+`Page` 固定包含 `page_size`、`current_page`、`total_page`、`total`；`Result[T]` 固定包含 `list` 和 `page`。`list` 不得使用 `omitempty`，空结果必须返回 `[]`。各业务模块继续拥有自己的列表项类型和查询请求；不同接口的筛选字段、默认页码和 `page_size` 上限不得塞入公共请求 DTO。
+
+前端唯一结构：
+
+```text
+src/utils/pagination.ts
+```
+
+它只导出严格的 `pageSchema`、`paginatedSchema(itemSchema)`、分页类型和列表响应类型。业务 API 传入自己的 `itemSchema`，不得在每个 `api/*.ts` 重新复制 `pageSchema`，也不得在公共分页工具中加入业务字段、默认分页或错误兜底。
+
+分页协议按模块迁移：先迁移已经验收的 `systemsetting`，后续模块只在自己的 Wave 中迁移。禁止为了消灭重复一次性修改所有业务模块。
+
+### 17.4 enums 与过渡目录退场
+
+`src/enums/index.ts` 是正式保留的公共入口。公共枚举统一使用 `as const` 对象，并在需要类型时从对象派生联合类型；不使用会生成额外运行时代码和反向映射的 TypeScript `enum`。只允许满足以下条件的值进入 `enums/`：
+
+- 被两个或以上业务模块使用；
+- 值域由后端稳定协议确定；
+- 不包含本地化标签、接口返回字典或页面展示状态。
+
+后端返回的字典和标签仍以接口响应为事实源；颜色、图标等单一页面展示映射留在对应业务页面或工具中。不得把 `enums/` 变成新的全局杂物目录。
+
+`src/lib` 和 `src/modules` 是迁移期兼容桥，不是目标结构。新迁移的普通 API 直接使用 `src/utils/request.ts`；旧 HTTP Client、generated contract、routing registry 等消费者在各自 Wave 中逐个迁移。只有引用清零并通过人工验收后，Wave 07 才删除旧目录，禁止仅为匹配目录树提前搬文件或建立长期转发层。
 
 ## 18. 数据库初始化基线
 
