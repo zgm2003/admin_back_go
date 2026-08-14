@@ -11,6 +11,7 @@ import (
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
 	projecti18n "admin_back_go/internal/shared/i18n"
+	"admin_back_go/internal/shared/pagination"
 
 	"github.com/gin-gonic/gin"
 )
@@ -30,7 +31,12 @@ func (f *fakeHTTPService) List(_ context.Context, request ListRequest) (*ListRes
 	f.gotList = request
 	return &ListResponse{
 		List: []ListItem{{ID: 1, SettingKey: "user.default_avatar"}},
-		Page: Page{CurrentPage: request.CurrentPage, PageSize: request.PageSize, Total: 1, TotalPage: 1},
+		Page: pagination.Page{
+			CurrentPage: request.CurrentPage,
+			PageSize:    request.PageSize,
+			Total:       1,
+			TotalPage:   1,
+		},
 	}, nil
 }
 
@@ -130,8 +136,8 @@ func TestHandlerListReturnsListObjectInsteadOfBareArray(t *testing.T) {
 	var payload struct {
 		Code int `json:"code"`
 		Data struct {
-			List []ListItem `json:"list"`
-			Page Page       `json:"page"`
+			List []ListItem      `json:"list"`
+			Page pagination.Page `json:"page"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {

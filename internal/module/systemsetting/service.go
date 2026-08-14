@@ -12,6 +12,7 @@ import (
 	"admin_back_go/internal/shared/apperror"
 	shareddict "admin_back_go/internal/shared/dict"
 	"admin_back_go/internal/shared/enum"
+	"admin_back_go/internal/shared/pagination"
 )
 
 const (
@@ -55,7 +56,12 @@ func (s *Service) List(ctx context.Context, request ListRequest) (*ListResponse,
 	}
 	return &ListResponse{
 		List: list,
-		Page: Page{PageSize: request.PageSize, CurrentPage: request.CurrentPage, TotalPage: totalPage(total, request.PageSize), Total: total},
+		Page: pagination.Page{
+			PageSize:    request.PageSize,
+			CurrentPage: request.CurrentPage,
+			TotalPage:   totalPage(total, request.PageSize),
+			Total:       total,
+		},
 	}, nil
 }
 

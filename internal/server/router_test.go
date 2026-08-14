@@ -53,6 +53,7 @@ import (
 	"admin_back_go/internal/server/adminroute"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
+	"admin_back_go/internal/shared/pagination"
 	"admin_back_go/internal/telemetry"
 
 	"github.com/gorilla/websocket"
@@ -992,7 +993,12 @@ func (f *fakeRouterSystemSettingService) List(ctx context.Context, request syste
 	f.listRequest = request
 	return &systemsetting.ListResponse{
 		List: []systemsetting.ListItem{{ID: 1, SettingKey: "user.default_avatar"}},
-		Page: systemsetting.Page{CurrentPage: request.CurrentPage, PageSize: request.PageSize, Total: 1, TotalPage: 1},
+		Page: pagination.Page{
+			CurrentPage: request.CurrentPage,
+			PageSize:    request.PageSize,
+			Total:       1,
+			TotalPage:   1,
+		},
 	}, nil
 }
 

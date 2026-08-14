@@ -2,11 +2,13 @@ package systemsetting
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
+	"admin_back_go/internal/shared/pagination"
 )
 
 type fakeRepository struct {
@@ -84,6 +86,16 @@ func TestInitReturnsEnumBackedDict(t *testing.T) {
 	options := got.Dict.SystemSettingValueTypeArr
 	if len(options) != 4 || options[0].Value != enum.SystemSettingValueString || options[3].Value != enum.SystemSettingValueJSON {
 		t.Fatalf("unexpected value type dict: %#v", options)
+	}
+}
+
+func TestListResponseUsesSharedPaginationPage(t *testing.T) {
+	field, ok := reflect.TypeOf(ListResponse{}).FieldByName("Page")
+	if !ok {
+		t.Fatal("ListResponse.Page is missing")
+	}
+	if field.Type != reflect.TypeOf(pagination.Page{}) {
+		t.Fatalf("ListResponse.Page type = %v, want pagination.Page", field.Type)
 	}
 }
 
