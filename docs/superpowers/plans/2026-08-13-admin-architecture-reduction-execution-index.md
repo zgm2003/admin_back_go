@@ -49,7 +49,7 @@ Wave 02 frontend: 3c27ec5
 |---|---|---|---|
 | Wave 01 | 权限矩阵 UI + Realtime Redis DB 1 | 页面权限自然可选，实时和 AI 取消信号脱离缓存 DB 0 | 不删除旧架构 |
 | Wave 02 | 系统设置 CRUD 样板（已验收） | 第一条可读的后端/前端样板链 | 已删除系统设置旧重复层 |
-| Wave 03 | 公共分页、配置、公共响应、RBAC、后台基础模块 | 基础段和 User 已完成人工验收；Role 已完成代码迁移，等待人工验收 | 只删除已迁移模块旧层 |
+| Wave 03 | 公共分页、配置、公共响应、RBAC、后台基础模块 | 基础段、User、Role 已完成人工验收；Permission + AuthPlatform 计划已批准，等待执行 | 只删除已迁移模块旧层 |
 | Wave 04 | Worker、任务、Realtime、COS | 后台任务、WebSocket、上传边界收口 | 只删除已迁移 runtime 包装 |
 | Wave 05 | 支付与钱包 | 订单、钱包、供应商、回调幂等边界清楚 | 只删除支付旧适配层 |
 | Wave 06 | AI 激进减法 | 最近 N 个完整轮次与 COS 历史附件；真实 Usage 扣费允许负余额 | 删除 Context/RAG/Qdrant/Embedding/Rerank/Memory/Context Plan/Hold |
@@ -155,13 +155,14 @@ internal/module/{capability}/
 
 ### Wave 03 当前入口
 
-基础段和 User 模块已经完成人工验收。Admin Role 管理已经完成代码迁移和数据库 forward migration，当前停在人工验收门，计划文件为：
+基础段、User 和 Admin Role 已经完成人工验收。当前进入 Permission + AuthPlatform 权限治理批次，批准的 Spec 与实施计划为：
 
 ```text
-docs/superpowers/plans/2026-08-14-admin-architecture-reduction-wave-03-role.md
+docs/superpowers/specs/2026-08-15-admin-permission-governance-batch-design.md
+docs/superpowers/plans/2026-08-15-admin-architecture-reduction-wave-03-permission-auth-platform.md
 ```
 
-Role 人工验收后，才进入 Permission 模块；不得在同一计划中继续迁移权限、邮件、短信、日志或上传。已执行的 User 计划保留在 `docs/superpowers/plans/2026-08-14-admin-architecture-reduction-wave-03-user.md`，不得回写。
+本批次只合并强相关的 Permission 与 AuthPlatform：建立两个页面权限、修复 Page code 生命周期、删除 Permission 未装配旧失效支路，并迁移两个前端 API。不得进入邮件、短信、日志或上传。已执行的 User/Role 计划保留为历史恢复事实，不得回写。
 
 ### Wave 03 User 模块边界
 

@@ -1,6 +1,6 @@
 # Admin Permission + AuthPlatform 权限治理批次设计
 
-**状态：** 已完成方案讨论，等待用户书面复核
+**状态：** 已获用户批准，等待 work-ai 执行
 **日期：** 2026-08-15
 **后端基线：** `ac1fabd9ff2de3bc99bae8a065b8a694d041e2a6`
 **前端基线：** `6218e97df48ca2243d9d6768bfd9f9f4ed1f086c`
