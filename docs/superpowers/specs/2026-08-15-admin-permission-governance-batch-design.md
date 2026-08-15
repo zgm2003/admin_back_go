@@ -19,6 +19,7 @@ AuthPlatform
 - Permission 与 AuthPlatform 的管理 GET 都有真实页面权限；
 - 已有页面权限码成为稳定授权事实，普通页面编辑不会清空或改写它；
 - Permission 保留唯一的 Principal Mutation 授权失效机制，删除运行时未装配的旧缓存失效支路；
+- 保留 User 模块仍在使用的 `RedisRouteAccessGrantCache`、`RouteAccessCacheKey` 和 key schema；
 - AuthPlatform 使用后端与前端公共分页；
 - 两个前端 API 都直接使用 `src/utils/request.ts` 和严格 Zod schema；
 - 两个模块共用一份计划、一次数据库迁移门和一次人工验收，但保持独立代码提交；
@@ -129,6 +130,7 @@ FLUSHALL
 - 前端 `src/api/permission/permission.ts` 直接依赖 generated operations/types；
 - `permission.Service` 同时存在 Principal Mutation 和旧 `CacheInvalidator`；
 - 运行时只装配 Principal Mutation，旧 `CacheInvalidator` 只剩测试自证；
+- `internal/module/permission/cache.go` 和 `RouteAccessCacheKey` 仍被 User 模块读取/删除路由授权缓存，不能误删；
 - Permission 管理列表是完整树形列表，不是分页数据。
 
 ### 3.2 AuthPlatform
@@ -241,8 +243,17 @@ WithCacheInvalidator
 Service.cacheInvalidator
 invalidateRoleUsers
 只证明旧 key 删除的测试 fake
-RouteAccessCacheKey（引用归零后删除）
 ```
+
+保留以下仍有真实消费者的共享路由缓存边界：
+
+```text
+internal/module/permission/cache.go
+RouteAccessCacheKey
+RouteAccessCacheKeySchema
+```
+
+它们由 User Service 用于读取和失效路由授权缓存，不属于本批次的死支路。
 
 必须保留并加强：
 
