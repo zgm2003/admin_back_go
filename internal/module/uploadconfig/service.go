@@ -13,6 +13,7 @@ import (
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/dict"
 	"admin_back_go/internal/shared/enum"
+	"admin_back_go/internal/shared/pagination"
 )
 
 const timeLayout = "2006-01-02 15:04:05"
@@ -101,7 +102,7 @@ func (s *Service) DriverList(ctx context.Context, query DriverListQuery) (*Drive
 	}
 	return &DriverListResponse{
 		List: list,
-		Page: Page{PageSize: query.PageSize, CurrentPage: query.CurrentPage, TotalPage: totalPage(total, query.PageSize), Total: total},
+		Page: pagination.Page{PageSize: query.PageSize, CurrentPage: query.CurrentPage, TotalPage: totalPage(total, query.PageSize), Total: total},
 	}, nil
 }
 
@@ -241,7 +242,7 @@ func (s *Service) RuleList(ctx context.Context, query RuleListQuery) (*RuleListR
 	}
 	return &RuleListResponse{
 		List: list,
-		Page: Page{PageSize: query.PageSize, CurrentPage: query.CurrentPage, TotalPage: totalPage(total, query.PageSize), Total: total},
+		Page: pagination.Page{PageSize: query.PageSize, CurrentPage: query.CurrentPage, TotalPage: totalPage(total, query.PageSize), Total: total},
 	}, nil
 }
 
@@ -347,7 +348,7 @@ func (s *Service) SettingList(ctx context.Context, query SettingListQuery) (*Set
 	}
 	return &SettingListResponse{
 		List: list,
-		Page: Page{PageSize: query.PageSize, CurrentPage: query.CurrentPage, TotalPage: totalPage(total, query.PageSize), Total: total},
+		Page: pagination.Page{PageSize: query.PageSize, CurrentPage: query.CurrentPage, TotalPage: totalPage(total, query.PageSize), Total: total},
 	}, nil
 }
 

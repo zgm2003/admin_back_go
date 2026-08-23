@@ -1,6 +1,9 @@
 package uploadconfig
 
-import "admin_back_go/internal/shared/dict"
+import (
+	"admin_back_go/internal/shared/dict"
+	"admin_back_go/internal/shared/pagination"
+)
 
 type DriverPageInitResponse struct {
 	Dict DriverPageInitDict `json:"dict"`
@@ -39,13 +42,6 @@ type SettingPageInitDict struct {
 	CommonStatusArr  []dict.Option[int] `json:"common_status_arr"`
 }
 
-type Page struct {
-	PageSize    int   `json:"page_size"`
-	CurrentPage int   `json:"current_page"`
-	TotalPage   int   `json:"total_page"`
-	Total       int64 `json:"total"`
-}
-
 type DriverListQuery struct {
 	CurrentPage int
 	PageSize    int
@@ -68,18 +64,18 @@ type SettingListQuery struct {
 }
 
 type DriverListResponse struct {
-	List []DriverItem `json:"list"`
-	Page Page         `json:"page"`
+	List []DriverItem    `json:"list"`
+	Page pagination.Page `json:"page"`
 }
 
 type RuleListResponse struct {
-	List []RuleItem `json:"list"`
-	Page Page       `json:"page"`
+	List []RuleItem      `json:"list"`
+	Page pagination.Page `json:"page"`
 }
 
 type SettingListResponse struct {
-	List []SettingItem `json:"list"`
-	Page Page          `json:"page"`
+	List []SettingItem   `json:"list"`
+	Page pagination.Page `json:"page"`
 }
 
 type DriverItem struct {
