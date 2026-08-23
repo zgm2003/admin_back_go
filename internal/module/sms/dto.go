@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"admin_back_go/internal/shared/dict"
+	"admin_back_go/internal/shared/pagination"
 )
 
 const (
@@ -104,8 +105,8 @@ type LogQuery struct {
 }
 
 type LogListResponse struct {
-	List []LogDTO `json:"list"`
-	Page Page     `json:"page"`
+	List []LogDTO        `json:"list"`
+	Page pagination.Page `json:"page"`
 }
 
 type LogDTO struct {
@@ -133,13 +134,6 @@ type LogTemplateDTO struct {
 	TencentTemplateID string   `json:"tencent_template_id"`
 	Variables         []string `json:"variables"`
 	Status            int      `json:"status"`
-}
-
-type Page struct {
-	PageSize    int   `json:"page_size"`
-	CurrentPage int   `json:"current_page"`
-	TotalPage   int   `json:"total_page"`
-	Total       int64 `json:"total"`
 }
 
 type LogFinish struct {
