@@ -53,7 +53,7 @@ Wave 02 frontend: 3c27ec5
 | Wave 01 | 权限矩阵 UI + Realtime Redis DB 1 | 页面权限自然可选，实时和 AI 取消信号脱离缓存 DB 0 | 不删除旧架构 |
 | Wave 02 | 系统设置 CRUD 样板（已验收） | 第一条可读的后端/前端样板链 | 已删除系统设置旧重复层 |
 | Wave 03 | 公共分页、配置、公共响应、RBAC、后台基础模块 | 基础段、User、Role、Permission + AuthPlatform 已完成人工验收；数据库切换完成后继续 Mail、SMS、日志、UploadConfig | 只删除已迁移模块旧层 |
-| 数据库切换 | 个人开发数据库外置所有权 | Permission + AuthPlatform 验收后、Wave 03 剩余模块开始前执行 | 删除 database/、admin-db、migration/baseline 门禁，不改业务表 |
+| 数据库切换 | 个人开发数据库外置所有权 | 已按 2026-08-23 计划执行 | 删除 database/、admin-db、migration/baseline 门禁；仅清理本地治理表，不改业务表 |
 | Wave 04 | Worker、任务、Realtime、COS | 后台任务、WebSocket、上传边界收口 | 只删除已迁移 runtime 包装 |
 | Wave 05 | 支付与钱包 | 订单、钱包、供应商、回调幂等边界清楚 | 只删除支付旧适配层 |
 | Wave 06 | AI 激进减法 | 最近 N 个完整轮次与 COS 历史附件；真实 Usage 扣费允许负余额 | 删除 Context/RAG/Qdrant/Embedding/Rerank/Memory/Context Plan/Hold |

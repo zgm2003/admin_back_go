@@ -1,5 +1,8 @@
 # Admin Foundation and Database Evolution Design
 
+> **Database ownership notice (2026-08-23):** Historical only. The active personal
+> development database boundary is defined by `2026-08-23-local-database-external-ownership-design.md`.
+
 **Status:** Approved in conversation on 2026-07-15; written for final file review.
 
 **Goal:** Make builds, configuration, schema state, migrations, data invariants, and performance evidence reproducible before application refactoring begins.

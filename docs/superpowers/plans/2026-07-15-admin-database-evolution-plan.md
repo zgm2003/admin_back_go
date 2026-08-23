@@ -1,5 +1,9 @@
 # Admin Database Evolution Implementation Plan
 
+> **Database ownership notice (2026-08-23):** Superseded for personal development by
+> `2026-08-23-local-database-external-ownership-design.md` and its cutover plan. Do not
+> replay repository schema, migration, baseline, or `admin-db` commands from this history.
+
 > **Superseded delivery note (2026-07-18):** This completed plan's `.github` and GitHub Actions steps are historical evidence and must not be replayed. Database verification remains repository-owned and Docker-orchestrated. The only allowed future Workflow is the P08.5 Windows Tauri candidate release defined by the execution index.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
