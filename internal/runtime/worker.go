@@ -235,12 +235,6 @@ func productionWorkerHooks(cfg config.Config, logger *slog.Logger, keys *secretk
 				queueClient,
 				logger,
 			)
-			if err := runSchedulerReconciliation(ctx, recorder, func(context.Context) error {
-				return jobs.RegisterSchedules(built, queueClient, logger)
-			}); err != nil {
-				_ = built.Shutdown(ctx)
-				return nil, err
-			}
 			built.Start()
 			reconciler := crontask.NewReconciler(cronScheduler, built)
 			if err := reconciler.Start(ctx); err != nil {

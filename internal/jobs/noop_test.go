@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"admin_back_go/internal/infra/scheduler"
 	"admin_back_go/internal/infra/taskqueue"
 	aichat "admin_back_go/internal/module/ai/chat"
 	"admin_back_go/internal/module/ai/contextengine"
@@ -218,61 +217,6 @@ func TestRegisterHandlesNotificationTaskHandlers(t *testing.T) {
 	}
 }
 
-func TestRegisterScheduleDefinitionsOnlyEnqueuesTaskWhenTriggered(t *testing.T) {
-	registrar := &fakeScheduleRegistrar{}
-	enqueuer := &fakeEnqueuer{}
-	buildCount := 0
-
-	err := registerScheduleDefinitions(registrar, enqueuer, slog.Default(), []ScheduledTaskDefinition{
-		{
-			Name:  "system-noop-probe",
-			Every: time.Minute,
-			BuildTask: func() (taskqueue.Task, error) {
-				buildCount++
-				return NewNoopTask(NoopPayload{Message: "tick"})
-			},
-		},
-	})
-	if err != nil {
-		t.Fatalf("registerScheduleDefinitions returned error: %v", err)
-	}
-	if len(registrar.everyCalls) != 1 {
-		t.Fatalf("expected one interval schedule, got %#v", registrar.everyCalls)
-	}
-	if buildCount != 0 {
-		t.Fatalf("expected registration not to build or run task, got buildCount=%d", buildCount)
-	}
-
-	if err := registrar.everyCalls[0].task(context.Background()); err != nil {
-		t.Fatalf("scheduled task returned error: %v", err)
-	}
-	if buildCount != 1 {
-		t.Fatalf("expected task builder to run once on trigger, got %d", buildCount)
-	}
-	if len(enqueuer.tasks) != 1 {
-		t.Fatalf("expected one enqueued task, got %#v", enqueuer.tasks)
-	}
-	if enqueuer.tasks[0].Type != TypeSystemNoopV1 {
-		t.Fatalf("expected task type %s, got %s", TypeSystemNoopV1, enqueuer.tasks[0].Type)
-	}
-}
-
-func TestRegisterSchedulesDoesNotRegisterStaticNotificationDispatchDue(t *testing.T) {
-	registrar := &fakeScheduleRegistrar{}
-	enqueuer := &fakeEnqueuer{}
-
-	err := RegisterSchedules(registrar, enqueuer, slog.Default())
-	if err != nil {
-		t.Fatalf("RegisterSchedules returned error: %v", err)
-	}
-	if len(registrar.everyCalls) != 0 || len(registrar.cronCalls) != 0 {
-		t.Fatalf("static schedules must stay empty; DB-backed cron task service owns registration, every=%#v cron=%#v", registrar.everyCalls, registrar.cronCalls)
-	}
-	if len(enqueuer.tasks) != 0 {
-		t.Fatalf("registration should not enqueue immediately, got %#v", enqueuer.tasks)
-	}
-}
-
 type fakeAuthRepository struct {
 	attempts []auth.LoginAttempt
 }
@@ -311,56 +255,6 @@ func (f *fakeNotificationTaskJobService) DispatchDue(ctx context.Context, input 
 func (f *fakeNotificationTaskJobService) SendTask(ctx context.Context, input notificationtask.SendTaskInput) (*notificationtask.SendTaskResult, error) {
 	f.sendTaskID = input.TaskID
 	return &notificationtask.SendTaskResult{TaskID: input.TaskID, Sent: 1}, nil
-}
-
-type fakeScheduleRegistrar struct {
-	everyCalls []registeredEveryCall
-	cronCalls  []registeredCronCall
-}
-
-type registeredEveryCall struct {
-	name     string
-	interval time.Duration
-	task     scheduler.TaskFunc
-}
-
-type registeredCronCall struct {
-	name        string
-	expression  string
-	withSeconds bool
-	task        scheduler.TaskFunc
-}
-
-func (f *fakeScheduleRegistrar) Every(name string, interval time.Duration, task scheduler.TaskFunc) error {
-	f.everyCalls = append(f.everyCalls, registeredEveryCall{
-		name:     name,
-		interval: interval,
-		task:     task,
-	})
-	return nil
-}
-
-func (f *fakeScheduleRegistrar) Cron(name string, expression string, withSeconds bool, task scheduler.TaskFunc) error {
-	f.cronCalls = append(f.cronCalls, registeredCronCall{
-		name:        name,
-		expression:  expression,
-		withSeconds: withSeconds,
-		task:        task,
-	})
-	return nil
-}
-
-type fakeEnqueuer struct {
-	tasks []taskqueue.Task
-}
-
-func (f *fakeEnqueuer) Enqueue(ctx context.Context, task taskqueue.Task) (taskqueue.EnqueueResult, error) {
-	f.tasks = append(f.tasks, task)
-	return taskqueue.EnqueueResult{
-		ID:    "test-task-id",
-		Queue: task.Queue,
-		Type:  task.Type,
-	}, nil
 }
 
 func (f *fakeAuthRepository) WithTx(ctx context.Context, fn func(auth.Repository) error) error {
