@@ -237,6 +237,67 @@ func TestDatabaseBaselineRoleManagerPagePermissionContract(t *testing.T) {
 	t.Fatal("role manager page permission id=13 is missing")
 }
 
+func TestDatabaseBaselinePermissionGovernancePageContracts(t *testing.T) {
+	seed, err := os.ReadFile(filepath.Join(backendRoot(t), "database", "seed.sql"))
+	if err != nil {
+		t.Fatalf("read database/seed.sql: %v", err)
+	}
+	rows, err := parsePermissionSeedRows(string(seed))
+	if err != nil {
+		t.Fatalf("parse database/seed.sql permissions: %v", err)
+	}
+	want := map[int64]struct {
+		path, component, code string
+	}{
+		12: {path: "/permission/permission", component: "permission/permission", code: "permission_permission"},
+		85: {path: "/permission/authPlatform", component: "permission/authPlatform", code: "permission_authPlatform"},
+	}
+	for _, row := range rows {
+		expected, ok := want[row.id]
+		if !ok {
+			continue
+		}
+		if row.platform != "admin" || row.typeID != 2 || row.path != expected.path ||
+			row.component != expected.component || row.code != expected.code || row.status != 1 || row.isDel != 2 {
+			t.Fatalf("permission governance page id=%d row=%+v", row.id, row)
+		}
+		delete(want, row.id)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing permission governance pages: %#v", want)
+	}
+}
+
+func TestPermissionGovernancePageMigrationIsGuardedAndForwardOnly(t *testing.T) {
+	path := filepath.Join(backendRoot(t), "database", "migrations", "202608150001_set_permission_governance_page_codes.sql")
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read permission governance migration: %v", err)
+	}
+	normalized := strings.ToLower(strings.Join(strings.Fields(string(body)), " "))
+	for _, required := range []string{
+		"create temporary table",
+		"id = 12", "id = 85",
+		"platform = 'admin'", "type = 2",
+		"path = '/permission/permission'", "component = 'permission/permission'",
+		"path = '/permission/authplatform'", "component = 'permission/authplatform'",
+		"code = 'permission_permission'", "code = 'permission_authplatform'",
+		"update `permissions`", "code is null or trim(code) = ''",
+	} {
+		if !strings.Contains(normalized, required) {
+			t.Errorf("permission governance migration missing guard %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"insert into `permissions`", "insert into `role_permissions`", "update `role_permissions`", "delete from `role_permissions`",
+		"insert into `users`", "insert into `roles`", "insert into `auth_platforms`",
+	} {
+		if strings.Contains(normalized, forbidden) {
+			t.Errorf("permission governance migration contains forbidden write %q", forbidden)
+		}
+	}
+}
+
 func TestRoleManagerPagePermissionMigrationIsGuardedAndForwardOnly(t *testing.T) {
 	path := filepath.Join(backendRoot(t), "database", "migrations", "202608140002_set_role_page_code.sql")
 	body, err := os.ReadFile(path)

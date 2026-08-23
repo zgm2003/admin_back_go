@@ -64,7 +64,7 @@ func TestPermissionsCatalogAndOperationPoliciesAreComplete(t *testing.T) {
 			t.Fatalf("missing active permission code %q", required)
 		}
 	}
-	if got, want := len(document.PermissionCodes), 109; got != want {
+	if got, want := len(document.PermissionCodes), 111; got != want {
 		t.Fatalf("permission codes=%d want=%d", got, want)
 	}
 
@@ -185,6 +185,26 @@ func TestRoleManagerReadsUsePagePermission(t *testing.T) {
 		}
 		if operation.Access.Kind != adminroute.AccessPermission || operation.Access.PermissionCode != "permission_role" {
 			t.Fatalf("GET %s access=%#v", path, operation.Access)
+		}
+	}
+}
+
+func TestPermissionGovernanceReadsUsePagePermissions(t *testing.T) {
+	bundle := mustBuildBundle(t)
+	var document PermissionsDocument
+	if err := json.Unmarshal(bundle.Artifacts["permissions.json"], &document); err != nil {
+		t.Fatalf("decode permissions: %v", err)
+	}
+	want := map[string]string{
+		"/api/admin/v1/permissions/page-init":    "permission_permission",
+		"/api/admin/v1/permissions":              "permission_permission",
+		"/api/admin/v1/auth-platforms/page-init": "permission_authPlatform",
+		"/api/admin/v1/auth-platforms":           "permission_authPlatform",
+	}
+	for path, code := range want {
+		operation, exists := findOperationPolicy(document.Operations, http.MethodGet, path)
+		if !exists || operation.Access.Kind != adminroute.AccessPermission || operation.Access.PermissionCode != code {
+			t.Fatalf("GET %s access=%#v exists=%v", path, operation.Access, exists)
 		}
 	}
 }

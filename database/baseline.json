@@ -22,7 +22,7 @@
   },
   "target": {
     "schema_sha256": "b4884de66b62700e47fe2481769012ef4f28ddeffaf7fb6e39e19bbe5fea4033",
-    "seed_sha256": "ce6622f1a754aabd696608526806aea322499dc705c4d0e7e14f938897ddd2f2",
+    "seed_sha256": "f695f139eb6be356bfc1d329a2b5b6bbd1a6b6e1df7968774f82bcbe6b30d5be",
     "address_reference_sha256": "af82e6ebe0120afebf10bdf13a7cf6ebc092eaa6388a2f47a398ed46e0f72bc2",
     "base_table_count": 77,
     "foreign_key_count": 64,

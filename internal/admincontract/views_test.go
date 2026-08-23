@@ -203,6 +203,31 @@ func TestViewsProtectRoleManagerWithPagePermission(t *testing.T) {
 	t.Fatalf("missing role manager view %q", want.ViewKey)
 }
 
+func TestViewsProtectPermissionGovernancePagesWithPagePermissions(t *testing.T) {
+	bundle := mustBuildBundle(t)
+	var document ViewsDocument
+	if err := json.Unmarshal(bundle.Artifacts["views.json"], &document); err != nil {
+		t.Fatalf("decode views: %v", err)
+	}
+	want := map[string]string{
+		"permission/permission":   "permission_permission",
+		"permission/authPlatform": "permission_authPlatform",
+	}
+	for _, view := range document.Views {
+		code, ok := want[view.ViewKey]
+		if !ok {
+			continue
+		}
+		if !reflect.DeepEqual(view.PermissionCodes, []string{code}) {
+			t.Fatalf("view %s permission_codes=%#v want [%s]", view.ViewKey, view.PermissionCodes, code)
+		}
+		delete(want, view.ViewKey)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing governance views: %#v", want)
+	}
+}
+
 func TestUsersMeSchemaClosesButtonCodesToPublishedPermissionCatalog(t *testing.T) {
 	bundle := mustBuildBundle(t)
 	var views ViewsDocument

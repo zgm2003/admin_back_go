@@ -1101,7 +1101,8 @@
       "path": "/api/admin/v1/auth-platforms",
       "operation_id": "get_api_admin_v1_auth_platforms",
       "access": {
-        "kind": "authenticated"
+        "kind": "permission",
+        "permission_code": "permission_authPlatform"
       },
       "audit": {
         "enabled": false,
@@ -1113,7 +1114,8 @@
       "path": "/api/admin/v1/auth-platforms/page-init",
       "operation_id": "get_api_admin_v1_auth_platforms_page_init",
       "access": {
-        "kind": "authenticated"
+        "kind": "permission",
+        "permission_code": "permission_authPlatform"
       },
       "audit": {
         "enabled": false,
@@ -1518,7 +1520,8 @@
       "path": "/api/admin/v1/permissions",
       "operation_id": "get_api_admin_v1_permissions",
       "access": {
-        "kind": "authenticated"
+        "kind": "permission",
+        "permission_code": "permission_permission"
       },
       "audit": {
         "enabled": false,
@@ -1530,7 +1533,8 @@
       "path": "/api/admin/v1/permissions/page-init",
       "operation_id": "get_api_admin_v1_permissions_page_init",
       "access": {
-        "kind": "authenticated"
+        "kind": "permission",
+        "permission_code": "permission_permission"
       },
       "audit": {
         "enabled": false,
