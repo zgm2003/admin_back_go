@@ -1,6 +1,6 @@
 # Wave 03 Remaining Modules Implementation Plan
 
-> **For agentic workers:** Use the assigned backend/frontend worktree only. Do not modify the source master checkouts.
+> **For the execution agent:** Work directly in the two source `master` checkouts. This personal-development plan uses one coordinator/executor window; do not create worker worktrees or branches.
 
 **Goal:** Complete Mail, SMS, system/operation logs, and UploadConfig as the remaining Wave 03 slices while preserving the current API, database, permission, and user-facing contracts.
 
@@ -21,22 +21,22 @@
 
 ## Worker Boundaries
 
-| Window | Worktree | Backend files | Frontend files |
+| Module | Backend scope | Frontend scope |
 |---|---|---|---|
-| Mail | `wave03-mail-back`, `wave03-mail-front` | backend `internal/module/mail/**` | frontend `src/api/system/mail.ts`, `src/api/system/mailDiagnostics.ts`, and existing mail views only |
-| SMS | `wave03-sms-back`, `wave03-sms-front` | backend `internal/module/sms/**` | frontend `src/api/system/sms.ts` and existing SMS views only |
-| Logs | `wave03-log-back`, `wave03-log-front` | backend `internal/module/systemlog/**`, `internal/module/operationlog/**` | frontend `src/api/system/log.ts`, `src/api/system/operationLog.ts`, and existing log views only |
-| UploadConfig (coordinator) | source master during coordination, then reviewed integration | `internal/module/uploadconfig/**` | `src/api/system/uploadConfig.ts`, `src/api/system/uploadConfig.types.ts`, `src/views/Main/system/uploadConfig/**` |
+| Mail | backend `internal/module/mail/**` | frontend `src/api/system/mail.ts`, `src/api/system/mailDiagnostics.ts`, and existing mail views only |
+| SMS | backend `internal/module/sms/**` | frontend `src/api/system/sms.ts` and existing SMS views only |
+| Logs | backend `internal/module/systemlog/**`, `internal/module/operationlog/**` | frontend `src/api/system/log.ts`, `src/api/system/operationLog.ts`, and existing log views only |
+| UploadConfig | backend `internal/module/uploadconfig/**` | frontend `src/api/system/uploadConfig.ts`, `src/api/system/uploadConfig.types.ts`, `src/views/Main/system/uploadConfig/**` |
 
-The SMS branch already existed before this plan. It must not be deleted, reset, renamed, or overwritten; the coordinator must report that conflict before starting the SMS window. The same rule applies to any pre-existing target directory.
+The executor may process independent module files concurrently, but must keep each module's diff reviewable and commit the backend and frontend changes to their respective `master` branches only after all focused checks pass. No separate worker window is part of this plan.
 
 ## Execution Tasks
 
 ### Task 1: Worker implementation
 
-- [ ] Each worker verifies its worktree starts at the given master commit and is clean.
-- [ ] Each worker writes focused failing tests for the module's existing read/list/page-init and mutation/error behavior, then makes the minimum implementation change.
-- [ ] Each worker runs only its package tests and frontend type/build check, formats touched files, and commits its own branch.
+- [ ] The executor verifies both source `master` checkouts are clean before each module batch.
+- [ ] For each module, write focused failing tests for existing read/list/page-init and mutation/error behavior, then make the minimum implementation change.
+- [ ] Run only the module package tests and frontend checks, format touched files, and commit the reviewed batch to `master`.
 - [ ] Any schema, migration, seed, baseline, or forbidden-file requirement is reported as blocked; no workaround is added.
 
 ### Task 2: UploadConfig implementation
@@ -47,9 +47,9 @@ The SMS branch already existed before this plan. It must not be deleted, reset, 
 
 ### Task 3: Review and integration
 
-- [ ] Review all six worker diffs for boundary violations, compatibility breaks, silent defaults, and unnecessary abstractions.
+- [ ] Review each module diff for boundary violations, compatibility breaks, silent defaults, and unnecessary abstractions.
 - [ ] Run the plan's focused short tests for all four modules and frontend checks.
-- [ ] Merge reviewed backend/frontend commits into their respective `master` branches; preserve unrelated user changes and never reset or checkout over them.
+- [ ] Keep reviewed backend/frontend commits on their respective `master` branches; preserve unrelated user changes and never reset or checkout over them.
 - [ ] Update `docs/superpowers/plans/2026-08-13-admin-architecture-reduction-execution-index.md` to mark Wave 03 fully complete only after black-box acceptance evidence is recorded.
 - [ ] Provide a user-facing black-box acceptance checklist for Mail, SMS, system logs, operation logs, and UploadConfig.
 - [ ] Stop after Wave 03. Do not plan, implement, or start Wave 04.
