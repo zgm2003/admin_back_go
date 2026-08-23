@@ -49,7 +49,7 @@ Wave 02 frontend: 3c27ec5
 |---|---|---|---|
 | Wave 01 | 权限矩阵 UI + Realtime Redis DB 1 | 页面权限自然可选，实时和 AI 取消信号脱离缓存 DB 0 | 不删除旧架构 |
 | Wave 02 | 系统设置 CRUD 样板（已验收） | 第一条可读的后端/前端样板链 | 已删除系统设置旧重复层 |
-| Wave 03 | 公共分页、配置、公共响应、RBAC、后台基础模块 | 基础段、User、Role 已完成人工验收；Permission + AuthPlatform 计划已批准，等待执行 | 只删除已迁移模块旧层 |
+| Wave 03 | 公共分页、配置、公共响应、RBAC、后台基础模块 | 基础段、User、Role 已完成人工验收；Permission + AuthPlatform 代码与迁移完成，等待人工验收 | 只删除已迁移模块旧层 |
 | Wave 04 | Worker、任务、Realtime、COS | 后台任务、WebSocket、上传边界收口 | 只删除已迁移 runtime 包装 |
 | Wave 05 | 支付与钱包 | 订单、钱包、供应商、回调幂等边界清楚 | 只删除支付旧适配层 |
 | Wave 06 | AI 激进减法 | 最近 N 个完整轮次与 COS 历史附件；真实 Usage 扣费允许负余额 | 删除 Context/RAG/Qdrant/Embedding/Rerank/Memory/Context Plan/Hold |
@@ -307,6 +307,56 @@ Role 人工验收清单：
 - [ ] 没有 `permission_role` 的已登录用户访问两个 Role GET 得到 403，并出现全局错误通知；
 - [ ] 通知任务发布弹窗中的角色 RemoteSelect 仍可搜索和选择角色；
 - [ ] 刷新和重新登录后角色权限变更立即生效，没有旧 Redis 授权缓存。
+
+### Wave 03 Permission + AuthPlatform 检查点（2026-08-23）
+
+状态：代码、合同和本地 forward migration 已完成，等待用户人工验收。未进入 Mail、SMS、日志、上传、支付或 AI。
+
+后端提交：
+
+```text
+250d1af fix(permission): preserve page access codes
+431138f refactor(authplatform): use shared pagination and page access
+b15eee8 fix(permission): protect governance page reads
+8b38e78 chore(contract): publish permission governance schemas
+c32eb64 test(server): align auth platform pagination fixture
+```
+
+前端提交：
+
+```text
+c38db28 refactor(permission): use direct frontend api
+16f3794 chore(contract): sync permission governance schemas
+```
+
+数据库事实：
+
+```text
+Migration: 202608150001_set_permission_governance_page_codes.sql
+SHA-256: 69f9bdc45d6ccb1f683fbfe0446c7818674e20b62cffcc3aa37f3a04448e48c6
+Applied version: 202608150001
+permissions.id=12: admin | type=2 | /permission/permission | permission/permission | permission_permission
+permissions.id=85: admin | type=2 | /permission/authPlatform | permission/authPlatform | permission_authPlatform
+permissions count before/after: 132/132
+```
+
+admin 超管核验：唯一命中 `admin/admin@qq.com`，user_id=1，role_id=2，用户启用且未删除，角色未删除；role_permissions 对 ID 12、85 均已为 `is_del=2`，未新增或改写关系，未补按钮权限。
+
+Redis 精确清理：仅使用 DB 0、prefix `token:`，删除当前 admin user_id=1 的 1 个 Principal state key，删除后目标零命中；未访问 DB 1、2、3。由于 admin-dev 未由本批次启动，Principal 重建证据等待用户下一次受保护请求。
+
+定向验证：
+
+```text
+PASS backend Permission/AuthPlatform/architecture/admincontract/server 定向测试
+PASS frontend --no-file-parallelism 定向测试（9 files，35 tests）
+PASS frontend ESLint（Permission/AuthPlatform API、相关页面和测试）
+PASS backend/frontend contract generate/check
+PASS git diff --check（两个仓库）
+```
+
+计划外问题：`scripts/database.ps1 check` 在 migration 后仍报告 `DATABASE_SEED_FACTS_MISMATCH`；只读核验为本地 `system_settings=6`、baseline 期望 `4`，属于既有本地数据漂移，未修改业务数据、baseline 规则或数据库检查脚本。
+
+明确未运行：`admin-dev` 启停、`go test ./...`、全量 Vue 测试、全量 typecheck、Playwright、`verify:frontend` 和发布长脚本。
 
 ## Wave 04：运行与存储
 
