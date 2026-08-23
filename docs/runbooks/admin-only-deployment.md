@@ -11,8 +11,6 @@ objects.
 
 - **Release operator** verifies Git commits, image/archive digests, Compose
   resources, health, readiness, and Admin smoke evidence.
-- **Database operator** owns the recovery artifact, baseline hashes, ordered
-  migration checksums, and the maintenance lock.
 - **Security owner** supplies the approval and secrets through the approved
   environment or ignored files. Values are never pasted into logs or evidence.
 
@@ -35,9 +33,8 @@ approved backend environment file
 ```
 
 The manifest commits must equal the two clean primary checkouts. The archive
-hashes, loaded image IDs, OCI revision labels, Bundle digest, baseline schema
-and seed hashes, ordered migration checksums, and all evidence hashes must
-match exactly.
+hashes, loaded image IDs, OCI revision labels, Bundle digest, and all evidence
+hashes must match exactly.
 
 ## Preflight
 
@@ -48,9 +45,7 @@ match exactly.
    `admin-dev` lock.
 3. Confirm one primary checkout per repository, no secondary worktree, clean
    status, and no `.github` directory or deployment Workflow.
-4. Verify the recovery artifact was restored successfully and its dump hash
-   matches the pre-contract input lock.
-5. Verify retained COS keys and the historical-object disposition evidence.
+4. Verify retained COS keys and the historical-object disposition evidence.
 6. Run the non-mutating package check:
 
    ```powershell
@@ -69,7 +64,6 @@ do not echo them. Previewing or omitting `-Apply` must fail closed.
 ```powershell
 pwsh -NoProfile -File scripts/release/deploy-admin-only.ps1 `
   -Manifest release/admin-only/out/release-manifest.json `
-  -Database $env:ADMIN_RELEASE_DB `
   -BackendEnvFile $env:ADMIN_BACKEND_ENV_FILE `
   -RuntimeVolume admin-runtime `
   -ExportVolume admin-exports `
@@ -77,9 +71,7 @@ pwsh -NoProfile -File scripts/release/deploy-admin-only.ps1 `
   -Apply
 ```
 
-The script validates and loads immutable archives, runs
-`scripts/database.ps1 migrate` followed by the read-only
-`scripts/database.ps1 check`, starts staging
+The script validates and loads immutable archives, starts staging
 with `--no-build`, probes
 health/readiness and Admin smoke, then promotes the exact images. It archives
 manifest/proof/metadata under the release ID before atomically changing
@@ -91,8 +83,7 @@ Record only IDs, hashes, counts, and timings:
 
 ```powershell
 pwsh -NoProfile -File scripts/release/verify-admin-only-release.ps1 `
-  -Manifest release/admin-only/out/release-manifest.json `
-  -Database $env:ADMIN_RELEASE_DB
+  -Manifest release/admin-only/out/release-manifest.json
 ```
 
 Confirm frontend `/healthz`, API `/health`, API `/ready`, authenticated Admin
@@ -101,4 +92,4 @@ error metrics. Close the window only when `release/admin-only/out/proof.json`
 passes and the operator records the release ID.
 
 **STOP** and invoke the rollback runbook if staging, promotion, health,
-readiness, smoke, durable-work recovery, or baseline drift fails.
+readiness, smoke, or durable-work recovery fails.

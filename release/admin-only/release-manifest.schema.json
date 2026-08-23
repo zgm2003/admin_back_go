@@ -10,7 +10,6 @@
     "backend",
     "frontend",
     "contract",
-    "database",
     "evidence"
   ],
   "$defs": {
@@ -87,44 +86,6 @@
         },
         "manifest_sha256": {
           "$ref": "#/$defs/sha256"
-        }
-      }
-    },
-    "database": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "baseline_version",
-        "baseline_schema_sha256",
-        "baseline_seed_sha256",
-        "migration_checksums"
-      ],
-      "properties": {
-        "baseline_version": {
-          "const": "202608130001"
-        },
-        "baseline_schema_sha256": {
-          "$ref": "#/$defs/sha256"
-        },
-        "baseline_seed_sha256": {
-          "$ref": "#/$defs/sha256"
-        },
-        "migration_checksums": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["version", "sha256"],
-            "properties": {
-              "version": {
-                "type": "string",
-                "pattern": "^[0-9]{12}$"
-              },
-              "sha256": {
-                "$ref": "#/$defs/sha256"
-              }
-            }
-          }
         }
       }
     },

@@ -181,9 +181,8 @@ Redis process is an accepted verification path.
 The final release unit is a synchronized Browser-only frontend image plus one
 backend image used by API and Worker. `release/admin-only/out/release-manifest.json`
 binds both clean repository commits, OCI image IDs and archive hashes, the Admin
-Contract Bundle, database baseline schema/seed hashes, ordered forward migration
-hashes, recovery/input/query/COS/retirement evidence, and the retained platform-
-kernel proof.
+Contract Bundle, recovery/input/query/COS/retirement evidence, and the retained
+platform-kernel proof. Database ownership is external to the release manifest.
 
 Deployment and rollback use `deploy/admin-only/docker-compose.yml` with
 immutable image IDs and `--no-build`. Application rollback restores the prior
@@ -860,7 +859,7 @@ read/list endpoint.
 The application shutdown path closes local realtime sessions. API/Worker,
 MySQL, Redis, realtime integration, and kill/restart verification are launched
 only through the Docker-first scripts.
-## Database infra baseline
+## Database infra
 
 数据库连接属于 `internal/infra/database`，业务查询属于各模块 repository。
 
@@ -871,9 +870,10 @@ service -> calls repository
 handler -> calls service
 ```
 
-数据库结构唯一事实是 `database/schema.sql`，最小初始化事实是
-`database/seed.sql`。应用启动不迁移；`scripts/database.ps1` 独占
-`init/reset/migrate/check`，并用 `schema_migrations` 校验基线之后的文件哈希。
+本地 Docker MySQL 是业务数据、表结构和索引的唯一事实源。仓库不再包含
+`database/`、seed、migration 或 baseline；应用启动不迁移，数据库变更按
+`docs/database-ownership.md` 由 work-ai 对确认过的本机 `admin` 数据库直接执行并
+读回验证。`internal/infra/database` 只负责连接、事务和错误处理。
 
 GORM 只作为 MySQL 访问工具，不允许把 GORM model 方法写成业务层。
 
@@ -992,7 +992,7 @@ admin-worker 默认写 runtime/logs/admin-worker.log。
 
 进程身份不来自 env。`cmd/admin-api` 固定使用 `logging.ForProcess("admin-api")`，`cmd/admin-worker` 固定使用 `logging.ForProcess("admin-worker")`；Docker-first Compose service name 也分别是 `admin-api` 和 `admin-worker`。共享 `admin-go.env` 不再提供 `APP&#95;NAME`，避免同一份 env 同时服务 API/worker 时产生错误语义。
 
-这些日志策略不进 system_settings。原因是日志初始化早于 DB；DB 不通、migration 出错、启动失败时仍要能写 stdout 和文件日志。
+这些日志策略不进 system_settings。原因是日志初始化早于 DB；DB 不通或启动失败时仍要能写 stdout 和文件日志。
 
 路由：
 
@@ -1538,13 +1538,9 @@ send-task handler 解析目标用户、批量写 notifications、更新 sent_cou
 notification.created.v1 通过 worker RedisPublisher -> admin-api RedisSubscriber -> 本机 WebSocket Manager 做 best-effort 推送；DB notifications 写入仍是真相。
 ```
 
-RBAC 初始化数据：
-
-```text
-database/seed.sql 是本地初始化权限树和角色授权的唯一 SQL 来源。
-通知管理的 system_notificationTask_add / cancel / del BUTTON 权限及其角色授权必须在 seed 中显式存在。
-权限变更通过正式权限写接口更新版本并使缓存失效；不要靠恢复历史 migration 或手工删除未知缓存键修正权限。
-```
+RBAC 的权限目录、角色关系和变更由当前 MySQL 事实以及受保护的管理 API 维护。
+权限变更通过正式权限写接口更新版本并使缓存失效；不要恢复历史 migration 或手工
+删除未知缓存键修正权限。
 
 ## Profile + Avatar Upload Slice
 
@@ -1866,20 +1862,9 @@ AI audio and video generation are retired; ordinary media upload/editor support 
 
 Schema truth:
 
-```text
-docs/db/ai-live-schema-mcp-2026-05-10.md # MCP snapshot: the only current AI table-count/column-count handoff truth
-20260509_ai_conversation_message_mvp.sql  # ai_conversations / ai_messages WebSocket conversation MVP
-20260509_ai_agent_mvp_prune.sql           # prunes ai_agents down to provider/model/scenes/system_prompt/avatar
-20260509_ai_agent_drop_type_code.sql      # drops fake agent code/type concepts
-20260510_ai_run_monitor_mvp.sql           # ai_runs / ai_run_events original chat monitor
-20260607_unified_ai_run_records.sql       # ai_runs provider-attempt baseline + ai_text_tasks
-20260510_ai_messages_meta_json.sql        # message attachments/runtime params metadata
-20260510_ai_tool_runtime_mvp.sql          # ai_tools, ai_agent_tools, ai_tool_calls, admin_user_count seed
-20260510_ai_tool_drop_executor.sql        # removes duplicate ai_tools.executor; tool code is the dispatch key
-20260510_ai_tool_generate_permission.sql  # AI tool generate draft button permission
-20260510_ai_knowledge_rag.sql             # local RAG tables and retrieval audit
-20260510_ai_prune_stale_permissions.sql   # soft-deletes stale unused AI permission codes
-```
+AI and all other business tables are read from the confirmed local MySQL instance.
+Historical SQL names in old plans are context only and are not executable inputs;
+the repository contains no active schema or migration source.
 
 Provider config truth:
 

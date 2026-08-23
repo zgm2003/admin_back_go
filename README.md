@@ -105,10 +105,7 @@ admin_back_go/
   cmd/
     admin-api/             # HTTP API 进程入口
     admin-worker/          # 队列 + 定时任务进程入口
-  database/
-    schema.sql             # 当前完整结构的唯一基线
-    seed.sql               # 最小、无密钥的初始化数据
-    migrations/            # 基线之后的短 forward migration
+  docs/database-ownership.md # 本地 MySQL 所有权和直接 SQL 规则
   deploy/
     docker-first/          # 后端 Docker-first Compose 部署模板
   docs/                    # 后端运行时架构说明；总控状态/契约在 ../docs
@@ -424,40 +421,13 @@ pwsh -NoProfile -File E:\admin\admin_front_ts\scripts\docker-frontend-gate.ps1 -
 admin-up
 admin-status
 ```
-## 数据库和迁移
+## 数据库所有权
 
-数据库主动开发路径只有四个表面：
-
-```text
-database/schema.sql         完整结构唯一事实
-database/seed.sql           最小系统初始化数据
-database/migrations         基线之后的 forward migration
-database/baseline.json      已验证的哈希和结构计数
-```
-
-应用启动不会自动迁移。所有本地数据库操作只走一个入口：
-
-```powershell
-pwsh -NoProfile -File scripts/database.ps1 init
-pwsh -NoProfile -File scripts/database.ps1 reset -ConfirmReset admin -CreateAdmin -AdminUsername "Local Admin" -AdminEmail admin@example.com
-pwsh -NoProfile -File scripts/database.ps1 migrate
-pwsh -NoProfile -File scripts/database.ps1 check
-```
-
-`reset` 只允许固定的本地 `admin-state` MySQL/Redis/Qdrant 容器，且 API、Worker、`admin-dev` 必须已停止。它只清 Redis DB `0/1/2/3`（缓存、Realtime/AI cancel、Token、Queue）和 `admin_context_` 前缀的 Qdrant 派生数据，不执行 `FLUSHALL`。
-
-新迁移命名为 `<12位版本>_<小写名称>.sql`，版本必须大于基线 `202608130001`。已应用迁移的 SHA-256 写入 `schema_migrations`，之后禁止修改文件字节。
-
-创建管理员时，密码只来自隐藏输入或当前进程的 `ADMIN_INITIAL_PASSWORD`，不得进入 SQL、命令参数和日志。
-
-生产执行破坏性迁移前必须：
-
-```text
-1. 备份数据库
-2. 确认 SQL 是否 destructive
-3. 在测试库跑一遍
-4. 再上生产
-```
+当前个人开发阶段由本机 Docker MySQL 持有唯一业务事实。仓库不包含
+`database/`、seed、migration、baseline 或数据库生命周期命令；Go 运行时只通过
+`internal/infra/database` 连接正在运行的 MySQL。需要变更数据库时，按
+[`docs/database-ownership.md`](docs/database-ownership.md) 确认本机 `admin` 目标后由
+work-ai 执行最小 SQL 并读回验证。密码和私有 SQL 导出只能留在仓库外。
 
 ## Docker 部署
 
@@ -922,7 +892,7 @@ deploy/docker-first/admin-go.env.example
 ```text
 不要提交仓库根 .env。
 不要让 8080 裸奔公网；如果为了局域网真机调试绑定 `0.0.0.0`，必须只在受控内网/防火墙白名单下使用。
-不要手工绕过 scripts/database.ps1 修改迁移账本。
+不要在个人开发阶段新增 `database/`、migration、seed、baseline 或数据库 CLI。
 不要在 README 里承诺未实现能力。
 不要为了“分布式”增加复杂度；能单机稳定演示，就先单机。
 ```

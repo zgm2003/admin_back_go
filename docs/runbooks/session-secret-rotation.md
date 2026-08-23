@@ -6,14 +6,14 @@
 
 1. Deploy this key-ID-capable release with the existing `APP_SECRET` and no `APP_SECRET_PREVIOUS`.
 2. Wait one maximum access-token TTL so pre-release JWTs without an explicit `kid` expire.
-3. Back up the database and inventory the encrypted AI, upload, mail, SMS, payment, and storage configuration values held in the deployment secret store. Pair every backup with the matching secret generation and preserve that pairing as rotation evidence.
+3. Inventory the encrypted AI, upload, mail, SMS, payment, and storage configuration values held in the deployment secret store and preserve the matching secret generation outside Git.
 4. Run:
 
    ```powershell
    pwsh -NoProfile -File scripts/tests/session-secret-rotation.tests.ps1
    ```
 
-The rehearsal runs its old, dual-key, and new-only session nodes in Docker against the shared MySQL/Redis services. It proves issue, authenticate, rotate, revoke, cross-node propagation, current-key signing, previous-key verification, and final old-key rejection. Generated secrets and logs live only below a verified temporary directory and are deleted after the run.
+The rehearsal runs the session module's multi-node rotation test against the configured runtime services. It proves issue, authenticate, rotate, revoke, cross-node propagation, current-key signing, previous-key verification, and final old-key rejection without reading repository SQL.
 
 ## Rotation procedure
 
@@ -26,30 +26,16 @@ The rehearsal runs its old, dual-key, and new-only session nodes in Docker again
    ```
 
 3. Drain and stop all old-current API and Worker writers before starting any new-current API or Worker process. Do not leave an old-current writer running after the dual-root env is staged.
-4. Run the explicit mail diagnostic rekey operation while the writers remain stopped:
-
-   ```powershell
-   go run ./cmd/admin-db mail-diagnostic-rekey
-   ```
-
-   Record zero previous references and zero unknown references in its output before any new-current API or Worker starts.
-5. Recreate API and Worker containers through the approved Docker deployment. Do not start host processes. Never use `docker compose down -v`.
-6. Verify every node is healthy and that:
+4. Recreate API and Worker containers through the approved Docker deployment. Do not start host processes. Never use `docker compose down -v`.
+5. Verify every node is healthy and that:
    - an access credential issued before the dual-key deployment still authenticates;
    - newly issued JWT headers contain the new current `kid`;
    - a newly issued Browser session can rotate its Cookie-held refresh credential;
    - the old refresh credential cannot rotate after the root-secret cutover.
-7. Sign in again under the new current key. Revoke every session created before the cutover through the Admin session-management surface. The refresh-token pepper intentionally has no previous-key fallback.
-8. `APP_SECRET` also derives the secretbox key. Re-enter every encrypted business credential from the deployment secret store so it is encrypted under the new current key; validate each affected provider before continuing. This release does not silently migrate or log plaintext credentials.
-9. Keep the dual JWT verification window no longer than the declared maximum access-token TTL. Confirm no required old-key access session remains.
-10. Immediately before removing `APP_SECRET_PREVIOUS`, drain and stop all API and Worker writers again, then run and record the independent final mail diagnostic gate:
-
-    ```powershell
-    go run ./cmd/admin-db mail-diagnostic-rekey
-    ```
-
-    Verify and record zero previous references and zero unknown references. Do not remove `APP_SECRET_PREVIOUS` until this final gate succeeds.
-11. Preserve the backup and rekey evidence before removing `APP_SECRET_PREVIOUS` from every node, recreate API/Worker containers with Docker, and prove:
+6. Sign in again under the new current key. Revoke every session created before the cutover through the Admin session-management surface. The refresh-token pepper intentionally has no previous-key fallback.
+7. `APP_SECRET` also derives the secretbox key. Re-enter every encrypted business credential from the deployment secret store so it is encrypted under the new current key; validate each affected provider before continuing. This release does not silently migrate or log plaintext credentials.
+8. Keep the dual JWT verification window no longer than the declared maximum access-token TTL. Confirm no required old-key access session remains.
+9. Remove `APP_SECRET_PREVIOUS` from every node, recreate API/Worker containers with Docker, and prove:
    - current-key credentials still authenticate;
    - old-key access credentials fail;
    - old refresh credentials fail;
@@ -57,7 +43,7 @@ The rehearsal runs its old, dual-key, and new-only session nodes in Docker again
 
 ## Rollback
 
-During the dual window, restore the old value as `APP_SECRET` and remove `APP_SECRET_PREVIOUS`, then recreate all API/Worker containers together. After old sessions or encrypted configuration have been deliberately replaced, rollback requires restoring the matching database backup and deployment secret set; do not mix root-secret generations.
+During the dual window, restore the old value as `APP_SECRET` and remove `APP_SECRET_PREVIOUS`, then recreate all API/Worker containers together. Do not mix root-secret generations.
 
 ## Invariants
 

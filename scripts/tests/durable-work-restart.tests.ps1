@@ -247,16 +247,6 @@ try {
     $LASTEXITCODE -eq 0
   }
 
-  $schemaPath = Join-Path $script:RepoRoot 'database\schema.sql'
-  if (-not (Test-Path -LiteralPath $schemaPath -PathType Leaf)) {
-    throw 'database/schema.sql is missing'
-  }
-  Invoke-Docker -Arguments @('cp', $schemaPath, ($script:MySQLContainer + ':/tmp/admin-schema.sql')) | Out-Null
-  Invoke-Docker -Arguments @(
-    'exec', '-e', ("MYSQL_PWD=" + $script:MySQLPassword), $script:MySQLContainer,
-    'sh', '-lc', 'mysql --user=root --database=admin < /tmp/admin-schema.sql'
-  ) | Out-Null
-
   $runtimeLines = @(
     'APP_ENV=production',
     'HTTP_ADDR=:8080',

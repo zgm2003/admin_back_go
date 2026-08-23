@@ -36,6 +36,14 @@ E:\admin\admin_back_go\internal\platform\README.md
 禁止新接口继续全 POST 动作 URL
 ```
 
+个人本地数据库阶段的额外边界：
+
+- 禁止新增 `database/`、migration、seed、baseline 或数据库生命周期脚本；
+- 禁止恢复 `cmd/admin-db` 或创建替代的 `admin-cli`；
+- MySQL 是唯一业务事实，运行时只通过 `internal/infra/database` 连接；
+- 数据库变更只能按 `docs/database-ownership.md` 对确认过的本机 `admin` 实例执行，
+  不得把密码或完整 DSN 写入日志、SQL 或提交。
+
 ## 当前阶段
 
 `admin_back_go` 已是 active Go runtime，现有 Auth/RBAC、用户、日志、通知、上传、支付、AI、realtime、queue 和 worker 能力以运行时代码、测试及 `docs/architecture.md` 为事实来源。

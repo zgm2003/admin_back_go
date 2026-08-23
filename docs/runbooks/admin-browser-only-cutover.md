@@ -30,17 +30,9 @@ explicit approval.
    pwsh -NoProfile -File scripts/docker-platform.ps1 status
    ```
 
-3. Apply the idempotent menu/grant reconciliation:
-
-   ```powershell
-   pwsh -NoProfile -File scripts/database/reconcile.ps1 `
-     -Stage browser-only-retirement `
-     -Database admin `
-     -ExpectedSourceFingerprint $env:ADMIN_VERIFIED_FINGERPRINT
-   ```
-
-   The SQL soft-deletes role grants before permissions and proves the
-   `client_versions` count/hash are unchanged in the same transaction.
+3. The historical menu/grant reconciliation script is retired. Any future
+   browser-only data change must be separately designed and executed against
+   the confirmed local `admin` database under `docs/database-ownership.md`.
 
 4. Preview, then apply, the one-time session cutover:
 

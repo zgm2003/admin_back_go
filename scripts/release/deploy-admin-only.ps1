@@ -6,7 +6,6 @@ param(
   [string]$Manifest,
   [string]$ImageMetadata,
   [string]$RecoveryArtifact,
-  [string]$Database,
   [string]$BackendEnvFile,
   [string]$RuntimeVolume,
   [string]$ExportVolume,
@@ -32,7 +31,6 @@ $requested = [pscustomobject]@{
   Manifest = $Manifest
   ImageMetadata = $ImageMetadata
   RecoveryArtifact = $RecoveryArtifact
-  Database = $Database
   BackendEnvFile = $BackendEnvFile
   RuntimeVolume = $RuntimeVolume
   ExportVolume = $ExportVolume
@@ -288,7 +286,6 @@ $MaintenanceWindow = $requested.MaintenanceWindow
 $Manifest = $requested.Manifest
 $ImageMetadata = $requested.ImageMetadata
 $RecoveryArtifact = $requested.RecoveryArtifact
-$Database = $requested.Database
 $BackendEnvFile = $requested.BackendEnvFile
 $RuntimeVolume = $requested.RuntimeVolume
 $ExportVolume = $requested.ExportVolume
@@ -306,14 +303,12 @@ if (-not $MaintenanceWindow) { throw 'Admin release deployment requires an appro
 foreach ($required in @(
   [pscustomobject]@{ Value = $Manifest; Label = 'release manifest' },
   [pscustomobject]@{ Value = $RecoveryArtifact; Label = 'recovery artifact' },
-  [pscustomobject]@{ Value = $Database; Label = 'database' },
   [pscustomobject]@{ Value = $BackendEnvFile; Label = 'backend environment file' },
   [pscustomobject]@{ Value = $RuntimeVolume; Label = 'runtime volume' },
   [pscustomobject]@{ Value = $ExportVolume; Label = 'export volume' }
 )) {
   if ([string]::IsNullOrWhiteSpace([string]$required.Value)) { throw "$($required.Label) is required" }
 }
-if ($Database -cne 'admin') { throw 'database name must be admin' }
 foreach ($name in @($RuntimeVolume, $ExportVolume, $PlatformNetwork, $StagingProject, $ProductionProject)) {
   if ($name -cnotmatch '^[a-zA-Z0-9][a-zA-Z0-9_.-]*$') { throw 'Compose resource name is invalid' }
 }
@@ -357,11 +352,6 @@ try {
   if ($null -ne $previousState -and -not [string]::IsNullOrWhiteSpace([string]$previousState.current_project)) {
     Invoke-AdminReleaseCompose -Project ([string]$previousState.current_project) -Arguments @('stop') -Label 'stop previous release project'
   }
-
-  & pwsh -NoProfile -File (Join-Path $script:BackendRoot 'scripts\database.ps1') migrate
-  if ($LASTEXITCODE -ne 0) { throw 'Admin database migration failed' }
-  & pwsh -NoProfile -File (Join-Path $script:BackendRoot 'scripts\database.ps1') check
-  if ($LASTEXITCODE -ne 0) { throw 'Admin database baseline check failed' }
 
   Invoke-AdminReleaseCompose -Project $StagingProject -Arguments @('up', '-d', '--no-build', '--force-recreate', '--wait', '--wait-timeout', '300') -Label 'start staging release'
   Invoke-AdminReleaseSmoke -FrontendURL "http://127.0.0.1:$StagingFrontendPort" -APIURL "http://127.0.0.1:$StagingAPIPort"

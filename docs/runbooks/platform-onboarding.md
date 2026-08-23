@@ -21,8 +21,7 @@ Use this order without skipping a step:
 8. **Run cross-platform isolation tests** for authentication, RBAC, sessions,
    login logs, notifications, provenance, realtime, queue work, and storage.
 9. **Deploy immutable Docker images** bound to clean commits, a generated
-   contract digest, baseline schema/seed hashes, ordered migration checksums,
-   evidence hashes, and rollback proof.
+   contract digest, evidence hashes, and rollback proof.
 
 Capability modules remain transport-neutral. Do not add platform conditionals
 to reusable AI, wallet, payment, storage, export, notification, or realtime

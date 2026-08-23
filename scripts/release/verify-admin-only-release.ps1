@@ -1,7 +1,6 @@
 [CmdletBinding()]
 param(
   [string]$Manifest,
-  [string]$Database = $env:ADMIN_RESTORE_DB,
   [string]$Output,
   [string]$FrontendURL = 'http://127.0.0.1:5173',
   [string]$APIURL = 'http://127.0.0.1:8080',
@@ -24,7 +23,6 @@ $script:GateNames = @(
   'repository-boundary',
   'release-manifest',
   'backend-quality',
-  'database-recovery-contract',
   'runtime-identity-durable-realtime',
   'admin-contract-bundle',
   'frontend-quality',
@@ -74,7 +72,6 @@ if ($ListGates) {
 
 $requestedVerifierParameters = [pscustomobject]@{
   Manifest = $Manifest
-  Database = $Database
   Output = $Output
   FrontendURL = $FrontendURL
   APIURL = $APIURL
@@ -83,7 +80,6 @@ $requestedVerifierParameters = [pscustomobject]@{
 }
 . (Join-Path $PSScriptRoot 'check-release-manifest.ps1') -ImportFunctions
 $Manifest = $requestedVerifierParameters.Manifest
-$Database = $requestedVerifierParameters.Database
 $Output = $requestedVerifierParameters.Output
 $FrontendURL = $requestedVerifierParameters.FrontendURL
 $APIURL = $requestedVerifierParameters.APIURL
@@ -316,7 +312,6 @@ if ($ImportFunctions) { return }
 
 if ([string]::IsNullOrWhiteSpace($Manifest)) { $Manifest = Join-Path $script:ReleaseOutputRoot 'release-manifest.json' }
 if ([string]::IsNullOrWhiteSpace($Output)) { $Output = $script:DefaultProofPath }
-if ($Database -cnotmatch '^[A-Za-z][A-Za-z0-9_]{0,63}$') { throw 'ADMIN_RESTORE_DB or -Database must name a post-contract disposable database' }
 if ($FrontendURL -cnotmatch '^http://127\.0\.0\.1:[0-9]{2,5}$' -or $APIURL -cnotmatch '^http://127\.0\.0\.1:[0-9]{2,5}$') {
   throw 'release verification URLs must be loopback HTTP origins'
 }
@@ -343,8 +338,6 @@ $proof = [ordered]@{
   backend_commit = [string]$release.backend.commit
   frontend_commit = [string]$release.frontend.commit
   contract_manifest_sha256 = [string]$release.contract.manifest_sha256
-  database_baseline_schema_sha256 = [string]$release.database.baseline_schema_sha256
-  database_baseline_seed_sha256 = [string]$release.database.baseline_seed_sha256
   image_ids = [ordered]@{
     backend = Get-ReleaseImageID -Image ([string]$release.backend.image)
     frontend = Get-ReleaseImageID -Image ([string]$release.frontend.image)
@@ -381,15 +374,6 @@ try {
       $quality = Invoke-ReleasePowerShell -RelativePath 'scripts\verify-backend.ps1' -Label 'backend quality gate'
       $releaseArchitecture = Invoke-ReleaseVerificationCommand -Executable (Resolve-ReleaseExecutable -Command 'go') -Arguments @('test', './internal/architecture', '-run', 'TestAdminRelease', '-count=1') -Label 'Admin release architecture gate'
       return [ordered]@{ clean = $clean; dependencies = $modules; quality = $quality; release_architecture = $releaseArchitecture }
-    }
-  }))
-
-  $gateResults.Add((Invoke-AdminReleaseGate -Name 'database-recovery-contract' -Action {
-    $databaseGate = Invoke-ReleasePowerShell -RelativePath 'scripts\verify-database.ps1' -Label 'database baseline gate'
-    $contract = Invoke-ReleasePowerShell -RelativePath 'scripts\tests\database-baseline.tests.ps1' -Label 'database baseline command assertions'
-    return [ordered]@{
-      database = $databaseGate
-      contract = $contract
     }
   }))
 
@@ -446,7 +430,7 @@ try {
   }))
 
   $gateResults.Add((Invoke-AdminReleaseGate -Name 'admin-only-platform-kernel' -Action {
-    $platform = Invoke-ReleasePowerShell -RelativePath 'scripts\release\check-platform-kernel.ps1' -Arguments @('-Database', $Database, '-Output', (Join-Path $script:ReleaseOutputRoot 'platform-kernel-proof.json')) -Label 'Admin-only platform-kernel gate'
+    $platform = Invoke-ReleasePowerShell -RelativePath 'scripts\release\check-platform-kernel.ps1' -Arguments @('-Output', (Join-Path $script:ReleaseOutputRoot 'platform-kernel-proof.json')) -Label 'Admin-only platform-kernel gate'
     $architecture = Invoke-ReleaseVerificationCommand -Executable (Resolve-ReleaseExecutable -Command 'go') -Arguments @('test', './internal/architecture', '-run', 'Test(AdminOnly|PlatformKernel)', '-count=1') -Label 'Admin-only source and generated scan'
     # client_versions absence and all seven auth-platforms operations are enforced by 053 and the platform proof.
     return [ordered]@{

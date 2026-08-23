@@ -44,7 +44,6 @@ $expectedGates = @(
   'repository-boundary',
   'release-manifest',
   'backend-quality',
-  'database-recovery-contract',
   'runtime-identity-durable-realtime',
   'admin-contract-bundle',
   'frontend-quality',
@@ -57,10 +56,6 @@ $expectedGates = @(
 $actualGates = @(& pwsh -NoProfile -File $verifierPath -ListGates)
 Assert-True ($LASTEXITCODE -eq 0) 'release verifier gate listing failed'
 Assert-True (($actualGates -join '|') -ceq ($expectedGates -join '|')) 'release verifier gate order changed'
-
-$invalidDatabaseOutput = @(& pwsh -NoProfile -File $verifierPath -Database 'invalid-name' 2>&1)
-Assert-True ($LASTEXITCODE -ne 0) 'release verifier returned before validating its database argument'
-Assert-True (($invalidDatabaseOutput -join "`n").Contains('ADMIN_RESTORE_DB or -Database', [StringComparison]::Ordinal)) 'release verifier did not report its database validation failure'
 
 $tokens = $null
 $parseErrors = $null
@@ -207,7 +202,6 @@ foreach ($needle in @(
   'go clean -testcache',
   'go mod verify',
   'scripts\verify-backend.ps1',
-  'scripts\verify-database.ps1',
   'scripts\tests\process-sigterm.tests.ps1',
   'scripts\tests\durable-work-restart.tests.ps1',
   'scripts\check-admin-contract.ps1',
@@ -232,9 +226,7 @@ Assert-NotMatch $verifier '(ConvertTo-Json|Add-Member).*(prompt|dump_path|certif
 
 foreach ($needle in @(
   'Release operator',
-  'Database operator',
   'Maintenance window',
-  'scripts/database.ps1',
   'admin-status',
   'check-release-manifest.ps1',
   'deploy-admin-only.ps1',
@@ -288,14 +280,12 @@ foreach ($needle in @(
 }
 
 foreach ($needle in @(
-  '202608130001',
-  'database/schema.sql',
-  'database/seed.sql',
-  'schema_migrations',
-  'database.ps1 check',
-  'STOP'
+  '唯一业务事实',
+  'internal/infra/database',
+  '本机',
+  'admin'
 )) {
-  Assert-Contains $schemaStatus $needle "schema-status runbook is missing $needle"
+  Assert-Contains $schemaStatus $needle "database ownership runbook is missing $needle"
 }
 
 $onboardingSteps = @(

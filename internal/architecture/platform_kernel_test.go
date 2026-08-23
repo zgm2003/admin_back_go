@@ -105,33 +105,6 @@ func TestPlatformKernelDefaultManagementQueriesUseRegisteredAdapters(t *testing.
 	}
 }
 
-func TestPlatformKernelSchemaRemainsExtensible(t *testing.T) {
-	schema := strings.ToLower(readArchitectureText(t, "database/schema.sql"))
-	for _, token := range []string{
-		"create table `auth_platforms`",
-		"unique key `uk_code`",
-		"`login_types`",
-		"`captcha_type`",
-		"`max_sessions`",
-		"`platform`",
-	} {
-		if !strings.Contains(schema, token) {
-			t.Errorf("canonical schema lost platform-kernel token %q", token)
-		}
-	}
-	if strings.Contains(schema, "`single_session`") {
-		t.Fatal("canonical schema still contains redundant auth_platforms.single_session")
-	}
-	for _, singleton := range []string{
-		`auth_platforms.code = 'admin'`,
-		`platform = 'admin'`,
-	} {
-		if strings.Contains(schema, singleton) {
-			t.Errorf("canonical schema was locked to a permanent singleton: %s", singleton)
-		}
-	}
-}
-
 func readArchitectureText(t *testing.T, relative string) string {
 	t.Helper()
 	body, err := os.ReadFile(filepath.Join(backendRoot(t), filepath.FromSlash(relative)))

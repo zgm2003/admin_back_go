@@ -74,18 +74,6 @@ Assert-ExactString ([string]$metadata.frontend.commit) $frontendCommit 'frontend
 $contractPath = Join-Path $script:BackendRoot 'contracts\admin\v1\manifest.json'
 $contract = Read-JsonEvidence -Path $contractPath -Label 'backend contract manifest'
 $contractDigest = Get-FileSha256 -Path $contractPath
-$baseline = Read-JsonEvidence -Path (Join-Path $script:BackendRoot 'database\baseline.json') -Label 'database baseline'
-$migrationChecksums = @(
-  Get-ChildItem -LiteralPath (Join-Path $script:BackendRoot 'database\migrations') -Filter '*.sql' -File |
-    Where-Object { $_.BaseName -match '^(?<version>[0-9]{12})_[a-z0-9_]+$' -and $Matches.version -gt [string]$baseline.baseline_version } |
-    Sort-Object Name |
-    ForEach-Object {
-      [ordered]@{
-        version = $_.BaseName.Substring(0, 12)
-        sha256 = Get-FileSha256 -Path $_.FullName
-      }
-    }
-)
 Assert-ExactString ([string]$proof.bundle_version) ([string]$contract.bundle_version) 'platform proof bundle version'
 Assert-ExactString ([string]$proof.contract_manifest_sha256) $contractDigest 'platform proof contract digest'
 
@@ -105,12 +93,6 @@ $releaseDocument = [ordered]@{
   contract = [ordered]@{
     bundle_version = [string]$contract.bundle_version
     manifest_sha256 = $contractDigest
-  }
-  database = [ordered]@{
-    baseline_version = [string]$baseline.baseline_version
-    baseline_schema_sha256 = [string]$baseline.target.schema_sha256
-    baseline_seed_sha256 = [string]$baseline.target.seed_sha256
-    migration_checksums = $migrationChecksums
   }
   evidence = [ordered]@{
     input_lock_sha256 = Get-FileSha256 -Path $lockPath

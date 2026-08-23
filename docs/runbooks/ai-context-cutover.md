@@ -1,30 +1,12 @@
 # 上下文工程本地验收
 
-状态：本地开发流程。上下文工程的完整表结构已经属于
-`database/schema.sql`，不再存在独立的 Atlas cutover 或历史迁移窗口。
+状态：历史上下文工程说明，数据库准备部分已被本地数据库外置所有权方案取代。
 
 ## 数据库准备
 
-已有新基线数据库只需检查当前事实：
-
-```powershell
-pwsh -NoProfile -File scripts/database.ps1 migrate
-pwsh -NoProfile -File scripts/database.ps1 check
-```
-
-需要从零验收时，先由开发者停止 `admin-dev`，再执行破坏性的本地重建：
-
-```powershell
-pwsh -NoProfile -File scripts/database.ps1 reset -ConfirmReset admin -CreateAdmin
-```
-
-`reset` 会重建本地 `admin` schema，并清理本项目专用的 Redis 数据库和
-`admin_context_*` Qdrant 派生索引。它不会自动停止或启动 API/Worker，也不会保留
-本地会话、对话、文档、供应商配置或支付数据。执行前必须确认这些数据已经不需要，
-或可从基线前的 Git tag 和外部完整备份恢复。
-
-未来的 schema 变更只允许新增版本大于 `202608130001` 的
-`database/migrations/*.sql`，再运行 `migrate` 和只读 `check`。应用启动不得自动迁移。
+数据库准备和变更遵循 `docs/database-ownership.md`：确认本机 Docker 的 `admin`
+数据库后执行最小 SQL，并读回验证。此历史 runbook 不再提供仓库 schema、迁移或
+reset 命令。
 
 ## 启动检查
 

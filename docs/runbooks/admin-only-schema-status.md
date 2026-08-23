@@ -1,35 +1,23 @@
-# Admin database baseline status
+# Admin 本地数据库所有权状态
 
-Status: active database contract reference
+Status: active local-development ownership reference
 
-## Canonical baseline
+MySQL 是当前业务数据、表结构和索引的唯一业务事实。仓库不包含
+`database/`、seed、migration、baseline 或数据库生命周期命令；
+`internal/infra/database` 只负责 Go 连接和事务适配。
 
-- Baseline version: `202608130001`.
-- Schema source: `database/schema.sql`.
-- Seed source: `database/seed.sql`.
-- Evidence: `database/baseline.json`.
-- Applied versions: `schema_migrations`.
+## 只读确认
 
-The release manifest binds the schema hash, seed hash, and every ordered
-post-baseline migration hash. A file whose applied bytes change is invalid.
+执行任何直接 SQL 前，确认目标是当前本机 Docker Compose 的 `admin` 数据库，拒绝
+远程或不明确 DSN。不得在输出中打印密码或完整 DSN。
 
-## Verification
+## 变更规则
 
-```powershell
-pwsh -NoProfile -File scripts/database.ps1 check
+work-ai 对确认过的本机 `admin` 数据库执行最小 SQL，并使用 `SHOW CREATE TABLE`、
+`SHOW INDEX` 和精确 `SELECT` 读回验证。不得删除业务表、字段、索引或数据，也不得
+为新模块创建 migration 文件。
 
-pwsh -NoProfile -File scripts/release/check-platform-kernel.ps1 `
-  -Database admin
-```
+进入多人协作、部署或需要新机器恢复时，另行批准正式数据库基线、备份和迁移方案。
 
-The baseline check is read-only. It validates live table, foreign-key, CHECK,
-and unique-index counts, seed ownership facts, and the migration ledger.
-
-## Changes
-
-New migration files must use `<12-digit-version>_<lowercase_name>.sql`, with a
-version greater than `202608130001`. Application startup never migrates. Back
-up MySQL and use a maintenance window before a destructive production change.
-Use the locked recovery artifact for rollback; never synthesize reverse DDL.
-
-**STOP** when a baseline hash, live invariant, or migration checksum differs.
+**STOP** when the database target is not the local `admin` instance or the requested change
+would alter an unapproved business fact.

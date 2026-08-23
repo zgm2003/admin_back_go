@@ -1,9 +1,5 @@
 [CmdletBinding()]
 param(
-  [Parameter(Mandatory = $true)]
-  [ValidateSet('admin')]
-  [string]$Database,
-
   [string]$Output
 )
 
@@ -109,20 +105,7 @@ if ((Get-FileSha256 -Path $frontendManifestPath) -cne $contractDigest -or
   throw 'frontend contract lock does not match the backend Bundle'
 }
 
-$previousDSN = [Environment]::GetEnvironmentVariable('MYSQL_DSN', 'Process')
-try {
-  $dsn = [Environment]::GetEnvironmentVariable('MYSQL_DSN', 'Process')
-  if ([string]::IsNullOrWhiteSpace($dsn) -or $dsn -notmatch '/admin\?') {
-    throw 'MYSQL_DSN must target the canonical admin schema'
-  }
-  & pwsh -NoProfile -File (Join-Path $backendRoot 'scripts\database.ps1') check | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw 'database baseline check failed' }
-} finally {
-  [Environment]::SetEnvironmentVariable('MYSQL_DSN', $previousDSN, 'Process')
-}
-
-$baseline = Read-JsonEvidence -Path (Join-Path $backendRoot 'database\baseline.json') -Label 'database baseline'
-$invariantCounts = [ordered]@{ database_baseline_violations = 0 }
+$invariantCounts = [ordered]@{ platform_kernel_violations = 0 }
 
 $proof = [ordered]@{
   schema_version = 1
@@ -131,9 +114,6 @@ $proof = [ordered]@{
   frontend_commit = Get-RepositoryCommit -Repository $frontendRoot
   bundle_version = [string]$contract.bundle_version
   contract_manifest_sha256 = $contractDigest
-  baseline_version = [string]$baseline.baseline_version
-  baseline_schema_sha256 = [string]$baseline.target.schema_sha256
-  baseline_seed_sha256 = [string]$baseline.target.seed_sha256
   registered_platform_count = 1
   retired_platform_count = 0
   auth_platform_operation_count = $authPlatformOperations.Count
