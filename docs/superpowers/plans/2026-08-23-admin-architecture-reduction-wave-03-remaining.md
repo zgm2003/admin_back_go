@@ -17,7 +17,7 @@
 - Do not create migration, seed, baseline, backup, export, restore, or database-maintenance files.
 - Do not execute SQL or remote database operations. If an existing table cannot support the required behavior, stop and report the exact schema dependency to the coordinator.
 - Preserve existing routes, request/response fields, permission codes, menu behavior, and database column semantics. No silent fallback or guessed DTO field is acceptable.
-- The local database external-ownership cutover occurs only after Wave 03 implementation and black-box acceptance are complete; it is not part of any worker task.
+- The local database external-ownership cutover is a prerequisite for this plan. It must be completed and short-verified after Permission + AuthPlatform acceptance and before any remaining Wave 03 worker starts; it is not part of any worker task.
 
 ## Worker Boundaries
 
@@ -56,4 +56,4 @@ The SMS branch already existed before this plan. It must not be deleted, reset, 
 
 ## Completion Gate
 
-Wave 03 is complete only when every worker diff is reviewed, focused tests and frontend checks pass, both master branches contain the reviewed commits, the execution index says Wave 03 complete, and the user has the black-box checklist. Database ownership cutover remains a later, separately gated activity.
+Wave 03 is complete only when the database external-ownership cutover was completed before this plan, every worker diff is reviewed, focused tests and frontend checks pass, both master branches contain the reviewed commits, the execution index says Wave 03 complete, and the user has the black-box checklist.

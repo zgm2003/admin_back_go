@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax to track progress.
 
-**Goal:** 在 Wave 03 Permission + AuthPlatform 完成并验收后，彻底删除个人开发仓库中的数据库维护链，把当前本地 MySQL 设为唯一事实源。
+**Goal:** 在 Wave 03 Permission + AuthPlatform 完成并验收后、剩余 Mail/SMS/日志/UploadConfig 模块开始前，彻底删除个人开发仓库中的数据库维护链，把当前本地 MySQL 设为唯一事实源。
 
 **Architecture:** 运行时代码仍通过 `internal/infra/database` 连接 MySQL；仓库不再包含 schema、seed、migration、baseline 或数据库生命周期命令。work-ai 直接对已确认的本地 `admin` 数据库执行最小 SQL，验证数据库事实后提交应用代码。
 
@@ -16,6 +16,7 @@
 
 - Wave 03 Permission + AuthPlatform 已由 work-ai 完成并合并到两个仓库 `master`；
 - 用户已经人工验收该批次；
+- Wave 03 剩余模块尚未开始，或其 worker 尚未修改任何文件；数据库切换作为这些模块的稳定开发前置步骤执行；
 - 当前窗口没有其他 agent 正在修改本计划列出的文档、数据库脚本或 `cmd/admin-db`；
 - 不启动或重启 `admin-dev`，不运行 `go test ./...`、全量前端测试、Playwright、`verify:frontend` 或发布长脚本；
 - 本计划不执行备份、导出、恢复或远程数据库操作；这是个人本地开发阶段的明确风险接受。
