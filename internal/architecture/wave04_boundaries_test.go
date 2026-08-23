@@ -33,6 +33,17 @@ func TestWave04WorkerHasNoStaticScheduleAdapter(t *testing.T) {
 	}
 }
 
+func TestWave04WorkerDoesNotOwnRealtimeSessions(t *testing.T) {
+	root := repositoryRoot(t)
+	worker, err := os.ReadFile(filepath.Join(root, "internal", "runtime", "worker.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(worker), "infrarealtime.NewManager(") {
+		t.Fatal("Worker must publish realtime events but must not own WebSocket sessions")
+	}
+}
+
 func repositoryRoot(t *testing.T) string {
 	t.Helper()
 	dir, err := os.Getwd()

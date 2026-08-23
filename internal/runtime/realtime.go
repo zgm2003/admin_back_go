@@ -137,10 +137,10 @@ func realtimePublisherFor(
 			if logger != nil {
 				logger.Error("realtime redis publisher selected but redis client is not ready")
 			}
-			publisher := wrap(infrarealtime.NewRedisPublisher(nil, cfg.RedisChannel, modulerealtime.DefaultRegistry().ValidateServerEnvelope), "redis")
+			publisher := wrap(newRedisRealtimePublisher(redis, cfg.RedisChannel, modulerealtime.DefaultRegistry().ValidateServerEnvelope), "redis")
 			return publisher, infrarealtime.NewRedisSubscriber(nil, cfg.RedisChannel, local, logger)
 		}
-		publisher := wrap(infrarealtime.NewRedisPublisher(redis.Redis, cfg.RedisChannel, modulerealtime.DefaultRegistry().ValidateServerEnvelope), "redis")
+		publisher := wrap(newRedisRealtimePublisher(redis, cfg.RedisChannel, modulerealtime.DefaultRegistry().ValidateServerEnvelope), "redis")
 		return publisher, infrarealtime.NewRedisSubscriber(redis.Redis, cfg.RedisChannel, local, logger)
 	default:
 		if logger != nil {
@@ -172,13 +172,25 @@ func realtimePublisherForWorker(cfg config.Config, resources *Resources, recorde
 	}
 	switch publisherName {
 	case config.RealtimePublisherRedis:
-		if resources == nil || resources.RealtimeRedis == nil || resources.RealtimeRedis.Redis == nil {
-			return wrap(infrarealtime.NewRedisPublisher(nil, realtimeConfig.RedisChannel, modulerealtime.DefaultRegistry().ValidateServerEnvelope), "redis")
+		var redis *redisclient.Client
+		if resources != nil {
+			redis = resources.RealtimeRedis
 		}
-		return wrap(infrarealtime.NewRedisPublisher(resources.RealtimeRedis.Redis, realtimeConfig.RedisChannel, modulerealtime.DefaultRegistry().ValidateServerEnvelope), "redis")
+		return wrap(newRedisRealtimePublisher(redis, realtimeConfig.RedisChannel, modulerealtime.DefaultRegistry().ValidateServerEnvelope), "redis")
 	case config.RealtimePublisherNoop, config.RealtimePublisherLocal:
 		return wrap(infrarealtime.NoopPublisher{}, "noop")
 	default:
 		return infrarealtime.NoopPublisher{}
 	}
+}
+
+func newRedisRealtimePublisher(
+	client *redisclient.Client,
+	channel string,
+	validator infrarealtime.EnvelopeValidator,
+) infrarealtime.Publisher {
+	if client == nil {
+		return infrarealtime.NewRedisPublisher(nil, channel, validator)
+	}
+	return infrarealtime.NewRedisPublisher(client.Redis, channel, validator)
 }
