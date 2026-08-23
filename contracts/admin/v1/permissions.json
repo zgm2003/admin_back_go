@@ -47,10 +47,12 @@
     "payment_redeem_code_list",
     "payment_redeem_code_void",
     "payment_wallet_list",
+    "permission_authPlatform",
     "permission_authPlatform_add",
     "permission_authPlatform_del",
     "permission_authPlatform_edit",
     "permission_authPlatform_status",
+    "permission_permission",
     "permission_permission_add",
     "permission_permission_del",
     "permission_permission_edit",
@@ -1252,7 +1254,8 @@
       "method": "GET",
       "path": "/api/admin/v1/auth-platforms",
       "access": {
-        "kind": "authenticated"
+        "kind": "permission",
+        "permission_code": "permission_authPlatform"
       },
       "audit": {
         "enabled": false,
@@ -1324,7 +1327,8 @@
       "method": "GET",
       "path": "/api/admin/v1/auth-platforms/page-init",
       "access": {
-        "kind": "authenticated"
+        "kind": "permission",
+        "permission_code": "permission_authPlatform"
       },
       "audit": {
         "enabled": false,
@@ -2376,7 +2380,8 @@
       "method": "GET",
       "path": "/api/admin/v1/permissions",
       "access": {
-        "kind": "authenticated"
+        "kind": "permission",
+        "permission_code": "permission_permission"
       },
       "audit": {
         "enabled": false,
@@ -2448,7 +2453,8 @@
       "method": "GET",
       "path": "/api/admin/v1/permissions/page-init",
       "access": {
-        "kind": "authenticated"
+        "kind": "permission",
+        "permission_code": "permission_permission"
       },
       "audit": {
         "enabled": false,

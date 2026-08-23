@@ -180,10 +180,12 @@
               "payment_redeem_code_list",
               "payment_redeem_code_void",
               "payment_wallet_list",
+              "permission_authPlatform",
               "permission_authPlatform_add",
               "permission_authPlatform_del",
               "permission_authPlatform_edit",
               "permission_authPlatform_status",
+              "permission_permission",
               "permission_permission_add",
               "permission_permission_del",
               "permission_permission_edit",
@@ -439,14 +441,18 @@
       "view_key": "permission/authPlatform",
       "i18n_key": "menu.permission_authPlatform",
       "show_menu": 1,
-      "permission_codes": []
+      "permission_codes": [
+        "permission_authPlatform"
+      ]
     },
     {
       "path": "/permission/permission",
       "view_key": "permission/permission",
       "i18n_key": "menu.permission_permission",
       "show_menu": 1,
-      "permission_codes": []
+      "permission_codes": [
+        "permission_permission"
+      ]
     },
     {
       "path": "/permission/role",

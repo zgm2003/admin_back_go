@@ -7773,49 +7773,6 @@
         ],
         "type": "object"
       },
-      "Go_internal_module_auth_platform_ListResponse_Output": {
-        "additionalProperties": false,
-        "properties": {
-          "list": {
-            "items": {
-              "$ref": "#/components/schemas/Go_internal_module_auth_platform_ListItem_Output"
-            },
-            "type": "array"
-          },
-          "page": {
-            "$ref": "#/components/schemas/Go_internal_module_auth_platform_Page_Output"
-          }
-        },
-        "required": [
-          "list",
-          "page"
-        ],
-        "type": "object"
-      },
-      "Go_internal_module_auth_platform_Page_Output": {
-        "additionalProperties": false,
-        "properties": {
-          "current_page": {
-            "type": "integer"
-          },
-          "page_size": {
-            "type": "integer"
-          },
-          "total": {
-            "type": "integer"
-          },
-          "total_page": {
-            "type": "integer"
-          }
-        },
-        "required": [
-          "current_page",
-          "page_size",
-          "total",
-          "total_page"
-        ],
-        "type": "object"
-      },
       "Go_internal_module_auth_transport_admin_CredentialResponse_Output": {
         "additionalProperties": false,
         "properties": {
@@ -11908,6 +11865,25 @@
         ],
         "type": "object"
       },
+      "Go_internal_shared_pagination_Result_admin_back_go_internal_module_auth_platform_ListItem_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "list": {
+            "items": {
+              "$ref": "#/components/schemas/Go_internal_module_auth_platform_ListItem_Output"
+            },
+            "type": "array"
+          },
+          "page": {
+            "$ref": "#/components/schemas/Go_internal_shared_pagination_Page_Output"
+          }
+        },
+        "required": [
+          "list",
+          "page"
+        ],
+        "type": "object"
+      },
       "IntOption": {
         "additionalProperties": false,
         "properties": {
@@ -14824,7 +14800,7 @@
             "type": "integer"
           },
           "data": {
-            "$ref": "#/components/schemas/Go_internal_module_auth_platform_ListResponse_Output"
+            "$ref": "#/components/schemas/Go_internal_shared_pagination_Result_admin_back_go_internal_module_auth_platform_ListItem_Output"
           },
           "msg": {
             "type": "string"
@@ -26021,7 +25997,8 @@
           "auth-platforms"
         ],
         "x-admin-access": {
-          "kind": "authenticated"
+          "kind": "permission",
+          "permission_code": "permission_authPlatform"
         },
         "x-admin-audit": {
           "enabled": false,
@@ -26120,7 +26097,8 @@
           "auth-platforms"
         ],
         "x-admin-access": {
-          "kind": "authenticated"
+          "kind": "permission",
+          "permission_code": "permission_authPlatform"
         },
         "x-admin-audit": {
           "enabled": false,
@@ -31250,7 +31228,8 @@
           "permissions"
         ],
         "x-admin-access": {
-          "kind": "authenticated"
+          "kind": "permission",
+          "permission_code": "permission_permission"
         },
         "x-admin-audit": {
           "enabled": false,
@@ -31349,7 +31328,8 @@
           "permissions"
         ],
         "x-admin-access": {
-          "kind": "authenticated"
+          "kind": "permission",
+          "permission_code": "permission_permission"
         },
         "x-admin-audit": {
           "enabled": false,
