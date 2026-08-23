@@ -11,6 +11,7 @@ import (
 	authplatformmodule "admin_back_go/internal/module/auth_platform"
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
+	"admin_back_go/internal/shared/pagination"
 
 	"github.com/gin-gonic/gin"
 )
@@ -28,7 +29,7 @@ func (f *fakeHTTPService) PageInit(ctx context.Context) (*authplatformmodule.Ini
 
 func (f *fakeHTTPService) List(ctx context.Context, query authplatformmodule.ListQuery) (*authplatformmodule.ListResponse, *apperror.Error) {
 	f.listQuery = query
-	return &authplatformmodule.ListResponse{List: []authplatformmodule.ListItem{}, Page: authplatformmodule.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
+	return &authplatformmodule.ListResponse{List: []authplatformmodule.ListItem{}, Page: pagination.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, nil
 }
 
 func (f *fakeHTTPService) Create(ctx context.Context, input authplatformmodule.CreateInput) (int64, *apperror.Error) {

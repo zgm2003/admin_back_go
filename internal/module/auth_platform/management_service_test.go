@@ -2,11 +2,13 @@ package authplatform
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
 	"admin_back_go/internal/shared/apperror"
 	"admin_back_go/internal/shared/enum"
+	"admin_back_go/internal/shared/pagination"
 )
 
 type fakeManagementRepository struct {
@@ -18,6 +20,13 @@ type fakeManagementRepository struct {
 	deleted    []int64
 	statusRows map[int64]Platform
 	existsCode bool
+}
+
+func TestListResponseUsesSharedPagination(t *testing.T) {
+	var response ListResponse
+	if reflect.TypeOf(response.Page) != reflect.TypeOf(pagination.Page{}) {
+		t.Fatalf("auth platform page type=%T want pagination.Page", response.Page)
+	}
 }
 
 func (f *fakeManagementRepository) FindActiveByCode(ctx context.Context, code string) (*Platform, error) {

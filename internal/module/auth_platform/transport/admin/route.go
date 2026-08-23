@@ -18,7 +18,7 @@ func RegisterRoutes(router *gin.Engine, service HTTPService, routeRegistries ...
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodGet,
 		Path:   "/api/admin/v1/auth-platforms/page-init",
-		Access: adminroute.Authenticated(),
+		Access: adminroute.Permission("permission_authPlatform"),
 		Audit:  adminroute.NoAudit("read-only"),
 		Contract: &adminroute.HTTPContract{
 			Response: authplatformmodule.InitResponse{},
@@ -27,7 +27,7 @@ func RegisterRoutes(router *gin.Engine, service HTTPService, routeRegistries ...
 	routes.Handle(adminroute.Definition{
 		Method: http.MethodGet,
 		Path:   "/api/admin/v1/auth-platforms",
-		Access: adminroute.Authenticated(),
+		Access: adminroute.Permission("permission_authPlatform"),
 		Audit:  adminroute.NoAudit("read-only"),
 		Contract: &adminroute.HTTPContract{
 			Query:    listRequest{},
