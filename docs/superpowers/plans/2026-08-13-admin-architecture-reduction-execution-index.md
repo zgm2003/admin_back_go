@@ -52,7 +52,7 @@ Wave 02 frontend: 3c27ec5
 |---|---|---|---|
 | Wave 01 | 权限矩阵 UI + Realtime Redis DB 1 | 页面权限自然可选，实时和 AI 取消信号脱离缓存 DB 0 | 不删除旧架构 |
 | Wave 02 | 系统设置 CRUD 样板（已验收） | 第一条可读的后端/前端样板链 | 已删除系统设置旧重复层 |
-| Wave 03 | 公共分页、配置、公共响应、RBAC、后台基础模块 | 基础段、User、Role、Permission + AuthPlatform 已完成人工验收；数据库切换已完成，继续 Mail、SMS、日志、UploadConfig | 只删除已迁移模块旧层 |
+| Wave 03 | 公共分页、配置、公共响应、RBAC、后台基础模块 | 基础段、User、Role、Permission + AuthPlatform 已完成人工验收；Mail、SMS、日志、UploadConfig 实现完成，等待用户黑盒验收；数据库切换已完成 | 只删除已迁移模块旧层 |
 | 数据库切换 | 个人开发数据库外置所有权 | 已按 2026-08-23 计划执行 | 删除 database/、admin-db、migration/baseline 门禁；仅清理本地治理表，不改业务表 |
 | Wave 04 | Worker、任务、Realtime、COS | 后台任务、WebSocket、上传边界收口 | 只删除已迁移 runtime 包装 |
 | Wave 05 | 支付与钱包 | 订单、钱包、供应商、回调幂等边界清楚 | 只删除支付旧适配层 |
@@ -361,6 +361,45 @@ PASS git diff --check（两个仓库）
 历史计划外问题（已废止）：旧 database baseline 与本地 `system_settings` 行数不同；数据库外置所有权切换后不再运行该门禁，也不修改业务数据来迎合旧 seed。
 
 明确未运行：`admin-dev` 启停、`go test ./...`、全量 Vue 测试、全量 typecheck、Playwright、`verify:frontend` 和发布长脚本。
+
+### Wave 03 剩余模块实现检查点（2026-08-23）
+
+状态：Mail、SMS、系统日志/操作日志和 UploadConfig 已完成模块边界内的分页收口、前端 request 迁移和定向合同测试，等待用户黑盒验收；不标记 Wave 03 最终完成，不进入下一 Wave。
+
+后端提交：
+
+```text
+8289e20 refactor(mail): use shared pagination
+99abe81 refactor(sms): use shared pagination
+7938497 refactor(operationlog): use shared pagination
+6e7490c refactor(uploadconfig): use shared pagination
+```
+
+前端提交：
+
+```text
+8171d2c refactor(mail): use direct frontend api
+6ca81c8 refactor(sms): use direct frontend api
+0ebf722 refactor(log): use direct frontend api
+353de13 refactor(uploadconfig): use direct frontend api
+```
+
+定向验证：
+
+```text
+PASS backend go test ./internal/module/mail/... ./internal/module/sms/... ./internal/module/systemlog/... ./internal/module/operationlog/... ./internal/module/uploadconfig/... -count=1
+PASS frontend Mail diagnostics/API（3 files，57 tests）
+PASS frontend SMS template API（1 file，2 tests）
+PASS frontend system/operation log API 与 payload（3 files，8 tests）
+PASS frontend UploadConfig API（3 files，7 tests）
+PASS frontend 四模块串行合并定向测试（`--no-file-parallelism`，9 files，72 tests）
+PASS frontend ESLint（Mail、SMS、日志、UploadConfig API；仅 max-lines 警告已记录）
+PASS git diff --check（两个仓库）
+```
+
+计划外问题：前端并行合并运行存在既有 Vitest 模块污染，曾出现 `upload-config-contract.test.ts` 的解析错误；串行 `--no-file-parallelism` 复验稳定通过。本批次未修改 Vitest 架构。全局 `npm run typecheck` 仍被既存 `src/views/Main/permission/authPlatform/index.vue:137` 的 `AuthPlatformEditPayload` 缺少 `code` 阻断；本批次未修改 Permission/AuthPlatform。
+
+明确未运行：`admin-dev` 启停、SQL/数据库操作、`go test ./...`、全量 Vue 测试、全量 typecheck（仅按计划运行并记录其既存失败）、Playwright、`verify:frontend` 和发布长脚本。
 
 ## Wave 04：运行与存储
 
