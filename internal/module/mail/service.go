@@ -17,6 +17,7 @@ import (
 	"admin_back_go/internal/shared/clock"
 	"admin_back_go/internal/shared/dict"
 	"admin_back_go/internal/shared/enum"
+	"admin_back_go/internal/shared/pagination"
 )
 
 const (
@@ -312,7 +313,7 @@ func (s *Service) Logs(ctx context.Context, query LogQuery) (*LogListResponse, *
 		}
 		list = append(list, item)
 	}
-	return &LogListResponse{List: list, Page: Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: total, TotalPage: totalPage(total, query.PageSize)}}, nil
+	return &LogListResponse{List: list, Page: pagination.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: total, TotalPage: totalPage(total, query.PageSize)}}, nil
 }
 
 func (s *Service) Log(ctx context.Context, id uint64) (*LogDTO, *apperror.Error) {
@@ -406,6 +407,13 @@ func (s *Service) VerifyCodeTTL(ctx context.Context) (time.Duration, *apperror.E
 		return 0, appErr
 	}
 	return time.Duration(minutes) * time.Minute, nil
+}
+
+func totalPage(total int64, pageSize int) int {
+	if total <= 0 || pageSize <= 0 {
+		return 0
+	}
+	return int(math.Ceil(float64(total) / float64(pageSize)))
 }
 
 func (s *Service) send(ctx context.Context, templateScene string, logScene string, toEmail string, data map[string]string) *apperror.Error {
@@ -1015,13 +1023,6 @@ func formatOptionalTime(value *time.Time) *string {
 	}
 	formatted := value.Format(timeLayout)
 	return &formatted
-}
-
-func totalPage(total int64, pageSize int) int {
-	if total <= 0 || pageSize <= 0 {
-		return 0
-	}
-	return int(math.Ceil(float64(total) / float64(pageSize)))
 }
 
 func ttlMinutes(ttl time.Duration) string {
