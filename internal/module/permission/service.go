@@ -16,22 +16,11 @@ import (
 type Service struct {
 	repository         Repository
 	allowedPlatforms   map[string]struct{}
-	cacheInvalidator   CacheInvalidator
 	platforms          []string
 	principalMutations PrincipalMutationCoordinator
 }
 
-type CacheInvalidator interface {
-	Delete(ctx context.Context, key string) error
-}
-
 type ServiceOption func(*Service)
-
-func WithCacheInvalidator(cacheInvalidator CacheInvalidator) ServiceOption {
-	return func(s *Service) {
-		s.cacheInvalidator = cacheInvalidator
-	}
-}
 
 func WithPrincipalMutations(coordinator PrincipalMutationCoordinator) ServiceOption {
 	return func(s *Service) {
@@ -205,6 +194,9 @@ func (s *Service) Update(ctx context.Context, id int64, input PermissionMutation
 	if appErr != nil {
 		return appErr
 	}
+	if existing.Type == TypePage && strings.TrimSpace(existing.Code) != "" && input.Type != TypePage {
+		return apperror.BadRequest("已绑定页面权限码的页面不能修改类型")
+	}
 	if appErr := s.assertValidParentAssignment(ctx, input.Type, input.ParentID, input.Platform, id); appErr != nil {
 		return appErr
 	}
@@ -224,12 +216,9 @@ func (s *Service) Update(ctx context.Context, id int64, input PermissionMutation
 		return appErr
 	}
 	if err := s.mutatePrincipalUsers(ctx, userIDs, func(repository Repository) error {
-		return repository.UpdatePermission(ctx, id, permissionUpdateMap(input))
+		return repository.UpdatePermission(ctx, id, permissionUpdateMap(*existing, input))
 	}); err != nil {
 		return apperror.LegacyWrap(apperror.CodeInternal, 500, "更新权限失败", err)
-	}
-	if appErr := s.invalidateRoleUsers(ctx, roleIDs); appErr != nil {
-		return appErr
 	}
 	return nil
 }
@@ -265,9 +254,6 @@ func (s *Service) Delete(ctx context.Context, ids []int64) *apperror.Error {
 	}); err != nil {
 		return apperror.LegacyWrap(apperror.CodeInternal, 500, "删除权限失败", err)
 	}
-	if appErr := s.invalidateRoleUsers(ctx, roleIDs); appErr != nil {
-		return appErr
-	}
 	return nil
 }
 
@@ -294,15 +280,12 @@ func (s *Service) ChangeStatus(ctx context.Context, id int64, status int) *apper
 	}); err != nil {
 		return apperror.LegacyWrap(apperror.CodeInternal, 500, "更新权限状态失败", err)
 	}
-	if appErr := s.invalidateRoleUsers(ctx, roleIDs); appErr != nil {
-		return appErr
-	}
 	return nil
 }
 
 func (s *Service) roleIDsByPermissionIDs(ctx context.Context, permissionIDs []int64, includeCascade bool) ([]int64, *apperror.Error) {
 	permissionIDs = normalizeIDsForMutation(permissionIDs)
-	if len(permissionIDs) == 0 || (s.cacheInvalidator == nil && s.principalMutations == nil) {
+	if len(permissionIDs) == 0 || s.principalMutations == nil {
 		return []int64{}, nil
 	}
 	if includeCascade {
@@ -365,28 +348,6 @@ func (s *Service) mutatePrincipalUsers(ctx context.Context, userIDs []int64, mut
 		})
 		return versions, err
 	})
-}
-
-func (s *Service) invalidateRoleUsers(ctx context.Context, roleIDs []int64) *apperror.Error {
-	if s.cacheInvalidator == nil {
-		return nil
-	}
-	roleIDs = normalizeIDs(roleIDs)
-	if len(roleIDs) == 0 {
-		return nil
-	}
-	userIDs, err := s.repository.UserIDsByRoleIDs(ctx, roleIDs)
-	if err != nil {
-		return apperror.LegacyWrap(apperror.CodeInternal, 500, "查询角色用户失败", err)
-	}
-	for _, userID := range normalizeIDs(userIDs) {
-		for _, platform := range s.platforms {
-			if err := s.cacheInvalidator.Delete(ctx, RouteAccessCacheKey(userID, platform)); err != nil {
-				return apperror.LegacyWrap(apperror.CodeInternal, 500, "清理权限缓存失败", err)
-			}
-		}
-	}
-	return nil
 }
 
 func (s *Service) isAllowedPlatform(platform string) bool {
@@ -531,9 +492,6 @@ func (s *Service) restoreSoftDeletedButtonIfPresent(ctx context.Context, input P
 		return repository.RestoreDeletedPermission(ctx, deleted.ID, row)
 	}); err != nil {
 		return 0, apperror.LegacyWrap(apperror.CodeInternal, 500, "恢复权限失败", err)
-	}
-	if appErr := s.invalidateRoleUsers(ctx, roleIDs); appErr != nil {
-		return 0, appErr
 	}
 	return deleted.ID, nil
 }
@@ -862,7 +820,7 @@ func permissionFromMutation(input PermissionMutationInput) Permission {
 	return row
 }
 
-func permissionUpdateMap(input PermissionMutationInput) map[string]any {
+func permissionUpdateMap(existing Permission, input PermissionMutationInput) map[string]any {
 	row := permissionFromMutation(input)
 	fields := map[string]any{
 		"name":      row.Name,
@@ -873,7 +831,6 @@ func permissionUpdateMap(input PermissionMutationInput) map[string]any {
 		"path":      "",
 		"icon":      "",
 		"component": "",
-		"code":      "",
 		"i18n_key":  "",
 		"show_menu": CommonNo,
 	}
@@ -883,12 +840,16 @@ func permissionUpdateMap(input PermissionMutationInput) map[string]any {
 		fields["icon"] = row.Icon
 		fields["i18n_key"] = row.I18nKey
 		fields["show_menu"] = row.ShowMenu
+		fields["code"] = ""
 	case TypePage:
 		fields["path"] = row.Path
 		fields["icon"] = row.Icon
 		fields["component"] = row.Component
 		fields["i18n_key"] = row.I18nKey
 		fields["show_menu"] = row.ShowMenu
+		if existing.Type != TypePage {
+			fields["code"] = ""
+		}
 	case TypeButton:
 		fields["code"] = row.Code
 	}

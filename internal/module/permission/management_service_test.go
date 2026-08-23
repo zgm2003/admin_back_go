@@ -146,11 +146,6 @@ func (f *fakeManagementRepository) UserIDsByRoleIDs(ctx context.Context, roleIDs
 	return f.userIDsByRoleIDs, f.err
 }
 
-type fakePermissionCacheInvalidator struct {
-	keys []string
-	err  error
-}
-
 type fakePermissionPrincipalCoordinator struct {
 	subjects       []PrincipalSubject
 	mutationCalled bool
@@ -167,11 +162,6 @@ func (f *fakePermissionPrincipalCoordinator) Mutate(_ context.Context, subjects 
 	next, err := mutation()
 	f.next = append([]PrincipalVersion(nil), next...)
 	return err
-}
-
-func (f *fakePermissionCacheInvalidator) Delete(ctx context.Context, key string) error {
-	f.keys = append(f.keys, key)
-	return f.err
 }
 
 func TestServiceInitReturnsTypedDictWithoutFallbackFields(t *testing.T) {
@@ -356,46 +346,65 @@ func TestServiceUpdateRejectsMovingNodeUnderDescendant(t *testing.T) {
 	}
 }
 
-func TestServiceUpdateInvalidatesUsersGrantedChangedPermissionSubtree(t *testing.T) {
-	repo := &fakeManagementRepository{
-		perms: []Permission{
-			{ID: 1, Name: "系统", ParentID: RootParentID, Platform: "admin", Type: TypeDir},
-			{ID: 2, Name: "用户", ParentID: 1, Platform: "admin", Type: TypePage},
-		},
-		cascadeIDs:             []int64{2, 3},
-		roleIDsByPermissionIDs: []int64{9},
-		userIDsByRoleIDs:       []int64{101, 102},
-	}
-	cache := &fakePermissionCacheInvalidator{}
-	svc := NewService(repo, []string{"admin"}, WithCacheInvalidator(cache))
+func TestServiceUpdatePreservesExistingPageCode(t *testing.T) {
+	repo := &fakeManagementRepository{perms: []Permission{
+		{ID: 2, Name: "权限管理", ParentID: RootParentID, Platform: "admin", Type: TypeDir},
+		{ID: 12, Name: "后台菜单管理", ParentID: 2, Platform: "admin", Type: TypePage, Code: "permission_permission"},
+	}}
+	svc := NewService(repo, []string{"admin"})
 
-	appErr := svc.Update(context.Background(), 2, PermissionMutationInput{
-		Platform:  "admin",
-		Type:      TypePage,
-		Name:      "用户管理",
-		ParentID:  1,
-		Path:      "/system/user",
-		Component: "system/user/index",
-		I18nKey:   "menu.system_user",
-		Sort:      10,
-		ShowMenu:  CommonYes,
+	appErr := svc.Update(context.Background(), 12, PermissionMutationInput{
+		Platform: "admin", Type: TypePage, Name: "菜单管理", ParentID: 2,
+		Path: "/permission/permission", Component: "permission/permission",
+		I18nKey: "menu.permission_permission", Sort: 1, ShowMenu: CommonYes,
+		Code: "",
 	})
 
 	if appErr != nil {
-		t.Fatalf("expected update to succeed, got %v", appErr)
+		t.Fatalf("Update() error = %v", appErr)
 	}
-	if !reflect.DeepEqual(repo.rolePermissionQueryIDs, []int64{2, 3}) {
-		t.Fatalf("expected cascade permission ids to be queried, got %#v", repo.rolePermissionQueryIDs)
+	if _, exists := repo.updateMap["code"]; exists {
+		t.Fatalf("same-type page update must not write code: %#v", repo.updateMap)
 	}
-	if !reflect.DeepEqual(repo.userRoleQueryIDs, []int64{9}) {
-		t.Fatalf("expected affected role ids to be queried, got %#v", repo.userRoleQueryIDs)
+}
+
+func TestServiceUpdateRejectsChangingCodedPageType(t *testing.T) {
+	repo := &fakeManagementRepository{perms: []Permission{
+		{ID: 12, Name: "后台菜单管理", ParentID: RootParentID, Platform: "admin", Type: TypePage, Code: "permission_permission"},
+	}}
+	svc := NewService(repo, []string{"admin"})
+
+	appErr := svc.Update(context.Background(), 12, PermissionMutationInput{
+		Platform: "admin", Type: TypeDir, Name: "后台菜单管理", ParentID: RootParentID,
+		I18nKey: "menu.permission_permission", Sort: 1, ShowMenu: CommonYes,
+	})
+
+	if appErr == nil || appErr.LegacyCode != 100 || appErr.Message != "已绑定页面权限码的页面不能修改类型" {
+		t.Fatalf("expected coded page type rejection, got %#v", appErr)
 	}
-	wantKeys := []string{
-		"auth_perm_uid_101_admin_rbac_route_access_grants_v3",
-		"auth_perm_uid_102_admin_rbac_route_access_grants_v3",
+	if repo.updateID != 0 {
+		t.Fatalf("rejected type change reached repository: %#v", repo.updateMap)
 	}
-	if !reflect.DeepEqual(cache.keys, wantKeys) {
-		t.Fatalf("cache keys mismatch\nwant=%#v\n got=%#v", wantKeys, cache.keys)
+}
+
+func TestServiceUpdateClearsButtonCodeWhenConvertingToPage(t *testing.T) {
+	repo := &fakeManagementRepository{perms: []Permission{
+		{ID: 2, Name: "权限管理", ParentID: RootParentID, Platform: "admin", Type: TypeDir},
+		{ID: 14, Name: "新增", ParentID: 2, Platform: "admin", Type: TypeButton, Code: "permission_permission_add"},
+	}}
+	svc := NewService(repo, []string{"admin"})
+
+	appErr := svc.Update(context.Background(), 14, PermissionMutationInput{
+		Platform: "admin", Type: TypePage, Name: "临时页面", ParentID: 2,
+		Path: "/permission/temporary", Component: "permission/temporary",
+		I18nKey: "menu.permission_temporary", Sort: 1, ShowMenu: CommonYes,
+	})
+
+	if appErr != nil {
+		t.Fatalf("Update() error = %v", appErr)
+	}
+	if code, exists := repo.updateMap["code"]; !exists || code != "" {
+		t.Fatalf("button-to-page update must clear old code: %#v", repo.updateMap)
 	}
 }
 
@@ -477,52 +486,6 @@ func TestPrincipalPermissionUpdateStopsBeforeSQLWhenGateFails(t *testing.T) {
 	}
 	if repo.txCalled || repo.updateID != 0 || coordinator.mutationCalled {
 		t.Fatalf("permission SQL ran before invalidation gate: repo=%#v coordinator=%#v", repo, coordinator)
-	}
-}
-
-func TestServiceDeleteInvalidatesUsersBeforeRolePermissionLinksAreDeleted(t *testing.T) {
-	repo := &fakeManagementRepository{
-		roleIDsByPermissionIDs: []int64{9},
-		userIDsByRoleIDs:       []int64{101},
-	}
-	cache := &fakePermissionCacheInvalidator{}
-	svc := NewService(repo, []string{"admin"}, WithCacheInvalidator(cache))
-
-	appErr := svc.Delete(context.Background(), []int64{2})
-
-	if appErr != nil {
-		t.Fatalf("expected delete to succeed, got %v", appErr)
-	}
-	if !reflect.DeepEqual(repo.rolePermissionQueryIDs, []int64{2}) {
-		t.Fatalf("expected deleted permission ids to be queried before delete, got %#v", repo.rolePermissionQueryIDs)
-	}
-	if !reflect.DeepEqual(repo.deleteIDs, []int64{2}) {
-		t.Fatalf("expected delete ids to reach repository, got %#v", repo.deleteIDs)
-	}
-	if !reflect.DeepEqual(cache.keys, []string{"auth_perm_uid_101_admin_rbac_route_access_grants_v3"}) {
-		t.Fatalf("cache keys mismatch: %#v", cache.keys)
-	}
-}
-
-func TestServiceChangeStatusInvalidatesUsersGrantedChangedPermissionSubtree(t *testing.T) {
-	repo := &fakeManagementRepository{
-		cascadeIDs:             []int64{2, 3},
-		roleIDsByPermissionIDs: []int64{9},
-		userIDsByRoleIDs:       []int64{101},
-	}
-	cache := &fakePermissionCacheInvalidator{}
-	svc := NewService(repo, []string{"admin"}, WithCacheInvalidator(cache))
-
-	appErr := svc.ChangeStatus(context.Background(), 2, CommonNo)
-
-	if appErr != nil {
-		t.Fatalf("expected status change to succeed, got %v", appErr)
-	}
-	if !reflect.DeepEqual(repo.rolePermissionQueryIDs, []int64{2, 3}) {
-		t.Fatalf("expected cascade permission ids to be queried, got %#v", repo.rolePermissionQueryIDs)
-	}
-	if !reflect.DeepEqual(cache.keys, []string{"auth_perm_uid_101_admin_rbac_route_access_grants_v3"}) {
-		t.Fatalf("cache keys mismatch: %#v", cache.keys)
 	}
 }
 

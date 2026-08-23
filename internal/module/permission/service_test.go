@@ -218,6 +218,32 @@ func TestServiceBuildContextPublishesRoleManagerPageAccessCode(t *testing.T) {
 	}
 }
 
+func TestServiceBuildContextPublishesPermissionGovernancePageAccessCodes(t *testing.T) {
+	repo := &fakeRepository{
+		grantedIDs: []int64{12, 85},
+		perms: []Permission{
+			{ID: 1, Name: "权限", ParentID: RootParentID, Type: TypeDir, Platform: "admin"},
+			{ID: 12, Name: "后台菜单管理", ParentID: 1, Type: TypePage, Platform: "admin", Path: "/permission/permission", Component: "permission/permission", Code: "permission_permission", Sort: 1},
+			{ID: 85, Name: "认证平台", ParentID: 1, Type: TypePage, Platform: "admin", Path: "/permission/authPlatform", Component: "permission/authPlatform", Code: "permission_authPlatform", Sort: 2},
+		},
+	}
+
+	got, appErr := NewService(repo, []string{"admin"}).BuildContextByRole(context.Background(), 2, "admin")
+
+	if appErr != nil {
+		t.Fatalf("BuildContextByRole() error = %v", appErr)
+	}
+	if !reflect.DeepEqual(got.RouteAccessCodes, []string{"permission_permission", "permission_authPlatform"}) {
+		t.Fatalf("route access codes=%#v", got.RouteAccessCodes)
+	}
+	if len(got.ButtonCodes) != 0 {
+		t.Fatalf("page codes leaked into button codes: %#v", got.ButtonCodes)
+	}
+	if len(got.Router) != 2 || got.Router[0].Meta["code"] != "permission_permission" || got.Router[1].Meta["code"] != "permission_authPlatform" {
+		t.Fatalf("governance routes=%#v", got.Router)
+	}
+}
+
 func TestServiceBuildContextDoesNotExposeDirPathAsMenuRoute(t *testing.T) {
 	repo := &fakeRepository{
 		grantedIDs: []int64{2},
