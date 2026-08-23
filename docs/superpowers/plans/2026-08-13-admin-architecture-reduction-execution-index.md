@@ -54,7 +54,7 @@ Wave 02 frontend: 3c27ec5
 | Wave 02 | 系统设置 CRUD 样板（已验收） | 第一条可读的后端/前端样板链 | 已删除系统设置旧重复层 |
 | Wave 03 | 公共分页、配置、公共响应、RBAC、后台基础模块 | 基础段、User、Role、Permission + AuthPlatform、Mail、SMS、日志、UploadConfig 均已完成人工验收；数据库切换已完成 | 只删除已迁移模块旧层 |
 | 数据库切换 | 个人开发数据库外置所有权 | 已按 2026-08-23 计划执行 | 删除 database/、admin-db、migration/baseline 门禁；仅清理本地治理表，不改业务表 |
-| Wave 04 | Worker、任务、Realtime、COS | 后台任务、WebSocket、上传边界收口 | 只删除已迁移 runtime 包装 |
+| Wave 04 | Worker、任务、Realtime、COS | 已完成并通过用户人工黑盒验收 | 只删除已迁移 runtime 包装 |
 | Wave 05 | 支付与钱包 | 订单、钱包、供应商、回调幂等边界清楚 | 只删除支付旧适配层 |
 | Wave 06 | AI 激进减法 | 最近 N 个完整轮次与 COS 历史附件；真实 Usage 扣费允许负余额 | 删除 Context/RAG/Qdrant/Embedding/Rerank/Memory/Context Plan/Hold |
 | Wave 07 | 生成合同与旧架构退役 | 日常 CRUD 只依赖 route/DTO/API/短测试 | OpenAPI、generated contract、Kernel、Registry 和旧脚本集中物理删除 |
@@ -413,7 +413,31 @@ PASS UploadConfig：驱动、规则、设置 CRUD、分页和状态切换
 
 ## Wave 04：运行与存储
 
-保留 `admin-worker` 和 Asynq，任务显式注册。WebSocket 收口为 `realtime` 包，MySQL 是消息/运行终态事实，Redis Pub/Sub 只做广播。COS 使用 `init -> 直传 -> complete -> HEAD 校验 -> MySQL 元数据`，API 不中转大文件。
+状态：Worker 空静态调度适配器、Realtime 运行边界和前端 Realtime/COS 工具迁移已完成，并于 2026-08-24 通过用户人工黑盒验收。Wave 04 已正式完成，停止在本波，不进入 Wave 05。
+
+详细计划、提交和验证记录：
+
+```text
+docs/superpowers/specs/2026-08-24-admin-architecture-reduction-wave-04-design.md
+docs/superpowers/plans/2026-08-24-admin-architecture-reduction-wave-04.md
+docs/superpowers/plans/2026-08-24-admin-architecture-reduction-wave-04-handoff.md
+```
+
+后端提交：
+
+```text
+8ae73f7 refactor(worker): remove empty static schedule adapter
+b39fec4 refactor(realtime): share publisher boundary
+```
+
+前端提交：
+
+```text
+ea23d84 refactor(realtime): move client to utils
+6e20b66 refactor(upload): move direct COS client to utils
+```
+
+保留 `admin-worker` 和 Asynq，任务显式注册。WebSocket 保持现有 JSON、事件类型、sequence、resume、Redis DB 和 MySQL 恢复语义；前端唯一 Realtime 实现迁移到 `src/utils/realtime`。COS 继续 upload-token -> 浏览器 SDK 直传，不新增 complete API、元数据表或 API 文件中转。
 
 ## Wave 05：支付
 
