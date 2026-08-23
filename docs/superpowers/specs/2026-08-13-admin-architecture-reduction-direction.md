@@ -96,8 +96,7 @@ views
 admin_back_go/
 ├── cmd/
 │   ├── admin-api/
-│   ├── admin-worker/
-│   └── admin-cli/
+│   └── admin-worker/
 ├── internal/
 │   ├── config/
 │   ├── middleware/
@@ -105,7 +104,6 @@ admin_back_go/
 │   ├── infra/
 │   ├── realtime/
 │   └── shared/
-├── database/
 ├── deploy/
 └── scripts/
 ```
@@ -418,25 +416,16 @@ QUEUE_REDIS_ADDR
 ```text
 cmd/
 ├── admin-api/
-├── admin-worker/
-└── admin-cli/
-```
-
-`admin-cli` 只收纳确有人工运维价值的命令，例如：
-
-```text
-admin-cli create-admin
-admin-cli mail-diagnostic-rekey
-admin-cli check-payment-certs
+└── admin-worker/
 ```
 
 处理规则：
 
 - `admin-contract` 随旧合同链删除；
 - `ai-context-preflight` 属于已完成切换的一次性工具，引用清理后删除；
-- `admin-db` 的保留命令迁入 `admin-cli`；
-- 一次性迁移命令在任务完成并留有恢复证据后删除；
-- 不再为临时需求创建长期 `cmd/xxx`。
+- `admin-db` 在个人开发阶段直接删除，不迁移到 `admin-cli`；
+- 个人开发阶段不保留数据库初始化、迁移、备份或恢复命令；
+- 未来确实需要人工命令时，另行创建单一、短小的命令入口。
 
 ### 11.2 scripts
 
@@ -445,7 +434,6 @@ admin-cli check-payment-certs
 ```text
 scripts/
 ├── admin-dev.ps1
-├── database.ps1
 ├── docker.ps1
 ├── install-shortcuts.ps1
 └── internal/
@@ -455,11 +443,11 @@ scripts/
 规则：
 
 - `admin-dev.ps1` 负责本地前后端开发启动；
-- `database.ps1` 负责 `init/reset/migrate/check`；
 - `docker.ps1` 只负责 MySQL、Redis 等状态服务；
+- 数据库由当前本地 MySQL 持有，仓库不提供 init/reset/migrate/check；
 - 合同生成、历史 cutover、browser-only、长 smoke 和未上线项目的发布平台脚本删除；
 - 标准 `go test`、`go vet`、`go build` 不再被多层 PowerShell 套娃；
-- 支付证书等人工维护能力进入 `admin-cli`；
+- 支付证书等人工维护能力按实际需求直接使用现有管理页面或短期命令；
 - 删除脚本前先清理 README、Runbook、测试和其他脚本引用。
 
 ## 12. Worker 与任务队列
@@ -700,32 +688,30 @@ src/utils/pagination.ts
 
 `src/lib` 和 `src/modules` 是迁移期兼容桥，不是目标结构。新迁移的普通 API 直接使用 `src/utils/request.ts`；旧 HTTP Client、generated contract、routing registry 等消费者在各自 Wave 中逐个迁移。只有引用清零并通过人工验收后，Wave 07 才删除旧目录，禁止仅为匹配目录树提前搬文件或建立长期转发层。
 
-## 18. 数据库初始化基线
+## 18. 个人开发阶段数据库所有权
 
-项目尚未上线且处于纯本地开发，允许把旧迁移链收口为初始化基线，并从今天开始重新做增量加法。
+项目尚未上线且处于纯本地开发。原先的 baseline + forward migration 方案已被
+`docs/superpowers/specs/2026-08-23-local-database-external-ownership-design.md`
+和对应实施计划取代。当前不是继续维护数据库文件，而是把数据库所有权移到本地 MySQL。
 
-当前数据库减法已经完成。仓库中的目标目录为：
+当前仓库不再把以下目录视为主动架构：
 
 ```text
 database/
-├── schema.sql
-├── seed.sql
-├── reference/
-│   └── address.sql
-├── migrations/
-├── baseline.json
-└── README.md
+  （个人开发阶段不存在）
 ```
 
-职责：
+事实分配：
 
-- `schema.sql` 是当前完整结构的唯一初始化事实；
-- `seed.sql` 只保存系统运行必需的最小数据；
-- `reference/address.sql` 保存用户资料依赖的公开地址字典，不属于业务历史；
-- `migrations/` 只保存新基线之后的短 forward migration；
-- `baseline.json` 保存可恢复来源、文件哈希和结构计数；
-- 应用启动不自动迁移；
-- `scripts/database.ps1` 是唯一人工数据库入口。
+- 本地 MySQL 是业务数据、表结构和索引的唯一事实源；
+- `internal/infra/database` 只是 Go 的连接、事务和遥测适配层，不是数据库实例；
+- work-ai 直接对确认过的本地 `admin` 数据库执行最小 SQL，再读回验证；
+- 用户自己的 Navicat SQL 导出放在仓库外，不被代码、Docker 或启动脚本读取；
+- 新模块禁止新增 migration、seed、schema 哈希和数据库发布 gate；
+- 不提供数据库 init、reset、migrate、check、备份或恢复命令。
+
+这只适用于个人本地开发。进入多人协作、部署、交付或需要新机器空库恢复时，必须
+重新建立正式数据库基线，不得把当前无备份模式带入上线环境。
 
 当前已验证的最小 Seed 保留：
 
@@ -748,23 +734,26 @@ Seed 不保留：
 - 私有 Provider 密钥、支付证书和 COS 密钥；
 - Redis、COS 和本地临时运行数据。
 
-管理员由 `admin-cli create-admin` 创建，密码不得硬编码在 SQL 或命令参数中。
+个人开发阶段不保留 `admin-db` 或 `admin-cli` 数据库命令；管理员由现有管理能力
+或直接本地 SQL 按实际需要处理，密码不得写入仓库、SQL 文件或命令参数。
 
-重建顺序：
+直接 SQL 变更顺序：
 
 ```text
-停止 API/Worker
--> 备份 MySQL
--> schema.sql + seed.sql 重建 MySQL
--> 清理本项目 Redis DB 0/1/2/3
--> 创建本地管理员
--> 启动 API/Worker
--> 验证 /ready 和关键页面
+确认本机 Docker admin 数据库
+-> 读取当前结构和目标数据
+-> 执行最小 SQL
+-> SHOW CREATE TABLE / SHOW INDEX / SELECT 验证
+-> 运行受影响模块短测试
+-> 合并后端和前端 master
 ```
 
-### 18.1 已完成的数据库基线证据
+不自动启动 `admin-dev`，不运行全仓长测试，不用未知字段或空值兜底掩盖数据库问题。
 
-以下是已经完成的事实，不属于后续架构计划，不得重复执行：
+### 18.1 历史数据库基线记录
+
+以下只记录旧方案曾经使用过的恢复事实，不属于当前执行输入，不得继续引用它们
+初始化、迁移或校验个人开发数据库：
 
 ```text
 Baseline version: 202608130001
@@ -774,17 +763,9 @@ seed.sql SHA256: 772a58baba0acfdf9593f2545021b94e9c025484795a42c06c7d22690eea99c
 address.sql SHA256: af82e6ebe0120afebf10bdf13a7cf6ebc092eaa6388a2f47a398ed46e0f72bc2
 ```
 
-完整恢复快照仍存在：
-
-```text
-C:\Users\20931\AppData\Local\Temp\admin-db-baseline\admin-current-full-20260813-092521.sql
-Size: 15936795 bytes
-SHA256: c2b73e639892c3c1cd274443758738ce153d7c3eef7b8fdad67545453a018e50
-```
-
-仓库当前已经在基线之后产生 forward migration，例如 `202608130002_restore_mail_templates.sql`。后续只继续新增短迁移，不能重新生成基线或修改已经执行的迁移文件。
-
-完整 dump 只是恢复材料，不能原样作为初始化 SQL。架构迁移只能消费当前 `schema.sql + reference/address.sql + seed.sql + migrations`，不得回退到 Atlas/Reconciliation 链。
+旧方案的完整 dump 路径、哈希和 forward migration 只保留在历史计划中。当前个人
+开发阶段不提供仓库备份、恢复或迁移链；未来若需要交付，再另行批准新的数据库治理
+方案。
 
 ## 19. 测试策略
 
@@ -823,12 +804,27 @@ Frontend API-> 请求参数和响应解包
 
 ## 20. 迁移顺序
 
-### 阶段 0：建立恢复点
+### 阶段 0：建立提交边界
 
 - 保存前后端当前提交和工作区差异；
-- 保留 MySQL 完整备份及哈希；
-- 记录 Redis 和 COS 临时数据清理范围；
+- 当前个人开发阶段不建立仓库备份、恢复或迁移链；
+- 只记录 Redis 和 COS 临时数据清理范围，不把运行数据写入 Git；
 - 禁止新增 Kernel、Registry、generated contract 和一次性长期脚本。
+
+### 阶段 0A：切换本地数据库所有权
+
+Wave 03 Permission + AuthPlatform 完成并人工验收后，执行：
+
+```text
+删除顶层 database/ 和数据库生命周期脚本
+-> 删除 cmd/admin-db，不创建 admin-cli 替代品
+-> 清理 schema/migration/baseline 发布门禁和低价值测试
+-> 确认没有运行时读者后删除 schema_migrations
+-> 合并文档和代码到 master
+```
+
+具体文件边界以 `docs/superpowers/plans/2026-08-23-local-database-external-ownership-cutover.md`
+为准。执行 SQL 前只做本机 Docker admin 数据库身份检查，不执行备份或远程操作。
 
 ### 阶段 1：基础骨架
 
@@ -853,7 +849,7 @@ route -> middleware -> handler -> service -> repository -> model
 view -> api -> request -> 后端
 ```
 
-系统设置作为首个样板，因为它同时覆盖 CRUD、RBAC、操作日志、Redis 缓存、双语言、前端表格和表单。必须保留默认头像等全部真实 Seed 数据。
+系统设置作为首个样板，因为它同时覆盖 CRUD、RBAC、操作日志、Redis 缓存、双语言、前端表格和表单。必须保留默认头像等全部真实 MySQL 数据，不再把它复制到仓库 Seed。
 
 ### 阶段 3：后台基础业务
 
@@ -896,7 +892,7 @@ Wave 07 不保留 OpenAPI、Swagger、SDK 或可选合同产物。完整退役�
 4. 运行该模块短测试
 5. 用户人工验收
 6. 删除该模块旧实现
-7. 更新迁移记录后进入下一个模块
+7. 更新总索引和交接记录后进入下一个模块
 ```
 
 如果新实现需要兼容旧数据，只在迁移边界做一次显式转换，不在系统各处长期保留双写、双读和默认兜底。
@@ -920,7 +916,7 @@ Wave 07 不保留 OpenAPI、Swagger、SDK 或可选合同产物。完整退役�
 - AI 普通对话不依赖 Context/RAG/Qdrant，最近 N 个完整轮次和历史附件可稳定重放；
 - AI 不再预冻结余额，真实 Usage 可把余额扣成负数且非正余额阻止下一次调用；
 - 空数据库可以通过 `schema.sql + seed.sql` 建立完整系统基础数据；
-- 所有旧架构删除都有引用盘点、恢复点和用户验收证据。
+- 所有旧架构删除都有引用盘点、提交边界和用户验收证据。
 
 ## 23. 后续项目可直接复用的架构要求
 

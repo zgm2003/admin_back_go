@@ -18,13 +18,14 @@
 E:/admin/admin_back_go/docs/superpowers/specs/2026-08-13-admin-architecture-reduction-direction.md
 E:/admin/admin_back_go/docs/superpowers/specs/2026-08-14-ai-module-radical-simplification-design.md
 E:/admin/admin_back_go/docs/superpowers/specs/2026-08-14-admin-generated-contract-retirement-design.md
+E:/admin/admin_back_go/docs/superpowers/specs/2026-08-23-local-database-external-ownership-design.md
 ```
 
-执行 Wave 06 必须同时读取 AI 专项设计；执行 Wave 07 必须同时读取合同退役专项设计。任何旧规格、旧计划或当前实现与这三份文档冲突时，不得沿用旧方向。中心方向已经确认：
+数据库外置所有权切换必须同时读取新的数据库 spec 和 plan；执行 Wave 06 必须同时读取 AI 专项设计；执行 Wave 07 必须同时读取合同退役专项设计。任何旧规格、旧计划或当前实现与这些文档冲突时，不得沿用旧方向。中心方向已经确认：
 
 - 原仓逐模块迁移，不新建长期 v2 双轨；
 - 保留 API、数据库、菜单、权限码和用户操作习惯；
-- 删除前必须有引用盘点、恢复点和用户批准；
+- 删除前必须有引用盘点和用户批准；个人开发数据库切换不建立仓库备份流程；
 - 不跑全量长脚本、Playwright 或 `admin-dev`，由用户人工启动和验收；
 - 每波只修改自己的文件，不能顺手修计划外问题；
 - 每波完成后先运行短测试，再等用户人工验收；
@@ -36,7 +37,9 @@ E:/admin/admin_back_go/docs/superpowers/specs/2026-08-14-admin-generated-contrac
 
 ```text
 Backend baseline tag: pre-database-baseline-20260813
-Database baseline: 202608130001
+Database baseline: historical only; superseded by local external ownership
+Database cutover design: 2026-08-23-local-database-external-ownership-design.md
+Database cutover plan: 2026-08-23-local-database-external-ownership-cutover.md
 Backend documentation commits: bf44a11, 912a8db
 Wave 02 accepted at: 2026-08-14
 Wave 02 backend: 56b76c0
@@ -50,6 +53,7 @@ Wave 02 frontend: 3c27ec5
 | Wave 01 | 权限矩阵 UI + Realtime Redis DB 1 | 页面权限自然可选，实时和 AI 取消信号脱离缓存 DB 0 | 不删除旧架构 |
 | Wave 02 | 系统设置 CRUD 样板（已验收） | 第一条可读的后端/前端样板链 | 已删除系统设置旧重复层 |
 | Wave 03 | 公共分页、配置、公共响应、RBAC、后台基础模块 | 基础段、User、Role 已完成人工验收；Permission + AuthPlatform 代码与迁移完成，等待人工验收 | 只删除已迁移模块旧层 |
+| 数据库切换 | 个人开发数据库外置所有权 | Wave 03 完成并验收后执行 | 删除 database/、admin-db、migration/baseline 门禁，不改业务表 |
 | Wave 04 | Worker、任务、Realtime、COS | 后台任务、WebSocket、上传边界收口 | 只删除已迁移 runtime 包装 |
 | Wave 05 | 支付与钱包 | 订单、钱包、供应商、回调幂等边界清楚 | 只删除支付旧适配层 |
 | Wave 06 | AI 激进减法 | 最近 N 个完整轮次与 COS 历史附件；真实 Usage 扣费允许负余额 | 删除 Context/RAG/Qdrant/Embedding/Rerank/Memory/Context Plan/Hold |
@@ -291,7 +295,7 @@ PASS  backend/frontend git diff --check
 
 减法检查确认 Role 后端不再定义本地 `Page` 或死 `CacheInvalidator`，Role 前端 API 不再依赖 generated operations，旧级联 helper 引用清零；通知任务仍使用同一 `RoleApi.list`。
 
-计划外数据库检查结果：`scripts/database.ps1 check` 报 `DATABASE_SEED_FACTS_MISMATCH`。只读核验为实际 `132|2|1|6|4|1`，基线期望 `132|2|1|4|4|1`；差异来自本地已有 6 条系统设置而初始化 seed 为 4 条，不影响本次迁移，未修改数据库检查脚本或业务数据。
+历史数据库门禁记录（已废止）：旧 `scripts/database.ps1 check` 曾报 `DATABASE_SEED_FACTS_MISMATCH`。该结果只说明旧 baseline 与本地数据不同，不是当前数据库验收输入。
 
 明确未运行：`admin-dev`、全量 Go/Vue 测试、全量 typecheck、Playwright、`verify:frontend` 和发布长脚本。
 
@@ -354,7 +358,7 @@ PASS backend/frontend contract generate/check
 PASS git diff --check（两个仓库）
 ```
 
-计划外问题：`scripts/database.ps1 check` 在 migration 后仍报告 `DATABASE_SEED_FACTS_MISMATCH`；只读核验为本地 `system_settings=6`、baseline 期望 `4`，属于既有本地数据漂移，未修改业务数据、baseline 规则或数据库检查脚本。
+历史计划外问题（已废止）：旧 database baseline 与本地 `system_settings` 行数不同；数据库外置所有权切换后不再运行该门禁，也不修改业务数据来迎合旧 seed。
 
 明确未运行：`admin-dev` 启停、`go test ./...`、全量 Vue 测试、全量 typecheck、Playwright、`verify:frontend` 和发布长脚本。
 
@@ -413,7 +417,7 @@ docs/superpowers/specs/2026-08-14-admin-generated-contract-retirement-design.md
 - 只验证生成 bundle、固定哈希、固定 revision、生成文件路径或操作清单的测试；
 - AppKernel、RuntimeRouteRegistry、万能 Workflow、纯转发 Adapter；
 - 已完成迁移且引用清零的 `src/lib`、`src/modules` 和其他过渡目录；
-- 一次性 context preflight 和旧 `admin-db` 入口；
+- 一次性 context preflight、旧 `admin-db` 入口和数据库生命周期脚本；
 - 多层 PowerShell smoke、合同生成、发布 rehearsal、browser-only 和历史 cutover 脚本；
 - 失效架构文档、空目录和只保护旧文件路径的测试。
 
@@ -434,10 +438,8 @@ Wave 07 完成后不保留 OpenAPI、Swagger、SDK、生成合同可选产物或
 ```text
 cmd/admin-api
 cmd/admin-worker
-cmd/admin-cli
 
 scripts/admin-dev.ps1
-scripts/database.ps1
 scripts/docker.ps1
 scripts/install-shortcuts.ps1
 scripts/internal/common.ps1
@@ -457,6 +459,7 @@ scripts/internal/common.ps1
 - 不用 `|| ''`、`?? []` 或空对象吞掉合同错误；
 - 不运行全仓长测试代替目标测试；
 - 不主动启动、停止或重启用户的 `admin-dev`；
+- 不在个人开发阶段新增 `database/`、migration、seed、baseline 或 `admin-db`/`admin-cli` 数据库命令；
 - 不覆盖其他窗口或用户的未提交修改。
 
 ## 每波完成标准
@@ -467,5 +470,5 @@ scripts/internal/common.ps1
 -> git diff --check 通过
 -> 变更只在本波范围
 -> 用户人工验收
--> 记录提交和下一波恢复点
+-> 记录提交和下一波入口
 ```
