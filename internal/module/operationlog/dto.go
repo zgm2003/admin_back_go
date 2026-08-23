@@ -1,6 +1,10 @@
 package operationlog
 
-import "time"
+import (
+	"time"
+
+	"admin_back_go/internal/shared/pagination"
+)
 
 type InitResponse struct{}
 
@@ -12,16 +16,9 @@ type ListQuery struct {
 	DateRange   []string
 }
 
-type Page struct {
-	PageSize    int   `json:"page_size"`
-	CurrentPage int   `json:"current_page"`
-	TotalPage   int   `json:"total_page"`
-	Total       int64 `json:"total"`
-}
-
 type ListResponse struct {
-	List []ListItem `json:"list"`
-	Page Page       `json:"page"`
+	List []ListItem      `json:"list"`
+	Page pagination.Page `json:"page"`
 }
 
 type ListItem struct {

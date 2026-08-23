@@ -12,6 +12,7 @@ import (
 	operationlogmodule "admin_back_go/internal/module/operationlog"
 	"admin_back_go/internal/shared/apperror"
 	projecti18n "admin_back_go/internal/shared/i18n"
+	"admin_back_go/internal/shared/pagination"
 
 	"github.com/gin-gonic/gin"
 )
@@ -32,7 +33,7 @@ func (f *fakeHTTPService) List(ctx context.Context, query operationlogmodule.Lis
 	if f.listResult != nil {
 		return f.listResult, f.err
 	}
-	return &operationlogmodule.ListResponse{Page: operationlogmodule.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, f.err
+	return &operationlogmodule.ListResponse{Page: pagination.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize}}, f.err
 }
 
 func (f *fakeHTTPService) Delete(ctx context.Context, ids []int64) *apperror.Error {
@@ -43,7 +44,7 @@ func (f *fakeHTTPService) Delete(ctx context.Context, ids []int64) *apperror.Err
 func TestHandlerListBindsRESTQuery(t *testing.T) {
 	service := &fakeHTTPService{listResult: &operationlogmodule.ListResponse{
 		List: []operationlogmodule.ListItem{{ID: 1, Action: "编辑用户"}},
-		Page: operationlogmodule.Page{CurrentPage: 1, PageSize: 20, Total: 1, TotalPage: 1},
+		Page: pagination.Page{CurrentPage: 1, PageSize: 20, Total: 1, TotalPage: 1},
 	}}
 	router := newOperationLogTestRouter(service)
 

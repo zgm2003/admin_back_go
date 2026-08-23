@@ -9,6 +9,7 @@ import (
 
 	"admin_back_go/internal/middleware"
 	"admin_back_go/internal/shared/apperror"
+	"admin_back_go/internal/shared/pagination"
 )
 
 const timeLayout = "2006-01-02 15:04:05"
@@ -56,7 +57,7 @@ func (s *Service) List(ctx context.Context, query ListQuery) (*ListResponse, *ap
 
 	return &ListResponse{
 		List: list,
-		Page: Page{
+		Page: pagination.Page{
 			PageSize:    normalized.PageSize,
 			CurrentPage: normalized.CurrentPage,
 			TotalPage:   totalPage(total, normalized.PageSize),
