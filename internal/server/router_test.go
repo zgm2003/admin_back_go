@@ -445,7 +445,7 @@ func (f *fakeRouterAuthPlatformService) List(ctx context.Context, query authplat
 	f.listQuery = query
 	return &authplatform.ListResponse{
 		List: []authplatform.ListItem{{ID: 1, Code: "admin", Name: "PC后台", CaptchaType: auth.TypeSlide}},
-		Page: authplatform.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
+		Page: pagination.Page{CurrentPage: query.CurrentPage, PageSize: query.PageSize, Total: 1, TotalPage: 1},
 	}, nil
 }
 
