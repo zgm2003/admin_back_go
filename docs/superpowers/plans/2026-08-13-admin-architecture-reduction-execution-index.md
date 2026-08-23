@@ -52,7 +52,7 @@ Wave 02 frontend: 3c27ec5
 |---|---|---|---|
 | Wave 01 | 权限矩阵 UI + Realtime Redis DB 1 | 页面权限自然可选，实时和 AI 取消信号脱离缓存 DB 0 | 不删除旧架构 |
 | Wave 02 | 系统设置 CRUD 样板（已验收） | 第一条可读的后端/前端样板链 | 已删除系统设置旧重复层 |
-| Wave 03 | 公共分页、配置、公共响应、RBAC、后台基础模块 | 基础段、User、Role、Permission + AuthPlatform 已完成人工验收；Mail、SMS、日志、UploadConfig 实现完成，等待用户黑盒验收；数据库切换已完成 | 只删除已迁移模块旧层 |
+| Wave 03 | 公共分页、配置、公共响应、RBAC、后台基础模块 | 基础段、User、Role、Permission + AuthPlatform、Mail、SMS、日志、UploadConfig 均已完成人工验收；数据库切换已完成 | 只删除已迁移模块旧层 |
 | 数据库切换 | 个人开发数据库外置所有权 | 已按 2026-08-23 计划执行 | 删除 database/、admin-db、migration/baseline 门禁；仅清理本地治理表，不改业务表 |
 | Wave 04 | Worker、任务、Realtime、COS | 后台任务、WebSocket、上传边界收口 | 只删除已迁移 runtime 包装 |
 | Wave 05 | 支付与钱包 | 订单、钱包、供应商、回调幂等边界清楚 | 只删除支付旧适配层 |
@@ -364,7 +364,7 @@ PASS git diff --check（两个仓库）
 
 ### Wave 03 剩余模块实现检查点（2026-08-23）
 
-状态：Mail、SMS、系统日志/操作日志和 UploadConfig 已完成模块边界内的分页收口、前端 request 迁移和定向合同测试，等待用户黑盒验收；不标记 Wave 03 最终完成，不进入下一 Wave。
+状态：Mail、SMS、系统日志/操作日志和 UploadConfig 已完成模块边界内的分页收口、前端 request 迁移和定向合同测试，并于 2026-08-24 通过用户黑盒验收。Wave 03 已正式完成，当前仍停在 Wave 03，不进入 Wave 04。
 
 后端提交：
 
@@ -400,6 +400,16 @@ PASS git diff --check（两个仓库）
 计划外问题：前端并行合并运行存在既有 Vitest 模块污染，曾出现 `upload-config-contract.test.ts` 的解析错误；串行 `--no-file-parallelism` 复验稳定通过。本批次未修改 Vitest 架构。全局 `npm run typecheck` 仍被既存 `src/views/Main/permission/authPlatform/index.vue:137` 的 `AuthPlatformEditPayload` 缺少 `code` 阻断；本批次未修改 Permission/AuthPlatform。
 
 明确未运行：`admin-dev` 启停、SQL/数据库操作、`go test ./...`、全量 Vue 测试、全量 typecheck（仅按计划运行并记录其既存失败）、Playwright、`verify:frontend` 和发布长脚本。
+
+用户黑盒验收（2026-08-24）：
+
+```text
+PASS Mail：配置、模板、日志和诊断
+PASS SMS：配置、模板和日志
+PASS 系统日志：文件列表和内容筛选
+PASS 操作日志：分页、筛选、单删和批量删除
+PASS UploadConfig：驱动、规则、设置 CRUD、分页和状态切换
+```
 
 ## Wave 04：运行与存储
 
